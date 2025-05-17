@@ -1,53 +1,93 @@
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card.jsx";
-import { Button } from "@/components/ui/button.jsx";
-import { Link } from "react-router-dom";
-import { formatDistance } from "date-fns";
 
-export function ComicCard({ comic }) {
-  const hasStartedReading = comic.lastReadPage !== undefined;
+import { Link } from "react-router-dom";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { BookOpen, RotateCcw, Tag as TagIcon } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { useState } from "react";
+
+export function ComicCard({ comic, onResetProgress }) {
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+
+  const handleResetClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResetDialogOpen(true);
+  };
+
+  const confirmReset = () => {
+    onResetProgress(comic.id);
+    setIsResetDialogOpen(false);
+  };
   
   return (
-    <Card className="comic-card h-full flex flex-col">
-      <div className="relative pt-[140%] overflow-hidden">
-        <img 
-          src={comic.cover} 
-          alt={`Cover for ${comic.title}`}
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        {hasStartedReading && (
-          <div className="absolute bottom-0 left-0 right-0 bg-background/80 p-2 text-xs">
-            <div className="flex items-center justify-between">
-              <span>Page {comic.lastReadPage} of {comic.totalPages}</span>
-              <span className="text-comic-orange">
-                {comic.lastReadAt && formatDistance(new Date(comic.lastReadAt), new Date(), { addSuffix: true })}
-              </span>
-            </div>
-            <div className="w-full bg-gray-300 h-1 mt-1 rounded-full overflow-hidden">
-              <div 
-                className="bg-comic-purple h-full" 
-                style={{ width: `${(comic.lastReadPage / comic.totalPages) * 100}%` }} 
-              ></div>
-            </div>
+    <>
+      <Link to={`/read/${comic.id}`} className="block group">
+        <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg border-2 hover:border-comic-purple">
+          <div className="relative pt-[140%] bg-muted overflow-hidden">
+            <img 
+              src={comic.coverImage} 
+              alt={comic.title} 
+              className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-105"
+            />
+            {comic.lastReadPage !== undefined && (
+              <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-white p-2 text-xs flex justify-between items-center">
+                <span>Page {comic.lastReadPage} / {comic.pageCount}</span>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-7 w-7 p-0 text-white hover:text-red-400"
+                  onClick={handleResetClick}
+                >
+                  <RotateCcw size={16} />
+                </Button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      <CardHeader className="p-4">
-        <CardTitle className="line-clamp-1 text-lg">{comic.title}</CardTitle>
-        <CardDescription className="line-clamp-2 text-xs">
-          {comic.author && `By ${comic.author}`}
-          {comic.publisher && ` • ${comic.publisher}`}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="p-4 pt-0 text-sm line-clamp-2 flex-grow">
-        <p>{comic.description}</p>
-      </CardContent>
-      <CardFooter className="p-4 pt-0">
-        <Link to={`/read/${comic.id}`} className="w-full">
-          <Button className="w-full bg-comic-purple hover:bg-comic-purple-dark">
-            {hasStartedReading ? 'Continue Reading' : 'Start Reading'}
-          </Button>
-        </Link>
-      </CardFooter>
-    </Card>
+          <CardContent className="p-4">
+            <h3 className="font-bold truncate">{comic.title}</h3>
+            <p className="text-sm text-muted-foreground truncate">{comic.author}</p>
+            
+            {comic.tags && comic.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {comic.tags.slice(0, 3).map((tag, index) => (
+                  <Badge key={index} variant="outline" className="text-xs flex items-center gap-1">
+                    <TagIcon size={10} />
+                    {tag}
+                  </Badge>
+                ))}
+                {comic.tags.length > 3 && (
+                  <Badge variant="outline" className="text-xs">
+                    +{comic.tags.length - 3}
+                  </Badge>
+                )}
+              </div>
+            )}
+          </CardContent>
+          <CardFooter className="px-4 pb-4 pt-0">
+            <Button variant="secondary" className="w-full">
+              <BookOpen className="mr-2 h-4 w-4" />
+              {comic.lastReadPage !== undefined ? "Continue Reading" : "Start Reading"}
+            </Button>
+          </CardFooter>
+        </Card>
+      </Link>
+      
+      <Dialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Reading Progress</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to reset your reading progress for "{comic.title}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsResetDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmReset}>Reset Progress</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

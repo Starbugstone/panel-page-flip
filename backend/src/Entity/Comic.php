@@ -1,8 +1,11 @@
+
 <?php
 
 namespace App\Entity;
 
 use App\Repository\ComicRepository;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
@@ -39,11 +42,24 @@ class Comic
     #[ORM\ManyToOne(inversedBy: 'comics')]
     #[ORM\JoinColumn(nullable: false)]
     private ?User $owner = null;
+    
+    #[ORM\ManyToMany(targetEntity: Tag::class, inversedBy: 'comics')]
+    private Collection $tags;
+    
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $description = null;
+    
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $author = null;
+    
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $publisher = null;
 
     public function __construct()
     {
         $this->uploadedAt = new \DateTimeImmutable();
         $this->updatedAt = new \DateTimeImmutable();
+        $this->tags = new ArrayCollection();
     }
 
     #[ORM\PreUpdate]
@@ -131,6 +147,63 @@ class Comic
     public function setOwner(?User $owner): static
     {
         $this->owner = $owner;
+        return $this;
+    }
+    
+    /**
+     * @return Collection<int, Tag>
+     */
+    public function getTags(): Collection
+    {
+        return $this->tags;
+    }
+
+    public function addTag(Tag $tag): static
+    {
+        if (!$this->tags->contains($tag)) {
+            $this->tags->add($tag);
+        }
+
+        return $this;
+    }
+
+    public function removeTag(Tag $tag): static
+    {
+        $this->tags->removeElement($tag);
+
+        return $this;
+    }
+    
+    public function getDescription(): ?string
+    {
+        return $this->description;
+    }
+    
+    public function setDescription(?string $description): static
+    {
+        $this->description = $description;
+        return $this;
+    }
+    
+    public function getAuthor(): ?string
+    {
+        return $this->author;
+    }
+    
+    public function setAuthor(?string $author): static
+    {
+        $this->author = $author;
+        return $this;
+    }
+    
+    public function getPublisher(): ?string
+    {
+        return $this->publisher;
+    }
+    
+    public function setPublisher(?string $publisher): static
+    {
+        $this->publisher = $publisher;
         return $this;
     }
 }

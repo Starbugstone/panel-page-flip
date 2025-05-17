@@ -1,10 +1,11 @@
+
 import { Link } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle.jsx";
 import { useLocation } from "react-router-dom";
 import { Button } from "./ui/button.jsx";
-import { BookOpen } from "lucide-react";
+import { BookOpen, Upload, Settings, User } from "lucide-react";
 
-export function Header({ isLoggedIn, onLogout }) {
+export function Header({ isLoggedIn, onLogout, isAdmin }) {
   const location = useLocation();
   const isReaderPage = location.pathname.includes("/read/");
 
@@ -31,12 +32,28 @@ export function Header({ isLoggedIn, onLogout }) {
         <nav className="flex gap-4 items-center">
           {isLoggedIn ? (
             <>
-              <Link to="/dashboard" className="text-foreground hover:text-comic-purple">
+              <Link to="/dashboard" className={`${location.pathname === "/dashboard" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 My Comics
               </Link>
-              <Button variant="ghost" onClick={onLogout}>
-                Logout
-              </Button>
+              <Link to="/upload" className={`${location.pathname === "/upload" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+                <span className="hidden md:inline">Upload Comic</span>
+                <Upload className="inline md:hidden h-5 w-5" />
+              </Link>
+              {isAdmin && (
+                <Link to="/admin" className={`${location.pathname === "/admin" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+                  <span className="hidden md:inline">Admin Panel</span>
+                  <Settings className="inline md:hidden h-5 w-5" />
+                </Link>
+              )}
+              <div className="flex items-center gap-4">
+                <Button variant="ghost" onClick={onLogout} className="hidden md:flex gap-2">
+                  <User size={16} />
+                  Logout
+                </Button>
+                <Button variant="ghost" onClick={onLogout} className="md:hidden">
+                  <User size={16} />
+                </Button>
+              </div>
             </>
           ) : (
             <Link 

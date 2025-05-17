@@ -1,3 +1,4 @@
+
 <?php
 
 namespace App\Entity;
@@ -54,10 +55,24 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     #[ORM\OneToMany(targetEntity: Comic::class, mappedBy: 'owner', cascade: ['persist', 'remove'], orphanRemoval: true)]
     private Collection $comics;
+    
+    /**
+     * @var Collection<int, ComicReadingProgress>
+     */
+    #[ORM\OneToMany(targetEntity: ComicReadingProgress::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
+    private Collection $readingProgress;
+    
+    /**
+     * @var Collection<int, Tag>
+     */
+    #[ORM\OneToMany(targetEntity: Tag::class, mappedBy: 'creator')]
+    private Collection $createdTags;
 
     public function __construct()
     {
         $this->comics = new ArrayCollection();
+        $this->readingProgress = new ArrayCollection();
+        $this->createdTags = new ArrayCollection();
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = new \DateTimeImmutable();
         $this->roles = ['ROLE_USER'];
@@ -196,6 +211,60 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
             // set the owning side to null (unless already changed)
             if ($comic->getOwner() === $this) {
                 $comic->setOwner(null);
+            }
+        }
+        return $this;
+    }
+    
+    /**
+     * @return Collection<int, ComicReadingProgress>
+     */
+    public function getReadingProgress(): Collection
+    {
+        return $this->readingProgress;
+    }
+    
+    public function addReadingProgress(ComicReadingProgress $progress): static
+    {
+        if (!$this->readingProgress->contains($progress)) {
+            $this->readingProgress->add($progress);
+            $progress->setUser($this);
+        }
+        return $this;
+    }
+    
+    public function removeReadingProgress(ComicReadingProgress $progress): static
+    {
+        if ($this->readingProgress->removeElement($progress)) {
+            if ($progress->getUser() === $this) {
+                $progress->setUser(null);
+            }
+        }
+        return $this;
+    }
+    
+    /**
+     * @return Collection<int, Tag>
+     */
+    public function getCreatedTags(): Collection
+    {
+        return $this->createdTags;
+    }
+    
+    public function addCreatedTag(Tag $tag): static
+    {
+        if (!$this->createdTags->contains($tag)) {
+            $this->createdTags->add($tag);
+            $tag->setCreator($this);
+        }
+        return $this;
+    }
+    
+    public function removeCreatedTag(Tag $tag): static
+    {
+        if ($this->createdTags->removeElement($tag)) {
+            if ($tag->getCreator() === $this) {
+                $tag->setCreator(null);
             }
         }
         return $this;
