@@ -77,8 +77,7 @@ class TestApiEndpointsCommand extends Command
             $response = $this->client->request('POST', $registerUrl, [
                 'json' => [
                     'email' => $testUserEmail,
-                    'plainPassword' => $testUserPassword,
-                    'agreeTerms' => true, // Assuming this is still part of your form type
+                    'password' => $testUserPassword, // Using password instead of plainPassword to match controller
                 ],
                 'headers' => [
                     'Content-Type' => 'application/json',

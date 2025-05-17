@@ -51,6 +51,42 @@ The backend is powered by:
 - MySQL database for storing user data and reading progress
 - Docker for containerization and easy setup
 
+## API Endpoints
+
+The backend provides the following API endpoints:
+
+### Authentication
+
+- `POST /api/login` - Login with email and password
+- `POST /api/register` - Register a new user
+- `POST /api/logout` - Logout the current user
+- `GET /api/login_check` - Check if the user is authenticated
+- `GET /api/users/me` - Get the current user's information
+
+### Comics
+
+- `GET /api/comics` - Get all comics for the current user
+- `GET /api/comics/{id}` - Get a specific comic by ID
+- `POST /api/comics` - Upload a new comic (multipart/form-data with file, title, and optional fields)
+- `PUT/PATCH /api/comics/{id}` - Update a comic's information
+- `DELETE /api/comics/{id}` - Delete a comic
+- `GET /api/comics/{id}/pages/{page}` - Get a specific page from a comic
+- `POST /api/comics/{id}/progress` - Update reading progress for a comic
+
+### Tags
+
+- `GET /api/tags` - Get all tags
+- `POST /api/tags` - Create a new tag
+- `PUT/PATCH /api/tags/{id}` - Update a tag
+- `DELETE /api/tags/{id}` - Delete a tag
+
+### User Management (Admin only)
+
+- `GET /api/users` - Get all users (admin only)
+- `GET /api/users/{id}` - Get a specific user
+- `PUT/PATCH /api/users/{id}` - Update a user
+- `DELETE /api/users/{id}` - Delete a user
+
 ## Project Structure
 
 ```
@@ -180,6 +216,42 @@ docker-compose exec php bin/console make:migration
 # Run migrations
 docker-compose exec php bin/console doctrine:migrations:migrate --no-interaction
 ```
+
+### Utility Commands
+
+The application includes several utility commands to help with management and testing:
+
+```sh
+# Create an admin user
+docker-compose exec php bin/console app:create-admin-user admin@example.com password123
+
+# Create a regular user
+docker-compose exec php bin/console app:create-user user@example.com password123
+
+# Set up upload directories
+docker-compose exec php bin/console app:setup-upload-directories
+
+# Import comics from a directory
+docker-compose exec php bin/console app:import-comics /path/to/comics admin@example.com
+
+# Generate sample data for testing
+docker-compose exec php bin/console app:generate-sample-data --force
+
+# Clean up unused comics and cover images
+docker-compose exec php bin/console app:cleanup-comics --dry-run
+
+# Test API endpoints (registration and login)
+docker-compose exec php bin/console app:test-api-endpoints
+```
+
+### File Organization
+
+The application organizes uploaded comics and cover images as follows:
+
+- **Comics**: Stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
+- **Cover Images**: Stored in comic-specific directories at `/uploads/comics/covers/{comic_id}/{cover_image.jpg}`
+
+This organization ensures proper separation of user content and makes it easier to manage comics and their associated cover images.
 
 ## License
 

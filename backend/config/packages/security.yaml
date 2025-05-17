@@ -46,14 +46,22 @@ security:
     # Easy way to control access for large sections of your site
     # Note: Only the *first* access control that matches will be used
     access_control:
-        # - { path: ^/admin, roles: ROLE_ADMIN }
-        - { path: ^/api/login, roles: PUBLIC_ACCESS }      # Or IS_AUTHENTICATED_ANONYMOUSLY
-        - { path: ^/api/register, roles: PUBLIC_ACCESS }   # Or IS_AUTHENTICATED_ANONYMOUSLY
-        # Add rules for your other API endpoints if needed, e.g.:
-        # - { path: ^/api/comics, roles: IS_AUTHENTICATED_FULLY }
-        # - { path: ^/profile, roles: ROLE_USER } # If you still have some server-rendered pages
-        # Fallback: secure everything else by default if not matched above and you want a default deny policy.
-        # - { path: ^/, roles: IS_AUTHENTICATED_FULLY } # Re-evaluate if this is still needed or too broad for an API
+        # Public routes (no authentication required)
+        - { path: ^/api/login, roles: PUBLIC_ACCESS }
+        - { path: ^/api/register, roles: PUBLIC_ACCESS }
+        - { path: ^/api/login_check, roles: PUBLIC_ACCESS }
+        
+        # Admin routes (require ROLE_ADMIN)
+        - { path: ^/api/users$, roles: ROLE_ADMIN, methods: [GET] }
+        - { path: ^/api/users/[0-9]+$, roles: [ROLE_ADMIN, IS_AUTHENTICATED_FULLY], methods: [DELETE] }
+        
+        # User routes (require authentication)
+        - { path: ^/api/users/me, roles: IS_AUTHENTICATED_FULLY }
+        - { path: ^/api/comics, roles: IS_AUTHENTICATED_FULLY }
+        - { path: ^/api/tags, roles: IS_AUTHENTICATED_FULLY }
+        
+        # Secure everything else by default
+        - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }
 
 when@test:
     security:

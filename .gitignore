@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .windsurf/*
+
+# Local testing files
+passwords.txt
