@@ -1,3 +1,4 @@
+
 import type { Config } from "tailwindcss";
 
 export default {
@@ -52,6 +53,13 @@ export default {
 					DEFAULT: 'hsl(var(--card))',
 					foreground: 'hsl(var(--card-foreground))'
 				},
+				comic: {
+					purple: '#9b87f5',
+					"purple-dark": '#7E69AB',
+					"purple-light": '#E5DEFF',
+					orange: '#F97316',
+					blue: '#33C3F0'
+				},
 				sidebar: {
 					DEFAULT: 'hsl(var(--sidebar-background))',
 					foreground: 'hsl(var(--sidebar-foreground))',
@@ -84,11 +92,20 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				'page-turn': {
+					'0%': { transform: 'translateX(0) rotateY(0)' },
+					'100%': { transform: 'translateX(100%) rotateY(-180deg)' }
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				'page-turn': 'page-turn 0.5s ease-in-out'
+			},
+			fontFamily: {
+				comic: ['Bangers', 'cursive'],
+				sans: ['Inter', 'sans-serif']
 			}
 		}
 	},
