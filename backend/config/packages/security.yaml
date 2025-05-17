@@ -1,0 +1,69 @@
+security:
+    # https://symfony.com/doc/current/security.html#registering-the-user-hashing-passwords
+    password_hashers:
+        App\Entity\User: 'auto' # Changed from Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface
+    # https://symfony.com/doc/current/security.html#loading-the-user-the-user-provider
+    providers:
+        # users_in_memory: { memory: null } # Old provider
+        app_user_provider: # New provider
+            entity:
+                class: App\Entity\User
+                property: email # The field used to look up users
+    firewalls:
+        dev:
+            pattern: ^/(_(profiler|wdt)|css|images|js)/
+            security: false
+        main:
+            lazy: true
+            provider: app_user_provider # Changed from users_in_memory
+
+            # activate different ways to authenticate
+            # https://symfony.com/doc/current/security.html#the-firewall
+
+            # https://symfony.com/doc/current/security/impersonating_user.html
+            # switch_user: true
+
+            # Form login
+            # form_login:
+            #     # "app_login" is the name of the route created previously
+            #     login_path: app_login
+            #     check_path: app_login
+            #     enable_csrf: true
+            
+            json_login:
+                check_path: /api/login # The user will POST to this URI
+                username_path: email    # Key for the username in the JSON body
+                password_path: password # Key for the password in the JSON body
+                # Using custom handlers for better JSON responses
+                success_handler: App\Security\AuthenticationSuccessHandler
+                failure_handler: App\Security\AuthenticationFailureHandler
+
+            logout:
+                path: /api/logout # The user will send a request to this URI to logout
+                # where to redirect after logout
+                # target: app_any_route
+
+    # Easy way to control access for large sections of your site
+    # Note: Only the *first* access control that matches will be used
+    access_control:
+        # - { path: ^/admin, roles: ROLE_ADMIN }
+        - { path: ^/api/login, roles: PUBLIC_ACCESS }      # Or IS_AUTHENTICATED_ANONYMOUSLY
+        - { path: ^/api/register, roles: PUBLIC_ACCESS }   # Or IS_AUTHENTICATED_ANONYMOUSLY
+        # Add rules for your other API endpoints if needed, e.g.:
+        # - { path: ^/api/comics, roles: IS_AUTHENTICATED_FULLY }
+        # - { path: ^/profile, roles: ROLE_USER } # If you still have some server-rendered pages
+        # Fallback: secure everything else by default if not matched above and you want a default deny policy.
+        # - { path: ^/, roles: IS_AUTHENTICATED_FULLY } # Re-evaluate if this is still needed or too broad for an API
+
+when@test:
+    security:
+        password_hashers:
+            # By default, password hashers are resource intensive and take time. This is
+            # important to generate secure password hashes. In tests however, secure hashes
+            # are not important, waste resources and increase test times. The following
+            # reduces the work factor to the lowest possible values.
+            App\Entity\User: # Changed from Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface
+                algorithm: auto
+                cost: 4 # Lowest possible value for bcrypt
+                time_cost: 3 # Lowest possible value for argon
+                memory_cost: 10 # Lowest possible value for argon

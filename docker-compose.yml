@@ -1,0 +1,78 @@
+version: '3.8'
+
+networks:
+  app_network:
+    driver: bridge
+
+services:
+  # PHP service
+  php:
+    build:
+      context: ./docker/php
+      args:
+        - PHP_VERSION=${PHP_VERSION:-8.2}
+    container_name: cbz_reader_php
+    volumes:
+      - ./backend:/var/www/html
+      - ./docker/php/setup.sh:/usr/local/bin/setup.sh
+    depends_on:
+      - database
+    environment:
+      - APP_ENV=${APP_ENV:-dev}
+      - APP_SECRET=${APP_SECRET:-1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p}
+      - DATABASE_URL=mysql://${MYSQL_USER:-cbz_user}:${MYSQL_PASSWORD:-cbz_password}@database:3306/${MYSQL_DATABASE:-cbz_reader}?serverVersion=8.0
+      - MYSQL_USER=${MYSQL_USER:-cbz_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-cbz_password}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-cbz_reader}
+    entrypoint: ["sh", "-c", "chmod +x /usr/local/bin/setup.sh && /usr/local/bin/setup.sh && php-fpm"]
+    networks:
+      - app_network
+
+  # Nginx service (builds and serves frontend)
+  nginx:
+    build:
+      context: .
+      dockerfile: ./docker/nginx_frontend/Dockerfile
+      args:
+        - NODE_VERSION=${NODE_VERSION:-18}
+        - NGINX_VERSION=${NGINX_VERSION:-1.25}
+    container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_nginx
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+    volumes:
+      - ./backend:/var/www/html
+    depends_on:
+      - php
+    networks:
+      - app_network
+
+  # Database service
+  database:
+    image: mysql:8.0
+    container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_db
+    # Removing port binding to avoid conflicts
+    # ports:
+    #   - "${MYSQL_PORT:-3308}:3306"
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-cbz_reader}
+      - MYSQL_USER=${MYSQL_USER:-cbz_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-cbz_password}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root_password}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - app_network
+
+  adminer:
+    image: adminer
+    container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_adminer
+    restart: always
+    ports:
+      - "${ADMINER_PORT:-8081}:8080"
+    depends_on:
+      - database
+    networks:
+      - app_network
+
+volumes:
+  db_data:

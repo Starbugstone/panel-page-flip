@@ -1,0 +1,26 @@
+# General
+.git
+.vscode
+.idea
+*.log
+
+# Node.js specific
+frontend/node_modules
+frontend/dist
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# bun.lockb # Keep if you want to use it for 'npm install'
+
+# PHP / Symfony specific
+backend/vendor
+backend/var/
+
+# Docker related files (if any locally that shouldn't be in image)
+# .env # If it contains secrets not meant for the image context
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
