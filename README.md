@@ -27,6 +27,8 @@ The site should have a norma and dark mode.
 - **Comic Library**: Browse and select from your collection of comics
 - **Reading Progress**: Automatically saves your reading position
 - **CBZ Format Support**: Read comics in the popular CBZ archive format
+- **Chunked Uploads**: Support for large file uploads via chunking (1MB chunks)
+- **Upload Progress**: Real-time progress tracking during file uploads
 - **Responsive Design**: Optimized for both desktop and mobile devices
 - **Dark Mode**: Toggle between light and dark themes for comfortable reading
 - **Custom Tagging**: Create and assign custom tags to your comics for better organization
@@ -73,6 +75,9 @@ The backend provides the following API endpoints:
 - `GET /api/comics` - Get all comics for the current user
 - `GET /api/comics/{id}` - Get a specific comic by ID
 - `POST /api/comics` - Upload a new comic (multipart/form-data with file, title, and optional fields)
+- `POST /api/comics/upload/init` - Initialize a chunked upload (for large files)
+- `POST /api/comics/upload/chunk` - Upload a single chunk of a comic file
+- `POST /api/comics/upload/complete` - Complete a chunked upload
 - `PUT/PATCH /api/comics/{id}` - Update a comic's information
 - `DELETE /api/comics/{id}` - Delete a comic
 - `GET /api/comics/{id}/pages/{page}` - Get a specific page from a comic

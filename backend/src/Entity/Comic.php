@@ -205,4 +205,31 @@ class Comic
         $this->publisher = $publisher;
         return $this;
     }
+    
+    /**
+     * Convert the Comic entity to an array representation
+     * 
+     * @return array The comic data as an array
+     */
+    public function toArray(): array
+    {
+        $tagNames = [];
+        foreach ($this->tags as $tag) {
+            $tagNames[] = $tag->getName();
+        }
+        
+        return [
+            'id' => $this->id,
+            'title' => $this->title,
+            'filePath' => $this->filePath,
+            'coverImagePath' => $this->coverImagePath,
+            'pageCount' => $this->pageCount,
+            'uploadedAt' => $this->uploadedAt ? $this->uploadedAt->format('c') : null,
+            'updatedAt' => $this->updatedAt ? $this->updatedAt->format('c') : null,
+            'author' => $this->author,
+            'publisher' => $this->publisher,
+            'description' => $this->description,
+            'tags' => $tagNames
+        ];
+    }
 }

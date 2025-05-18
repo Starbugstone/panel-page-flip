@@ -22,6 +22,10 @@ This document provides detailed information for developers working on the projec
 - **Comic Controller**: Implemented in `ComicController.php` with endpoints for CRUD operations
 - **File Storage**: Comics are stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
 - **Cover Images**: Stored in comic-specific directories at `/uploads/comics/covers/{comic_id}/{cover_image.jpg}`
+- **Chunked Upload**: Implemented chunked file upload system to handle large comic files (1MB chunks)
+  - Initialization endpoint: `/api/comics/upload/init`
+  - Chunk upload endpoint: `/api/comics/upload/chunk`
+  - Completion endpoint: `/api/comics/upload/complete`
 
 #### ✅ Reading Progress Tracking
 - **ComicReadingProgress Entity**: Defined in `ComicReadingProgress.php` to track user reading progress
@@ -49,7 +53,7 @@ This document provides detailed information for developers working on the projec
 - **Dashboard**: Comic library view implemented in `Dashboard.jsx`
 - **Comic Reader**: Reading interface implemented in `ComicReader.jsx`
 - **Admin Dashboard**: Basic admin interface implemented in `AdminDashboard.jsx`
-- **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx`
+- **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx` with chunked upload support, progress tracking, and tag management
 
 The frontend is built with:
 - React with JavaScript (converted from TypeScript)

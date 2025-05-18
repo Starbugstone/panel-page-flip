@@ -1,5 +1,4 @@
 
-import { useState } from "react";
 import UploadComicForm from "@/components/UploadComicForm";
 
 export default function UploadComicPage() {

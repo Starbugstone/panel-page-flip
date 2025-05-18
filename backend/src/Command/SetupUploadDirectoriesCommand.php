@@ -2,6 +2,8 @@
 
 namespace App\Command;
 
+use App\Entity\User;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -31,6 +33,7 @@ use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
  * The command will create the following directories:
  * - public/uploads/comics - For storing uploaded CBZ files
  * - public/uploads/comics/covers - For storing extracted cover images
+ * - public/uploads/comics/{user_id} - User-specific directories for each user's comics
  *
  * It will also set the appropriate permissions on these directories to ensure they are writable
  * by the web server.
@@ -42,11 +45,13 @@ use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 class SetupUploadDirectoriesCommand extends Command
 {
     private ParameterBagInterface $parameterBag;
+    private EntityManagerInterface $entityManager;
 
-    public function __construct(ParameterBagInterface $parameterBag)
+    public function __construct(ParameterBagInterface $parameterBag, EntityManagerInterface $entityManager)
     {
         parent::__construct();
         $this->parameterBag = $parameterBag;
+        $this->entityManager = $entityManager;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -60,6 +65,15 @@ class SetupUploadDirectoriesCommand extends Command
         // Create directories if they don't exist
         $this->createDirectory($comicsDirectory, $io);
         $this->createDirectory($coversDirectory, $io);
+        
+        // Create user-specific directories for existing users
+        $users = $this->entityManager->getRepository(User::class)->findAll();
+        $io->note(sprintf('Creating user-specific directories for %d users', count($users)));
+        
+        foreach ($users as $user) {
+            $userDirectory = $comicsDirectory . '/' . $user->getId();
+            $this->createDirectory($userDirectory, $io);
+        }
         
         $io->success('Upload directories created successfully.');
         

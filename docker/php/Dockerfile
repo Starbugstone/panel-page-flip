@@ -31,6 +31,12 @@ RUN docker-php-ext-configure intl \
         opcache \
         xsl
 
+# Create log directory for PHP
+RUN mkdir -p /var/log/php && chmod 777 /var/log/php
+
+# Copy custom PHP configuration
+COPY custom.ini /usr/local/etc/php/conf.d/
+
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 ENV COMPOSER_ALLOW_SUPERUSER=1

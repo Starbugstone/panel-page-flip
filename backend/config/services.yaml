@@ -37,3 +37,13 @@ services:
         arguments:
             $mailerFromAddress: '%mailer_from_address%'
             $mailerFromName: '%mailer_from_name%'
+            
+    # Comic service with comics directory configuration
+    App\Service\ComicService:
+        arguments:
+            $comicsDirectory: '%comics_directory%'
+            
+    # Comic controller with comics directory configuration
+    App\Controller\ComicController:
+        arguments:
+            $comicsDirectory: '%comics_directory%'

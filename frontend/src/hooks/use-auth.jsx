@@ -6,18 +6,28 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if user is already logged in on mount
+  // Check if user is already logged in on mount and validate session with backend
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Failed to parse stored user data:', error);
-        localStorage.removeItem('user');
+    const validateSession = async () => {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        try {
+          setUser(JSON.parse(storedUser));
+          // Validate the session with the backend
+          const isValid = await checkAuth();
+          if (!isValid) {
+            console.log('Session expired, please log in again');
+            // Session is invalid, user will need to log in again
+          }
+        } catch (error) {
+          console.error('Failed to parse stored user data:', error);
+          localStorage.removeItem('user');
+        }
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    };
+    
+    validateSession();
   }, []);
 
   const login = async (email, password) => {
