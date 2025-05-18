@@ -21,7 +21,8 @@ framework:
             messenger.bus.default: []
 
         routing:
-            Symfony\Component\Mailer\Messenger\SendEmailMessage: async
+            # Comment out this line to send emails synchronously
+            # Symfony\Component\Mailer\Messenger\SendEmailMessage: async
             Symfony\Component\Notifier\Message\ChatMessage: async
             Symfony\Component\Notifier\Message\SmsMessage: async
 

@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Label } from "@/components/ui/label.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { useToast } from "@/hooks/use-toast.js";
-import { useAuth } from "@/hooks/use-auth.js";
+import { useAuth } from "@/hooks/use-auth.jsx";
 
 export default function Login() {
   // Login form state
@@ -109,9 +109,9 @@ export default function Login() {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <Label htmlFor="login-password">Password</Label>
-                  <a href="#" className="text-xs text-comic-purple hover:underline">
+                  <Link to="/forgot-password" className="text-xs text-comic-purple hover:underline">
                     Forgot password?
-                  </a>
+                  </Link>
                 </div>
                 <Input 
                   id="login-password" 

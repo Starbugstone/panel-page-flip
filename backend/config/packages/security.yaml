@@ -50,6 +50,8 @@ security:
         - { path: ^/api/login, roles: PUBLIC_ACCESS }
         - { path: ^/api/register, roles: PUBLIC_ACCESS }
         - { path: ^/api/login_check, roles: PUBLIC_ACCESS }
+        - { path: ^/api/forgot-password, roles: PUBLIC_ACCESS }
+        - { path: ^/api/reset-password, roles: PUBLIC_ACCESS }
         
         # Admin routes (require ROLE_ADMIN)
         - { path: ^/api/users$, roles: ROLE_ADMIN, methods: [GET] }

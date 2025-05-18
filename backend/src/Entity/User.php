@@ -66,12 +66,19 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     #[ORM\OneToMany(targetEntity: Tag::class, mappedBy: 'creator')]
     private Collection $createdTags;
+    
+    /**
+     * @var Collection<int, ResetPasswordToken>
+     */
+    #[ORM\OneToMany(targetEntity: ResetPasswordToken::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
+    private Collection $resetPasswordTokens;
 
     public function __construct()
     {
         $this->comics = new ArrayCollection();
         $this->readingProgress = new ArrayCollection();
         $this->createdTags = new ArrayCollection();
+        $this->resetPasswordTokens = new ArrayCollection();
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = new \DateTimeImmutable();
         $this->roles = ['ROLE_USER'];
@@ -264,6 +271,33 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         if ($this->createdTags->removeElement($tag)) {
             if ($tag->getCreator() === $this) {
                 $tag->setCreator(null);
+            }
+        }
+        return $this;
+    }
+    
+    /**
+     * @return Collection<int, ResetPasswordToken>
+     */
+    public function getResetPasswordTokens(): Collection
+    {
+        return $this->resetPasswordTokens;
+    }
+    
+    public function addResetPasswordToken(ResetPasswordToken $token): static
+    {
+        if (!$this->resetPasswordTokens->contains($token)) {
+            $this->resetPasswordTokens->add($token);
+            $token->setUser($this);
+        }
+        return $this;
+    }
+    
+    public function removeResetPasswordToken(ResetPasswordToken $token): static
+    {
+        if ($this->resetPasswordTokens->removeElement($token)) {
+            if ($token->getUser() === $this) {
+                $token->setUser(null);
             }
         }
         return $this;

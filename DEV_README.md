@@ -13,6 +13,7 @@ This document provides detailed information for developers working on the projec
 #### ✅ User Authentication System
 - **JSON Login**: Implemented in `security.yaml` with proper routes and handlers
 - **Registration**: Implemented in `RegistrationController.php`
+- **Password Reset**: Implemented in `ResetPasswordController.php` with email notifications
 - **User Entity**: Defined in `User.php` with proper properties and relationships
 - **Security**: Access control rules defined to secure API endpoints
 
@@ -41,7 +42,16 @@ This document provides detailed information for developers working on the projec
 
 ### Frontend (React)
 
-The frontend is not yet implemented. It will be built with:
+#### ✅ User Interface
+- **Landing Page**: Implemented in `Landing.jsx` with project introduction
+- **Authentication Pages**: Login and registration implemented in `Login.jsx`
+- **Password Reset**: Forgot password and reset password pages implemented in `ForgotPassword.jsx` and `ResetPassword.jsx`
+- **Dashboard**: Comic library view implemented in `Dashboard.jsx`
+- **Comic Reader**: Reading interface implemented in `ComicReader.jsx`
+- **Admin Dashboard**: Basic admin interface implemented in `AdminDashboard.jsx`
+- **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx`
+
+The frontend is built with:
 - React with JavaScript (converted from TypeScript)
 - Vite for fast development and building
 - shadcn-ui components
@@ -127,6 +137,9 @@ The frontend is not yet implemented. It will be built with:
 - `POST /api/logout` - Logout the current user
 - `GET /api/login_check` - Check if the user is authenticated
 - `GET /api/users/me` - Get the current user's information
+- `POST /api/forgot-password` - Request a password reset email
+- `GET /api/reset-password/validate/{token}` - Validate a password reset token
+- `POST /api/reset-password/reset/{token}` - Reset password with a valid token
 
 #### Comics
 - `GET /api/comics` - Get all comics for the current user
@@ -171,7 +184,73 @@ For example:
 - `/uploads/comics/covers/1/cover.jpg` - Cover image for comic with ID 1
 - `/uploads/comics/covers/2/cover.jpg` - Cover image for comic with ID 2
 
-## Testing the Current Implementation
+### Email Testing with Mailpit
+
+The application uses Mailpit for email testing during development. Mailpit captures all outgoing emails and provides a web interface to view them without actually sending them to real email addresses.
+
+- **SMTP Server**: Available at `mailpit:1025` inside the Docker network
+- **Web UI**: Available at http://localhost:8025 for viewing captured emails
+- **Usage**: When testing the password reset functionality, check the Mailpit UI to see the reset emails
+
+#### Email Delivery Configuration
+
+Symphony's Messenger component is used for handling emails. By default, Symfony would queue emails for asynchronous delivery, but we've modified this for development to make emails send immediately:
+
+1. **Development Configuration** (current setup):
+   - In `config/packages/messenger.yaml`, the email routing is commented out:
+     ```yaml
+     routing:
+         # Comment out this line to send emails synchronously
+         # Symfony\Component\Mailer\Messenger\SendEmailMessage: async
+         Symfony\Component\Notifier\Message\ChatMessage: async
+         Symfony\Component\Notifier\Message\SmsMessage: async
+     ```
+   - This makes all emails send immediately (synchronously) without requiring a message consumer
+   - Emails appear in Mailpit right away
+   - This is ideal for development and testing
+
+2. **Production Configuration** (to be implemented):
+   - For production, uncomment the email routing line:
+     ```yaml
+     routing:
+         Symfony\Component\Mailer\Messenger\SendEmailMessage: async
+         Symfony\Component\Notifier\Message\ChatMessage: async
+         Symfony\Component\Notifier\Message\SmsMessage: async
+     ```
+   - This queues emails in the database (`messenger_messages` table)
+   - You must run a Messenger consumer to process the queue:
+     ```bash
+     # Run a consumer as a background service
+     php bin/console messenger:consume async
+     ```
+   - In production, set up a systemd service or supervisor process to keep the consumer running
+   - This approach is more resilient and prevents email sending from blocking web requests
+
+#### Debugging Email Issues
+
+If emails aren't appearing in Mailpit:
+
+1. Check if emails are being queued in the database:
+   ```bash
+   docker compose exec php bin/console messenger:stats
+   ```
+
+2. If there are queued messages but no consumer is running:
+   ```bash
+   docker compose exec php bin/console messenger:consume async --time-limit=3600
+   ```
+
+3. Check for failed messages:
+   ```bash
+   docker compose exec php bin/console messenger:failed:show
+   ```
+
+4. Test email sending directly:
+   ```bash
+   docker compose exec php bin/console app:test-mail --to=test@example.com
+   ```
+
+### Testing the Current Implementation
 
 ### Test Users
 Test users are created for development and testing purposes. Their credentials are stored in `passwords.txt` (which is in `.gitignore`):
@@ -184,16 +263,16 @@ You can test the current implementation using the following commands:
 
 ```sh
 # Test API endpoints (registration and login)
-docker-compose exec php bin/console app:test-api-endpoints
+docker compose exec php bin/console app:test-api-endpoints
 
 # Generate sample data for testing
-docker-compose exec php bin/console app:generate-sample-data --force
+docker compose exec php bin/console app:generate-sample-data --force
 
 # Import comics from a directory
-docker-compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com
+docker compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com
 
 # Clean up unused comics and cover images (dry run)
-docker-compose exec php bin/console app:cleanup-comics --dry-run
+docker compose exec php bin/console app:cleanup-comics --dry-run
 ```
 
 ### Manual API Testing
@@ -215,9 +294,16 @@ curl -X GET http://localhost:8080/api/comics -H "Content-Type: application/json"
 ### Frontend Implementation
 
 #### 1. Authentication Pages
-- **Login Page**: Form with email and password fields
-- **Registration Page**: Form with email, password, and optional name fields
-- **Authentication State Management**: Using React Context or Redux
+- ✅ **Login Page**: Implemented with email and password fields
+- ✅ **Registration Page**: Implemented with email, password fields
+- ✅ **Password Reset Flow**: Fully implemented with:
+  - Forgot password request form
+  - Email delivery with frontend reset links
+  - Token validation
+  - Password reset form
+  - Success notifications and redirects
+  - Security notification emails
+- ✅ **Authentication State Management**: Implemented using React Context
 
 #### 2. Comic Library Interface
 - **Comic List Page**: Grid or list view of user's comics with cover images
@@ -237,7 +323,7 @@ curl -X GET http://localhost:8080/api/comics -H "Content-Type: application/json"
 
 #### 5. User Profile
 - **Profile Page**: Page for viewing and editing user profile
-- **Password Change**: Form for changing password
+- ✅ **Password Change**: Implemented through password reset functionality
 
 #### 6. Dark Mode
 - **Theme Toggle**: Button for switching between light and dark themes
@@ -259,6 +345,32 @@ curl -X GET http://localhost:8080/api/comics -H "Content-Type: application/json"
 - Optimize database queries for better performance
 - Add pagination for large collections
 
+### Email System Implementation
+
+#### ✅ Email Configuration
+- **Mailpit Integration**: Configured for email testing in development
+- **Email Templates**: HTML email templates implemented for:
+  - Password reset requests
+  - Password change notifications
+- **Synchronous Delivery**: Configured for immediate delivery in development
+- **Asynchronous Support**: Ready for production with Messenger component
+
+#### ✅ Email Testing with Mailpit
+- **SMTP Server**: Available at `mailpit:1025` inside the Docker network
+- **Web UI**: Available at http://localhost:8025 for viewing captured emails
+- **Test Command**: `app:test-mail` command available for testing email delivery
+- **Debug Tools**: Messenger commands for diagnosing email delivery issues:
+  ```bash
+  # Check message queue status
+  docker compose exec php bin/console messenger:stats
+  
+  # Process queued messages (for async mode)
+  docker compose exec php bin/console messenger:consume async
+  
+  # Check for failed messages
+  docker compose exec php bin/console messenger:failed:show
+  ```
+
 ## Getting Started (Development)
 
 ### Prerequisites
@@ -269,20 +381,20 @@ curl -X GET http://localhost:8080/api/comics -H "Content-Type: application/json"
 1. Clone the repository
 2. Start the Docker containers:
    ```sh
-   docker-compose up -d
+   docker compose up -d
    ```
 3. Set up the upload directories:
    ```sh
-   docker-compose exec php bin/console app:setup-upload-directories
+   docker compose exec php bin/console app:setup-upload-directories
    ```
 4. Create test users:
    ```sh
-   docker-compose exec php bin/console app:create-admin-user testadmin@example.com AdminPass123!
-   docker-compose exec php bin/console app:create-user testuser1@example.com UserPass123!
+   docker compose exec php bin/console app:create-admin-user testadmin@example.com AdminPass123!
+   docker compose exec php bin/console app:create-user testuser1@example.com UserPass123!
    ```
 5. Import comics (optional):
    ```sh
-   docker-compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com
+   docker compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com
    ```
 
 ### Frontend Development (To Be Implemented)
