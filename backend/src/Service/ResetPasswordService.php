@@ -159,15 +159,7 @@ class ResetPasswordService
             // Create the frontend reset URL with the token
             $resetUrl = $baseUrl . '/reset-password/' . $token->getToken();
             
-            // Log the reset URL (in development only)
-            error_log("Generated reset URL: {$resetUrl}");
-            
-            // For development: Output the reset URL to the console
-            echo "\n\n=================================================================\n";
-            echo "DEVELOPMENT MODE: Password Reset URL for testing\n";
-            echo "=================================================================\n";
-            echo $resetUrl . "\n";
-            echo "=================================================================\n\n";
+
             
             // Render the email template
             $emailContent = $this->twig->render('emails/reset_password.html.twig', [
@@ -190,9 +182,7 @@ class ResetPasswordService
             
             // Send the email
             $this->mailer->send($email);
-            
-            // Log success (in development only)
-            error_log("Email sent successfully");
+
         } catch (\Exception $e) {
             // Log the error (in development only)
             error_log("Error sending password reset email: " . $e->getMessage());

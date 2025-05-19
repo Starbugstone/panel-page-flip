@@ -414,9 +414,10 @@ curl -X GET http://localhost:8080/api/comics -H "Content-Type: application/json"
 
 ## Recommended Next Steps
 
+BUG to fix :
+The react front end doesn't seem to refresh automaticly after a change in the code.
+
 1. **Start Frontend Implementation**:
-   - Set up the React project structure
-   - Implement authentication pages (login/registration)
    - Create the comic library browsing interface
 
 2. **Implement CBZ Reader**:
