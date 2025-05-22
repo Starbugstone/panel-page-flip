@@ -136,9 +136,10 @@ The backend provides the following API endpoints:
 
 ```sh
 # Start all services with Docker from the project root directory
-docker compose up -d --build
+docker compose up -d
 
 # The application (frontend and backend API) will be available at http://localhost:8080
+For frontend development with live reload, a dedicated service is available. See the 'Frontend Development with Live Reload' section below for details.
 # API endpoints are generally prefixed with /api/
 # To stop the services:
 # docker compose down
@@ -257,14 +258,18 @@ ADMINER_PORT=8081   # Host port mapped to Adminer container
 
 ## Development Workflow
 
-### Frontend Development
+### Frontend Development with Live Reload
 
-The frontend code is in the `frontend/` directory (specifically `frontend/src/`). 
-Since the frontend is now built into the Nginx container, changes to the frontend code require rebuilding the `nginx` image:
-```sh
-docker compose up -d --build nginx
-```
-For a more rapid development experience with Hot Module Replacement (HMR), you might consider running the Vite development server locally outside of Docker for frontend work, and have it proxy API requests to the Dockerized backend.
+The frontend code is in the `frontend/` directory (specifically `frontend/src/`).
+
+For an enhanced development experience with Hot Module Replacement (HMR), a dedicated Vite development server is now configured. To use it:
+
+1.  Ensure all services are running via `docker compose up -d`.
+2.  Access the frontend directly through the Vite development server at: **`http://localhost:3001`**.
+
+Changes made to files within the `./frontend` directory will automatically trigger a rebuild and update your browser session live.
+
+The `nginx` service, accessible at `http://localhost:8080` (or your configured NGINX_PORT in the `.env` file), still handles API proxying to the backend and can serve a static production build of the frontend. However, for active development and immediate feedback, `http://localhost:3001` is the recommended URL. You no longer need to rebuild the `nginx` container to see frontend changes during development.
 
 ### Backend Development
 

@@ -78,5 +78,25 @@ services:
     networks:
       - app_network
 
+  # Frontend Development Service
+  frontend_dev:
+    image: node:${NODE_VERSION:-18}-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --force"
+    ports:
+      - "3001:3000"
+    networks:
+      - app_network
+    depends_on:
+      - nginx
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+
 volumes:
   db_data:

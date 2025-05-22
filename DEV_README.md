@@ -401,21 +401,24 @@ curl -X GET http://localhost:8080/api/comics -H "Content-Type: application/json"
    docker compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com
    ```
 
-### Frontend Development (To Be Implemented)
-1. Navigate to the frontend directory
-2. Install dependencies:
-   ```sh
-   npm install
-   ```
-3. Start the development server:
-   ```sh
-   npm run dev
-   ```
+### Frontend Development with Live Reload
+
+The frontend React application is now served directly by a dedicated Vite development server running inside the `frontend_dev` Docker service. This provides Hot Module Replacement (HMR) for a significantly improved development experience.
+
+**Key Details:**
+*   **Access URL:** To view and interact with the live-reloading frontend, open your browser to **`http://localhost:3001`**.
+*   **Live Reload / HMR:** When you make changes to files within the `./frontend/src` directory on your host machine, the Vite server inside the `frontend_dev` container will automatically detect these changes, rebuild the necessary parts of the application, and push updates to your browser, often without a full page refresh.
+*   **Automatic Dependency Installation:** The `frontend_dev` service automatically runs `npm install` when it starts, ensuring all frontend dependencies are up-to-date based on `package.json` and `package-lock.json`. You generally do not need to run `npm install` manually in the `frontend` directory unless you are specifically managing dependencies before restarting the Docker services.
+*   **Role of `nginx` service (Port 8080):** The original `nginx` service (accessible at `http://localhost:8080` or your `${NGINX_PORT}`) continues to be responsible for:
+    *   Proxying API requests (e.g., `/api/...`) to the backend PHP service. The Vite dev server on port 3001 is configured to route its API calls to this Nginx service.
+    *   Serving a static build of the frontend if you were to build it for production (e.g., via `npm run build` results). For development, port 3001 is primary.
+
+To start developing the frontend:
+1.  Ensure all Docker services are running with `docker compose up -d`.
+2.  Navigate to `http://localhost:3001` in your browser.
+3.  Begin editing files in the `./frontend` directory.
 
 ## Recommended Next Steps
-
-BUG to fix :
-The react front end doesn't seem to refresh automaticly after a change in the code.
 
 1. **Start Frontend Implementation**:
    - Create the comic library browsing interface
@@ -456,6 +459,64 @@ The react front end doesn't seem to refresh automaticly after a change in the co
 4. **Error Handling**: The current implementation has basic error handling. More comprehensive error handling should be implemented for production.
 
 5. **Testing**: The current implementation has minimal testing. More comprehensive testing should be added for production.
+
+## Troubleshooting
+
+### Docker and Windows Line Endings
+
+When running the project on Windows, you may encounter issues with line endings in shell scripts and PHP files. This is because Windows uses CRLF (\r\n) line endings, while Linux uses LF (\n) line endings.
+
+**Symptoms:**
+- Error messages like `/usr/bin/env: 'php\r': No such file or directory`
+- Scripts failing to execute with `not found` errors
+
+**Solutions:**
+1. Fix line endings in the console script:
+   ```sh
+   docker compose exec php sed -i 's/\r$//' /var/www/html/bin/console
+   ```
+
+2. Configure Git to handle line endings properly:
+   ```sh
+   git config --global core.autocrlf input
+   ```
+
+### Hot Reload Issues with Docker on Windows
+
+The frontend development server may not detect file changes properly when running in Docker on Windows.
+
+**Symptoms:**
+- Changes to frontend files are not reflected in the browser
+- No file change detection messages in the frontend_dev container logs
+
+**Solutions:**
+Update the `frontend_dev` service in `docker-compose.yml` with the following configuration:
+
+```yaml
+frontend_dev:
+  image: node:${NODE_VERSION:-18}-alpine
+  container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
+  volumes:
+    - ./frontend:/app
+    - /app/node_modules
+  working_dir: /app
+  command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --force"
+  ports:
+    - "3001:3000"
+  networks:
+    - app_network
+  depends_on:
+    - nginx
+  environment:
+    - NODE_ENV=development
+    - CHOKIDAR_USEPOLLING=true
+    - WATCHPACK_POLLING=true
+```
+
+Key changes:
+- Added volume mount for `/app/node_modules` to prevent it from being overwritten
+- Enabled file polling with `CHOKIDAR_USEPOLLING` and `WATCHPACK_POLLING` environment variables
+- Added `--host 0.0.0.0` and `--force` flags to the Vite dev command
 
 ## Conclusion
 
