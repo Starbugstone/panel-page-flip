@@ -460,6 +460,64 @@ To start developing the frontend:
 
 5. **Testing**: The current implementation has minimal testing. More comprehensive testing should be added for production.
 
+## Troubleshooting
+
+### Docker and Windows Line Endings
+
+When running the project on Windows, you may encounter issues with line endings in shell scripts and PHP files. This is because Windows uses CRLF (\r\n) line endings, while Linux uses LF (\n) line endings.
+
+**Symptoms:**
+- Error messages like `/usr/bin/env: 'php\r': No such file or directory`
+- Scripts failing to execute with `not found` errors
+
+**Solutions:**
+1. Fix line endings in the console script:
+   ```sh
+   docker compose exec php sed -i 's/\r$//' /var/www/html/bin/console
+   ```
+
+2. Configure Git to handle line endings properly:
+   ```sh
+   git config --global core.autocrlf input
+   ```
+
+### Hot Reload Issues with Docker on Windows
+
+The frontend development server may not detect file changes properly when running in Docker on Windows.
+
+**Symptoms:**
+- Changes to frontend files are not reflected in the browser
+- No file change detection messages in the frontend_dev container logs
+
+**Solutions:**
+Update the `frontend_dev` service in `docker-compose.yml` with the following configuration:
+
+```yaml
+frontend_dev:
+  image: node:${NODE_VERSION:-18}-alpine
+  container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
+  volumes:
+    - ./frontend:/app
+    - /app/node_modules
+  working_dir: /app
+  command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --force"
+  ports:
+    - "3001:3000"
+  networks:
+    - app_network
+  depends_on:
+    - nginx
+  environment:
+    - NODE_ENV=development
+    - CHOKIDAR_USEPOLLING=true
+    - WATCHPACK_POLLING=true
+```
+
+Key changes:
+- Added volume mount for `/app/node_modules` to prevent it from being overwritten
+- Enabled file polling with `CHOKIDAR_USEPOLLING` and `WATCHPACK_POLLING` environment variables
+- Added `--host 0.0.0.0` and `--force` flags to the Vite dev command
+
 ## Conclusion
 
 The CBZ Comic Reader project has a solid backend foundation with user authentication, comic management, and reading progress tracking. The next major step is to implement the frontend to provide a user-friendly interface for reading comics.

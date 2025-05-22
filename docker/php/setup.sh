@@ -43,6 +43,6 @@ else
 fi
 
 # Set proper permissions
-chown -R www:www /var/www/html
+chown -R www-data:www-data /var/www/html
 
 echo "Setup completed!"
