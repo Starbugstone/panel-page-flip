@@ -79,6 +79,10 @@ class ComicController extends AbstractController
                 }
             }
 
+            // Get reading progress if exists
+            $readingProgress = $entityManager->getRepository(ComicReadingProgress::class)
+                ->findOneBy(['comic' => $comic, 'user' => $user]);
+                
             $comicsArray[] = [
                 'id' => $comic->getId(),
                 'title' => $comic->getTitle(),
@@ -93,7 +97,12 @@ class ComicController extends AbstractController
                         'id' => $tag->getId(),
                         'name' => $tag->getName()
                     ];
-                }, $comic->getTags()->toArray())
+                }, $comic->getTags()->toArray()),
+                'readingProgress' => $readingProgress ? [
+                    'currentPage' => $readingProgress->getCurrentPage(),
+                    'lastReadAt' => $readingProgress->getLastReadAt()->format('c'),
+                    'completed' => $readingProgress->isCompleted()
+                ] : null
             ];
         }
 

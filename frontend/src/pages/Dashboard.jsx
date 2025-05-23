@@ -34,8 +34,9 @@ export default function Dashboard() {
         
         const processedComics = data.comics.map(comic => ({
           ...comic,
-          // coverImage: comic.coverImagePath, // Backend now provides full URL in coverImagePath
+          // Process tags to be just an array of tag names for easier filtering
           tags: comic.tags ? comic.tags.map(tag => tag.name) : [],
+          // Map reading progress data to what ComicCard expects
           lastReadPage: comic.readingProgress ? comic.readingProgress.currentPage : undefined,
         }));
 
