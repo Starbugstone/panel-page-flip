@@ -866,7 +866,6 @@ class ComicController extends AbstractController
 
         return $mimeTypes[$extension] ?? 'application/octet-stream';
     }
-}
 
     #[Route('/cover/{userId}/{comicId}/{filename}', name: 'cover_image', methods: ['GET'])]
     public function getCoverImage(int $userId, int $comicId, string $filename, EntityManagerInterface $entityManager): Response
@@ -914,3 +913,4 @@ class ComicController extends AbstractController
         // It also supports range requests if the client asks for partial content.
         return new BinaryFileResponse($absolutePath);
     }
+}
