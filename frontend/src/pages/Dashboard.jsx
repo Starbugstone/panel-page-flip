@@ -1,12 +1,13 @@
 
 import { useState, useEffect } from "react";
 import { ComicCard } from "@/components/ComicCard.jsx";
-import { mockComics } from "@/lib/mockData.js";
+// import { mockComics } from "@/lib/mockData.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { SearchBar } from "@/components/SearchBar.jsx";
 import { Button } from "@/components/ui/button";
-import { Upload, Plus } from "lucide-react";
+import { Upload } from "lucide-react"; // Plus removed as it's not used
 import { Link } from "react-router-dom";
+import { useToast } from "@/hooks/use-toast.js";
 
 export default function Dashboard() {
   const [comics, setComics] = useState([]);
@@ -14,46 +15,46 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchParams, setSearchParams] = useState({ query: "", tags: [] });
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     const loadComics = async () => {
+      setIsLoading(true);
       try {
-        await new Promise(resolve => setTimeout(resolve, 800));
+        const response = await fetch('/api/comics'); // GET request by default
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: "Failed to load comics." }));
+          console.error("Failed to load comics:", errorData.message);
+          toast({ title: "Error", description: errorData.message || "Could not load comics.", variant: "destructive" });
+          setComics([]);
+          setSearchResults([]);
+          return; // Removed finally here, it's outside
+        }
+        const data = await response.json();
         
-        // Let's enhance the mock data with tags
-        const enhancedMockComics = mockComics.map(comic => ({
+        const processedComics = data.comics.map(comic => ({
           ...comic,
-          tags: generateRandomTags()
+          // coverImage: comic.coverImagePath, // Backend now provides full URL in coverImagePath
+          tags: comic.tags ? comic.tags.map(tag => tag.name) : [],
+          lastReadPage: comic.readingProgress ? comic.readingProgress.currentPage : undefined,
         }));
-        
-        setComics(enhancedMockComics);
-        setSearchResults(enhancedMockComics);
+
+        setComics(processedComics);
+        setSearchResults(processedComics);
       } catch (error) {
         console.error("Failed to load comics:", error);
+        toast({ title: "Error", description: "Could not connect to server or other error.", variant: "destructive" });
+        setComics([]);
+        setSearchResults([]);
       } finally {
         setIsLoading(false);
       }
     };
 
     loadComics();
-  }, []);
+  }, [toast]); // Added toast to dependency array as it's used in the effect
 
-  // Generate some random tags for demo purposes
-  const generateRandomTags = () => {
-    const allTags = ["DC", "Marvel", "Sci-Fi", "Fantasy", "Horror", "Adventure", "Superhero", "Manga", "Comedy"];
-    const numTags = Math.floor(Math.random() * 4) + 1; // 1 to 4 tags
-    const selectedTags = [];
-    
-    for (let i = 0; i < numTags; i++) {
-      const randomIndex = Math.floor(Math.random() * allTags.length);
-      const tag = allTags[randomIndex];
-      if (!selectedTags.includes(tag)) {
-        selectedTags.push(tag);
-      }
-    }
-    
-    return selectedTags;
-  };
+  // Removed generateRandomTags function
 
   const handleSearch = (params) => {
     setSearchParams(params);
@@ -87,21 +88,26 @@ export default function Dashboard() {
   };
 
   const resetReadingProgress = (comicId) => {
-    // Update the comic's lastReadPage to undefined
-    setComics(comics.map(comic => 
-      comic.id === comicId ? { ...comic, lastReadPage: undefined } : comic
-    ));
+    console.log("Resetting progress for comicId (local state change only):", comicId);
+    // This function will need to be updated to interact with the backend for persistence.
+    // For now, it updates the local state.
+    const updatedComics = comics.map(c => 
+      c.id === comicId ? { ...c, lastReadPage: undefined, readingProgress: null } : c
+    );
+    setComics(updatedComics);
+
+    const updatedSearchResults = searchResults.map(c =>
+      c.id === comicId ? { ...c, lastReadPage: undefined, readingProgress: null } : c
+    );
+    setSearchResults(updatedSearchResults);
     
-    // Also update search results if active
-    if (isSearchActive) {
-      setSearchResults(searchResults.map(comic => 
-        comic.id === comicId ? { ...comic, lastReadPage: undefined } : comic
-      ));
-    }
+    // Potentially show a toast that this is a temporary client-side reset
+    // toast({ title: "Progress Reset (Locally)", description: "Reading progress has been reset in the app. Backend update needed for persistence."});
   };
 
-  const inProgressComics = searchResults.filter(comic => comic.lastReadPage !== undefined);
-  const unreadComics = searchResults.filter(comic => comic.lastReadPage === undefined);
+  // Ensure these filters use the potentially updated `lastReadPage` field correctly
+  const inProgressComics = searchResults.filter(comic => comic.lastReadPage !== undefined && comic.lastReadPage > 0);
+  const unreadComics = searchResults.filter(comic => comic.lastReadPage === undefined || comic.lastReadPage === 0);
 
   return (
     <div className="container mx-auto px-4 py-8">
