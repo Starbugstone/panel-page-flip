@@ -8,12 +8,22 @@ import { AdminComicsList } from "@/components/AdminComicsList";
 import { AdminTagsList } from "@/components/AdminTagsList";
 
 export default function AdminDashboard() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth(); // Destructure loading state
   const [activeTab, setActiveTab] = useState("users");
+
+  // Display a loading message while authentication is in progress
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[calc(100vh-200px)]">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-primary"></div>
+      </div>
+    );
+  }
   
-  // If user is not admin, redirect to dashboard
+  // If loading is complete and user is not admin, redirect to dashboard
   if (!user || !user.roles || !user.roles.includes("ROLE_ADMIN")) {
-    return <Navigate to="/dashboard" />;
+    // console.log("AdminDashboard: Redirecting. User object after loading:", user); // For debugging
+    return <Navigate to="/dashboard" replace />;
   }
   
   return (

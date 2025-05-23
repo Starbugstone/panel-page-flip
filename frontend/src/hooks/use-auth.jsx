@@ -100,7 +100,8 @@ export function AuthProvider({ children }) {
 
   const checkAuth = async () => {
     try {
-      const response = await fetch('/api/login_check', {
+      // Fetch user data from /api/users/me to get roles and other details
+      const response = await fetch('/api/users/me', {
         credentials: 'include',
       });
 

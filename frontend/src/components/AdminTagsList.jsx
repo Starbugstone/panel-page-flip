@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -6,17 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Search, Plus, Trash, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-
-const mockTags = [
-  { id: 1, name: "DC", comicCount: 24, creator: { name: "Admin User", id: 1 }, createdAt: "2023-01-15T10:30:00Z" },
-  { id: 2, name: "Marvel", comicCount: 42, creator: { name: "Admin User", id: 1 }, createdAt: "2023-01-15T10:35:00Z" },
-  { id: 3, name: "Sci-Fi", comicCount: 18, creator: { name: "Comic Fan", id: 3 }, createdAt: "2023-03-10T09:20:00Z" },
-  { id: 4, name: "Fantasy", comicCount: 15, creator: { name: "Comic Fan", id: 3 }, createdAt: "2023-03-10T09:25:00Z" },
-  { id: 5, name: "Horror", comicCount: 12, creator: { name: "Editor User", id: 4 }, createdAt: "2023-04-05T14:30:00Z" },
-  { id: 6, name: "Adventure", comicCount: 20, creator: { name: "Regular User", id: 2 }, createdAt: "2023-02-20T15:50:00Z" },
-  { id: 7, name: "Superhero", comicCount: 35, creator: { name: "Admin User", id: 1 }, createdAt: "2023-01-15T10:40:00Z" },
-  { id: 8, name: "Manga", comicCount: 28, creator: { name: "Comic Fan", id: 3 }, createdAt: "2023-03-10T09:30:00Z" },
-];
 
 export function AdminTagsList() {
   const { toast } = useToast();
@@ -27,143 +15,151 @@ export function AdminTagsList() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [currentTag, setCurrentTag] = useState(null);
   const [newTagName, setNewTagName] = useState("");
-  
+
   useEffect(() => {
-    // Mock API call
-    const loadTags = async () => {
+    const fetchTags = async () => {
+      setIsLoading(true);
       try {
-        await new Promise(resolve => setTimeout(resolve, 800));
-        setTags(mockTags);
+        const response = await fetch('/api/tags', {
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: 'Failed to fetch tags and parse error response' }));
+          throw new Error(errorData.message || 'Failed to fetch tags');
+        }
+        const data = await response.json();
+        setTags(data.tags || data || []);
       } catch (error) {
         console.error("Failed to load tags:", error);
+        toast({ title: "Error", description: error.message || "Could not load tags.", variant: "destructive" });
+        setTags([]);
       } finally {
         setIsLoading(false);
       }
     };
-    
-    loadTags();
-  }, []);
-  
-  const filteredTags = tags.filter(tag => 
+
+    fetchTags();
+  }, [toast]);
+
+  const filteredTags = tags.filter(tag =>
     tag.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    tag.creator.name.toLowerCase().includes(searchQuery.toLowerCase())
+    (tag.creator && (tag.creator.username || tag.creator.email) &&
+     (tag.creator.username || tag.creator.email).toLowerCase().includes(searchQuery.toLowerCase()))
   );
-  
+
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
     const date = new Date(dateString);
     return new Intl.DateTimeFormat('en-US', {
       dateStyle: 'medium',
     }).format(date);
   };
-  
-  const handleAddTag = () => {
+
+  const handleAddTag = async () => {
     if (!newTagName.trim()) {
-      toast({
-        title: "Error",
-        description: "Tag name cannot be empty",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "Tag name cannot be empty", variant: "destructive" });
       return;
     }
-    
-    const tagExists = tags.some(tag => 
-      tag.name.toLowerCase() === newTagName.trim().toLowerCase()
-    );
-    
+    const tagExists = tags.some(tag => tag.name.toLowerCase() === newTagName.trim().toLowerCase());
     if (tagExists) {
-      toast({
-        title: "Error",
-        description: "A tag with this name already exists",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "A tag with this name already exists", variant: "destructive" });
       return;
     }
-    
-    // Add new tag
-    const newTag = {
-      id: Math.max(...tags.map(t => t.id)) + 1,
-      name: newTagName.trim(),
-      comicCount: 0,
-      creator: { name: "Admin User", id: 1 }, // Assuming admin is creating
-      createdAt: new Date().toISOString()
-    };
-    
-    setTags([...tags, newTag]);
-    setNewTagName("");
-    setIsAddDialogOpen(false);
-    
-    toast({
-      title: "Success",
-      description: "Tag created successfully"
-    });
+
+    try {
+      const response = await fetch('/api/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: newTagName.trim() }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Failed to create tag and parse error response' }));
+        throw new Error(errorData.message || 'Failed to create tag');
+      }
+      const createdTag = await response.json();
+      setTags([...tags, createdTag.tag || createdTag]);
+      setNewTagName("");
+      setIsAddDialogOpen(false);
+      toast({ title: "Success", description: "Tag created successfully" });
+    } catch (error) {
+      console.error("Failed to create tag:", error);
+      toast({ title: "Error", description: error.message || "Could not create tag.", variant: "destructive" });
+    }
   };
-  
+
   const handleOpenEditDialog = (tag) => {
     setCurrentTag(tag);
     setNewTagName(tag.name);
     setIsEditDialogOpen(true);
   };
-  
-  const handleEditTag = () => {
-    if (!newTagName.trim()) {
-      toast({
-        title: "Error",
-        description: "Tag name cannot be empty",
-        variant: "destructive"
-      });
+
+  const handleEditTag = async () => {
+    if (!currentTag || !newTagName.trim()) {
+      toast({ title: "Error", description: "Tag name cannot be empty or tag not selected.", variant: "destructive" });
       return;
     }
-    
-    const tagExists = tags.some(tag => 
-      tag.id !== currentTag.id && 
+    const tagExists = tags.some(tag =>
+      tag.id !== currentTag.id &&
       tag.name.toLowerCase() === newTagName.trim().toLowerCase()
     );
-    
     if (tagExists) {
-      toast({
-        title: "Error",
-        description: "A tag with this name already exists",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "A tag with this name already exists", variant: "destructive" });
       return;
     }
-    
-    // Update tag
-    setTags(tags.map(tag => 
-      tag.id === currentTag.id ? { ...tag, name: newTagName.trim() } : tag
-    ));
-    
-    setNewTagName("");
-    setIsEditDialogOpen(false);
-    setCurrentTag(null);
-    
-    toast({
-      title: "Success",
-      description: "Tag updated successfully"
-    });
+
+    try {
+      const response = await fetch(`/api/tags/${currentTag.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: newTagName.trim() }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Failed to update tag and parse error response' }));
+        throw new Error(errorData.message || 'Failed to update tag');
+      }
+      const updatedTagData = await response.json();
+      const finalUpdatedTag = updatedTagData.tag || updatedTagData;
+      setTags(tags.map(tag => (tag.id === currentTag.id ? finalUpdatedTag : tag)));
+      setNewTagName("");
+      setIsEditDialogOpen(false);
+      setCurrentTag(null);
+      toast({ title: "Success", description: "Tag updated successfully" });
+    } catch (error) {
+      console.error("Failed to update tag:", error);
+      toast({ title: "Error", description: error.message || "Could not update tag.", variant: "destructive" });
+    }
   };
-  
-  const handleDeleteTag = (tagId) => {
+
+  const handleDeleteTag = async (tagId) => {
     const tagToDelete = tags.find(tag => tag.id === tagId);
-    
+    if (!tagToDelete) {
+        toast({ title: "Error", description: "Tag not found.", variant: "destructive" });
+        return;
+    }
     if (tagToDelete.comicCount > 0) {
-      toast({
-        title: "Cannot Delete",
-        description: `This tag is used by ${tagToDelete.comicCount} comics`,
-        variant: "destructive"
-      });
+      toast({ title: "Cannot Delete", description: `This tag is used by ${tagToDelete.comicCount} comics`, variant: "destructive" });
       return;
     }
-    
-    // Delete tag
-    setTags(tags.filter(tag => tag.id !== tagId));
-    
-    toast({
-      title: "Success",
-      description: "Tag deleted successfully"
-    });
+
+    try {
+      const response = await fetch(`/api/tags/${tagId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+         const errorData = await response.json().catch(() => ({ message: 'Failed to delete tag and parse error response' }));
+        throw new Error(errorData.message || 'Failed to delete tag');
+      }
+      setTags(tags.filter(tag => tag.id !== tagId));
+      toast({ title: "Success", description: "Tag deleted successfully" });
+    } catch (error) {
+      console.error(`Failed to delete tag ${tagId}:`, error);
+      toast({ title: "Error", description: error.message || "Could not delete tag.", variant: "destructive" });
+    }
   };
-  
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
@@ -185,7 +181,7 @@ export function AdminTagsList() {
           </Button>
         </div>
       </div>
-      
+
       {isLoading ? (
         <div className="flex justify-center p-8">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
@@ -210,16 +206,16 @@ export function AdminTagsList() {
                       <span className="font-medium">{tag.name}</span>
                     </TableCell>
                     <TableCell>{tag.comicCount}</TableCell>
-                    <TableCell>{tag.creator.name}</TableCell>
+                    <TableCell>{tag.creator?.username || tag.creator?.email || 'N/A'}</TableCell>
                     <TableCell>{formatDate(tag.createdAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button variant="ghost" size="sm" onClick={() => handleOpenEditDialog(tag)}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleDeleteTag(tag.id)}
                           disabled={tag.comicCount > 0}
                         >
@@ -232,7 +228,7 @@ export function AdminTagsList() {
               ) : (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-8">
-                    No tags found matching your search
+                    {searchQuery ? "No tags found matching your search" : "No tags available"}
                   </TableCell>
                 </TableRow>
               )}
@@ -247,7 +243,7 @@ export function AdminTagsList() {
           </Table>
         </div>
       )}
-      
+
       {/* Add Tag Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent>
@@ -259,17 +255,24 @@ export function AdminTagsList() {
               placeholder="Tag name"
               value={newTagName}
               onChange={(e) => setNewTagName(e.target.value)}
+              autoFocus
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setIsAddDialogOpen(false); setNewTagName(""); }}>Cancel</Button>
             <Button onClick={handleAddTag}>Add Tag</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       {/* Edit Tag Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+      <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => {
+        setIsEditDialogOpen(isOpen);
+        if (!isOpen) {
+            setCurrentTag(null);
+            setNewTagName("");
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Tag</DialogTitle>
@@ -279,10 +282,11 @@ export function AdminTagsList() {
               placeholder="Tag name"
               value={newTagName}
               onChange={(e) => setNewTagName(e.target.value)}
+              autoFocus
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setIsEditDialogOpen(false); setCurrentTag(null); setNewTagName(""); }}>Cancel</Button>
             <Button onClick={handleEditTag}>Update Tag</Button>
           </DialogFooter>
         </DialogContent>

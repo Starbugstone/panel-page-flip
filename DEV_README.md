@@ -19,7 +19,7 @@ This document provides detailed information for developers working on the projec
 
 #### ✅ Comic Management System
 - **Comic Entity**: Defined in `Comic.php` with properties for title, file path, cover image, etc.
-- **Comic Controller**: Implemented in `ComicController.php` with endpoints for CRUD operations
+- **Comic Controller**: Implemented in `ComicController.php` with endpoints for CRUD operations. Includes refined permission checks for operations like comic deletion (owner/admin only).
 - **File Storage**: Comics are stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
 - **Cover Images**: Stored in comic-specific directories at `/uploads/comics/covers/{comic_id}/{cover_image.jpg}`
 - **Chunked Upload**: Implemented chunked file upload system to handle large comic files (1MB chunks)
@@ -52,7 +52,10 @@ This document provides detailed information for developers working on the projec
 - **Password Reset**: Forgot password and reset password pages implemented in `ForgotPassword.jsx` and `ResetPassword.jsx`
 - **Dashboard**: Comic library view implemented in `Dashboard.jsx`
 - **Comic Reader**: Reading interface implemented in `ComicReader.jsx`
-- **Admin Dashboard**: Basic admin interface implemented in `AdminDashboard.jsx`
+- **Admin Dashboard**: Implemented in `AdminDashboard.jsx`, now includes a loading indicator during user authentication.
+- **Admin Users Management**: Enhanced UI in `AdminUsersList.jsx` for managing user roles (e.g., ensuring `ROLE_USER` persistence, clearer role assignment).
+- **Admin Comics List**: Improved tag display in `AdminComicsList.jsx` to correctly handle various tag data formats.
+- **Admin Tags List**: UI refinements in `AdminTagsList.jsx` for tag creation and editing dialogs.
 - **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx` with chunked upload support, progress tracking, and tag management
 
 The frontend is built with:
@@ -61,6 +64,9 @@ The frontend is built with:
 - shadcn-ui components
 - Tailwind CSS for styling
 - React Router for navigation
+- **Theme Persistence**: Switched from `localStorage` to client-side cookies for storing theme preferences (light/dark mode), managed by `ThemeProvider.jsx` and a new utility module `frontend/src/lib/cookies.js`. Includes a migration step from `localStorage`.
+- **Authentication Hook (`use-auth.jsx`)**: The `checkAuth` function updated to use `/api/users/me` for fetching comprehensive authenticated user details, including roles.
+- **Cookie Utility (`frontend/src/lib/cookies.js`)**: New module added with helper functions for managing browser cookies.
 
 ## Architecture Details
 
@@ -140,7 +146,7 @@ The frontend is built with:
 - `POST /api/register` - Register a new user
 - `POST /api/logout` - Logout the current user
 - `GET /api/login_check` - Check if the user is authenticated
-- `GET /api/users/me` - Get the current user's information
+- `GET /api/users/me` - Get the current authenticated user's information, including roles. Primarily used by the frontend to check authentication status and retrieve user details.
 - `POST /api/forgot-password` - Request a password reset email
 - `GET /api/reset-password/validate/{token}` - Validate a password reset token
 - `POST /api/reset-password/reset/{token}` - Reset password with a valid token

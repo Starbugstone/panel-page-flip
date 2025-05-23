@@ -18,10 +18,10 @@ class UserController extends AbstractController
     #[Route('', name: 'list', methods: ['GET'])]
     public function list(EntityManagerInterface $entityManager): JsonResponse
     {
-        // Get the current user
+        // Get the current user and assert its type
         $user = $this->getUser();
-        if (!$user) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
         }
 
         // Check if user is an admin
@@ -52,10 +52,10 @@ class UserController extends AbstractController
     #[Route('/{id}', name: 'get', methods: ['GET'])]
     public function get(int $id, EntityManagerInterface $entityManager): JsonResponse
     {
-        // Get the current user
+        // Get the current user and assert its type
         $user = $this->getUser();
-        if (!$user) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
         }
 
         // Check if user is an admin or the requested user
@@ -83,6 +83,71 @@ class UserController extends AbstractController
         return $this->json(['user' => $userData]);
     }
 
+    // Method to create a new user (Admin only)
+    #[Route('', name: 'create', methods: ['POST'])]
+    public function create(
+        Request $request,
+        EntityManagerInterface $entityManager,
+        UserPasswordHasherInterface $passwordHasher,
+        ValidatorInterface $validator
+    ): JsonResponse {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        $data = json_decode($request->getContent(), true);
+        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
+            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
+        }
+
+        // Basic validation for required fields
+        if (empty($data['email']) || empty($data['password']) || empty($data['name'])) {
+            return $this->json(['message' => 'Missing required fields: email, password, name'], Response::HTTP_BAD_REQUEST);
+        }
+
+        // Check if email already exists
+        $existingUser = $entityManager->getRepository(User::class)->findOneBy(['email' => $data['email']]);
+        if ($existingUser) {
+            return $this->json(['message' => 'Email already in use'], Response::HTTP_CONFLICT);
+        }
+
+        $user = new User();
+        $user->setEmail($data['email']);
+        $user->setName($data['name']);
+        $user->setPassword($passwordHasher->hashPassword($user, $data['password']));
+
+        // Set roles, ensuring ROLE_USER is always present
+        $roles = $data['roles'] ?? ['ROLE_USER'];
+        if (!in_array('ROLE_USER', $roles)) {
+            $roles[] = 'ROLE_USER';
+        }
+        $user->setRoles(array_unique($roles)); // Ensure roles are unique
+        $user->setCreatedAt(new \DateTimeImmutable()); // Set creation date
+
+        $violations = $validator->validate($user);
+        if (count($violations) > 0) {
+            $errors = [];
+            foreach ($violations as $violation) {
+                // Only include property path if it's useful (e.g., not for general class constraints)
+                $propertyPath = $violation->getPropertyPath();
+                $errors[] = ($propertyPath ? $propertyPath . ': ' : '') . $violation->getMessage();
+            }
+            return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+        }
+
+        $entityManager->persist($user);
+        $entityManager->flush();
+
+        return $this->json([
+            'message' => 'User created successfully',
+            'user' => [
+                'id' => $user->getId(),
+                'email' => $user->getEmail(),
+                'name' => $user->getName(),
+                'roles' => $user->getRoles(),
+                'createdAt' => $user->getCreatedAt()->format('c'),
+            ]
+        ], Response::HTTP_CREATED);
+    }
+
     #[Route('/{id}', name: 'update', methods: ['PUT', 'PATCH'])]
     public function update(
         int $id,
@@ -91,10 +156,10 @@ class UserController extends AbstractController
         UserPasswordHasherInterface $passwordHasher,
         ValidatorInterface $validator
     ): JsonResponse {
-        // Get the current user
+        // Get the current user and assert its type
         $user = $this->getUser();
-        if (!$user) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
         }
 
         // Check if user is an admin or the requested user
@@ -161,10 +226,10 @@ class UserController extends AbstractController
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
     public function delete(int $id, EntityManagerInterface $entityManager): JsonResponse
     {
-        // Get the current user
+        // Get the current user and assert its type
         $user = $this->getUser();
-        if (!$user) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
         }
 
         // Check if user is an admin
@@ -193,10 +258,10 @@ class UserController extends AbstractController
     #[Route('/me', name: 'me', methods: ['GET'])]
     public function me(): JsonResponse
     {
-        // Get the current user
+        // Get the current user and assert its type
         $user = $this->getUser();
-        if (!$user) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
         }
 
         // Return user data

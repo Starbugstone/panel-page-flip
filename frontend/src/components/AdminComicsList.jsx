@@ -6,60 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, Tag as TagIcon, Trash, Edit, Eye } from "lucide-react";
 
-const mockComics = [
-  {
-    id: 1,
-    title: "Batman: The Dark Knight Returns",
-    author: "Frank Miller",
-    owner: {
-      id: 1,
-      name: "Admin User",
-      email: "admin@example.com"
-    },
-    uploadedAt: "2023-05-10T08:30:00Z",
-    pageCount: 202,
-    tags: ["DC", "Batman", "Dark", "Classic"]
-  },
-  {
-    id: 2,
-    title: "Watchmen",
-    author: "Alan Moore",
-    owner: {
-      id: 2,
-      name: "Regular User",
-      email: "user1@example.com"
-    },
-    uploadedAt: "2023-06-15T14:20:00Z",
-    pageCount: 416,
-    tags: ["DC", "Alan Moore", "Classic", "Dystopian"]
-  },
-  {
-    id: 3,
-    title: "Saga",
-    author: "Brian K. Vaughan",
-    owner: {
-      id: 3,
-      name: "Comic Fan",
-      email: "user2@example.com"
-    },
-    uploadedAt: "2023-07-22T11:45:00Z",
-    pageCount: 168,
-    tags: ["Image", "Sci-Fi", "Fantasy"]
-  },
-  {
-    id: 4,
-    title: "Sandman",
-    author: "Neil Gaiman",
-    owner: {
-      id: 4,
-      name: "Editor User",
-      email: "editor@example.com"
-    },
-    uploadedAt: "2023-08-05T09:15:00Z",
-    pageCount: 234,
-    tags: ["Vertigo", "Fantasy", "Horror", "Dream"]
-  },
-];
+// const mockComics = [ // Mock data removed
+
 
 export function AdminComicsList() {
   const [comics, setComics] = useState([]);
@@ -67,26 +15,40 @@ export function AdminComicsList() {
   const [searchQuery, setSearchQuery] = useState("");
   
   useEffect(() => {
-    // Mock API call
-    const loadComics = async () => {
+    const fetchComics = async () => {
+      setIsLoading(true);
       try {
-        await new Promise(resolve => setTimeout(resolve, 800));
-        setComics(mockComics);
+        const response = await fetch('/api/comics', { // Admins get all comics
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          throw new Error('Failed to fetch comics');
+        }
+        const data = await response.json();
+        // Assuming API returns { comics: [...] } or just [...] 
+        // And each comic has an 'owner' object with 'email' or 'username'
+        // And 'tags' is an array of strings or objects with a 'name' property
+        setComics(data.comics || data || []); 
       } catch (error) {
         console.error("Failed to load comics:", error);
+        setComics([]);
       } finally {
         setIsLoading(false);
       }
     };
-    
-    loadComics();
+
+    fetchComics();
   }, []);
   
   const filteredComics = comics.filter(comic => 
     comic.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     comic.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    comic.owner.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    comic.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+    (comic.owner && comic.owner.email && comic.owner.email.toLowerCase().includes(searchQuery.toLowerCase())) || // Adjusted for potential API structure
+    (comic.owner && comic.owner.username && comic.owner.username.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (comic.tags && comic.tags.some(tag => 
+      typeof tag === 'string' ? tag.toLowerCase().includes(searchQuery.toLowerCase()) : 
+      (tag.name && tag.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    ))
   );
   
   const formatDate = (dateString) => {
@@ -96,11 +58,27 @@ export function AdminComicsList() {
     }).format(date);
   };
   
-  const handleDeleteComic = (comicId) => {
-    // This would call an API endpoint to delete the comic
-    console.log(`Delete comic with ID: ${comicId}`);
-    // For demo, just remove from local state
-    setComics(comics.filter(comic => comic.id !== comicId));
+  const handleDeleteComic = async (comicId) => {
+    if (!window.confirm('Are you sure you want to delete this comic?')) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/comics/${comicId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to delete comic');
+      }
+      setComics(comics.filter(comic => comic.id !== comicId));
+      console.log(`Comic ${comicId} deleted successfully`);
+      // Add success toast/message here
+    } catch (error) {
+      console.error(`Failed to delete comic ${comicId}:`, error);
+      alert(`Error: ${error.message}`);
+      // Add error toast/message here
+    }
   };
   
   const handleEditComic = (comicId) => {
@@ -158,18 +136,19 @@ export function AdminComicsList() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
-                        <span>{comic.owner.name}</span>
-                        <span className="text-xs text-muted-foreground">{comic.owner.email}</span>
+                        {/* Adjust based on your User entity's fields available in Comic's owner serialization */}
+                        <span>{comic.owner?.username || comic.owner?.email || 'N/A'}</span> 
+                        {comic.owner?.email && <span className="text-xs text-muted-foreground">{comic.owner.email}</span>}
                       </div>
                     </TableCell>
                     <TableCell>{formatDate(comic.uploadedAt)}</TableCell>
                     <TableCell>{comic.pageCount}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1 max-w-[200px]">
-                        {comic.tags.map((tag, index) => (
-                          <Badge key={index} variant="outline" className="flex items-center gap-1">
+                        {comic.tags && comic.tags.map((tag, index) => (
+                          <Badge key={tag.id || index} variant="outline" className="flex items-center gap-1">
                             <TagIcon size={12} />
-                            {tag}
+                            {typeof tag === 'string' ? tag : tag.name} {/* Display tag name if it's an object */}
                           </Badge>
                         ))}
                       </div>

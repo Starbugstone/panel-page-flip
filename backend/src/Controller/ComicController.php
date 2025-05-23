@@ -42,8 +42,14 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        // Get comics for the current user
-        $comics = $entityManager->getRepository(Comic::class)->findBy(['owner' => $user]);
+        $comicRepository = $entityManager->getRepository(Comic::class);
+        if (in_array('ROLE_ADMIN', $user->getRoles())) {
+            // Admin: Get all comics
+            $comics = $comicRepository->findAll();
+        } else {
+            // Regular user: Get comics for the current user
+            $comics = $comicRepository->findBy(['owner' => $user]);
+        }
 
         // Transform comics to array
         $comicsArray = [];
@@ -78,10 +84,14 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        // Get comic by id and owner
-        $comic = $entityManager->getRepository(Comic::class)->findOneBy(['id' => $id, 'owner' => $user]);
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // Check permissions: Admin can access any, user only their own
+        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
+            return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN); // Or HTTP_NOT_FOUND
         }
 
         // Get reading progress if exists
@@ -239,10 +249,14 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        // Get comic by id and owner
-        $comic = $entityManager->getRepository(Comic::class)->findOneBy(['id' => $id, 'owner' => $user]);
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // Check permissions: Admin can update any, user only their own
+        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
+            return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN); // Or HTTP_NOT_FOUND
         }
 
         // Get data from request
@@ -319,7 +333,10 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
         
-        if ($comic->getUser() !== $user) {
+        // Check permissions: Admin can delete any, user only their own
+        // Assuming $comic->getOwner() is the correct method to get the owner User entity
+        // If your Comic entity uses $comic->getUser(), please adjust accordingly.
+        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
             return $this->json(['message' => 'You do not have permission to delete this comic'], Response::HTTP_FORBIDDEN);
         }
         
