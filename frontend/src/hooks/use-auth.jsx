@@ -85,14 +85,23 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
-      await fetch('/api/logout', {
+      // Use the new programmatic logout endpoint
+      const response = await fetch('/api/logout_user', {
         method: 'POST',
         credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
+      
+      if (!response.ok) {
+        console.warn('Logout API call failed, but proceeding with client-side logout');
+      }
     } catch (error) {
       console.error('Logout error:', error);
+      // Continue with client-side logout even if API call fails
     } finally {
-      // Even if the API call fails, clear the local user data
+      // Always clear local user data regardless of API response
       localStorage.removeItem('user');
       setUser(null);
     }

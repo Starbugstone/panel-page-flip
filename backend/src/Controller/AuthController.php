@@ -8,6 +8,10 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\Security\Http\Authentication\AuthenticationUtils;
+use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
+use Symfony\Component\Security\Http\Event\LogoutEvent;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Symfony\Component\HttpFoundation\RequestStack;
 
 #[Route('/api', name: 'api_')]
 class AuthController extends AbstractController
@@ -47,5 +51,33 @@ class AuthController extends AbstractController
         return $this->json([
             'message' => 'User is not authenticated',
         ], Response::HTTP_UNAUTHORIZED);
+    }
+    
+    /**
+     * Programmatic logout endpoint that doesn't rely on Symfony's security.yaml configuration
+     */
+    #[Route('/logout_user', name: 'logout_user', methods: ['POST'])]
+    public function logoutUser(
+        TokenStorageInterface $tokenStorage,
+        RequestStack $requestStack,
+        EventDispatcherInterface $eventDispatcher
+    ): JsonResponse
+    {
+        // Check if user is authenticated
+        if (!$this->getUser()) {
+            return $this->json([
+                'message' => 'No user to logout',
+            ]);
+        }
+        
+        // Programmatically invalidate the current user session
+        $logoutEvent = new LogoutEvent($requestStack->getCurrentRequest(), $tokenStorage->getToken());
+        $eventDispatcher->dispatch($logoutEvent);
+        $tokenStorage->setToken(null);
+        
+        // Return success response
+        return $this->json([
+            'message' => 'Logout successful',
+        ]);
     }
 }
