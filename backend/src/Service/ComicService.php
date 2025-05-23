@@ -148,21 +148,13 @@ class ComicService
             throw new \Exception($errorMsg);
         }
         
-        // Extract cover image from CBZ
-        $coverImagePath = $this->extractCoverImage(
-            $userDirectory . '/' . $newFilename, 
-            $safeFilename, 
-            $this->comicsDirectory
-        );
-
         // Count pages in CBZ
         $pageCount = $this->countPagesInCbz($userDirectory . '/' . $newFilename);
 
         // Create new comic entity
         $comic = new Comic();
         $comic->setTitle($title);
-        $comic->setFilePath($newFilename);
-        $comic->setCoverImagePath($coverImagePath);
+        $comic->setFilePath($newFilename); // Just the filename, e.g., "mycomic-uniqid.cbz"
         $comic->setPageCount($pageCount);
         $comic->setOwner($user);
 
@@ -193,9 +185,25 @@ class ComicService
                 $comic->addTag($tag);
             }
         }
-
-        // Save comic
+        
+        // Persist comic to get an ID
         $this->entityManager->persist($comic);
+        $this->entityManager->flush(); // Flush to get the ID
+
+        // Base filename for the cover, from original CBZ name
+        $baseCoverFilename = $this->slugger->slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME));
+        
+        // Extract cover image, using the generated comic ID
+        $coverImagePathRelativeToUserDir = $this->extractCoverImage(
+            $userDirectory . '/' . $newFilename, // Full absolute path to the CBZ file
+            $user,
+            $comic->getId(),
+            $baseCoverFilename
+        );
+
+        $comic->setCoverImagePath($coverImagePathRelativeToUserDir);
+
+        // Flush again to save the cover image path
         $this->entityManager->flush();
 
         return $comic;
@@ -209,35 +217,51 @@ class ComicService
      */
     public function deleteComic(Comic $comic): bool
     {
-        // Delete file from filesystem
-        $userDirectory = $this->comicsDirectory . '/' . $comic->getOwner()->getId();
-        $filePath = $userDirectory . '/' . $comic->getFilePath();
-        
-        // Try user directory first, then fallback to old path
-        if (!file_exists($filePath)) {
-            $filePath = $this->comicsDirectory . '/' . $comic->getFilePath();
-        }
-        
-        if (file_exists($filePath)) {
-            unlink($filePath);
+        $user = $comic->getOwner();
+        if (!$user) {
+            // Or throw an exception, as a comic should always have an owner
+            error_log("Comic with ID " . $comic->getId() . " has no owner. Cannot delete files properly.");
+            // Depending on policy, you might still proceed to delete the entity
+            // but file deletion will be compromised.
+            // For this implementation, we'll assume owner is always present for file operations.
+            // If not, the logic below for $user->getId() would fail.
+            // Consider adding a check here if $user can truly be null for a persisted Comic.
         }
 
-        // Delete cover image if exists
-        if ($comic->getCoverImagePath()) {
-            // Try both possible cover paths
-            $coverPath = $this->comicsDirectory . '/' . $comic->getCoverImagePath();
-            if (file_exists($coverPath)) {
-                unlink($coverPath);
+        // Delete CBZ file from filesystem
+        if ($user && $comic->getFilePath()) {
+            // $comic->getFilePath() stores just the filename, e.g., "mycomic-uniqid.cbz"
+            // It's stored directly under $this->comicsDirectory / $user->getId() /
+            $cbzFilePath = $this->comicsDirectory . '/' . $user->getId() . '/' . ltrim($comic->getFilePath(), '/');
+            if (file_exists($cbzFilePath)) {
+                unlink($cbzFilePath);
             }
-            
-            // Also check if there's a cover in a comic-specific directory
-            $comicIdPattern = '/\/covers\/([0-9]+)\//';
-            $coverPathWithoutComicId = preg_replace($comicIdPattern, '/covers/', $comic->getCoverImagePath());
-            $coverPathWithComicId = 'covers/' . $comic->getId() . '/' . basename($comic->getCoverImagePath());
-            
-            $alternateCoverPath = $this->comicsDirectory . '/' . $coverPathWithComicId;
-            if (file_exists($alternateCoverPath)) {
-                unlink($alternateCoverPath);
+        }
+
+        // Delete cover image if exists, using the new path structure
+        // $comic->getCoverImagePath() stores "covers/{comic_id}/actual_cover.jpg"
+        if ($user && $comic->getCoverImagePath()) {
+            $absoluteCoverPath = $this->comicsDirectory . '/' . $user->getId() . '/' . ltrim($comic->getCoverImagePath(), '/');
+            if (file_exists($absoluteCoverPath)) {
+                unlink($absoluteCoverPath);
+
+                // Attempt to remove the comic-specific cover directory (e.g., .../covers/{comic_id}/)
+                $comicCoverDir = dirname($absoluteCoverPath);
+                if (is_dir($comicCoverDir)) {
+                    // Check if directory is empty (contains only '.' and '..')
+                    $items = scandir($comicCoverDir);
+                    if (count($items) == 2) { // Only '.' and '..'
+                        rmdir($comicCoverDir);
+                        
+                        // Optionally, try to remove the parent 'covers' directory 
+                        // (e.g., public/uploads/comics/{user_id}/covers) if it's also empty.
+                        // This is generally safe if 'covers' directory only ever contains comic_id subdirectories.
+                        $userCoversDir = dirname($comicCoverDir); // This would be .../comics/{user_id}/covers
+                        if (basename($userCoversDir) === 'covers' && is_dir($userCoversDir) && count(scandir($userCoversDir)) == 2) {
+                            rmdir($userCoversDir);
+                        }
+                    }
+                }
             }
         }
 
@@ -253,21 +277,26 @@ class ComicService
      * 
      * @param string $cbzPath Path to the CBZ file
      * @param string $baseFilename Base filename for the cover image
-     * @param string $outputDir Base output directory
-     * @param int|null $comicId Optional comic ID for organizing covers
-     * @return string|null Path to the extracted cover image, relative to the output directory
+     * @param string $cbzAbsPath Full absolute path to the CBZ file
+     * @param User $user The user object
+     * @param int $comicId The ID of the comic (already persisted)
+     * @param string $baseCoverFilename Base filename for the cover image (slugged original CBZ name)
+     * @return string|null Path to the extracted cover image, relative to the user's comic directory.
+     *                     e.g., "covers/456/mycomic-cover-qwert.jpg"
      * @throws \Exception If there's an error extracting the cover image
      */
-    private function extractCoverImage(string $cbzPath, string $baseFilename, string $outputDir, ?int $comicId = null): ?string
+    private function extractCoverImage(string $cbzAbsPath, User $user, int $comicId, string $baseCoverFilename): ?string
     {
         // Verify the CBZ file exists
-        if (!file_exists($cbzPath)) {
-            throw new \Exception("CBZ file not found at path: {$cbzPath}");
+        if (!file_exists($cbzAbsPath)) {
+            error_log("CBZ file not found at path: {$cbzAbsPath}");
+            throw new \Exception("CBZ file not found at path: {$cbzAbsPath}");
         }
         
         $zip = new ZipArchive();
-        $openResult = $zip->open($cbzPath);
+        $openResult = $zip->open($cbzAbsPath);
         if ($openResult !== true) {
+            error_log("Failed to open CBZ file {$cbzAbsPath}. Error code: {$openResult}");
             throw new \Exception("Failed to open CBZ file. Error code: {$openResult}");
         }
 
@@ -275,6 +304,10 @@ class ComicService
         $imageFiles = [];
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $filename = $zip->getNameIndex($i);
+            // Skip files in macOS specific __MACOSX directory or other hidden files
+            if (strpos($filename, '__MACOSX/') === 0 || strpos($filename, '.') === 0) {
+                continue;
+            }
             $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
             if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
                 $imageFiles[] = $filename;
@@ -284,52 +317,55 @@ class ComicService
         // Sort image files naturally (1, 2, 10 instead of 1, 10, 2)
         usort($imageFiles, 'strnatcmp');
 
-        // Use the first image as cover
         if (empty($imageFiles)) {
             $zip->close();
+            error_log("No image files found in CBZ: {$cbzAbsPath}");
             throw new \Exception("No image files found in the CBZ archive");
         }
 
-        $coverImage = $imageFiles[0];
-        $coverExtension = strtolower(pathinfo($coverImage, PATHINFO_EXTENSION));
-        
-        // Organize covers by comic ID if available
-        $coverSubDir = 'covers';
-        if ($comicId !== null) {
-            $coverSubDir .= '/' . $comicId;
-        }
-        
-        $coverPath = $outputDir . '/' . $coverSubDir;
-        $coverFilename = $baseFilename . '-cover-' . uniqid() . '.' . $coverExtension;
+        $firstImageNameInZip = $imageFiles[0];
+        $coverExtension = strtolower(pathinfo($firstImageNameInZip, PATHINFO_EXTENSION));
+        $actualCoverFilename = $baseCoverFilename . '-cover-' . uniqid() . '.' . $coverExtension;
 
-        // Create covers directory if it doesn't exist
-        if (!file_exists($coverPath)) {
-            if (!mkdir($coverPath, 0777, true)) {
+        // Path where this specific comic's covers will be stored (absolute)
+        // $this->comicsDirectory is already '%kernel.project_dir%/public/uploads/comics'
+        $coverStorageDirAbs = $this->comicsDirectory . '/' . $user->getId() . '/covers/' . $comicId;
+
+        if (!file_exists($coverStorageDirAbs)) {
+            error_log("Creating cover directory: {$coverStorageDirAbs}");
+            if (!mkdir($coverStorageDirAbs, 0777, true)) {
                 $zip->close();
-                throw new \Exception("Failed to create covers directory: {$coverPath}");
+                error_log("Failed to create cover directory: {$coverStorageDirAbs}");
+                throw new \Exception("Failed to create cover directory: {$coverStorageDirAbs}");
             }
-            chmod($coverPath, 0777); // Ensure directory is writable
+            // No need to chmod 0777 on the final directory, parent directory permissions should suffice.
         }
 
-        // Extract cover image
-        $coverData = $zip->getFromName($coverImage);
-        if ($coverData === false) {
+        // Extract cover image data
+        $extractedImageData = $zip->getFromName($firstImageNameInZip);
+        if ($extractedImageData === false) {
             $zip->close();
-            throw new \Exception("Failed to extract cover image from CBZ file");
+            error_log("Failed to extract cover image data from {$firstImageNameInZip} in {$cbzAbsPath}");
+            throw new \Exception("Failed to extract cover image data from {$firstImageNameInZip} in {$cbzAbsPath}");
         }
         
-        $coverFullPath = $coverPath . '/' . $coverFilename;
-        if (file_put_contents($coverFullPath, $coverData) === false) {
+        $fullCoverPathOnDisk = $coverStorageDirAbs . '/' . $actualCoverFilename;
+        error_log("Saving cover image to disk: {$fullCoverPathOnDisk}");
+        if (file_put_contents($fullCoverPathOnDisk, $extractedImageData) === false) {
             $zip->close();
-            throw new \Exception("Failed to save cover image to: {$coverFullPath}");
+            error_log("Failed to save cover image to disk: {$fullCoverPathOnDisk}");
+            throw new \Exception("Failed to save cover image to disk: {$fullCoverPathOnDisk}");
         }
-        
-        // Ensure the cover image is readable
-        chmod($coverFullPath, 0644);
+        chmod($fullCoverPathOnDisk, 0644); // Ensure the file itself is readable
         
         $zip->close();
 
-        return $coverSubDir . '/' . $coverFilename;
+        // Return path relative to the user's main comic directory (e.g., "userId/covers/comicId/filename.jpg")
+        // The Comic->getCoverImagePath() should store "covers/comicId/filename.jpg"
+        // And the ComicController will prepend "userId/" to it.
+        // OR, more simply, the ComicController will prepend the *full base URL* up to "userId/"
+        // and this method returns the path *relative to the user's comic directory*.
+        return 'covers/' . $comicId . '/' . $actualCoverFilename;
     }
 
     /**

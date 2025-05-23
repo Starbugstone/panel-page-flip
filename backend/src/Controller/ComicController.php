@@ -13,8 +13,11 @@ use Symfony\Component\HttpFoundation\File\Exception\FileException;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\String\Slugger\SluggerInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 use ZipArchive;
@@ -23,16 +26,26 @@ use ZipArchive;
 class ComicController extends AbstractController
 {
     private string $tempUploadDir;
+    private RequestStack $requestStack;
+    private UrlGeneratorInterface $urlGenerator;
     
-    public function __construct(private string $comicsDirectory)
-    {
+    public function __construct(
+        private string $comicsDirectory,
+        RequestStack $requestStack,
+        UrlGeneratorInterface $urlGenerator
+    ) {
         $this->tempUploadDir = sys_get_temp_dir() . '/comic_uploads';
+        $this->requestStack = $requestStack;
+        $this->urlGenerator = $urlGenerator;
         
         // Ensure temp directory exists
         if (!file_exists($this->tempUploadDir)) {
             mkdir($this->tempUploadDir, 0777, true);
         }
     }
+
+    // Removed getPublicBaseUrlForUploads() method as it's no longer needed.
+
     #[Route('', name: 'list', methods: ['GET'])]
     public function list(EntityManagerInterface $entityManager): JsonResponse
     {
@@ -54,13 +67,36 @@ class ComicController extends AbstractController
         // Transform comics to array
         $comicsArray = [];
         foreach ($comics as $comic) {
+            $fullCoverUrl = null;
+            if ($comic->getCoverImagePath()) {
+                try {
+                    $filename = basename($comic->getCoverImagePath());
+                    $fullCoverUrl = $this->urlGenerator->generate(
+                        'api_comics_cover_image', // Ensure this matches the route name in getCoverImage
+                        [
+                            'userId' => $user->getId(),
+                            'comicId' => $comic->getId(),
+                            'filename' => $filename,
+                        ],
+                        UrlGeneratorInterface::ABSOLUTE_URL
+                    );
+                } catch (\Symfony\Component\Routing\Exception\RouteNotFoundException $e) {
+                    // Log the error (e.g., using Monolog or error_log)
+                    error_log("Route 'api_comics_cover_image' not found for comic ID " . $comic->getId() . ": " . $e->getMessage());
+                    // $fullCoverUrl remains null
+                } catch (\Exception $e) {
+                    error_log("Error generating cover URL for comic ID " . $comic->getId() . ": " . $e->getMessage());
+                    // $fullCoverUrl remains null
+                }
+            }
+
             $comicsArray[] = [
                 'id' => $comic->getId(),
                 'title' => $comic->getTitle(),
                 'author' => $comic->getAuthor(),
                 'publisher' => $comic->getPublisher(),
                 'description' => $comic->getDescription(),
-                'coverImagePath' => $comic->getCoverImagePath(),
+                'coverImagePath' => $fullCoverUrl,
                 'pageCount' => $comic->getPageCount(),
                 'uploadedAt' => $comic->getUploadedAt()->format('c'),
                 'tags' => array_map(function ($tag) {
@@ -99,13 +135,35 @@ class ComicController extends AbstractController
             ->findOneBy(['comic' => $comic, 'user' => $user]);
 
         // Transform comic to array
+        $fullCoverUrl = null;
+        if ($comic->getCoverImagePath()) {
+            try {
+                $filename = basename($comic->getCoverImagePath());
+                $fullCoverUrl = $this->urlGenerator->generate(
+                    'api_comics_cover_image', // Ensure this matches the route name in getCoverImage
+                    [
+                        'userId' => $user->getId(),
+                        'comicId' => $comic->getId(),
+                        'filename' => $filename,
+                    ],
+                    UrlGeneratorInterface::ABSOLUTE_URL
+                );
+            } catch (\Symfony\Component\Routing\Exception\RouteNotFoundException $e) {
+                error_log("Route 'api_comics_cover_image' not found for comic ID " . $comic->getId() . ": " . $e->getMessage());
+                // $fullCoverUrl remains null
+            } catch (\Exception $e) {
+                error_log("Error generating cover URL for comic ID " . $comic->getId() . ": " . $e->getMessage());
+                // $fullCoverUrl remains null
+            }
+        }
+
         $comicArray = [
             'id' => $comic->getId(),
             'title' => $comic->getTitle(),
             'author' => $comic->getAuthor(),
             'publisher' => $comic->getPublisher(),
             'description' => $comic->getDescription(),
-            'coverImagePath' => $comic->getCoverImagePath(),
+            'coverImagePath' => $fullCoverUrl,
             'pageCount' => $comic->getPageCount(),
             'uploadedAt' => $comic->getUploadedAt()->format('c'),
             'tags' => array_map(function ($tag) {
@@ -809,3 +867,50 @@ class ComicController extends AbstractController
         return $mimeTypes[$extension] ?? 'application/octet-stream';
     }
 }
+
+    #[Route('/cover/{userId}/{comicId}/{filename}', name: 'cover_image', methods: ['GET'])]
+    public function getCoverImage(int $userId, int $comicId, string $filename, EntityManagerInterface $entityManager): Response
+    {
+        /** @var \App\Entity\User|null $currentUser */
+        $currentUser = $this->getUser();
+        if (!$currentUser) {
+            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        if ($currentUser->getId() !== $userId) {
+            // Log this attempt, as it could be a sign of probing or misconfiguration
+            error_log("Forbidden access attempt: User {$currentUser->getId()} tried to access cover for user {$userId}.");
+            return $this->json(['message' => 'Forbidden.'], Response::HTTP_FORBIDDEN);
+        }
+
+        $comic = $entityManager->getRepository(Comic::class)->findOneBy(['id' => $comicId, 'owner' => $currentUser]);
+        if (!$comic) {
+            return $this->json(['message' => 'Comic not found or not owned by user.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $coverPath = $comic->getCoverImagePath(); // This is relative to user's comic dir, e.g., "covers/COMIC_ID/file.jpg"
+        if (!$coverPath) {
+            return $this->json(['message' => 'Comic has no cover image path.'], Response::HTTP_NOT_FOUND);
+        }
+        
+        $expectedFilename = basename($coverPath);
+        if ($filename !== $expectedFilename) {
+            error_log("Requested filename '{$filename}' does not match expected '{$expectedFilename}' for comic ID {$comicId} by user ID {$userId}");
+            return $this->json(['message' => 'Invalid filename requested.'], Response::HTTP_NOT_FOUND);
+        }
+
+        // $this->comicsDirectory is the base path like "/var/www/public/uploads/comics"
+        // $currentUser->getId() is the user's ID
+        // $coverPath is "covers/{comic_id}/actual_cover.jpg"
+        $absolutePath = $this->comicsDirectory . '/' . $currentUser->getId() . '/' . ltrim($coverPath, '/');
+
+        if (!file_exists($absolutePath) || !is_readable($absolutePath)) {
+            error_log("Cover file not found on disk or not readable: {$absolutePath} for comic ID {$comicId}, user ID {$userId}");
+            return $this->json(['message' => 'Cover image file not found on server.'], Response::HTTP_NOT_FOUND);
+        }
+
+        // Use BinaryFileResponse to serve the image
+        // This handles Content-Type, Content-Length, and other necessary headers.
+        // It also supports range requests if the client asks for partial content.
+        return new BinaryFileResponse($absolutePath);
+    }
