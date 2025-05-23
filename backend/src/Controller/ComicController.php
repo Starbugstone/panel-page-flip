@@ -71,19 +71,8 @@ class ComicController extends AbstractController
             if ($comic->getCoverImagePath()) {
                 try {
                     $filename = basename($comic->getCoverImagePath());
-                    $fullCoverUrl = $this->urlGenerator->generate(
-                        'api_comics_cover_image', // Ensure this matches the route name in getCoverImage
-                        [
-                            'userId' => $user->getId(),
-                            'comicId' => $comic->getId(),
-                            'filename' => $filename,
-                        ],
-                        UrlGeneratorInterface::ABSOLUTE_URL
-                    );
-                } catch (\Symfony\Component\Routing\Exception\RouteNotFoundException $e) {
-                    // Log the error (e.g., using Monolog or error_log)
-                    error_log("Route 'api_comics_cover_image' not found for comic ID " . $comic->getId() . ": " . $e->getMessage());
-                    // $fullCoverUrl remains null
+                    // Manually construct the URL path to avoid using internal Docker hostnames
+                    $fullCoverUrl = '/api/comics/cover/' . $user->getId() . '/' . $comic->getId() . '/' . $filename;
                 } catch (\Exception $e) {
                     error_log("Error generating cover URL for comic ID " . $comic->getId() . ": " . $e->getMessage());
                     // $fullCoverUrl remains null
@@ -139,18 +128,8 @@ class ComicController extends AbstractController
         if ($comic->getCoverImagePath()) {
             try {
                 $filename = basename($comic->getCoverImagePath());
-                $fullCoverUrl = $this->urlGenerator->generate(
-                    'api_comics_cover_image', // Ensure this matches the route name in getCoverImage
-                    [
-                        'userId' => $user->getId(),
-                        'comicId' => $comic->getId(),
-                        'filename' => $filename,
-                    ],
-                    UrlGeneratorInterface::ABSOLUTE_URL
-                );
-            } catch (\Symfony\Component\Routing\Exception\RouteNotFoundException $e) {
-                error_log("Route 'api_comics_cover_image' not found for comic ID " . $comic->getId() . ": " . $e->getMessage());
-                // $fullCoverUrl remains null
+                // Manually construct the URL path to avoid using internal Docker hostnames
+                $fullCoverUrl = '/api/comics/cover/' . $user->getId() . '/' . $comic->getId() . '/' . $filename;
             } catch (\Exception $e) {
                 error_log("Error generating cover URL for comic ID " . $comic->getId() . ": " . $e->getMessage());
                 // $fullCoverUrl remains null

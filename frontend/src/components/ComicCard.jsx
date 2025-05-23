@@ -20,6 +20,7 @@ export function ComicCard({ comic, onResetProgress }) {
     onResetProgress(comic.id);
     setIsResetDialogOpen(false);
   };
+  console.log(comic);
   
   return (
     <>
@@ -27,7 +28,7 @@ export function ComicCard({ comic, onResetProgress }) {
         <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg border-2 hover:border-comic-purple">
           <div className="relative pt-[140%] bg-muted overflow-hidden">
             <img 
-              src={comic.coverImage} 
+              src={comic.coverImagePath} 
               alt={comic.title} 
               className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-105"
             />
