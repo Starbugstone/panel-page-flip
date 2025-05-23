@@ -49,6 +49,27 @@ class UserController extends AbstractController
         return $this->json(['users' => $usersArray]);
     }
 
+    #[Route('/me', name: 'me', methods: ['GET'])]
+    public function me(): JsonResponse
+    {
+        // Get the current user and assert its type
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // Return user data
+        return $this->json([
+            'user' => [
+                'id' => $user->getId(),
+                'email' => $user->getEmail(),
+                'name' => $user->getName(),
+                'roles' => $user->getRoles(),
+                'isAdmin' => in_array('ROLE_ADMIN', $user->getRoles())
+            ]
+        ]);
+    }
+
     #[Route('/{id}', name: 'get', methods: ['GET'])]
     public function get(int $id, EntityManagerInterface $entityManager): JsonResponse
     {
@@ -255,24 +276,5 @@ class UserController extends AbstractController
         return $this->json(['message' => 'User deleted successfully']);
     }
 
-    #[Route('/me', name: 'me', methods: ['GET'])]
-    public function me(): JsonResponse
-    {
-        // Get the current user and assert its type
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
-        }
-
-        // Return user data
-        return $this->json([
-            'user' => [
-                'id' => $user->getId(),
-                'email' => $user->getEmail(),
-                'name' => $user->getName(),
-                'roles' => $user->getRoles(),
-                'isAdmin' => in_array('ROLE_ADMIN', $user->getRoles())
-            ]
-        ]);
-    }
 }
+
