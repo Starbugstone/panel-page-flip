@@ -24,17 +24,32 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
   }, []);
 
   if (isReaderPage) {
-    // If in fullscreen mode, use hover effect; otherwise, always show the header
-    return (
-      <header className={`fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-background/90 to-transparent p-4 ${isFullscreen ? 'opacity-0 hover:opacity-100 transition-opacity duration-300' : 'opacity-100'}`}>
-        <div className="flex justify-between items-center">
-          <Link to="/dashboard" className="text-foreground hover:text-comic-purple">
-            Back to Library
-          </Link>
-          <ThemeToggle />
-        </div>
-      </header>
-    );
+    // In fullscreen mode, use fixed position with hover effect
+    // In normal mode, use relative position with minimal height
+    if (isFullscreen) {
+      return (
+        <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-background/90 to-transparent p-2 opacity-0 hover:opacity-100 transition-opacity duration-300">
+          <div className="flex justify-between items-center">
+            <Link to="/dashboard" className="text-foreground hover:text-comic-purple text-sm">
+              Back to Library
+            </Link>
+            <ThemeToggle />
+          </div>
+        </header>
+      );
+    } else {
+      // Compact header for normal mode with relative positioning
+      return (
+        <header className="relative w-full bg-background border-b border-border py-1 px-4">
+          <div className="flex justify-between items-center">
+            <Link to="/dashboard" className="text-foreground hover:text-comic-purple text-sm">
+              Back to Library
+            </Link>
+            <ThemeToggle />
+          </div>
+        </header>
+      );
+    }
   }
 
   return (

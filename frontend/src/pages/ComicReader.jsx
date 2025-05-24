@@ -613,7 +613,6 @@ export default function ComicReader() {
   return (
     <div className="min-h-screen flex flex-col items-center bg-background overflow-hidden">
       {/* Navigation areas for clicking left/right sides of screen */}
-      {/* Navigation areas for clicking left/right sides of screen */}
       <div 
         className={`page-navigation left-0 ${isFullscreen ? 'z-[55]' : ''}`}
         onClick={() => handleScreenNavClick('left')}
@@ -625,7 +624,9 @@ export default function ComicReader() {
         onClick={() => handleScreenNavClick('right')}
         aria-label="Next page"
       ></div>
-      <div className="max-w-4xl w-full h-[calc(100vh-8rem)] flex items-center justify-center py-8">
+      
+      {/* Main content area - adjusted height to account for the header in normal mode */}
+      <div className={`max-w-4xl w-full ${isFullscreen ? 'h-[calc(100vh-8rem)]' : 'h-[calc(100vh-10rem)]'} flex items-center justify-center py-4`}>
         <div 
           ref={imageContainerRef}
           className={`relative max-h-full w-full h-full flex items-center justify-center ${isFullscreen ? 'fullscreen-container' : ''}`}
