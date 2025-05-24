@@ -3,6 +3,7 @@
 namespace App\Repository;
 
 use App\Entity\ShareToken;
+use App\Entity\User;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -19,6 +20,26 @@ class ShareTokenRepository extends ServiceEntityRepository
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, ShareToken::class);
+    }
+    
+    /**
+     * Count recent share tokens created by a user within a specific time period
+     * Used for rate limiting share invitations
+     *
+     * @param User $user The user who created the share tokens
+     * @param \DateTimeInterface $since The datetime since when to count shares
+     * @return int Number of shares created by the user since the specified time
+     */
+    public function countRecentSharesByUser(User $user, \DateTimeInterface $since): int
+    {
+        return $this->createQueryBuilder('s')
+            ->select('COUNT(s.id)')
+            ->andWhere('s.sharedByUser = :user')
+            ->andWhere('s.createdAt >= :since')
+            ->setParameter('user', $user)
+            ->setParameter('since', $since)
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 
     //    /**

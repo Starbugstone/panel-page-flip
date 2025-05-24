@@ -37,8 +37,10 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, apiBaseU
   }, [isOpen, comicId]);
 
   const isValidEmail = (email) => {
-    // Basic email validation
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    // More comprehensive email validation
+    // This regex checks for most common email format requirements
+    return /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(email) && 
+      email.length <= 254; // RFC 5321 SMTP limit
   };
 
   const handleShare = async () => {
@@ -64,7 +66,21 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, apiBaseU
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || `Failed to share comic. Status: ${response.status}`);
+        // Handle specific error cases with user-friendly messages
+        if (response.status === 429) {
+          throw new Error('You have sent too many share invitations recently. Please try again later.');
+        } else if (response.status === 401) {
+          throw new Error('You need to be logged in to share comics.');
+        } else if (response.status === 403) {
+          throw new Error('You do not have permission to share this comic.');
+        } else if (response.status === 404) {
+          throw new Error('Comic not found.');
+        } else if (response.status === 409) {
+          throw new Error('This comic has already been shared with this email address.');
+        } else {
+          // Generic error message that doesn't expose implementation details
+          throw new Error(data.error || 'An error occurred while sharing the comic. Please try again.');
+        }
       }
 
       setSuccessMessage(`Invitation sent to ${recipientEmail}!`);

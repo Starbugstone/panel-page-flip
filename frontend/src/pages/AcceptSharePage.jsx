@@ -3,7 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertCircle, CheckCircle2, BookOpen } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function AcceptSharePage() {
   const [isLoading, setIsLoading] = useState(true);
@@ -14,6 +15,7 @@ export default function AcceptSharePage() {
   const { token } = useParams();
   const navigate = useNavigate();
   const auth = useAuth();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (auth.loading) {
@@ -50,16 +52,16 @@ export default function AcceptSharePage() {
             throw new Error(data.error || `Failed to accept share. Status: ${response.status}`);
           }
           
-          // Assuming the response structure is like: { id: ..., title: ..., ... } for the new comic
-          // Or if it's nested: data.comic.title
-          // Based on previous controller, it's flat: { id: ..., title: ..., ... }
-          setAcceptedComicTitle(data.title || "the comic"); 
+          // Store the comic details for display and navigation
+          setAcceptedComicTitle(data.title || "the comic");
           setSuccessMessage("Comic successfully added to your library!");
           
-          // Optional: Invalidate comic list cache or trigger re-fetch for dashboard.
-          // This is an advanced feature not explicitly required here.
-          // For example, if using a global state manager like Zustand or Redux,
-          // one might dispatch an action here. Or use a custom event.
+          // Show a toast notification that will persist even after navigation
+          toast({
+            title: "Comic Added to Library",
+            description: `${data.title || "Comic"} has been added to your collection.`,
+            duration: 5000
+          });
 
         } catch (err) {
           setError(err.message || "An unexpected error occurred while accepting the share.");
@@ -124,9 +126,20 @@ export default function AcceptSharePage() {
           <AlertDescription className="mb-4">
             Success! '{acceptedComicTitle}' has been added to your collection.
           </AlertDescription>
-          <Button onClick={() => navigate("/dashboard")} className="mt-4">
-            Go to Dashboard
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3 mt-4 justify-center">
+            <Button 
+              onClick={() => navigate("/dashboard")} 
+              className="flex items-center gap-2">
+              Go to Dashboard
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => navigate(`/read/${acceptedComicTitle}`)} 
+              className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4" />
+              Start Reading
+            </Button>
+          </div>
         </Alert>
       );
     }

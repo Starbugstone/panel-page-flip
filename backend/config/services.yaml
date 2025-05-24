@@ -7,6 +7,18 @@ parameters:
     comics_directory: '%kernel.project_dir%/public/uploads/comics'
     mailer_from_address: '%env(MAILER_FROM_ADDRESS)%'
     mailer_from_name: '%env(MAILER_FROM_NAME)%'
+    # Frontend URL configuration with fallbacks
+    # Priority: FRONTEND_URL env var > FRONTEND_HOST/PORT/SCHEME env vars > defaults
+    frontend_scheme: '%env(default:frontend_scheme_default:FRONTEND_SCHEME)%'
+    frontend_scheme_default: 'http'
+    frontend_host: '%env(default:frontend_host_default:FRONTEND_HOST)%'
+    frontend_host_default: 'localhost'
+    frontend_port: '%env(default:frontend_port_default:FRONTEND_PORT)%'
+    frontend_port_default: '3001'
+    # Complete frontend URL (overrides individual components if set)
+    frontend_url: '%env(default:frontend_url_constructed:FRONTEND_URL)%'
+    # Constructed URL from components if FRONTEND_URL is not set
+    frontend_url_constructed: '%frontend_scheme%://%frontend_host%:%frontend_port%'
 
 services:
     # default configuration for services in *this* file
@@ -47,3 +59,9 @@ services:
     App\Controller\ComicController:
         arguments:
             $comicsDirectory: '%comics_directory%'
+            
+    # Share controller with comics directory and frontend URL configuration
+    App\Controller\ShareController:
+        arguments:
+            $comicsDirectory: '%comics_directory%'
+            $frontendUrl: '%frontend_url%'

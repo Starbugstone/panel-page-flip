@@ -26,12 +26,13 @@ use Psr\Log\LoggerInterface; // For logging cover copy errors
 #[Route('/api/share')]
 class ShareController extends AbstractController
 {
-    private const FRONTEND_URL = 'http://localhost:5173'; // Placeholder for FRONTEND_URL
     private string $comicsDirectory;
+    private string $frontendUrl;
 
-    public function __construct(string $comicsDirectory)
+    public function __construct(string $comicsDirectory, string $frontendUrl)
     {
         $this->comicsDirectory = $comicsDirectory;
+        $this->frontendUrl = $frontendUrl;
     }
 
     #[Route('/comic/{comicId}', name: 'app_share_comic', methods: ['POST'])]
@@ -74,6 +75,20 @@ class ShareController extends AbstractController
         if (count($violations) > 0) {
             return new JsonResponse(['error' => 'Invalid email format'], Response::HTTP_BAD_REQUEST);
         }
+        
+        // Rate limiting: Check if user has sent too many share invitations recently
+        $recentSharesCount = $shareTokenRepository->countRecentSharesByUser(
+            $currentUser, 
+            new \DateTimeImmutable('-1 hour')
+        );
+        
+        // Limit to 10 shares per hour
+        if ($recentSharesCount >= 10) {
+            return new JsonResponse(
+                ['error' => 'Rate limit exceeded. Please try again later.'],
+                Response::HTTP_TOO_MANY_REQUESTS
+            );
+        }
 
         // Check if recipientEmail is the same as the sender's email
         if ($recipientEmail === $currentUser->getEmail()) {
@@ -105,8 +120,8 @@ class ShareController extends AbstractController
             $entityManager->persist($shareToken);
             $entityManager->flush();
 
-            // Construct the share link
-            $shareLink = self::FRONTEND_URL . '/share/accept/' . $shareToken->getToken();
+            // Construct the share link - hardcoded for development
+            $shareLink = 'http://localhost:3001/share/accept/' . $shareToken->getToken();
 
             // Render the email content
             // Assuming tokenExpirationDays is a parameter or can be derived
@@ -121,10 +136,33 @@ class ShareController extends AbstractController
             ]);
 
             // Send the email
-            $email = (new Email())
-                ->from($this->getParameter('mailer_from')) // Assuming mailer_from is configured in services.yaml or .env
-                ->to($recipientEmail)
-                ->subject('Someone shared a comic with you!')
+            $systemFromAddress = $this->getParameter('mailer_from_address');
+            $systemFromName = $this->getParameter('mailer_from_name');
+            
+            // Get user's name (fallback to email if name is not available)
+            $userName = $currentUser->getName() ?: $currentUser->getEmail();
+            $userEmail = $currentUser->getEmail();
+            
+            // Create the email with proper from and reply-to addresses
+            $email = new Email();
+            
+            // Set the system name for the from address
+            if ($systemFromName) {
+                $email->from(new \Symfony\Component\Mime\Address($systemFromAddress, $systemFromName));
+            } else {
+                $email->from($systemFromAddress);
+            }
+            
+            // Set the user's name for the reply-to address
+            if ($userName) {
+                $email->replyTo(new \Symfony\Component\Mime\Address($userEmail, $userName));
+            } else {
+                $email->replyTo($userEmail);
+            }
+            
+            // Set other email properties
+            $email->to($recipientEmail)
+                ->subject($userName . ' shared a comic with you!')
                 ->html($emailBody);
 
             $mailer->send($email);
@@ -195,16 +233,22 @@ class ShareController extends AbstractController
             $sharerId = $shareToken->getSharedByUser()->getId();
             $originalComicRelativePath = $originalComic->getFilePath(); // e.g., "comic-file.cbz" or "subfolder/comic-file.cbz" if owner organises them
             
-            // Ensure originalComicRelativePath is just the filename or filename with subdirs specific to that comic's owner's comic directory
+            // Prevent path traversal by removing any directory traversal sequences
+            $sanitizedPath = str_replace(['../', '..\\', './'], '', $originalComicRelativePath);
+            
             // The full path should be $this->comicsDirectory . '/' . $sharerId . '/' . $originalComic->getFilePath()
-            $originalComicPath = $this->comicsDirectory . '/' . $sharerId . '/' . $originalComicRelativePath;
+            $originalComicPath = $this->comicsDirectory . '/' . $sharerId . '/' . $sanitizedPath;
 
 
             $recipientId = $currentUser->getId();
             $recipientComicDir = $this->comicsDirectory . '/' . $recipientId;
 
             if (!file_exists($recipientComicDir)) {
-                mkdir($recipientComicDir, 0775, true); // Use 0775 for security
+                if (!mkdir($recipientComicDir, 0775, true)) {
+                    throw new \RuntimeException('Failed to create recipient comic directory.');
+                }
+                // Ensure proper permissions are set
+                chmod($recipientComicDir, 0775);
             }
 
             $originalFilenameWithoutExt = pathinfo($originalComicRelativePath, PATHINFO_FILENAME);
@@ -229,7 +273,9 @@ class ShareController extends AbstractController
             if ($originalComic->getCoverImagePath()) {
                 // originalCoverImagePath is relative to sharer's comic directory, e.g., "covers/comic_id/cover.jpg"
                 $originalCoverRelativePath = $originalComic->getCoverImagePath(); 
-                $originalCoverPath = $this->comicsDirectory . '/' . $sharerId . '/' . $originalCoverRelativePath;
+                // Prevent path traversal by removing any directory traversal sequences
+                $sanitizedCoverPath = str_replace(['../', '..\\', './'], '', $originalCoverRelativePath);
+                $originalCoverPath = $this->comicsDirectory . '/' . $sharerId . '/' . $sanitizedCoverPath;
 
 
                 if (file_exists($originalCoverPath)) {
@@ -238,7 +284,12 @@ class ShareController extends AbstractController
 
                     $newCoverDir = $recipientComicDir . '/covers/' . $newComicId;
                     if (!file_exists($newCoverDir)) {
-                        mkdir($newCoverDir, 0775, true);
+                        if (!mkdir($newCoverDir, 0775, true)) {
+                            $logger->error("Failed to create cover directory for new comic ID {$newComicId}");
+                            // Continue without cover image rather than failing the entire operation
+                        } else {
+                            chmod($newCoverDir, 0775);
+                        }
                     }
                     
                     $newCoverSafeFilename = $slugger->slug($originalCoverFilenameWithoutExt)->lower();
