@@ -478,16 +478,19 @@ export default function ComicReader() {
       return;
     }
     
+    // Store the current page to ensure we stay on it
+    const pageToReload = currentPage;
+    
     // Show toast to indicate reload is happening
     toast({
       title: "Reloading page",
-      description: `Forcing reload of page ${currentPage + 1}`,
+      description: `Forcing reload of page ${pageToReload + 1}`,
     });
     
     // Clear the current page from cache
     setImageCache(prevCache => {
       const newCache = { ...prevCache };
-      delete newCache[currentPage]; // Remove from cache to force reload
+      delete newCache[pageToReload]; // Remove from cache to force reload
       return newCache;
     });
     
@@ -497,10 +500,20 @@ export default function ComicReader() {
     
     // Force reload by adding a unique timestamp to the URL
     const img = new Image();
-    const url = `${comicPages[currentPage]}?_force_reload=${Date.now()}`;
+    const url = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
     
     img.onload = () => {
       try {
+        // Make sure we're still on the same page
+        if (currentPage !== pageToReload) {
+          // If page has changed, just update the cache but don't change UI
+          setImageCache(prev => ({
+            ...prev,
+            [pageToReload]: img
+          }));
+          return;
+        }
+        
         // Convert to data URL to prevent network requests
         const canvas = document.createElement('canvas');
         canvas.width = img.width;
@@ -516,40 +529,48 @@ export default function ComicReader() {
         // Update cache with the new image
         setImageCache(prev => ({
           ...prev,
-          [currentPage]: cachedImg
+          [pageToReload]: cachedImg
         }));
         
-        // Update UI state
+        // Update UI state only if we're still on the same page
         setIsPageImageLoading(false);
         setImageLoadedSuccessfully(true);
         
         // Success toast
         toast({
           title: "Page reloaded",
-          description: `Successfully reloaded page ${currentPage + 1}`,
+          description: `Successfully reloaded page ${pageToReload + 1}`,
           variant: "success",
         });
       } catch (error) {
         console.error("Error reloading page:", error);
-        toast({
-          title: "Error reloading",
-          description: "There was a problem reloading the page. Please try again.",
-          variant: "destructive",
-        });
-        setIsPageImageLoading(false);
-        setImageLoadedSuccessfully(false);
+        
+        // Only show error if we're still on the same page
+        if (currentPage === pageToReload) {
+          toast({
+            title: "Error reloading",
+            description: "There was a problem reloading the page. Please try again.",
+            variant: "destructive",
+          });
+          setIsPageImageLoading(false);
+          setImageLoadedSuccessfully(false);
+        }
       }
     };
     
     img.onerror = () => {
       console.error("Failed to reload image");
-      toast({
-        title: "Reload failed",
-        description: "Could not reload the page. Please try again later.",
-        variant: "destructive",
-      });
-      setIsPageImageLoading(false);
-      setImageLoadedSuccessfully(false);
+      
+      // Only show error if we're still on the same page
+      if (currentPage === pageToReload) {
+        toast({
+          title: "Reload failed",
+          description: "Could not reload the page. Please try again later.",
+          variant: "destructive",
+        });
+        setIsPageImageLoading(false);
+        setImageLoadedSuccessfully(false);
+      }
     };
     
     // Set the source to start loading
