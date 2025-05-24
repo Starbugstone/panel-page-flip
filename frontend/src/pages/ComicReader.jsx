@@ -819,7 +819,7 @@ export default function ComicReader() {
       </div>
       
       {/* Reader controls - different styling in fullscreen mode */}
-      <div className={isFullscreen ? "fullscreen-reader-controls" : "reader-controls"}>
+      <div className={isFullscreen ? "reader-controls-fullscreen" : "reader-controls"}>
         <Button
           variant="outline"
           onClick={handlePreviousPage}

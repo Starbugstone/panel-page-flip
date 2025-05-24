@@ -86,6 +86,10 @@
   }
 
   .reader-controls {
+    @apply fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background/90 to-transparent p-4 opacity-100 flex justify-between items-center;
+  }
+  
+  .reader-controls-fullscreen {
     @apply fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background/90 to-transparent p-4 opacity-0 transition-opacity duration-300 hover:opacity-100 flex justify-between items-center;
   }
 
