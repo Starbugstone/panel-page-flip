@@ -88,4 +88,21 @@ class ShareTokenRepository extends ServiceEntityRepository
     //            ->getOneOrNullResult()
     //        ;
     //    }
+    
+    /**
+     * Find expired share tokens that haven't been used yet
+     * 
+     * @param \DateTimeInterface $now The current datetime
+     * @return ShareToken[] Array of expired share tokens
+     */
+    public function findExpiredTokens(\DateTimeInterface $now): array
+    {
+        return $this->createQueryBuilder('s')
+            ->andWhere('s.expiresAt < :now')
+            ->andWhere('s.isUsed = :isUsed')
+            ->setParameter('now', $now)
+            ->setParameter('isUsed', false)
+            ->getQuery()
+            ->getResult();
+    }
 }

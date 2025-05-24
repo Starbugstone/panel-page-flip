@@ -28,11 +28,19 @@ class ShareController extends AbstractController
 {
     private string $comicsDirectory;
     private string $frontendUrl;
+    private string $publicSharesDirectory;
 
-    public function __construct(string $comicsDirectory, string $frontendUrl)
+    public function __construct(string $comicsDirectory, string $frontendUrl, string $publicSharesDirectory = null)
     {
         $this->comicsDirectory = $comicsDirectory;
         $this->frontendUrl = $frontendUrl;
+        // If not explicitly provided, use a subdirectory of the comics directory
+        $this->publicSharesDirectory = $publicSharesDirectory ?? $comicsDirectory . '/public_shares';
+        
+        // Ensure the public shares directory exists
+        if (!file_exists($this->publicSharesDirectory)) {
+            mkdir($this->publicSharesDirectory, 0775, true);
+        }
     }
     
     #[Route('/pending', name: 'app_share_pending', methods: ['GET'])]
@@ -172,6 +180,24 @@ class ShareController extends AbstractController
         try {
             // Create a new ShareToken entity
             $shareToken = new ShareToken($comic, $currentUser, $recipientEmail);
+            
+            // Copy the comic cover to the public shares directory if it exists
+            if ($comic->getCoverImagePath()) {
+                $userId = $currentUser->getId();
+                $coverPath = $this->comicsDirectory . '/' . $userId . '/' . $comic->getCoverImagePath();
+                
+                if (file_exists($coverPath)) {
+                    // Create a unique filename for the shared cover
+                    $sharedCoverFilename = 'share_' . $shareToken->getToken() . '_' . basename($comic->getCoverImagePath());
+                    $sharedCoverPath = $this->publicSharesDirectory . '/' . $sharedCoverFilename;
+                    
+                    // Copy the cover to the public shares directory
+                    copy($coverPath, $sharedCoverPath);
+                    
+                    // Store the public path in the token
+                    $shareToken->setPublicCoverPath('shared/' . $sharedCoverFilename);
+                }
+            }
 
             // Persist the ShareToken entity
             $entityManager->persist($shareToken);
@@ -350,22 +376,37 @@ class ShareController extends AbstractController
             foreach ($originalTags as $originalTag) {
                 $tagName = $originalTag->getName();
                 
-                // Check if the user already has this tag
-                $existingTag = $tagRepository->findOneBy([
-                    'name' => $tagName,
-                    'owner' => $currentUser
-                ]);
-                
-                if (!$existingTag) {
-                    // Create a new tag for the user
-                    $newTag = new Tag();
-                    $newTag->setName($tagName);
-                    $newTag->setOwner($currentUser);
-                    $entityManager->persist($newTag);
-                    $newComic->addTag($newTag);
-                } else {
-                    // Use the existing tag
-                    $newComic->addTag($existingTag);
+                try {
+                    // Check if the user already has this tag
+                    $existingTag = $tagRepository->findOneBy([
+                        'name' => $tagName,
+                        'creator' => $currentUser
+                    ]);
+                    
+                    if (!$existingTag) {
+                        // Create a new tag for the user
+                        $newTag = new Tag();
+                        $newTag->setName($tagName);
+                        $newTag->setCreator($currentUser);
+                        $entityManager->persist($newTag);
+                        $entityManager->flush(); // Flush immediately to catch any constraint violations
+                        $newComic->addTag($newTag);
+                    } else {
+                        // Use the existing tag
+                        $newComic->addTag($existingTag);
+                    }
+                } catch (\Exception $e) {
+                    // Log the error but continue with the process
+                    $logger->warning(sprintf('Could not add tag "%s": %s', $tagName, $e->getMessage()));
+                    // If there was an error, try to find the tag again (it might have been created in a race condition)
+                    $existingTag = $tagRepository->findOneBy([
+                        'name' => $tagName,
+                        'creator' => $currentUser
+                    ]);
+                    
+                    if ($existingTag) {
+                        $newComic->addTag($existingTag);
+                    }
                 }
             }
 

@@ -47,6 +47,9 @@ class ShareToken
     #[Assert\NotNull]
     private \DateTimeImmutable $expiresAt;
 
+    #[ORM\Column(type: 'string', length: 255, nullable: true)]
+    private ?string $publicCoverPath = null;
+
     public function __construct(Comic $comic, User $sharedByUser, string $sharedWithEmail)
     {
         $this->token = Uuid::v4()->toBase58();
@@ -134,5 +137,14 @@ class ShareToken
         return $this;
     }
 
+    public function getPublicCoverPath(): ?string
+    {
+        return $this->publicCoverPath;
+    }
 
+    public function setPublicCoverPath(?string $publicCoverPath): self
+    {
+        $this->publicCoverPath = $publicCoverPath;
+        return $this;
+    }
 }

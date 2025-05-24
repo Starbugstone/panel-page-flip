@@ -39,7 +39,7 @@ export default function AcceptSharePage() {
 
         try {
           const response = await fetch(`/api/share/accept/${token}`, {
-            method: "GET",
+            method: "POST",
             headers: {
               // Assuming cookie-based authentication, no explicit Authorization header needed
               "Content-Type": "application/json",
