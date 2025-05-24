@@ -3,12 +3,16 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, RotateCcw, Tag as TagIcon } from "lucide-react";
+import { BookOpen, RotateCcw, Tag as TagIcon, Edit, Trash2, MoreVertical } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useState } from "react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast.js";
 
-export function ComicCard({ comic, onResetProgress }) {
+export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic }) {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const { toast } = useToast();
 
   const handleResetClick = (e) => {
     e.preventDefault();
@@ -16,15 +20,50 @@ export function ComicCard({ comic, onResetProgress }) {
     setIsResetDialogOpen(true);
   };
 
-  const confirmReset = () => {
-    onResetProgress(comic.id);
-    setIsResetDialogOpen(false);
+  const confirmReset = async () => {
+    try {
+      await onResetProgress(comic.id);
+      setIsResetDialogOpen(false);
+      toast({
+        title: "Reading progress reset",
+        description: "Your reading progress has been reset successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reset reading progress",
+        variant: "destructive",
+      });
+    }
   };
-  console.log(comic);
+
+  const confirmDelete = async () => {
+    try {
+      await onDeleteComic(comic.id);
+      setIsDeleteDialogOpen(false);
+      toast({
+        title: "Comic deleted",
+        description: "The comic has been removed from your library.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete comic",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleEditClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onEditComic(comic);
+  };
   
   return (
     <>
-      <Link to={`/read/${comic.id}`} className="block group">
+      <div className="relative">
+        <Link to={`/read/${comic.id}`} className="block group">
         <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg border-2 hover:border-comic-purple">
           <div className="relative pt-[140%] bg-muted overflow-hidden">
             <img 
@@ -74,6 +113,36 @@ export function ComicCard({ comic, onResetProgress }) {
           </CardFooter>
         </Card>
       </Link>
+        <div className="absolute top-2 right-2 z-10">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white rounded-full">
+                <MoreVertical size={16} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleEditClick}>
+                <Edit className="mr-2 h-4 w-4" />
+                Edit Details
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDeleteDialogOpen(true);
+              }}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Comic
+              </DropdownMenuItem>
+              {comic.lastReadPage !== undefined && (
+                <DropdownMenuItem onClick={handleResetClick}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Reset Progress
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
       
       <Dialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
         <DialogContent>
@@ -86,6 +155,21 @@ export function ComicCard({ comic, onResetProgress }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsResetDialogOpen(false)}>Cancel</Button>
             <Button variant="destructive" onClick={confirmReset}>Reset Progress</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Comic</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{comic.title}" from your library? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDelete}>Delete Comic</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

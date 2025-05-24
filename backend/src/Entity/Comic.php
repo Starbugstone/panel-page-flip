@@ -45,6 +45,9 @@ class Comic
     #[ORM\ManyToMany(targetEntity: Tag::class, inversedBy: 'comics')]
     private Collection $tags;
     
+    #[ORM\OneToMany(mappedBy: 'comic', targetEntity: ComicReadingProgress::class, cascade: ['remove'])]
+    private Collection $readingProgresses;
+    
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $description = null;
     
@@ -59,6 +62,7 @@ class Comic
         $this->uploadedAt = new \DateTimeImmutable();
         $this->updatedAt = new \DateTimeImmutable();
         $this->tags = new ArrayCollection();
+        $this->readingProgresses = new ArrayCollection();
     }
 
     #[ORM\PreUpdate]
@@ -199,10 +203,41 @@ class Comic
     {
         return $this->publisher;
     }
-    
+
     public function setPublisher(?string $publisher): static
     {
         $this->publisher = $publisher;
+
+        return $this;
+    }
+    
+    /**
+     * @return Collection<int, ComicReadingProgress>
+     */
+    public function getReadingProgresses(): Collection
+    {
+        return $this->readingProgresses;
+    }
+
+    public function addReadingProgress(ComicReadingProgress $readingProgress): static
+    {
+        if (!$this->readingProgresses->contains($readingProgress)) {
+            $this->readingProgresses->add($readingProgress);
+            $readingProgress->setComic($this);
+        }
+
+        return $this;
+    }
+
+    public function removeReadingProgress(ComicReadingProgress $readingProgress): static
+    {
+        if ($this->readingProgresses->removeElement($readingProgress)) {
+            // set the owning side to null (unless already changed)
+            if ($readingProgress->getComic() === $this) {
+                $readingProgress->setComic(null);
+            }
+        }
+
         return $this;
     }
     

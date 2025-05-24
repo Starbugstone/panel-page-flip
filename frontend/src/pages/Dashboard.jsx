@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Upload } from "lucide-react"; // Plus removed as it's not used
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast.js";
+import { ComicEditDialog } from "@/components/ComicEditDialog.jsx";
 
 export default function Dashboard() {
   const [comics, setComics] = useState([]);
@@ -18,6 +19,8 @@ export default function Dashboard() {
   const [error, setError] = useState(null); // Added error state
   const [searchParams, setSearchParams] = useState({ query: "", tags: [] });
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [editingComic, setEditingComic] = useState(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const { toast } = useToast();
 
   const processComicsResponse = (data) => {
@@ -141,14 +144,92 @@ export default function Dashboard() {
     }
   };
 
-  const resetReadingProgress = (comicId) => {
-    console.log("Resetting progress for comicId (local state change only):", comicId);
-    const updatedComics = comics.map(c => 
-      c.id === comicId ? { ...c, lastReadPage: undefined, readingProgress: null } : c
-    );
-    setComics(updatedComics);
-    // Since searchResults now mirrors comics, no separate update needed if it were still used.
-    // toast({ title: "Progress Reset (Locally)", description: "Reading progress has been reset in the app. Backend update needed for persistence."});
+  const resetReadingProgress = async (comicId) => {
+    try {
+      const response = await fetch(`/api/comics/${comicId}/reading-progress/reset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: "Failed to reset reading progress." }));
+        throw new Error(errorData.message || "Failed to reset reading progress.");
+      }
+      
+      // Update local state
+      const updatedComics = comics.map(c => 
+        c.id === comicId ? { ...c, lastReadPage: undefined, readingProgress: null } : c
+      );
+      setComics(updatedComics);
+      
+      return true;
+    } catch (error) {
+      console.error("Error resetting reading progress:", error);
+      throw error;
+    }
+  };
+  
+  const handleEditComic = (comic) => {
+    setEditingComic(comic);
+    setIsEditDialogOpen(true);
+  };
+  
+  const handleSaveComic = async (updatedComic) => {
+    try {
+      const response = await fetch(`/api/comics/${updatedComic.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: updatedComic.title,
+          author: updatedComic.author,
+          publisher: updatedComic.publisher,
+          description: updatedComic.description,
+          tags: updatedComic.tags
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: "Failed to update comic." }));
+        throw new Error(errorData.message || "Failed to update comic.");
+      }
+      
+      // Update local state
+      const updatedComics = comics.map(c => 
+        c.id === updatedComic.id ? { ...c, ...updatedComic } : c
+      );
+      setComics(updatedComics);
+      
+      return true;
+    } catch (error) {
+      console.error("Error updating comic:", error);
+      throw error;
+    }
+  };
+  
+  const deleteComic = async (comicId) => {
+    try {
+      const response = await fetch(`/api/comics/${comicId}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: "Failed to delete comic." }));
+        throw new Error(errorData.message || "Failed to delete comic.");
+      }
+      
+      // Update local state
+      const updatedComics = comics.filter(c => c.id !== comicId);
+      setComics(updatedComics);
+      
+      return true;
+    } catch (error) {
+      console.error("Error deleting comic:", error);
+      throw error;
+    }
   };
 
   // Filters now operate on the 'comics' state directly
@@ -239,7 +320,9 @@ export default function Dashboard() {
                 <ComicCard 
                   key={comic.id} 
                   comic={comic} 
-                  onResetProgress={resetReadingProgress} 
+                  onResetProgress={resetReadingProgress}
+                  onEditComic={handleEditComic}
+                  onDeleteComic={deleteComic}
                 />
               ))}
             </div>
@@ -251,7 +334,9 @@ export default function Dashboard() {
                 <ComicCard 
                   key={comic.id} 
                   comic={comic} 
-                  onResetProgress={resetReadingProgress} 
+                  onResetProgress={resetReadingProgress}
+                  onEditComic={handleEditComic}
+                  onDeleteComic={deleteComic}
                 />
               ))}
             </div>
@@ -263,12 +348,27 @@ export default function Dashboard() {
                 <ComicCard 
                   key={comic.id} 
                   comic={comic} 
-                  onResetProgress={resetReadingProgress} 
+                  onResetProgress={resetReadingProgress}
+                  onEditComic={handleEditComic}
+                  onDeleteComic={deleteComic}
                 />
               ))}
             </div>
           </TabsContent>
         </Tabs>
+      )}
+      
+      {/* Comic Edit Dialog */}
+      {editingComic && (
+        <ComicEditDialog
+          comic={editingComic}
+          isOpen={isEditDialogOpen}
+          onClose={() => {
+            setIsEditDialogOpen(false);
+            setEditingComic(null);
+          }}
+          onSave={handleSaveComic}
+        />
       )}
     </div>
   );

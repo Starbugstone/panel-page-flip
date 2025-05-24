@@ -452,23 +452,65 @@ class ComicController extends AbstractController
         }
         
         // Check permissions: Admin can delete any, user only their own
-        // Assuming $comic->getOwner() is the correct method to get the owner User entity
-        // If your Comic entity uses $comic->getUser(), please adjust accordingly.
         if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
             return $this->json(['message' => 'You do not have permission to delete this comic'], Response::HTTP_FORBIDDEN);
         }
         
         try {
+            // Use a transaction to ensure all operations succeed or fail together
+            $entityManager->beginTransaction();
+            
+            // First delete the files using the service
             $comicService->deleteComic($comic);
+            
+            // The entity removal will cascade to reading progress thanks to the relationship setup
             $entityManager->remove($comic);
             $entityManager->flush();
             
+            $entityManager->commit();
+            
             return $this->json(['message' => 'Comic deleted successfully']);
         } catch (\Exception $e) {
+            // Rollback the transaction if anything fails
+            if ($entityManager->getConnection()->isTransactionActive()) {
+                $entityManager->rollback();
+            }
+            
             return $this->json(['message' => 'Failed to delete comic: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
+    #[Route('/{id}/reading-progress/reset', name: 'reset_reading_progress', methods: ['POST'])]
+    public function resetReadingProgress(int $id, EntityManagerInterface $entityManager): JsonResponse
+    {
+        // Get the current user
+        $user = $this->getUser();
+        if (!$user) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
+        if (!$comic) {
+            return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // Check permissions: Admin can reset any, user only their own
+        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
+            return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN);
+        }
+
+        // Find and remove reading progress
+        $readingProgress = $entityManager->getRepository(ComicReadingProgress::class)
+            ->findOneBy(['comic' => $comic, 'user' => $user]);
+
+        if ($readingProgress) {
+            $entityManager->remove($readingProgress);
+            $entityManager->flush();
+        }
+
+        return $this->json(['message' => 'Reading progress reset successfully']);
+    }
+    
     #[Route('/test', name: 'test', methods: ['GET'])]
     public function testEndpoint(): JsonResponse
     {
