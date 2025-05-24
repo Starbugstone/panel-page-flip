@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button.jsx";
 // import { mockComics, generateComicPages } from "@/lib/mockData.js";
-import { ArrowLeft, ArrowRight, Info, Maximize, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowLeft, ArrowRight, Info, Maximize, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 
@@ -472,6 +472,90 @@ export default function ComicReader() {
     }
   }, [currentPage, imageCache]);
   
+  // Function to force reload the current page from the server
+  const handleForceReload = useCallback(() => {
+    if (comicPages.length === 0 || currentPage < 0 || currentPage >= comicPages.length) {
+      return;
+    }
+    
+    // Show toast to indicate reload is happening
+    toast({
+      title: "Reloading page",
+      description: `Forcing reload of page ${currentPage + 1}`,
+    });
+    
+    // Clear the current page from cache
+    setImageCache(prevCache => {
+      const newCache = { ...prevCache };
+      delete newCache[currentPage]; // Remove from cache to force reload
+      return newCache;
+    });
+    
+    // Set loading states
+    setIsPageImageLoading(true);
+    setImageLoadedSuccessfully(false);
+    
+    // Force reload by adding a unique timestamp to the URL
+    const img = new Image();
+    const url = `${comicPages[currentPage]}?_force_reload=${Date.now()}`;
+    
+    img.onload = () => {
+      try {
+        // Convert to data URL to prevent network requests
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const dataUrl = canvas.toDataURL('image/jpeg');
+        
+        // Create a new image with the data URL
+        const cachedImg = new Image();
+        cachedImg.src = dataUrl;
+        
+        // Update cache with the new image
+        setImageCache(prev => ({
+          ...prev,
+          [currentPage]: cachedImg
+        }));
+        
+        // Update UI state
+        setIsPageImageLoading(false);
+        setImageLoadedSuccessfully(true);
+        
+        // Success toast
+        toast({
+          title: "Page reloaded",
+          description: `Successfully reloaded page ${currentPage + 1}`,
+          variant: "success",
+        });
+      } catch (error) {
+        console.error("Error reloading page:", error);
+        toast({
+          title: "Error reloading",
+          description: "There was a problem reloading the page. Please try again.",
+          variant: "destructive",
+        });
+        setIsPageImageLoading(false);
+        setImageLoadedSuccessfully(false);
+      }
+    };
+    
+    img.onerror = () => {
+      console.error("Failed to reload image");
+      toast({
+        title: "Reload failed",
+        description: "Could not reload the page. Please try again later.",
+        variant: "destructive",
+      });
+      setIsPageImageLoading(false);
+      setImageLoadedSuccessfully(false);
+    };
+    
+    // Set the source to start loading
+    img.src = url;
+  }, [comicPages, currentPage, toast]);
+  
   const handleNextPage = useCallback(() => {
     if (currentPage < comicPages.length - 1) {
       const newPage = currentPage + 1;
@@ -821,14 +905,27 @@ export default function ComicReader() {
       
       {/* Reader controls - different styling in fullscreen mode */}
       <div className={isFullscreen ? "reader-controls-fullscreen" : "reader-controls"}>
-        <Button
-          variant="outline"
-          onClick={handlePreviousPage}
-          disabled={currentPage === 0}
-          className={isFullscreen ? "" : "bg-card"}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" /> Previous
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handlePreviousPage}
+            disabled={currentPage === 0}
+            className={isFullscreen ? "" : "bg-card"}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" /> Previous
+          </Button>
+          
+          {/* Force reload button */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleForceReload}
+            title="Force reload current page"
+            className={isFullscreen ? "" : "bg-card"}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
         
         <div className="flex items-center gap-2">
           <div className="text-sm">
