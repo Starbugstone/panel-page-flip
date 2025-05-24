@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,22 +8,45 @@ import { Search, X, Tag as TagIcon } from "lucide-react";
 export function SearchBar({ onSearch }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState([]);
-  const [availableTags, setAvailableTags] = useState([
-    "DC", "Marvel", "Sci-Fi", "Fantasy", "Horror", "Adventure", "Superhero", "Manga", "Comedy"
-  ]);
+  const [availableTags, setAvailableTags] = useState([]);
+  const [isLoadingTags, setIsLoadingTags] = useState(true);
+  const [tagFetchError, setTagFetchError] = useState(null);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
+
+  useEffect(() => {
+    const fetchTags = async () => {
+      setIsLoadingTags(true);
+      setTagFetchError(null);
+      try {
+        const response = await fetch("/api/tags");
+        if (!response.ok) {
+          throw new Error(`Failed to fetch tags: ${response.statusText}`);
+        }
+        const data = await response.json();
+        setAvailableTags(data.tags || []); // Assuming the API returns { tags: [...] }
+      } catch (error) {
+        console.error("Error fetching tags:", error);
+        setTagFetchError(error.message);
+      } finally {
+        setIsLoadingTags(false);
+      }
+    };
+
+    fetchTags();
+  }, []);
   
   const handleSearch = (e) => {
     e.preventDefault();
     onSearch({
       query: searchQuery,
-      tags: selectedTags
+      tags: selectedTags.map(tag => tag.name) // Send tag names
     });
   };
   
   const toggleTag = (tag) => {
-    if (selectedTags.includes(tag)) {
-      setSelectedTags(selectedTags.filter(t => t !== tag));
+    // Check if tag object is already selected by comparing IDs
+    if (selectedTags.find(t => t.id === tag.id)) {
+      setSelectedTags(selectedTags.filter(t => t.id !== tag.id));
     } else {
       setSelectedTags([...selectedTags, tag]);
     }
@@ -32,7 +55,7 @@ export function SearchBar({ onSearch }) {
   const clearSearch = () => {
     setSearchQuery("");
     setSelectedTags([]);
-    onSearch({ query: "", tags: [] });
+    onSearch({ query: "", tags: [] }); // Send empty array for tags
   };
   
   return (
@@ -73,18 +96,22 @@ export function SearchBar({ onSearch }) {
             <div className="absolute right-0 z-10 mt-2 w-64 rounded-md border bg-card shadow-lg">
               <div className="p-3 max-h-60 overflow-y-auto">
                 <p className="text-sm font-medium mb-2">Filter by tags:</p>
-                <div className="flex flex-wrap gap-2">
-                  {availableTags.map((tag) => (
-                    <Badge 
-                      key={tag} 
-                      variant={selectedTags.includes(tag) ? "default" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => toggleTag(tag)}
-                    >
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
+                {isLoadingTags && <p className="text-sm text-muted-foreground">Loading tags...</p>}
+                {tagFetchError && <p className="text-sm text-destructive">Error: {tagFetchError}</p>}
+                {!isLoadingTags && !tagFetchError && (
+                  <div className="flex flex-wrap gap-2">
+                    {availableTags.map((tag) => (
+                      <Badge 
+                        key={tag.id} 
+                        variant={selectedTags.find(t => t.id === tag.id) ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tag.name}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="border-t p-2 flex justify-between">
                 <Button 
@@ -115,9 +142,9 @@ export function SearchBar({ onSearch }) {
       {selectedTags.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-2">
           {selectedTags.map((tag) => (
-            <Badge key={tag} className="flex items-center gap-1">
+            <Badge key={tag.id} className="flex items-center gap-1">
               <TagIcon className="h-3 w-3" />
-              {tag}
+              {tag.name}
               <button 
                 type="button"
                 onClick={() => toggleTag(tag)} 

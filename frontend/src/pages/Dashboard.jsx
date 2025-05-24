@@ -11,104 +11,102 @@ import { useToast } from "@/hooks/use-toast.js";
 
 export default function Dashboard() {
   const [comics, setComics] = useState([]);
-  const [searchResults, setSearchResults] = useState([]);
+  // searchResults will now always mirror comics state, simplifying logic.
+  // const [searchResults, setSearchResults] = useState([]); 
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null); // Added error state
   const [searchParams, setSearchParams] = useState({ query: "", tags: [] });
   const [isSearchActive, setIsSearchActive] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => {
-    const loadComics = async () => {
-      setIsLoading(true);
-      try {
-        const response = await fetch('/api/comics'); // GET request by default
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ message: "Failed to load comics." }));
-          console.error("Failed to load comics:", errorData.message);
-          toast({ title: "Error", description: errorData.message || "Could not load comics.", variant: "destructive" });
-          setComics([]);
-          setSearchResults([]);
-          return; // Removed finally here, it's outside
-        }
-        const data = await response.json();
-        
-        const processedComics = data.comics.map(comic => ({
-          ...comic,
-          // Process tags to be just an array of tag names for easier filtering
-          tags: comic.tags ? comic.tags.map(tag => tag.name) : [],
-          // Map reading progress data to what ComicCard expects
-          lastReadPage: comic.readingProgress ? comic.readingProgress.currentPage : undefined,
-        }));
+  const processComicsResponse = (data) => {
+    const processedComics = data.comics.map(comic => ({
+      ...comic,
+      tags: comic.tags ? comic.tags.map(tag => tag.name) : [],
+      lastReadPage: comic.readingProgress ? comic.readingProgress.currentPage : undefined,
+    }));
+    setComics(processedComics);
+    // setSearchResults(processedComics); // comics state is now the single source of truth for display
+    setError(null);
+  };
 
-        setComics(processedComics);
-        setSearchResults(processedComics);
-      } catch (error) {
-        console.error("Failed to load comics:", error);
-        toast({ title: "Error", description: "Could not connect to server or other error.", variant: "destructive" });
-        setComics([]);
-        setSearchResults([]);
-      } finally {
-        setIsLoading(false);
+  const fetchComicsFromApi = async (url) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: "Failed to load comics." }));
+        console.error("Failed to load comics:", errorData.message);
+        toast({ title: "Error", description: errorData.message || "Could not load comics.", variant: "destructive" });
+        setError(errorData.message || "Could not load comics.");
+        setComics([]); // Clear comics on error
+        // setSearchResults([]);
+        return;
       }
-    };
+      const data = await response.json();
+      processComicsResponse(data);
+    } catch (err) {
+      console.error("Failed to load comics:", err);
+      toast({ title: "Error", description: "Could not connect to server or other error.", variant: "destructive" });
+      setError("Could not connect to server or other error.");
+      setComics([]);
+      // setSearchResults([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    loadComics();
-  }, [toast]); // Added toast to dependency array as it's used in the effect
+  const loadComics = async () => {
+    setIsSearchActive(false); // Reset search active state
+    await fetchComicsFromApi('/api/comics');
+  };
 
-  // Removed generateRandomTags function
-
-  const handleSearch = (params) => {
-    setSearchParams(params);
-    
-    // If there's no search query and no tags selected, show all comics
-    if (!params.query && params.tags.length === 0) {
-      setSearchResults(comics);
-      setIsSearchActive(false);
-      return;
+  const fetchFilteredComics = async (searchQuery, tagNamesArray) => {
+    let url = '/api/comics';
+    const queryParams = new URLSearchParams();
+    if (searchQuery) {
+      queryParams.append('search', searchQuery);
+    }
+    if (tagNamesArray && tagNamesArray.length > 0) {
+      queryParams.append('tags', tagNamesArray.join(','));
     }
     
-    setIsSearchActive(true);
+    const queryString = queryParams.toString();
+    if (queryString) {
+      url += `?${queryString}`;
+    }
     
-    // Filter comics based on search params
-    const filtered = comics.filter(comic => {
-      // Check if comic matches search query
-      const matchesQuery = !params.query || 
-        comic.title.toLowerCase().includes(params.query.toLowerCase()) ||
-        (comic.description && comic.description.toLowerCase().includes(params.query.toLowerCase())) ||
-        (comic.author && comic.author.toLowerCase().includes(params.query.toLowerCase())) ||
-        (comic.publisher && comic.publisher.toLowerCase().includes(params.query.toLowerCase()));
-      
-      // Check if comic has any of the selected tags
-      const matchesTags = params.tags.length === 0 || 
-        params.tags.some(tag => comic.tags.includes(tag));
-      
-      return matchesQuery && matchesTags;
-    });
-    
-    setSearchResults(filtered);
+    setIsSearchActive(!!searchQuery || (tagNamesArray && tagNamesArray.length > 0));
+    await fetchComicsFromApi(url);
+  };
+  
+  useEffect(() => {
+    loadComics();
+  }, [toast]); // loadComics itself doesn't change, but toast is a dependency of its internals indirectly
+
+  const handleSearch = (params) => {
+    setSearchParams(params); // Keep track of current search parameters
+    if (!params.query && (!params.tags || params.tags.length === 0)) {
+      loadComics(); // Fetch all comics if search is cleared
+    } else {
+      fetchFilteredComics(params.query, params.tags);
+    }
   };
 
   const resetReadingProgress = (comicId) => {
     console.log("Resetting progress for comicId (local state change only):", comicId);
-    // This function will need to be updated to interact with the backend for persistence.
-    // For now, it updates the local state.
     const updatedComics = comics.map(c => 
       c.id === comicId ? { ...c, lastReadPage: undefined, readingProgress: null } : c
     );
     setComics(updatedComics);
-
-    const updatedSearchResults = searchResults.map(c =>
-      c.id === comicId ? { ...c, lastReadPage: undefined, readingProgress: null } : c
-    );
-    setSearchResults(updatedSearchResults);
-    
-    // Potentially show a toast that this is a temporary client-side reset
+    // Since searchResults now mirrors comics, no separate update needed if it were still used.
     // toast({ title: "Progress Reset (Locally)", description: "Reading progress has been reset in the app. Backend update needed for persistence."});
   };
 
-  // Ensure these filters use the potentially updated `lastReadPage` field correctly
-  const inProgressComics = searchResults.filter(comic => comic.lastReadPage !== undefined && comic.lastReadPage > 0);
-  const unreadComics = searchResults.filter(comic => comic.lastReadPage === undefined || comic.lastReadPage === 0);
+  // Filters now operate on the 'comics' state directly
+  const inProgressComics = comics.filter(comic => comic.lastReadPage !== undefined && comic.lastReadPage > 0);
+  const unreadComics = comics.filter(comic => comic.lastReadPage === undefined || comic.lastReadPage === 0);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -138,19 +136,31 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-      ) : searchResults.length === 0 ? (
+      ) : error ? (
         <div className="text-center py-12">
-          <p className="text-xl text-muted-foreground mb-4">No comics found matching your search</p>
+          <p className="text-xl text-destructive mb-4">{error}</p>
+          <Button onClick={loadComics}>Try Again</Button>
+        </div>
+      ) : comics.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-xl text-muted-foreground mb-4">
+            {isSearchActive ? "No comics found matching your search" : "No comics in your library yet."}
+          </p>
           {isSearchActive && (
             <Button onClick={() => handleSearch({ query: "", tags: [] })}>
               Clear Search
             </Button>
           )}
+           {!isSearchActive && (
+             <Link to="/upload">
+              <Button>Upload Your First Comic</Button>
+            </Link>
+           )}
         </div>
       ) : (
         <Tabs defaultValue="all" className="space-y-6">
           <TabsList>
-            <TabsTrigger value="all">All Comics ({searchResults.length})</TabsTrigger>
+            <TabsTrigger value="all">All Comics ({comics.length})</TabsTrigger>
             {inProgressComics.length > 0 && (
               <TabsTrigger value="reading">
                 Currently Reading ({inProgressComics.length})
@@ -165,7 +175,7 @@ export default function Dashboard() {
 
           <TabsContent value="all">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {searchResults.map((comic) => (
+              {comics.map((comic) => (
                 <ComicCard 
                   key={comic.id} 
                   comic={comic} 
