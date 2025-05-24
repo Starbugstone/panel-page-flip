@@ -70,6 +70,9 @@ class CreateUserCommand extends Command
         $user->setEmail($email);
         $user->setRoles(['ROLE_USER']);
         
+        // Set email as verified by default for command-created users
+        $user->setIsEmailVerified(true);
+        
         // Hash the password
         $hashedPassword = $this->passwordHasher->hashPassword($user, $password);
         $user->setPassword($hashedPassword);

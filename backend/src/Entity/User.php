@@ -36,6 +36,24 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     #[ORM\Column]
     private array $roles = [];
+    
+    /**
+     * Whether the user's email has been verified
+     */
+    #[ORM\Column(type: 'boolean')]
+    private bool $isEmailVerified = false;
+    
+    /**
+     * Email verification token
+     */
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $emailVerificationToken = null;
+    
+    /**
+     * When the email verification token expires
+     */
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $emailVerificationTokenExpiresAt = null;
 
     /**
      * @var string The hashed password
@@ -72,6 +90,8 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     #[ORM\OneToMany(targetEntity: ResetPasswordToken::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
     private Collection $resetPasswordTokens;
+    
+
 
     public function __construct()
     {
@@ -79,9 +99,12 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         $this->readingProgress = new ArrayCollection();
         $this->createdTags = new ArrayCollection();
         $this->resetPasswordTokens = new ArrayCollection();
+        $this->isEmailVerified = false;
+
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = new \DateTimeImmutable();
         $this->roles = ['ROLE_USER'];
+        $this->isEmailVerified = false;
     }
 
     #[ORM\PreUpdate]
@@ -170,6 +193,17 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     {
         // If you store any temporary, sensitive data on the user, clear it here
         // $this->plainPassword = null;
+    }
+    
+    public function isEmailVerified(): bool
+    {
+        return $this->isEmailVerified;
+    }
+    
+    public function setIsEmailVerified(bool $isEmailVerified): static
+    {
+        $this->isEmailVerified = $isEmailVerified;
+        return $this;
     }
 
     public function getCreatedAt(): ?\DateTimeImmutable
@@ -296,10 +330,51 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function removeResetPasswordToken(ResetPasswordToken $token): static
     {
         if ($this->resetPasswordTokens->removeElement($token)) {
+            // set the owning side to null (unless already changed)
             if ($token->getUser() === $this) {
                 $token->setUser(null);
             }
         }
+
         return $this;
+    }
+    
+    public function getEmailVerificationToken(): ?string
+    {
+        return $this->emailVerificationToken;
+    }
+
+    public function setEmailVerificationToken(?string $token): static
+    {
+        $this->emailVerificationToken = $token;
+        return $this;
+    }
+
+    public function getEmailVerificationTokenExpiresAt(): ?\DateTimeImmutable
+    {
+        return $this->emailVerificationTokenExpiresAt;
+    }
+
+    public function setEmailVerificationTokenExpiresAt(?\DateTimeImmutable $expiresAt): static
+    {
+        $this->emailVerificationTokenExpiresAt = $expiresAt;
+        return $this;
+    }
+    
+    public function isEmailVerificationTokenExpired(): bool
+    {
+        if (!$this->emailVerificationToken || !$this->emailVerificationTokenExpiresAt) {
+            return true;
+        }
+        
+        return $this->emailVerificationTokenExpiresAt < new \DateTimeImmutable();
+    }
+    
+    public function generateEmailVerificationToken(): string
+    {
+        $this->emailVerificationToken = bin2hex(random_bytes(32));
+        $this->emailVerificationTokenExpiresAt = (new \DateTimeImmutable())->modify('+24 hours');
+        
+        return $this->emailVerificationToken;
     }
 }

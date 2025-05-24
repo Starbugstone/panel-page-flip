@@ -8,10 +8,13 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Symfony\Component\Validator\Constraints as Assert;
+use Twig\Environment;
 
 class RegistrationController extends AbstractController
 {
@@ -20,7 +23,10 @@ class RegistrationController extends AbstractController
         Request $request,
         UserPasswordHasherInterface $userPasswordHasher,
         EntityManagerInterface $entityManager,
-        ValidatorInterface $validator
+        ValidatorInterface $validator,
+        MailerInterface $mailer,
+        UrlGeneratorInterface $urlGenerator,
+        Environment $twig
     ): Response {
         // If user is already logged in, return an appropriate API response
         if ($this->getUser()) {
@@ -87,14 +93,58 @@ class RegistrationController extends AbstractController
         
         $user->setPassword($userPasswordHasher->hashPassword($user, $password));
 
+        // Generate email verification token
+        $verificationToken = $user->generateEmailVerificationToken();
+        
         // Save to database
         $entityManager->persist($user);
         $entityManager->flush();
+        
+        // Send verification email
+        $this->sendVerificationEmail($user, $verificationToken, $mailer, $urlGenerator, $twig);
 
         // Return success response
         return new JsonResponse(
-            ['message' => 'User registered successfully'],
+            [
+                'message' => 'User registered successfully. Please check your email to verify your account.',
+                'requiresVerification' => true
+            ],
             Response::HTTP_CREATED
         );
+    }
+    
+    /**
+     * Send verification email to the user
+     */
+    private function sendVerificationEmail(
+        User $user,
+        string $token,
+        MailerInterface $mailer,
+        UrlGeneratorInterface $urlGenerator,
+        Environment $twig
+    ): void {
+        // Generate the API verification URL (backend)
+        $apiVerificationUrl = $urlGenerator->generate(
+            'app_email_verification_verify',
+            ['token' => $token],
+            UrlGeneratorInterface::ABSOLUTE_URL
+        );
+        
+        // Get the mailer configuration
+        $fromEmail = $this->getParameter('mailer_from_address') ?: 'noreply@comicreader.example.com';
+        $fromName = $this->getParameter('mailer_from_name') ?: 'Comic Reader';
+
+        $email = (new \Symfony\Component\Mime\Email())
+            ->from(new \Symfony\Component\Mime\Address($fromEmail, $fromName))
+            ->to($user->getEmail())
+            ->subject('Verify your email address')
+            ->html(
+                $twig->render('emails/email_verification.html.twig', [
+                    'user' => $user,
+                    'verificationUrl' => $apiVerificationUrl
+                ])
+            );
+
+        $mailer->send($email);
     }
 }
