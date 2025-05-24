@@ -60,7 +60,7 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, apiBaseU
           "Content-Type": "application/json",
           // Assuming authentication is handled by cookies or a global fetch wrapper
         },
-        body: JSON.stringify({ recipientEmail }),
+        body: JSON.stringify({ email: recipientEmail }),
       });
 
       const data = await response.json();

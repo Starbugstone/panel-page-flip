@@ -35,6 +35,10 @@ export function TagProvider({ children }) {
       
       const response = await fetch(url);
       if (!response.ok) {
+        // If unauthorized, don't show error toast, just return empty array
+        if (response.status === 401) {
+          return [];
+        }
         throw new Error('Failed to fetch tags');
       }
       
@@ -46,16 +50,19 @@ export function TagProvider({ children }) {
       return fetchedTags;
     } catch (error) {
       console.error('Error fetching tags:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load tags. Some tag suggestions may not be available.',
-        variant: 'destructive',
-      });
+      // Only show toast for non-auth errors
+      if (error.message !== 'Failed to fetch tags') {
+        toast({
+          title: 'Error',
+          description: 'Failed to load tags. Some tag suggestions may not be available.',
+          variant: 'destructive',
+        });
+      }
       return [];
     } finally {
       setIsLoading(false);
     }
-  }, [user, tags, lastFetched, toast]);
+  }, [user, toast]);
 
   // Function to search tags (using cache when possible)
   const searchTags = useCallback(async (query, isAdminContext = false) => {
@@ -110,7 +117,11 @@ export function TagProvider({ children }) {
   // Load tags on initial mount and when user changes
   useEffect(() => {
     if (user) {
-      fetchTags();
+      // Only fetch tags on specific pages where they're needed
+      const path = window.location.pathname;
+      if (path.startsWith('/dashboard') || path.startsWith('/admin') || path.startsWith('/upload')) {
+        fetchTags();
+      }
     } else {
       setTags([]);
       setLastFetched(null);

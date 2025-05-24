@@ -63,9 +63,9 @@
             <h1>You've Been Invited to Read a Comic!</h1>
         </div>
         <div class="content">
-            <p>Hi {{ recipientEmail|e }},</p>
+            <p>Hi there,</p>
             <p>
-                <span class="highlight">{{ sharedByUser.email|e }}</span> has shared the comic 
+                <span class="highlight">{{ userName|e }}</span> has shared the comic 
                 "<span class="highlight">{{ comic.title|e }}</span>" with you.
             </p>
             <p>To view and accept the comic, please click the button below:</p>
@@ -75,7 +75,7 @@
                 <span class="highlight">Comic Share Platform</span>.
             </p>
             <p>
-                This invitation link will expire in <span class="highlight">{{ tokenExpirationDays }}</span> days.
+                This invitation link will expire on <span class="highlight">{{ expiresAt|date("F j, Y") }}</span>.
             </p>
             <p>Happy reading!</p>
         </div>
