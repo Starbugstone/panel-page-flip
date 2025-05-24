@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, RotateCcw, Tag as TagIcon, Edit, Trash2, MoreVertical } from "lucide-react";
+import { BookOpen, RotateCcw, Tag as TagIcon, Edit, Trash2, MoreVertical, Share2Icon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast.js";
 
-export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic }) {
+export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic, onShareClick }) {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const { toast } = useToast();
@@ -132,6 +132,14 @@ export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic }
               }}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete Comic
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onShareClick(comic.id, comic.title);
+              }}>
+                <Share2Icon className="mr-2 h-4 w-4" />
+                Share Comic
               </DropdownMenuItem>
               {comic.lastReadPage !== undefined && (
                 <DropdownMenuItem onClick={handleResetClick}>

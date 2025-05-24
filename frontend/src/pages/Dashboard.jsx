@@ -9,6 +9,8 @@ import { Upload } from "lucide-react"; // Plus removed as it's not used
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast.js";
 import { ComicEditDialog } from "@/components/ComicEditDialog.jsx";
+import { ShareComicModal } from "@/components/ShareComicModal.jsx";
+import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
 
 export default function Dashboard() {
   const [comics, setComics] = useState([]);
@@ -22,6 +24,11 @@ export default function Dashboard() {
   const [editingComic, setEditingComic] = useState(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const { toast } = useToast();
+
+  // State for ShareComicModal
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [shareModalComicId, setShareModalComicId] = useState(null);
+  const [shareModalComicTitle, setShareModalComicTitle] = useState(null);
 
   const processComicsResponse = (data) => {
     const processedComics = data.comics.map(comic => ({
@@ -105,7 +112,7 @@ export default function Dashboard() {
   
   useEffect(() => {
     loadComics();
-  }, [toast]); // loadComics itself doesn't change, but toast is a dependency of its internals indirectly
+  }, []); // loadComics itself doesn't change, but toast is a dependency of its internals indirectly
 
   // Constants for input validation
   const MAX_SEARCH_QUERY_LENGTH = 100;
@@ -236,6 +243,20 @@ export default function Dashboard() {
   const inProgressComics = comics.filter(comic => comic.lastReadPage !== undefined && comic.lastReadPage > 0);
   const unreadComics = comics.filter(comic => comic.lastReadPage === undefined || comic.lastReadPage === 0);
 
+  // Handlers for ShareComicModal
+  const handleOpenShareModal = (comicId, comicTitle) => {
+    setShareModalComicId(comicId);
+    setShareModalComicTitle(comicTitle);
+    setIsShareModalOpen(true);
+  };
+
+  const handleCloseShareModal = () => {
+    setIsShareModalOpen(false);
+    // Reset comic details for the modal, modal itself might have a delay for animation.
+    setShareModalComicId(null);
+    setShareModalComicTitle(null);
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
@@ -251,6 +272,9 @@ export default function Dashboard() {
       <div className="mb-8 flex justify-center">
         <SearchBar onSearch={handleSearch} isSearching={isSearching} />
       </div>
+      
+      {/* Pending Shares Alert */}
+      <PendingSharesAlert />
 
       {/* Loading overlay for search operations */}
       {isSearching && !isLoading && (
@@ -323,6 +347,7 @@ export default function Dashboard() {
                   onResetProgress={resetReadingProgress}
                   onEditComic={handleEditComic}
                   onDeleteComic={deleteComic}
+                  onShareClick={handleOpenShareModal} // Added onShareClick prop
                 />
               ))}
             </div>
@@ -337,6 +362,7 @@ export default function Dashboard() {
                   onResetProgress={resetReadingProgress}
                   onEditComic={handleEditComic}
                   onDeleteComic={deleteComic}
+                  onShareClick={handleOpenShareModal} // Added onShareClick prop
                 />
               ))}
             </div>
@@ -351,6 +377,7 @@ export default function Dashboard() {
                   onResetProgress={resetReadingProgress}
                   onEditComic={handleEditComic}
                   onDeleteComic={deleteComic}
+                  onShareClick={handleOpenShareModal} // Added onShareClick prop
                 />
               ))}
             </div>
@@ -370,6 +397,15 @@ export default function Dashboard() {
           onSave={handleSaveComic}
         />
       )}
+
+      {/* Share Comic Modal */}
+      <ShareComicModal
+        isOpen={isShareModalOpen}
+        onClose={handleCloseShareModal}
+        comicId={shareModalComicId}
+        comicTitle={shareModalComicTitle}
+        // apiBaseUrl can be passed if needed, otherwise modal uses its default
+      />
     </div>
   );
 }

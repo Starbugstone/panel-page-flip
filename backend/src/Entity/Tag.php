@@ -10,6 +10,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: TagRepository::class)]
 #[ORM\HasLifecycleCallbacks]
+#[ORM\UniqueConstraint(name: "unique_tag_per_creator", columns: ["name", "creator_id"])]
 class Tag
 {
     #[ORM\Id]
@@ -17,7 +18,7 @@ class Tag
     #[ORM\Column]
     private ?int $id = null;
 
-    #[ORM\Column(length: 50, unique: true)]
+    #[ORM\Column(length: 50)]
     #[Assert\NotBlank]
     #[Assert\Length(max: 50)]
     private ?string $name = null;

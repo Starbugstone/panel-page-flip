@@ -17,6 +17,7 @@ import AdminDashboard from "./pages/AdminDashboard.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import ResetPassword from "./pages/ResetPassword.jsx";
 import NotFound from "./pages/NotFound.jsx";
+import AcceptSharePage from "./pages/AcceptSharePage.jsx";
 
 const queryClient = new QueryClient();
 
@@ -75,6 +76,7 @@ const AppRoutes = () => {
             <Route path="/upload" element={<ProtectedRoute><UploadComic /></ProtectedRoute>} />
             <Route path="/read/:comicId" element={<ProtectedRoute><ComicReader /></ProtectedRoute>} />
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+            <Route path="/share/accept/:token" element={<ProtectedRoute><AcceptSharePage /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
