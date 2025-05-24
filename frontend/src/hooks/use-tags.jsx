@@ -13,7 +13,7 @@ export function TagProvider({ children }) {
   const { toast } = useToast();
 
   // Function to fetch all tags
-  const fetchTags = useCallback(async (force = false) => {
+  const fetchTags = useCallback(async (force = false, isAdminContext = false) => {
     // Skip if not logged in
     if (!user) {
       return [];
@@ -28,7 +28,12 @@ export function TagProvider({ children }) {
 
     setIsLoading(true);
     try {
-      const response = await fetch('/api/tags');
+      // Only pass adminContext when we're explicitly in the admin section
+      const url = isAdminContext 
+        ? '/api/tags?adminContext=true' 
+        : '/api/tags';
+      
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch tags');
       }
@@ -53,7 +58,7 @@ export function TagProvider({ children }) {
   }, [user, tags, lastFetched, toast]);
 
   // Function to search tags (using cache when possible)
-  const searchTags = useCallback(async (query) => {
+  const searchTags = useCallback(async (query, isAdminContext = false) => {
     if (!query || query.trim().length < 2) {
       return [];
     }
@@ -72,7 +77,12 @@ export function TagProvider({ children }) {
 
     // Otherwise, fetch from the server
     try {
-      const response = await fetch(`/api/tags/search?q=${encodeURIComponent(query.trim())}`);
+      // Only pass adminContext when we're explicitly in the admin section
+      const url = isAdminContext 
+        ? `/api/tags/search?q=${encodeURIComponent(query.trim())}&adminContext=true` 
+        : `/api/tags/search?q=${encodeURIComponent(query.trim())}`;
+      
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to search tags');
       }
@@ -114,7 +124,11 @@ export function TagProvider({ children }) {
     fetchTags,
     searchTags,
     addTagToCache,
-    lastFetched
+    lastFetched,
+    // Helper function to determine if we're in admin context
+    isAdminContext: () => {
+      return window.location.pathname.startsWith('/admin');
+    }
   };
 
   return <TagContext.Provider value={value}>{children}</TagContext.Provider>;

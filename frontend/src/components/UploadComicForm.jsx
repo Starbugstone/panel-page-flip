@@ -15,7 +15,7 @@ const UploadComicForm = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { searchTags, addTagToCache } = useTags();
+  const { searchTags, addTagToCache, isAdminContext } = useTags();
   
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState("");
@@ -96,7 +96,8 @@ const UploadComicForm = () => {
     setIsLoadingSuggestions(true);
     try {
       // Use the tag context to search for tags
-      const results = await searchTags(query.trim());
+      // Pass the current context (admin or not)
+      const results = await searchTags(query.trim(), isAdminContext());
       setTagSuggestions(results.map(tag => tag.name));
       setShowSuggestions(true);
     } catch (error) {

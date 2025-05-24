@@ -24,7 +24,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
   const suggestionsRef = useRef(null);
   const tagInputRef = useRef(null);
   const { toast } = useToast();
-  const { searchTags, addTagToCache } = useTags();
+  const { searchTags, addTagToCache, isAdminContext } = useTags();
 
   useEffect(() => {
     if (comic) {
@@ -47,7 +47,8 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
     setIsLoadingSuggestions(true);
     try {
       // Use the tag context to search for tags
-      const results = await searchTags(query.trim());
+      // Pass the current context (admin or not)
+      const results = await searchTags(query.trim(), isAdminContext());
       setTagSuggestions(results.map(tag => tag.name));
       setShowSuggestions(true);
     } catch (error) {

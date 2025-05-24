@@ -25,13 +25,15 @@ class TagController extends AbstractController
         }
 
         $showAll = $request->query->getBoolean('all');
+        $isAdminContext = $request->query->getBoolean('adminContext');
         $tagRepository = $entityManager->getRepository(Tag::class);
 
-        if ($showAll && $this->isGranted('ROLE_ADMIN')) {
-            // Admin with all=true: Get all tags
+        // Only show all tags if explicitly in admin context and user is an admin
+        if ($showAll && $isAdminContext && $this->isGranted('ROLE_ADMIN')) {
+            // Admin with all=true and in admin context: Get all tags
             $tags = $tagRepository->findAll();
         } else {
-            // Regular user or Admin without all=true: Get tags created by the user
+            // Regular user, or admin in personal dashboard: Get only tags created by the user
             $tags = $tagRepository->findBy(['creator' => $user]);
         }
 
@@ -238,6 +240,7 @@ class TagController extends AbstractController
 
         // Get query parameter
         $query = $request->query->get('q', '');
+        $isAdminContext = $request->query->getBoolean('adminContext');
         
         if (empty($query)) {
             return $this->json(['tags' => []]);
@@ -247,8 +250,10 @@ class TagController extends AbstractController
         $tagRepository = $entityManager->getRepository(Tag::class);
         $tags = $tagRepository->findByNameLike($query);
         
-        // Filter tags to only show user's tags or admin can see all
-        if (!$this->isGranted('ROLE_ADMIN')) {
+        // Filter tags based on context
+        // Only show all tags if explicitly in admin context and user is an admin
+        if (!($isAdminContext && $this->isGranted('ROLE_ADMIN'))) {
+            // Regular user or admin in personal dashboard: show only user's tags
             $tags = array_filter($tags, function($tag) use ($user) {
                 return $tag->getCreator()->getId() === $user->getId();
             });
