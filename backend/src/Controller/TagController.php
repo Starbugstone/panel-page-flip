@@ -226,4 +226,43 @@ class TagController extends AbstractController
 
         return $this->json(['message' => 'Tag deleted successfully']);
     }
+
+    #[Route('/search', name: 'search', methods: ['GET'])]
+    public function search(Request $request, EntityManagerInterface $entityManager): JsonResponse
+    {
+        // Get the current user
+        $user = $this->getUser();
+        if (!$user) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // Get query parameter
+        $query = $request->query->get('q', '');
+        
+        if (empty($query)) {
+            return $this->json(['tags' => []]);
+        }
+
+        // Search for tags by name
+        $tagRepository = $entityManager->getRepository(Tag::class);
+        $tags = $tagRepository->findByNameLike($query);
+        
+        // Filter tags to only show user's tags or admin can see all
+        if (!$this->isGranted('ROLE_ADMIN')) {
+            $tags = array_filter($tags, function($tag) use ($user) {
+                return $tag->getCreator()->getId() === $user->getId();
+            });
+        }
+
+        // Transform tags to array
+        $tagsArray = [];
+        foreach ($tags as $tag) {
+            $tagsArray[] = [
+                'id' => $tag->getId(),
+                'name' => $tag->getName()
+            ];
+        }
+
+        return $this->json(['tags' => $tagsArray]);
+    }
 }

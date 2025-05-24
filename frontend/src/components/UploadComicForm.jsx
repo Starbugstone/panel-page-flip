@@ -1,18 +1,21 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useTags } from "@/hooks/use-tags.jsx";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, X, FileUp, CheckCircle, AlertCircle } from "lucide-react";
+import { Upload, X, FileUp, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils.js";
 import { Progress } from "@/components/ui/progress";
 
 const UploadComicForm = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { searchTags, addTagToCache } = useTags();
   
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState("");
@@ -24,6 +27,41 @@ const UploadComicForm = () => {
   const [currentChunk, setCurrentChunk] = useState(0);
   const [totalChunks, setTotalChunks] = useState(0);
   const [uploadStatus, setUploadStatus] = useState(null); // 'initializing', 'uploading', 'processing', 'complete', 'error'
+  const [tagSuggestions, setTagSuggestions] = useState([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestionsRef = useRef(null);
+  const tagInputRef = useRef(null);
+  
+  // Function to convert filename to readable title
+  const generateTitleFromFilename = (filename) => {
+    // Remove the .cbz extension
+    let title = filename.replace(/\.cbz$/i, '');
+    
+    // Handle snake_case
+    title = title.replace(/_/g, ' ');
+    
+    // Handle kebab-case
+    title = title.replace(/-/g, ' ');
+    
+    // Handle camelCase and PascalCase
+    // Insert space before uppercase letters that are preceded by lowercase or digits
+    title = title.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+    
+    // Handle numbers with no spaces
+    title = title.replace(/([a-zA-Z])([0-9])/g, '$1 $2');
+    title = title.replace(/([0-9])([a-zA-Z])/g, '$1 $2');
+    
+    // Replace multiple spaces with a single space
+    title = title.replace(/\s+/g, ' ');
+    
+    // Capitalize first letter of each word
+    title = title.split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+    
+    return title.trim();
+  };
   
   const handleFileChange = (e) => {
     if (e.target.files[0]) {
@@ -36,20 +74,116 @@ const UploadComicForm = () => {
         });
         return;
       }
-      setFile(e.target.files[0]);
+      const selectedFile = e.target.files[0];
+      setFile(selectedFile);
+      
+      // Generate title from filename if title field is empty
+      if (!title.trim()) {
+        const generatedTitle = generateTitleFromFilename(selectedFile.name);
+        setTitle(generatedTitle);
+      }
     }
   };
+  
+  // Fetch tag suggestions based on input
+  const fetchTagSuggestions = async (query) => {
+    if (!query.trim() || query.trim().length < 2) {
+      setTagSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    setIsLoadingSuggestions(true);
+    try {
+      // Use the tag context to search for tags
+      const results = await searchTags(query.trim());
+      setTagSuggestions(results.map(tag => tag.name));
+      setShowSuggestions(true);
+    } catch (error) {
+      console.error('Error fetching tag suggestions:', error);
+      setTagSuggestions([]);
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  };
+
+  // Debounce function for tag suggestions
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      fetchTagSuggestions(tagInput);
+    }, 300);
+    return () => clearTimeout(timeoutId);
+  }, [tagInput]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target) && 
+          tagInputRef.current && !tagInputRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   
   // Tag management
   const addTag = () => {
     if (tagInput.trim() && !tags.includes(tagInput.trim())) {
       setTags([...tags, tagInput.trim()]);
       setTagInput("");
+      setShowSuggestions(false);
     }
   };
   
   const removeTag = (tagToRemove) => {
     setTags(tags.filter(tag => tag !== tagToRemove));
+  };
+  
+  const handleTagKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addTag();
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+    } else if (e.key === "ArrowDown" && showSuggestions && tagSuggestions.length > 0) {
+      e.preventDefault();
+      const suggestionElements = suggestionsRef.current?.querySelectorAll('button');
+      if (suggestionElements?.length) suggestionElements[0].focus();
+    }
+  };
+  
+  const handleSuggestionKeyDown = (e, index) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      selectSuggestion(tagSuggestions[index]);
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+      tagInputRef.current?.focus();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const suggestionElements = suggestionsRef.current?.querySelectorAll('button');
+      if (suggestionElements?.length && index < suggestionElements.length - 1) {
+        suggestionElements[index + 1].focus();
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const suggestionElements = suggestionsRef.current?.querySelectorAll('button');
+      if (index > 0 && suggestionElements?.length) {
+        suggestionElements[index - 1].focus();
+      } else {
+        tagInputRef.current?.focus();
+      }
+    }
+  };
+
+  const selectSuggestion = (suggestion) => {
+    if (!tags.includes(suggestion)) {
+      setTags([...tags, suggestion]);
+      setTagInput("");
+      setShowSuggestions(false);
+      tagInputRef.current?.focus();
+    }
   };
   
   // Helper to get CSRF token from cookies
@@ -190,11 +324,20 @@ const UploadComicForm = () => {
       setUploadStatus('complete');
       
       try {
-        await completeResponse.json();
+        const result = await completeResponse.json();
         toast({
           title: "Upload successful",
           description: "Comic has been uploaded successfully"
         });
+        
+        // If we have new tags from the upload, add them to the cache
+        if (result && result.comic && result.comic.tags) {
+          result.comic.tags.forEach(tag => {
+            if (typeof tag === 'object' && tag.id && tag.name) {
+              addTagToCache(tag);
+            }
+          });
+        }
         
         // Reset form
         setFile(null);
@@ -266,8 +409,6 @@ const UploadComicForm = () => {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col items-center">
-        <h1 className="text-3xl font-comic mb-6">Upload New Comic</h1>
-        
         <Card className="w-full max-w-xl">
           <CardHeader>
             <CardTitle className="text-2xl font-comic">Upload New Comic</CardTitle>
@@ -344,27 +485,61 @@ const UploadComicForm = () => {
               
               <div className="space-y-2">
                 <Label htmlFor="tags">Tags</Label>
-                <div className="flex gap-2">
-                  <Input 
-                    id="tags" 
-                    value={tagInput} 
-                    onChange={(e) => setTagInput(e.target.value)} 
-                    placeholder="Add tags..."
-                    className="flex-1"
-                    disabled={uploading}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addTag();
-                      }
-                    }}
-                  />
+                <div className="flex gap-2 relative">
+                  <div className="flex-1 relative">
+                    <Input 
+                      ref={tagInputRef}
+                      id="tags" 
+                      value={tagInput} 
+                      onChange={(e) => setTagInput(e.target.value)} 
+                      placeholder="Add tags..."
+                      className="flex-1 w-full"
+                      disabled={uploading}
+                      onKeyDown={handleTagKeyDown}
+                      onFocus={() => tagInput.trim().length >= 2 && setShowSuggestions(true)}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck="false"
+                      name="upload-tag-input-unique"
+                    />
+                    {isLoadingSuggestions && (
+                      <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                        <Loader2 size={16} className="animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                    {showSuggestions && tagSuggestions.length > 0 && !uploading && (
+                      <div 
+                        ref={suggestionsRef}
+                        className="absolute z-10 mt-1 w-full bg-background border rounded-md shadow-lg max-h-60 overflow-auto"
+                      >
+                        <div className="py-1">
+                          {tagSuggestions.map((suggestion, index) => (
+                            <button
+                              key={index}
+                              type="button"
+                              className={cn(
+                                "w-full text-left px-4 py-2 text-sm hover:bg-accent focus:bg-accent focus:outline-none",
+                                tags.includes(suggestion) ? "opacity-50" : ""
+                              )}
+                              onClick={() => selectSuggestion(suggestion)}
+                              onKeyDown={(e) => handleSuggestionKeyDown(e, index)}
+                              disabled={tags.includes(suggestion)}
+                            >
+                              {suggestion}
+                              {tags.includes(suggestion) && " (already added)"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <Button 
                     type="button" 
                     variant="outline" 
                     size="icon" 
                     onClick={addTag}
-                    disabled={uploading}
+                    disabled={uploading || !tagInput.trim()}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
                       <path d="M5 12h14"></path>

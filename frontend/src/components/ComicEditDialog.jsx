@@ -1,12 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { X, Tag as TagIcon, Plus } from "lucide-react";
+import { X, Tag as TagIcon, Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
+import { useTags } from "@/hooks/use-tags.jsx";
+import { cn } from "@/lib/utils.js";
 
 export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
   const [title, setTitle] = useState("");
@@ -16,7 +18,13 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
   const [tags, setTags] = useState([]);
   const [newTag, setNewTag] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [tagSuggestions, setTagSuggestions] = useState([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestionsRef = useRef(null);
+  const tagInputRef = useRef(null);
   const { toast } = useToast();
+  const { searchTags, addTagToCache } = useTags();
 
   useEffect(() => {
     if (comic) {
@@ -28,10 +36,53 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
     }
   }, [comic]);
 
+  // Fetch tag suggestions based on input
+  const fetchTagSuggestions = async (query) => {
+    if (!query.trim() || query.trim().length < 2) {
+      setTagSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    setIsLoadingSuggestions(true);
+    try {
+      // Use the tag context to search for tags
+      const results = await searchTags(query.trim());
+      setTagSuggestions(results.map(tag => tag.name));
+      setShowSuggestions(true);
+    } catch (error) {
+      console.error('Error fetching tag suggestions:', error);
+      setTagSuggestions([]);
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  };
+
+  // Debounce function for tag suggestions
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      fetchTagSuggestions(newTag);
+    }, 300);
+    return () => clearTimeout(timeoutId);
+  }, [newTag]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target) && 
+          tagInputRef.current && !tagInputRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const handleAddTag = () => {
     if (newTag.trim() && !tags.includes(newTag.trim())) {
       setTags([...tags, newTag.trim()]);
       setNewTag("");
+      setShowSuggestions(false);
     }
   };
 
@@ -43,6 +94,45 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
     if (e.key === "Enter") {
       e.preventDefault();
       handleAddTag();
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+    } else if (e.key === "ArrowDown" && showSuggestions && tagSuggestions.length > 0) {
+      e.preventDefault();
+      const suggestionElements = suggestionsRef.current?.querySelectorAll('button');
+      if (suggestionElements?.length) suggestionElements[0].focus();
+    }
+  };
+  
+  const handleSuggestionKeyDown = (e, index) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      selectSuggestion(tagSuggestions[index]);
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
+      tagInputRef.current?.focus();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const suggestionElements = suggestionsRef.current?.querySelectorAll('button');
+      if (suggestionElements?.length && index < suggestionElements.length - 1) {
+        suggestionElements[index + 1].focus();
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const suggestionElements = suggestionsRef.current?.querySelectorAll('button');
+      if (index > 0 && suggestionElements?.length) {
+        suggestionElements[index - 1].focus();
+      } else {
+        tagInputRef.current?.focus();
+      }
+    }
+  };
+
+  const selectSuggestion = (suggestion) => {
+    if (!tags.includes(suggestion)) {
+      setTags([...tags, suggestion]);
+      setNewTag("");
+      setShowSuggestions(false);
+      tagInputRef.current?.focus();
     }
   };
 
@@ -58,7 +148,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
 
     setIsSubmitting(true);
     try {
-      await onSave({
+      const result = await onSave({
         id: comic.id,
         title,
         author,
@@ -66,6 +156,15 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
         description,
         tags
       });
+      
+      // If we have new tags, add them to the cache
+      if (result && result.tags) {
+        result.tags.forEach(tag => {
+          if (typeof tag === 'object' && tag.id && tag.name) {
+            addTagToCache(tag);
+          }
+        });
+      }
       
       toast({
         title: "Comic updated",
@@ -153,14 +252,53 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
                 </Badge>
               ))}
             </div>
-            <div className="flex gap-2">
-              <Input
-                value={newTag}
-                onChange={(e) => setNewTag(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Add a tag"
-                className="flex-1"
-              />
+            <div className="flex gap-2 relative">
+              <div className="flex-1 relative">
+                <Input
+                  ref={tagInputRef}
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onFocus={() => newTag.trim().length >= 2 && setShowSuggestions(true)}
+                  placeholder="Add a tag"
+                  className="flex-1 w-full"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck="false"
+                  name="tag-input-unique"
+                />
+                {isLoadingSuggestions && (
+                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                    <Loader2 size={16} className="animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                {showSuggestions && tagSuggestions.length > 0 && (
+                  <div 
+                    ref={suggestionsRef}
+                    className="absolute z-10 mt-1 w-full bg-background border rounded-md shadow-lg max-h-60 overflow-auto"
+                  >
+                    <div className="py-1">
+                      {tagSuggestions.map((suggestion, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          className={cn(
+                            "w-full text-left px-4 py-2 text-sm hover:bg-accent focus:bg-accent focus:outline-none",
+                            tags.includes(suggestion) ? "opacity-50" : ""
+                          )}
+                          onClick={() => selectSuggestion(suggestion)}
+                          onKeyDown={(e) => handleSuggestionKeyDown(e, index)}
+                          disabled={tags.includes(suggestion)}
+                        >
+                          {suggestion}
+                          {tags.includes(suggestion) && " (already added)"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <Button 
                 type="button" 
                 size="sm" 
