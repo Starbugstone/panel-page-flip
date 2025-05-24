@@ -315,11 +315,12 @@ class ShareController extends AbstractController
                 chmod($recipientComicDir, 0775);
             }
 
-            $originalFilenameWithoutExt = pathinfo($originalComicRelativePath, PATHINFO_FILENAME);
+            // Get the file extension from the original comic
             $extension = pathinfo($originalComicRelativePath, PATHINFO_EXTENSION);
             
-            $newSafeFilename = $slugger->slug($originalFilenameWithoutExt)->lower();
-            $newComicFilename = $newSafeFilename . '-' . uniqid() . '.' . $extension;
+            // Use a UUID for shared comics to distinguish them from original uploads
+            $uuid = bin2hex(random_bytes(16)); // Generate a UUID
+            $newComicFilename = $uuid . '.' . $extension;
             $newComicPath = $recipientComicDir . '/' . $newComicFilename;
 
             if (!copy($originalComicPath, $newComicPath)) {
@@ -357,7 +358,8 @@ class ShareController extends AbstractController
                     }
                     
                     if (file_exists($newCoverDir)) {
-                        $newCoverFilename = $newSafeFilename . '-' . uniqid() . '.' . $newCoverExtension;
+                        // Use the same UUID as the comic file for consistency
+                        $newCoverFilename = $uuid . '.' . $newCoverExtension;
                         $newCoverPath = $newCoverDir . '/' . $newCoverFilename;
                         
                         if (copy($originalCoverPath, $newCoverPath)) {
