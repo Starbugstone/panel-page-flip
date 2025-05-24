@@ -25,13 +25,15 @@ class TagController extends AbstractController
         }
 
         $showAll = $request->query->getBoolean('all');
+        $isAdminContext = $request->query->getBoolean('adminContext');
         $tagRepository = $entityManager->getRepository(Tag::class);
 
-        if ($showAll && $this->isGranted('ROLE_ADMIN')) {
-            // Admin with all=true: Get all tags
+        // Only show all tags if explicitly in admin context and user is an admin
+        if ($showAll && $isAdminContext && $this->isGranted('ROLE_ADMIN')) {
+            // Admin with all=true and in admin context: Get all tags
             $tags = $tagRepository->findAll();
         } else {
-            // Regular user or Admin without all=true: Get tags created by the user
+            // Regular user, or admin in personal dashboard: Get only tags created by the user
             $tags = $tagRepository->findBy(['creator' => $user]);
         }
 
@@ -225,5 +227,47 @@ class TagController extends AbstractController
         $entityManager->flush();
 
         return $this->json(['message' => 'Tag deleted successfully']);
+    }
+
+    #[Route('/search', name: 'search', methods: ['GET'])]
+    public function search(Request $request, EntityManagerInterface $entityManager): JsonResponse
+    {
+        // Get the current user
+        $user = $this->getUser();
+        if (!$user) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // Get query parameter
+        $query = $request->query->get('q', '');
+        $isAdminContext = $request->query->getBoolean('adminContext');
+        
+        if (empty($query)) {
+            return $this->json(['tags' => []]);
+        }
+
+        // Search for tags by name
+        $tagRepository = $entityManager->getRepository(Tag::class);
+        $tags = $tagRepository->findByNameLike($query);
+        
+        // Filter tags based on context
+        // Only show all tags if explicitly in admin context and user is an admin
+        if (!($isAdminContext && $this->isGranted('ROLE_ADMIN'))) {
+            // Regular user or admin in personal dashboard: show only user's tags
+            $tags = array_filter($tags, function($tag) use ($user) {
+                return $tag->getCreator()->getId() === $user->getId();
+            });
+        }
+
+        // Transform tags to array
+        $tagsArray = [];
+        foreach ($tags as $tag) {
+            $tagsArray[] = [
+                'id' => $tag->getId(),
+                'name' => $tag->getName()
+            ];
+        }
+
+        return $this->json(['tags' => $tagsArray]);
     }
 }
