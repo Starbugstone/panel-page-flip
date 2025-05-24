@@ -862,9 +862,6 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Failed to extract page image'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
-        // Update reading progress
-        $this->updateReadingProgress($user, $comic, $page, $entityManager);
-
         // Return image
         $response = new Response($pageImage);
         $extension = strtolower(pathinfo($imageFiles[$page - 1], PATHINFO_EXTENSION));
