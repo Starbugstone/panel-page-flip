@@ -18,7 +18,7 @@ export function AdminComicsList() {
     const fetchComics = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch('/api/comics', { // Admins get all comics
+        const response = await fetch('/api/comics?adminContext=true', { // Explicitly request admin context
           credentials: 'include',
         });
         if (!response.ok) {
