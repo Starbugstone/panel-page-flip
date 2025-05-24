@@ -92,4 +92,20 @@
   .page-navigation {
     @apply fixed top-0 bottom-0 w-1/5 bg-transparent cursor-pointer opacity-0 hover:opacity-10 transition-opacity z-10;
   }
+  
+  .fullscreen-container {
+    @apply fixed inset-0 bg-background z-50 flex items-center justify-center pt-16;
+  }
+  
+  .zoomed-image {
+    @apply cursor-zoom-out max-h-none max-w-none;
+  }
+  
+  .fullscreen-controls {
+    @apply fixed top-20 right-4 z-[60] flex gap-2 bg-card/80 p-2 rounded-md shadow-md;
+  }
+  
+  .fullscreen-reader-controls {
+    @apply fixed bottom-4 left-0 right-0 z-[60] opacity-100 flex justify-between items-center mx-auto max-w-xl bg-card/80 p-2 rounded-md shadow-md;
+  }
 }

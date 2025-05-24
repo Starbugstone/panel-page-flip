@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button.jsx";
 // import { mockComics, generateComicPages } from "@/lib/mockData.js";
-import { ArrowLeft, ArrowRight, Info } from "lucide-react";
+import { ArrowLeft, ArrowRight, Info, Maximize, ZoomIn, ZoomOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 
@@ -17,6 +17,11 @@ export default function ComicReader() {
   const [isSavingProgress, setIsSavingProgress] = useState(false); // For UI feedback on saving
   const [imageCache, setImageCache] = useState({});
   const [showDebug, setShowDebug] = useState(false); // For debug panel
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
+  const imageContainerRef = useRef(null);
   
   // Refs for async operations
   const progressAbortController = useRef(null);
@@ -493,6 +498,79 @@ export default function ComicReader() {
     return () => window.removeEventListener("keydown", handleKeyPress);
   }, [currentPage, comicPages.length, handlePreviousPage, handleNextPage]);
 
+  // Handle fullscreen change events
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isNowFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(isNowFullscreen);
+      
+      // If exiting fullscreen and currently zoomed, also exit zoom mode
+      if (!isNowFullscreen && isZoomed) {
+        setIsZoomed(false);
+        setZoomLevel(1);
+      }
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [isZoomed]);
+  
+  // Ensure page navigation works in fullscreen mode
+  useEffect(() => {
+    const handleFullscreenKeyPress = (event) => {
+      if (isFullscreen) {
+        switch (event.key) {
+          case "ArrowLeft":
+            handlePreviousPage();
+            break;
+          case "ArrowRight":
+            handleNextPage();
+            break;
+          default:
+            break;
+        }
+      }
+    };
+
+    if (isFullscreen) {
+      window.addEventListener("keydown", handleFullscreenKeyPress);
+    }
+    
+    return () => {
+      window.removeEventListener("keydown", handleFullscreenKeyPress);
+    };
+  }, [isFullscreen, handlePreviousPage, handleNextPage]);
+  
+  // Handle zoom wheel events
+  const handleWheel = useCallback((e) => {
+    if (isZoomed) {
+      // Prevent default to stop page scrolling
+      e.preventDefault();
+      
+      // Adjust zoom level with mouse wheel
+      const delta = e.deltaY * -0.01;
+      const newZoomLevel = Math.max(1, Math.min(5, zoomLevel + delta));
+      
+      setZoomLevel(newZoomLevel);
+    }
+  }, [isZoomed, zoomLevel]);
+  
+  // Add wheel event listener when zoomed
+  useEffect(() => {
+    const container = imageContainerRef.current;
+    if (container && isZoomed) {
+      container.addEventListener('wheel', handleWheel, { passive: false });
+    }
+    
+    return () => {
+      if (container) {
+        container.removeEventListener('wheel', handleWheel);
+      }
+    };
+  }, [isZoomed, handleWheel]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex justify-center items-center bg-background">
@@ -512,22 +590,52 @@ export default function ComicReader() {
 
   return (
     <div className="min-h-screen flex flex-col items-center bg-background overflow-hidden">
+      {/* Navigation areas for clicking left/right sides of screen */}
+      {/* Navigation areas for clicking left/right sides of screen */}
       <div 
-        className="page-navigation left-0" 
+        className={`page-navigation left-0 ${isFullscreen ? 'z-[55]' : ''}`}
         onClick={() => handleScreenNavClick('left')}
         aria-label="Previous page"
       ></div>
       
       <div 
-        className="page-navigation right-0" 
+        className={`page-navigation right-0 ${isFullscreen ? 'z-[55]' : ''}`}
         onClick={() => handleScreenNavClick('right')}
         aria-label="Next page"
       ></div>
-      
       <div className="max-w-4xl w-full h-[calc(100vh-8rem)] flex items-center justify-center py-8">
-        <div className="relative max-h-full w-full h-full flex items-center justify-center">
-          {isPageImageLoading && comicPages.length > 0 && comicPages[currentPage] && (
-            <Skeleton className="w-full h-full max-w-full object-contain mx-auto" />
+        <div 
+          ref={imageContainerRef}
+          className={`relative max-h-full w-full h-full flex items-center justify-center ${isFullscreen ? 'fullscreen-container' : ''}`}
+          onMouseMove={(e) => {
+            if (isZoomed) {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = (e.clientX - rect.left) / rect.width;
+              const y = (e.clientY - rect.top) / rect.height;
+              setMousePosition({ x, y });
+            }
+          }}
+        >
+          {/* Main image display */}
+          {comicPages.length > 0 && imageCache[currentPage] && 
+           imageCache[currentPage] !== 'loading' && 
+           imageCache[currentPage] !== 'failed' && (
+            <img
+              key={`cached-${currentPage}`}
+              src={imageCache[currentPage].src}
+              alt={`Page ${currentPage + 1} of ${comic?.title || 'Comic'}`}
+              className={`max-h-full max-w-full object-contain mx-auto shadow-lg block transition-transform ${isZoomed ? 'zoomed-image' : ''}`}
+              style={{
+                transform: isZoomed ? `scale(${zoomLevel})` : 'none',
+                transformOrigin: isZoomed ? `${mousePosition.x * 100}% ${mousePosition.y * 100}%` : 'center center'
+              }}
+              onClick={() => {
+                if (isZoomed) {
+                  setIsZoomed(false);
+                  setZoomLevel(1);
+                }
+              }}
+            />
           )}
           {/* Error display for failed image load */}
           {!isPageImageLoading && !imageLoadedSuccessfully && comicPages.length > 0 && comicPages[currentPage] && (
@@ -536,117 +644,149 @@ export default function ComicReader() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  // Retry logic: Clear from cache and set to loading to trigger reload by main <img>
-                  // And also ensure the preloader might pick it up again if needed.
+                  // Retry logic: Clear from cache and set to loading to trigger reload
                   setImageCache(prevCache => {
                     const newCache = { ...prevCache };
-                    delete newCache[currentPage]; // Remove 'failed' or old Image object
+                    delete newCache[currentPage];
                     return newCache;
                   });
                   setIsPageImageLoading(true);
                   setImageLoadedSuccessfully(false);
-                  // The main img tag's src will attempt to reload.
-                  // The preloader might also try again if it's in its range.
                 }}
               >
                 Retry
               </Button>
             </div>
           )}
-          {/* Main image display */}
-          {comicPages.length > 0 && (
-            <div className="relative w-full h-full flex items-center justify-center">
-              {/* Show cached image immediately if available */}
-              {imageCache[currentPage] && 
-               imageCache[currentPage] !== 'loading' && 
-               imageCache[currentPage] !== 'failed' && (
-                <img
-                  key={`cached-${currentPage}`}
-                  src={imageCache[currentPage].src}
-                  alt={`Page ${currentPage + 1} of ${comic?.title || 'Comic'}`}
-                  className="max-h-full max-w-full object-contain mx-auto shadow-lg block"
-                />
-              )}
-              
-              {/* Show loading state only if we don't have a cached image */}
-              {(!imageCache[currentPage] || imageCache[currentPage] === 'loading') && isPageImageLoading && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Skeleton className="w-full h-full max-w-full object-contain mx-auto" />
-                </div>
-              )}
-              
-              {/* Show error state */}
-              {(!imageCache[currentPage] || imageCache[currentPage] === 'failed') && !isPageImageLoading && !imageLoadedSuccessfully && (
-                <div className="flex flex-col items-center justify-center text-destructive p-4 bg-destructive-foreground rounded-md">
-                  <p className="mb-2">Error loading page {currentPage + 1}.</p>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      // Retry logic: Clear from cache and set to loading to trigger reload
-                      setImageCache(prevCache => {
-                        const newCache = { ...prevCache };
-                        delete newCache[currentPage];
-                        return newCache;
-                      });
-                      setIsPageImageLoading(true);
-                      setImageLoadedSuccessfully(false);
-                    }}
-                  >
-                    Retry
-                  </Button>
-                </div>
-              )}
-              
-              {/* No hidden loader - all loading is handled in the useEffect */}
-              
-              {/* Debug button */}
+          {/* Loading state only if we don't have a cached image */}
+          {(!imageCache[currentPage] || imageCache[currentPage] === 'loading') && isPageImageLoading && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Skeleton className="w-full h-full max-w-full object-contain mx-auto" />
+            </div>
+          )}
+          {/* Control buttons - positioned differently in fullscreen mode */}
+          <div className={isFullscreen ? "fullscreen-controls" : "absolute top-2 right-2 z-10 flex gap-2"}>
+            <Button 
+              variant="outline" 
+              size="icon"
+              className="opacity-80 hover:opacity-100 bg-card/80"
+              onClick={() => {
+                if (isFullscreen) {
+                  document.exitFullscreen();
+                } else if (imageContainerRef.current) {
+                  imageContainerRef.current.requestFullscreen();
+                }
+              }}
+              title="Toggle fullscreen"
+            >
+              <Maximize className="h-4 w-4" />
+            </Button>
+            
+            {isZoomed ? (
               <Button 
                 variant="outline" 
                 size="icon"
-                className="absolute top-2 right-2 z-10 opacity-50 hover:opacity-100"
+                className="opacity-80 hover:opacity-100 bg-card/80"
                 onClick={() => {
-                  setShowDebug(!showDebug);
-                  logCacheState();
+                  setIsZoomed(false);
+                  setZoomLevel(1);
                 }}
+                title="Zoom out"
               >
-                <Info className="h-4 w-4" />
+                <ZoomOut className="h-4 w-4" />
               </Button>
-              
-              {/* Debug panel */}
-              {showDebug && (
-                <div className="absolute bottom-2 right-2 z-10 bg-card p-4 rounded-md shadow-lg max-w-xs max-h-60 overflow-auto text-xs">
-                  <h3 className="font-bold mb-2">Debug Info</h3>
-                  <p>Current page: {currentPage + 1}</p>
-                  <p>Total pages: {comicPages.length}</p>
-                  <p>Loading: {isPageImageLoading ? 'Yes' : 'No'}</p>
-                  <p>Cached pages: {Object.keys(imageCache).length}</p>
-                  <p>Cache window: {Math.max(0, currentPage - CACHE_SIZE_BACKWARD) + 1} - {Math.min(comicPages.length, currentPage + CACHE_SIZE_FORWARD) + 1}</p>
-                  <div className="mt-2">
-                    <p className="font-semibold">Cache status:</p>
-                    <ul className="mt-1">
-                      {Object.keys(imageCache)
-                        .map(Number)
-                        .sort((a, b) => a - b)
-                        .map(pageNum => (
-                          <li key={pageNum} className={pageNum === currentPage ? 'font-bold' : ''}>
-                            Page {pageNum + 1}: {' '}
-                            {imageCache[pageNum] === 'loading' ? '🔄 Loading' : 
-                             imageCache[pageNum] === 'failed' ? '❌ Failed' : '✅ Loaded'}
-                            {pageNum === currentPage ? ' (current)' : ''}
-                          </li>
-                        ))
-                      }
-                    </ul>
-                  </div>
-                  <div className="mt-2">
-                    <p className="font-semibold">Queue status:</p>
-                    <p>Pages to load: {loadQueueRef.current.length}</p>
-                    {loadQueueRef.current.length > 0 && (
-                      <p>Next in queue: {loadQueueRef.current[0] + 1}</p>
-                    )}
-                  </div>
-                </div>
+            ) : (
+              <Button 
+                variant="outline" 
+                size="icon"
+                className="opacity-80 hover:opacity-100 bg-card/80"
+                onClick={() => {
+                  setIsZoomed(true);
+                  setZoomLevel(2);
+                }}
+                title="Zoom in"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </Button>
+            )}
+            
+            {/* Page navigation buttons in fullscreen mode */}
+            {isFullscreen && (
+              <>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="opacity-80 hover:opacity-100 bg-card/80"
+                  onClick={handlePreviousPage}
+                  disabled={currentPage === 0}
+                  title="Previous page"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="opacity-80 hover:opacity-100 bg-card/80"
+                  onClick={handleNextPage}
+                  disabled={currentPage === comicPages.length - 1}
+                  title="Next page"
+                >
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </>
+            )}
+            
+            {/* Debug button */}
+            <Button 
+              variant="outline" 
+              size="icon"
+              className="opacity-80 hover:opacity-100 bg-card/80"
+              onClick={() => {
+                setShowDebug(!showDebug);
+                logCacheState();
+              }}
+              title="Debug info"
+            >
+              <Info className="h-4 w-4" />
+            </Button>
+          </div>
+          {/* Debug panel */}
+          {showDebug && (
+            <div className="absolute bottom-2 right-2 z-10 bg-card p-4 rounded-md shadow-lg max-w-xs max-h-60 overflow-auto text-xs">
+              <h3 className="font-bold mb-2">Debug Info</h3>
+              <p>Current page: {currentPage + 1}</p>
+              <p>Total pages: {comicPages.length}</p>
+              <p>Loading: {isPageImageLoading ? 'Yes' : 'No'}</p>
+              <p>Cached pages: {Object.keys(imageCache).length}</p>
+              <p>Cache window: {Math.max(0, currentPage - CACHE_SIZE_BACKWARD) + 1} - {Math.min(comicPages.length, currentPage + CACHE_SIZE_FORWARD) + 1}</p>
+              {isZoomed && (
+                <p>Zoom level: {Math.round(zoomLevel * 100)}%</p>
               )}
+              <div className="mt-2">
+                <p className="font-semibold">Cache status:</p>
+                <ul className="mt-1">
+                  {Object.keys(imageCache)
+                    .map(Number)
+                    .sort((a, b) => a - b)
+                    .map(pageNum => (
+                      <li key={pageNum} className={pageNum === currentPage ? 'font-bold' : ''}>
+                        Page {pageNum + 1}: {' '}
+                        {imageCache[pageNum] === 'loading' ? '🔄 Loading' : 
+                         imageCache[pageNum] === 'failed' ? '❌ Failed' : '✅ Loaded'}
+                        {pageNum === currentPage ? ' (current)' : ''}
+                      </li>
+                    ))
+                  }
+                </ul>
+              </div>
+              <div className="mt-2">
+                <p className="font-semibold">Queue status:</p>
+                <p>Pages to load: {loadQueueRef.current.length}</p>
+                {loadQueueRef.current.length > 0 && (
+                  <p>Next in queue: {loadQueueRef.current[0] + 1}</p>
+                )}
+              </div>
             </div>
           )}
           {/* Case where there are no pages for the comic */}
@@ -656,25 +796,33 @@ export default function ComicReader() {
         </div>
       </div>
       
-      <div className="reader-controls">
+      {/* Reader controls - different styling in fullscreen mode */}
+      <div className={isFullscreen ? "fullscreen-reader-controls" : "reader-controls"}>
         <Button
           variant="outline"
           onClick={handlePreviousPage}
           disabled={currentPage === 0}
-          className="bg-card"
+          className={isFullscreen ? "" : "bg-card"}
         >
           <ArrowLeft className="mr-2 h-4 w-4" /> Previous
         </Button>
         
-        <div className="text-sm">
-          Page {currentPage + 1} of {comicPages.length}
+        <div className="flex items-center gap-2">
+          <div className="text-sm">
+            Page {currentPage + 1} of {comicPages.length}
+          </div>
+          {isZoomed && (
+            <div className="text-xs bg-primary/20 px-2 py-1 rounded">
+              {Math.round(zoomLevel * 100)}% zoom
+            </div>
+          )}
         </div>
         
         <Button
           variant="outline"
           onClick={handleNextPage}
           disabled={currentPage === comicPages.length - 1}
-          className="bg-card"
+          className={isFullscreen ? "" : "bg-card"}
         >
           Next <ArrowRight className="ml-2 h-4 w-4" />
         </Button>
