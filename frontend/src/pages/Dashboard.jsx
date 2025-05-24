@@ -38,10 +38,23 @@ export default function Dashboard() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: "Failed to load comics." }));
         console.error("Failed to load comics:", errorData.message);
-        toast({ title: "Error", description: errorData.message || "Could not load comics.", variant: "destructive" });
-        setError(errorData.message || "Could not load comics.");
+        
+        // Handle rate limiting specifically
+        if (response.status === 429) { // 429 Too Many Requests
+          const retryAfter = errorData.retryAfter || 60;
+          toast({ 
+            title: "Rate limit exceeded", 
+            description: `Please wait ${retryAfter} seconds before trying again.`, 
+            variant: "warning",
+            duration: 5000 // Show for 5 seconds
+          });
+          setError(`Search rate limit exceeded. Please wait ${retryAfter} seconds before trying again.`);
+        } else {
+          toast({ title: "Error", description: errorData.message || "Could not load comics.", variant: "destructive" });
+          setError(errorData.message || "Could not load comics.");
+        }
+        
         setComics([]); // Clear comics on error
-        // setSearchResults([]);
         return;
       }
       const data = await response.json();
@@ -51,7 +64,6 @@ export default function Dashboard() {
       toast({ title: "Error", description: "Could not connect to server or other error.", variant: "destructive" });
       setError("Could not connect to server or other error.");
       setComics([]);
-      // setSearchResults([]);
     } finally {
       setIsLoading(false);
     }
@@ -85,12 +97,40 @@ export default function Dashboard() {
     loadComics();
   }, [toast]); // loadComics itself doesn't change, but toast is a dependency of its internals indirectly
 
+  // Constants for input validation
+  const MAX_SEARCH_QUERY_LENGTH = 100;
+  const MAX_TAGS_COUNT = 10;
+  
   const handleSearch = (params) => {
-    setSearchParams(params); // Keep track of current search parameters
-    if (!params.query && (!params.tags || params.tags.length === 0)) {
+    // Validate and sanitize search parameters
+    const sanitizedParams = {
+      query: params.query ? params.query.slice(0, MAX_SEARCH_QUERY_LENGTH) : "",
+      tags: params.tags ? params.tags.slice(0, MAX_TAGS_COUNT) : []
+    };
+    
+    // Show warning if input was truncated
+    if (params.query && params.query.length > MAX_SEARCH_QUERY_LENGTH) {
+      toast({
+        title: "Search query truncated",
+        description: `Your search query was too long and has been truncated to ${MAX_SEARCH_QUERY_LENGTH} characters.`,
+        variant: "warning"
+      });
+    }
+    
+    if (params.tags && params.tags.length > MAX_TAGS_COUNT) {
+      toast({
+        title: "Too many tags selected",
+        description: `Only the first ${MAX_TAGS_COUNT} tags will be used for filtering.`,
+        variant: "warning"
+      });
+    }
+    
+    setSearchParams(sanitizedParams); // Keep track of current search parameters
+    
+    if (!sanitizedParams.query && (!sanitizedParams.tags || sanitizedParams.tags.length === 0)) {
       loadComics(); // Fetch all comics if search is cleared
     } else {
-      fetchFilteredComics(params.query, params.tags);
+      fetchFilteredComics(sanitizedParams.query, sanitizedParams.tags);
     }
   };
 

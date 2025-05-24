@@ -12,6 +12,8 @@ export function SearchBar({ onSearch }) {
   const [isLoadingTags, setIsLoadingTags] = useState(true);
   const [tagFetchError, setTagFetchError] = useState(null);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 3;
 
   useEffect(() => {
     const fetchTags = async () => {
@@ -20,20 +22,53 @@ export function SearchBar({ onSearch }) {
       try {
         const response = await fetch("/api/tags");
         if (!response.ok) {
-          throw new Error(`Failed to fetch tags: ${response.statusText}`);
+          const errorText = response.statusText;
+          const status = response.status;
+          let errorMessage;
+          
+          switch (status) {
+            case 401:
+              errorMessage = "You need to be logged in to view tags";
+              break;
+            case 403:
+              errorMessage = "You don't have permission to view these tags";
+              break;
+            case 404:
+              errorMessage = "Tag resource not found";
+              break;
+            case 500:
+              errorMessage = "Server error while fetching tags";
+              break;
+            default:
+              errorMessage = `Failed to fetch tags: ${errorText}`;
+          }
+          
+          throw new Error(errorMessage);
         }
         const data = await response.json();
         setAvailableTags(data.tags || []); // Assuming the API returns { tags: [...] }
+        setRetryCount(0); // Reset retry count on success
       } catch (error) {
         console.error("Error fetching tags:", error);
         setTagFetchError(error.message);
+        
+        // Implement retry logic for network errors
+        if (retryCount < MAX_RETRIES && (error.message.includes('network') || error.message.includes('Server error'))) {
+          setRetryCount(prev => prev + 1);
+          const retryDelay = Math.pow(2, retryCount) * 1000; // Exponential backoff
+          setTimeout(() => {
+            console.log(`Retrying tag fetch (${retryCount + 1}/${MAX_RETRIES})...`);
+            // This will trigger the useEffect again
+            setTagFetchError(null);
+          }, retryDelay);
+        }
       } finally {
         setIsLoadingTags(false);
       }
     };
 
     fetchTags();
-  }, []);
+  }, [retryCount]);
   
   const handleSearch = (e) => {
     e.preventDefault();
@@ -97,7 +132,19 @@ export function SearchBar({ onSearch }) {
               <div className="p-3 max-h-60 overflow-y-auto">
                 <p className="text-sm font-medium mb-2">Filter by tags:</p>
                 {isLoadingTags && <p className="text-sm text-muted-foreground">Loading tags...</p>}
-                {tagFetchError && <p className="text-sm text-destructive">Error: {tagFetchError}</p>}
+                {tagFetchError && (
+                  <div className="text-sm text-destructive">
+                    <p>Error: {tagFetchError}</p>
+                    {retryCount < MAX_RETRIES && (
+                      <button 
+                        className="text-sm text-primary hover:text-primary-focus mt-1"
+                        onClick={() => setRetryCount(prev => prev + 1)}
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                )}
                 {!isLoadingTags && !tagFetchError && (
                   <div className="flex flex-wrap gap-2">
                     {availableTags.map((tag) => (
