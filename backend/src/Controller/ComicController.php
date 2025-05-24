@@ -102,11 +102,12 @@ class ComicController extends AbstractController
         $qb->select('c')
             ->from(Comic::class, 'c');
 
-        // Check if we're in admin context
-        $adminContext = $request->query->get('adminContext') === 'true';
+        // Check if we're in admin context - only consider this parameter if user is an admin
+        $adminContext = $request->query->get('adminContext') === 'true' && in_array('ROLE_ADMIN', $user->getRoles());
         
         // User Ownership Filter - only show all comics to admins in admin context
-        if (!in_array('ROLE_ADMIN', $user->getRoles()) || !$adminContext) {
+        if (!$adminContext) {
+            // For non-admins or admins outside admin context, only show their own comics
             $qb->andWhere('c.owner = :owner')
                 ->setParameter('owner', $user);
         }
