@@ -29,6 +29,9 @@ The site should have a norma and dark mode.
 - **CBZ Format Support**: Read comics in the popular CBZ archive format
 - **Chunked Uploads**: Support for large file uploads via chunking (1MB chunks)
 - **Upload Progress**: Real-time progress tracking during file uploads
+- **Advanced Caching**: Smart page caching system that prevents unnecessary network calls
+- **Fast Navigation**: Immediate display of cached pages for smooth reading experience
+- **Memory Optimization**: Efficient memory usage by only caching pages within the current reading window
 - **Responsive Design**: Optimized for both desktop and mobile devices
 - **Dark Mode**: Toggle between light and dark themes for comfortable reading
 - **Custom Tagging**: Create and assign custom tags to your comics for better organization

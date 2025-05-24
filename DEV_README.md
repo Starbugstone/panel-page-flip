@@ -51,11 +51,23 @@ This document provides detailed information for developers working on the projec
 - **Authentication Pages**: Login and registration implemented in `Login.jsx`
 - **Password Reset**: Forgot password and reset password pages implemented in `ForgotPassword.jsx` and `ResetPassword.jsx`
 - **Dashboard**: Comic library view implemented in `Dashboard.jsx`
-- **Comic Reader**: Reading interface implemented in `ComicReader.jsx`
+
+#### ✅ Comic Reader
+- **Reading Interface**: Core reading functionality implemented in `ComicReader.jsx`
+- **Advanced Caching System**: Implemented a robust caching system that stores comic pages as data URLs to prevent unnecessary network requests
+- **Optimized Page Loading**: Uses a priority queue system to load pages in order of likelihood to be viewed next
+- **Memory Management**: Automatically cleans up cached pages outside the viewing window (±5 pages) to prevent memory overflow
+- **Network Optimization**: Prevents duplicate network requests by tracking in-progress loads
+- **Responsive UI**: Immediately displays cached pages while loading new ones in the background
+- **Debug Panel**: Provides real-time visibility into cache state and loading processes
+
+#### ✅ Admin Interface
 - **Admin Dashboard**: Implemented in `AdminDashboard.jsx`, now includes a loading indicator during user authentication.
 - **Admin Users Management**: Enhanced UI in `AdminUsersList.jsx` for managing user roles (e.g., ensuring `ROLE_USER` persistence, clearer role assignment).
 - **Admin Comics List**: Improved tag display in `AdminComicsList.jsx` to correctly handle various tag data formats.
 - **Admin Tags List**: UI refinements in `AdminTagsList.jsx` for tag creation and editing dialogs.
+
+#### ✅ Comic Upload
 - **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx` with chunked upload support, progress tracking, and tag management
 
 The frontend is built with:
@@ -297,11 +309,37 @@ curl -X POST http://localhost:8080/api/register -H "Content-Type: application/js
 
 # Get Comics (requires authentication cookie from login)
 curl -X GET http://localhost:8080/api/comics -H "Content-Type: application/json" -b cookies.txt
-```
 
-## What's Left to Implement
+## Recent Updates
 
-### Frontend Implementation
+### Comic Reader Caching Improvements
+
+The comic reader component has been significantly optimized to improve performance and user experience:
+
+1. **Data URL Caching**: Comic pages are now stored as data URLs in memory to prevent unnecessary network requests
+   - Pages are converted to base64-encoded data URLs when loaded
+   - This prevents the browser from making new HTTP requests for previously loaded images
+   - Fallback to Image object caching if data URL conversion fails
+
+2. **Loading State Tracking**:
+   - Added a loading tracker to prevent duplicate requests for the same page
+   - Each page load is tracked with a Promise to ensure we don't start multiple loads for the same page
+
+3. **Memory Management**:
+   - Cache window limited to ±5 pages around the current page
+   - Pages outside this window are automatically removed from cache
+   - This prevents memory issues when reading large comics
+
+4. **Optimized Navigation**:
+   - Page state is updated immediately when navigating to a cached page
+   - No loading indicator shown for cached pages, creating a seamless experience
+   - Priority loading queue ensures the most likely-to-be-viewed pages load first
+
+5. **Debug Information**:
+   - Added comprehensive debug panel to monitor cache state
+   - Removed console logs to clean up browser console
+
+### Frontend Improvements
 
 #### 1. Authentication Pages
 - ✅ **Login Page**: Implemented with email and password fields
