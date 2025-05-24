@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button.jsx";
 // import { mockComics, generateComicPages } from "@/lib/mockData.js";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 
@@ -16,16 +16,47 @@ export default function ComicReader() {
   const [imageLoadedSuccessfully, setImageLoadedSuccessfully] = useState(true); // To track if image loaded
   const [isSavingProgress, setIsSavingProgress] = useState(false); // For UI feedback on saving
   const [imageCache, setImageCache] = useState({});
+  const [showDebug, setShowDebug] = useState(false); // For debug panel
+  
+  // Refs for async operations
+  const progressAbortController = useRef(null);
+  const currentPageRef = useRef(0); // Ref to track current page for async operations
+  const loadQueueRef = useRef([]); // Queue of pages to load
+  const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
+  const cacheCleanupTimeoutRef = useRef(null); // Timeout for cache cleanup
+  
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const CACHE_SIZE_FORWARD = 3;
-  const CACHE_SIZE_BACKWARD = 2;
+  const CACHE_SIZE_FORWARD = 5;
+  const CACHE_SIZE_BACKWARD = 5;
+  
+  // Debug function to log cache state
+  const logCacheState = useCallback(() => {
+    console.log(`Cache state for page ${currentPage + 1}:`, 
+      Object.keys(imageCache)
+        .map(key => {
+          const pageNum = parseInt(key, 10);
+          const status = imageCache[pageNum] === 'loading' ? 'loading' : 
+                        imageCache[pageNum] === 'failed' ? 'failed' : 'loaded';
+          return { page: pageNum + 1, status };
+        })
+        .sort((a, b) => a.page - b.page)
+    );
+  }, [imageCache, currentPage]);
 
   const updateReadingProgress = useCallback(async (pageToSave) => {
-    if (!comicId || !comic || isSavingProgress) return;
+    if (!comicId || !comic) return;
 
-    // console.log(`Attempting to save progress: Page ${pageToSave} for comic ${comicId}`);
+    // Abort any in-progress update
+    if (progressAbortController.current) {
+      progressAbortController.current.abort();
+    }
+
+    // Create a new AbortController for this request
+    const controller = new AbortController();
+    progressAbortController.current = controller;
+
     setIsSavingProgress(true);
 
     try {
@@ -35,7 +66,11 @@ export default function ComicReader() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ currentPage: pageToSave }),
+        signal: controller.signal
       });
+
+      // If this request was aborted, just return silently
+      if (controller.signal.aborted) return;
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: "Failed to save progress." }));
@@ -43,6 +78,9 @@ export default function ComicReader() {
       }
       // Optional: toast({ title: "Progress Saved", description: `Page ${pageToSave} saved.` });
     } catch (error) {
+      // Don't show errors for aborted requests
+      if (error.name === 'AbortError') return;
+      
       console.error("Failed to save reading progress:", error);
       toast({
         title: "Error Saving Progress",
@@ -50,9 +88,12 @@ export default function ComicReader() {
         variant: "destructive",
       });
     } finally {
-      setIsSavingProgress(false);
+      if (progressAbortController.current === controller) {
+        setIsSavingProgress(false);
+        progressAbortController.current = null;
+      }
     }
-  }, [comicId, comic, toast, isSavingProgress]);
+  }, [comicId, comic, toast]);
 
 
   useEffect(() => {
@@ -121,97 +162,335 @@ export default function ComicReader() {
     }
   }, [comicId, navigate, toast]);
 
-  // Effect to handle per-page image loading state based on JS imageCache
-  useEffect(() => {
-    if (comicPages.length > 0 && comicPages[currentPage]) {
-      const cachedImage = imageCache[currentPage];
-      if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed' && cachedImage.complete) {
-        // Image is in our JS cache and fully loaded (already decoded)
-        setIsPageImageLoading(false);
-        setImageLoadedSuccessfully(true);
-      } else if (cachedImage === 'failed') {
-        setIsPageImageLoading(false);
-        setImageLoadedSuccessfully(false);
-      } else {
-        // Image not in JS cache, or is an Image object still loading, or just URL.
-        // Rely on the <img> tag's onLoad/onError for these cases.
-        // Ensure isPageImageLoading is true if we don't have it readily available.
-        setIsPageImageLoading(true);
-        setImageLoadedSuccessfully(false); // Will be set by img.onLoad or if cache hit occurs before render.
-      }
-    } else if (comicPages.length > 0 && !comicPages[currentPage]) {
-        // Current page is out of bounds of comicPages (should not happen with proper navigation)
-        setIsPageImageLoading(false);
-        setImageLoadedSuccessfully(false);
-        // console.warn("Current page index is out of bounds for comicPages array.");
-    } else {
-        // No comicPages available yet, or comicPages is empty
-        setIsPageImageLoading(true); // Default to loading if no pages.
-        setImageLoadedSuccessfully(false);
+  // Function to check if a page index is within the cache window
+  const isInCacheWindow = useCallback((pageIndex) => {
+    return pageIndex >= Math.max(0, currentPageRef.current - CACHE_SIZE_BACKWARD) && 
+           pageIndex <= Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
+  }, [comicPages.length]);
+
+  // Function to convert an image to a data URL to avoid network requests
+  const imageToDataURL = (img) => {
+    // Create a canvas element
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    
+    // Draw the image on the canvas
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    
+    // Convert the canvas to a data URL
+    return canvas.toDataURL('image/jpeg');
+  };
+  
+  // Function to load a single page and add it to the cache
+  const loadPageIntoCache = useCallback((pageIndex) => {
+    if (pageIndex < 0 || pageIndex >= comicPages.length) return Promise.resolve(); // Out of bounds
+    
+    // If already fully loaded in cache or loading, no need to load again
+    if (imageCache[pageIndex] && imageCache[pageIndex] !== 'failed') {
+      return Promise.resolve();
     }
-  }, [currentPage, comicPages, imageCache]);
-
-  // Effect for pre-loading images
-  useEffect(() => {
-    if (!comicPages || comicPages.length === 0) return;
-
-    const preloadPage = (pageIndex) => {
-      if (pageIndex < 0 || pageIndex >= comicPages.length) return; // Out of bounds
-
-      // Check cache: if it's an Image object, or 'loading', or 'failed', skip
-      if (imageCache[pageIndex] && (imageCache[pageIndex] instanceof Image || imageCache[pageIndex] === 'loading' || imageCache[pageIndex] === 'failed')) {
-        return;
-      }
-
-      // Mark as "being cached" to avoid re-fetching in quick succession
-      setImageCache(prevCache => ({ ...prevCache, [pageIndex]: 'loading' }));
-      
+    
+    // Mark as loading in the cache
+    setImageCache(prev => ({
+      ...prev,
+      [pageIndex]: 'loading'
+    }));
+    
+    return new Promise((resolve, reject) => {
+      // Create a new image object with a unique timestamp to prevent browser caching
       const img = new Image();
-      img.src = comicPages[pageIndex];
+      const url = `${comicPages[pageIndex]}?_t=${Date.now()}`;
+      
+      img.crossOrigin = 'Anonymous'; // Enable CORS for the canvas operations
+      
       img.onload = () => {
-        setImageCache(prevCache => ({ ...prevCache, [pageIndex]: img }));
-        // console.log(`Page ${pageIndex + 1} pre-loaded and cached.`);
+        // Only update cache if this page is still in the cache window
+        if (isInCacheWindow(pageIndex)) {
+          try {
+            // Convert the image to a data URL to prevent network requests
+            const dataUrl = imageToDataURL(img);
+            
+            // Create a new image with the data URL
+            const cachedImg = new Image();
+            cachedImg.src = dataUrl;
+            
+            setImageCache(prev => ({
+              ...prev,
+              [pageIndex]: cachedImg
+            }));
+          } catch (error) {
+            console.error(`Failed to create data URL for page ${pageIndex + 1}:`, error);
+            // Fallback to using the original image
+            setImageCache(prev => ({
+              ...prev,
+              [pageIndex]: img
+            }));
+          }
+        }
+        resolve(img);
       };
+      
       img.onerror = () => {
-        setImageCache(prevCache => ({ ...prevCache, [pageIndex]: 'failed' }));
-        // console.error(`Failed to pre-load page ${pageIndex + 1}.`);
+        setImageCache(prev => ({
+          ...prev,
+          [pageIndex]: 'failed'
+        }));
+        reject();
       };
+      
+      // Set the source with the timestamp to prevent caching
+      img.src = url;
+    });
+  }, [imageCache, comicPages, isInCacheWindow]);
+  
+  // Function to process the load queue
+  const processLoadQueue = useCallback(() => {
+    if (isLoadingRef.current || loadQueueRef.current.length === 0) return;
+    
+    isLoadingRef.current = true;
+    const pageToLoad = loadQueueRef.current.shift();
+    
+    // Skip current page - it's handled separately
+    if (pageToLoad === currentPageRef.current) {
+      isLoadingRef.current = false;
+      processLoadQueue();
+      return;
+    }
+    
+    loadPageIntoCache(pageToLoad)
+      .catch(() => console.error(`Failed to load page ${pageToLoad + 1}`))
+      .finally(() => {
+        isLoadingRef.current = false;
+        // Continue processing the queue
+        processLoadQueue();
+      });
+  }, [loadPageIntoCache]);
+  
+  // Function to queue pages for loading in priority order
+  const queuePagesToLoad = useCallback(() => {
+    if (comicPages.length === 0) return;
+    
+    // Clear the current queue
+    loadQueueRef.current = [];
+    
+    // Get the current page
+    const currentPageIndex = currentPageRef.current;
+    
+    // Calculate range of pages to cache
+    const startPage = Math.max(0, currentPageIndex - CACHE_SIZE_BACKWARD);
+    const endPage = Math.min(comicPages.length - 1, currentPageIndex + CACHE_SIZE_FORWARD);
+    
+    // Priority 1: Next page
+    if (currentPageIndex + 1 <= endPage && 
+        (!imageCache[currentPageIndex + 1] || imageCache[currentPageIndex + 1] === 'failed')) {
+      loadQueueRef.current.push(currentPageIndex + 1);
+    }
+    
+    // Priority 2: Previous page
+    if (currentPageIndex - 1 >= startPage && 
+        (!imageCache[currentPageIndex - 1] || imageCache[currentPageIndex - 1] === 'failed')) {
+      loadQueueRef.current.push(currentPageIndex - 1);
+    }
+    
+    // Priority 3: Pages ahead of current
+    for (let i = currentPageIndex + 2; i <= endPage; i++) {
+      if (!imageCache[i] || imageCache[i] === 'failed') {
+        loadQueueRef.current.push(i);
+      }
+    }
+    
+    // Priority 4: Pages before current
+    for (let i = currentPageIndex - 2; i >= startPage; i--) {
+      if (!imageCache[i] || imageCache[i] === 'failed') {
+        loadQueueRef.current.push(i);
+      }
+    }
+    
+    // Start processing the queue if there are pages to load
+    if (loadQueueRef.current.length > 0) {
+      processLoadQueue();
+    }
+  }, [processLoadQueue, imageCache, comicPages.length]);
+  
+  // Function to clean up the cache (remove pages outside the window)
+  const cleanupCache = useCallback(() => {
+    setImageCache(prev => {
+      const newCache = { ...prev };
+      const startPage = Math.max(0, currentPageRef.current - CACHE_SIZE_BACKWARD);
+      const endPage = Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
+      
+      // Remove pages outside the window
+      Object.keys(newCache).forEach(key => {
+        const pageKey = parseInt(key, 10);
+        if (pageKey < startPage || pageKey > endPage) {
+          delete newCache[pageKey];
+        }
+      });
+      
+      return newCache;
+    });
+  }, [comicPages.length]);
+  
+  // Effect to handle page changes and update UI state - only runs when page actually changes
+  useEffect(() => {
+    // Update the ref to ensure async operations have the latest value
+    currentPageRef.current = currentPage;
+    
+    if (comicPages.length === 0) return;
+    
+    // Check if current page is available in cache
+    const cachedImage = imageCache[currentPage];
+    
+    // Add a debug log to track network requests
+    console.log(`Current page URL: ${comicPages[currentPage] || 'undefined'}`);
+    console.log(`Cache status for page ${currentPage + 1}: ${cachedImage ? (cachedImage === 'loading' ? 'loading' : cachedImage === 'failed' ? 'failed' : 'cached') : 'not cached'}`);
+    
+    if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
+      // Image is in cache and fully loaded - show immediately
+      setIsPageImageLoading(false);
+      setImageLoadedSuccessfully(true);
+      console.log(`Page ${currentPage + 1} displayed from cache`);
+      
+      // Queue surrounding pages after a delay
+      const queueTimer = setTimeout(() => {
+        queuePagesToLoad();
+      }, 100);
+      
+      return () => clearTimeout(queueTimer);
+    } else if (cachedImage === 'failed') {
+      // Image failed to load
+      setIsPageImageLoading(false);
+      setImageLoadedSuccessfully(false);
+      console.log(`Page ${currentPage + 1} failed to load`);
+    } else {
+      // Not in cache or still loading - show loading state
+      setIsPageImageLoading(true);
+      setImageLoadedSuccessfully(false);
+      console.log(`Page ${currentPage + 1} not in cache, loading from network`);
+      
+      // Create a new image object for loading
+      const img = new Image();
+      
+      // Enable CORS for canvas operations
+      img.crossOrigin = 'Anonymous';
+      
+      // Set up event handlers before setting src
+      img.onload = () => {
+        // Only update if this is still the current page
+        if (currentPageRef.current === currentPage) {
+          console.log(`Successfully loaded current page ${currentPage + 1}`);
+          setIsPageImageLoading(false);
+          setImageLoadedSuccessfully(true);
+          
+          try {
+            // Convert the image to a data URL to prevent network requests
+            const dataUrl = imageToDataURL(img);
+            
+            // Create a new image with the data URL
+            const cachedImg = new Image();
+            cachedImg.src = dataUrl;
+            
+            setImageCache(prev => ({ ...prev, [currentPage]: cachedImg }));
+          } catch (error) {
+            console.error(`Failed to create data URL for current page:`, error);
+            // Fallback to using the original image
+            setImageCache(prev => ({ ...prev, [currentPage]: img }));
+          }
+          
+          // Queue surrounding pages after a delay
+          queuePagesToLoad();
+        }
+      };
+      
+      img.onerror = () => {
+        // Only update if this is still the current page
+        if (currentPageRef.current === currentPage) {
+          console.error(`Failed to load current page ${currentPage + 1}`);
+          setIsPageImageLoading(false);
+          setImageLoadedSuccessfully(false);
+          setImageCache(prev => ({ ...prev, [currentPage]: 'failed' }));
+        }
+      };
+      
+      // Start loading the image with a timestamp to prevent browser caching
+      img.src = `${comicPages[currentPage]}?_t=${Date.now()}`;
+    }
+    
+    // Schedule cache cleanup after a delay
+    const cleanupTimer = setTimeout(() => {
+      cleanupCache();
+      logCacheState();
+    }, 2000); // Delay cleanup to avoid unnecessary operations
+    
+    return () => {
+      clearTimeout(cleanupTimer);
     };
+  // Remove imageCache from dependencies to prevent infinite loop
+  }, [currentPage, comicPages, queuePagesToLoad, cleanupCache, logCacheState]);
 
-    // Preload forward
-    for (let i = 1; i <= CACHE_SIZE_FORWARD; i++) {
-      preloadPage(currentPage + i);
-    }
-    // Preload backward
-    for (let i = 1; i <= CACHE_SIZE_BACKWARD; i++) {
-      preloadPage(currentPage - i);
-    }
-    // Ensure current page is also in cache (could be missed if navigation is too fast or first load)
-    // preloadPage(currentPage); // This might be redundant due to <img> onLoad, but can ensure cache consistency.
 
-  }, [currentPage, comicPages, imageCache, CACHE_SIZE_FORWARD, CACHE_SIZE_BACKWARD]); // imageCache added as dependency
 
   // Effect to save reading progress when currentPage changes
+  // We don't need to run this on every render, only when the page changes
+  const lastSavedPage = useRef(null);
+  
   useEffect(() => {
-    // Consider debouncing this for production to avoid rapid API calls.
-    if (comic && comicId && typeof currentPage === 'number' && currentPage >= 0 && comicPages.length > 0) {
+    // Only update if the page has actually changed and we have all the required data
+    if (comic && comicId && typeof currentPage === 'number' && currentPage >= 0 && 
+        comicPages.length > 0 && lastSavedPage.current !== currentPage) {
       // We add 1 because currentPage is 0-indexed, but backend expects 1-indexed.
+      lastSavedPage.current = currentPage;
       updateReadingProgress(currentPage + 1);
     }
   }, [currentPage, comic, comicId, comicPages.length, updateReadingProgress]);
 
-  const handlePreviousPage = () => {
+  const handlePreviousPage = useCallback(() => {
     if (currentPage > 0) {
-      setCurrentPage(currentPage - 1);
+      const newPage = currentPage - 1;
+      console.log(`Navigating to previous page: ${currentPage + 1} -> ${newPage + 1}`);
+      
+      // Check if the page is already cached - if so, update UI immediately
+      const cachedImage = imageCache[newPage];
+      if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
+        console.log(`Page ${newPage + 1} already in cache, displaying immediately`);
+        // Update UI state before changing page to ensure immediate display
+        setIsPageImageLoading(false);
+        setImageLoadedSuccessfully(true);
+      } else {
+        // Not in cache, will need to load
+        setIsPageImageLoading(true);
+        setImageLoadedSuccessfully(false);
+      }
+      
+      // Update page
+      setCurrentPage(newPage);
     }
-  };
-
-  const handleNextPage = () => {
+  }, [currentPage, imageCache]);
+  
+  const handleNextPage = useCallback(() => {
     if (currentPage < comicPages.length - 1) {
-      setCurrentPage(currentPage + 1);
-      // The useEffect hook watching currentPage will handle the progress update.
+      const newPage = currentPage + 1;
+      console.log(`Navigating to next page: ${currentPage + 1} -> ${newPage + 1}`);
+      
+      // Check if the page is already cached - if so, update UI immediately
+      const cachedImage = imageCache[newPage];
+      if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
+        console.log(`Page ${newPage + 1} already in cache, displaying immediately`);
+        // Update UI state before changing page to ensure immediate display
+        setIsPageImageLoading(false);
+        setImageLoadedSuccessfully(true);
+      } else {
+        // Not in cache, will need to load
+        setIsPageImageLoading(true);
+        setImageLoadedSuccessfully(false);
+      }
+      
+      // Update page
+      setCurrentPage(newPage);
     }
-  };
+  }, [currentPage, imageCache, comicPages.length]);
 
   const handleScreenNavClick = (direction) => {
     if (direction === 'left') {
@@ -300,39 +579,100 @@ export default function ComicReader() {
             </div>
           )}
           {/* Main image display */}
-          {comicPages.length > 0 && comicPages[currentPage] && (
-            <img
-              key={comicPages[currentPage]} // Helps React differentiate if src string itself is identical but needs re-eval
-              src={comicPages[currentPage]}
-              alt={`Page ${currentPage + 1} of ${comic.title}`}
-              className={`max-h-full max-w-full object-contain mx-auto shadow-lg ${
-                isPageImageLoading || !imageLoadedSuccessfully ? 'hidden' : 'block'
-              }`}
-              onLoad={() => {
-                setIsPageImageLoading(false);
-                setImageLoadedSuccessfully(true);
-                // Update JS cache if this image wasn't preloaded or was 'loading'
-                if (!imageCache[currentPage] || imageCache[currentPage] === 'loading') {
-                  const img = new Image();
-                  img.src = comicPages[currentPage]; // Browser should serve from its cache
-                  img.onload = () => { // Ensure it's fully loaded before storing the Image object
-                     setImageCache(prevCache => ({ ...prevCache, [currentPage]: img }));
-                  };
-                  // No explicit img.onerror here as the main <img> tag's onError handles failure for the current page.
-                }
-              }}
-              onError={() => {
-                setIsPageImageLoading(false);
-                setImageLoadedSuccessfully(false);
-                // Also mark as failed in our JS cache
-                setImageCache(prevCache => ({ ...prevCache, [currentPage]: 'failed' }));
-                toast({
-                  title: "Error loading page image",
-                  description: `Could not load image for page ${currentPage + 1}.`,
-                  variant: "destructive",
-                });
-              }}
-            />
+          {comicPages.length > 0 && (
+            <div className="relative w-full h-full flex items-center justify-center">
+              {/* Show cached image immediately if available */}
+              {imageCache[currentPage] && 
+               imageCache[currentPage] !== 'loading' && 
+               imageCache[currentPage] !== 'failed' && (
+                <img
+                  key={`cached-${currentPage}`}
+                  src={imageCache[currentPage].src}
+                  alt={`Page ${currentPage + 1} of ${comic?.title || 'Comic'}`}
+                  className="max-h-full max-w-full object-contain mx-auto shadow-lg block"
+                />
+              )}
+              
+              {/* Show loading state only if we don't have a cached image */}
+              {(!imageCache[currentPage] || imageCache[currentPage] === 'loading') && isPageImageLoading && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Skeleton className="w-full h-full max-w-full object-contain mx-auto" />
+                </div>
+              )}
+              
+              {/* Show error state */}
+              {(!imageCache[currentPage] || imageCache[currentPage] === 'failed') && !isPageImageLoading && !imageLoadedSuccessfully && (
+                <div className="flex flex-col items-center justify-center text-destructive p-4 bg-destructive-foreground rounded-md">
+                  <p className="mb-2">Error loading page {currentPage + 1}.</p>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      // Retry logic: Clear from cache and set to loading to trigger reload
+                      setImageCache(prevCache => {
+                        const newCache = { ...prevCache };
+                        delete newCache[currentPage];
+                        return newCache;
+                      });
+                      setIsPageImageLoading(true);
+                      setImageLoadedSuccessfully(false);
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+              
+              {/* No hidden loader - all loading is handled in the useEffect */}
+              
+              {/* Debug button */}
+              <Button 
+                variant="outline" 
+                size="icon"
+                className="absolute top-2 right-2 z-10 opacity-50 hover:opacity-100"
+                onClick={() => {
+                  setShowDebug(!showDebug);
+                  logCacheState();
+                }}
+              >
+                <Info className="h-4 w-4" />
+              </Button>
+              
+              {/* Debug panel */}
+              {showDebug && (
+                <div className="absolute bottom-2 right-2 z-10 bg-card p-4 rounded-md shadow-lg max-w-xs max-h-60 overflow-auto text-xs">
+                  <h3 className="font-bold mb-2">Debug Info</h3>
+                  <p>Current page: {currentPage + 1}</p>
+                  <p>Total pages: {comicPages.length}</p>
+                  <p>Loading: {isPageImageLoading ? 'Yes' : 'No'}</p>
+                  <p>Cached pages: {Object.keys(imageCache).length}</p>
+                  <p>Cache window: {Math.max(0, currentPage - CACHE_SIZE_BACKWARD) + 1} - {Math.min(comicPages.length, currentPage + CACHE_SIZE_FORWARD) + 1}</p>
+                  <div className="mt-2">
+                    <p className="font-semibold">Cache status:</p>
+                    <ul className="mt-1">
+                      {Object.keys(imageCache)
+                        .map(Number)
+                        .sort((a, b) => a - b)
+                        .map(pageNum => (
+                          <li key={pageNum} className={pageNum === currentPage ? 'font-bold' : ''}>
+                            Page {pageNum + 1}: {' '}
+                            {imageCache[pageNum] === 'loading' ? '🔄 Loading' : 
+                             imageCache[pageNum] === 'failed' ? '❌ Failed' : '✅ Loaded'}
+                            {pageNum === currentPage ? ' (current)' : ''}
+                          </li>
+                        ))
+                      }
+                    </ul>
+                  </div>
+                  <div className="mt-2">
+                    <p className="font-semibold">Queue status:</p>
+                    <p>Pages to load: {loadQueueRef.current.length}</p>
+                    {loadQueueRef.current.length > 0 && (
+                      <p>Next in queue: {loadQueueRef.current[0] + 1}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           {/* Case where there are no pages for the comic */}
           {comicPages.length === 0 && !isLoading && (
