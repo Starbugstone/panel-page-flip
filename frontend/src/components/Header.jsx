@@ -28,7 +28,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
     // In normal mode, use relative position with minimal height
     if (isFullscreen) {
       return (
-        <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-background/90 to-transparent p-2 opacity-0 hover:opacity-100 transition-opacity duration-300">
+        <header className="fixed top-0 left-0 right-0 z-[60] bg-gradient-to-b from-background/90 to-transparent p-2 opacity-0 hover:opacity-100 transition-opacity duration-300">
           <div className="flex justify-between items-center">
             <Link to="/dashboard" className="text-foreground hover:text-comic-purple text-sm">
               Back to Library
@@ -40,7 +40,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
     } else {
       // Compact header for normal mode with relative positioning
       return (
-        <header className="relative w-full bg-background border-b border-border py-1 px-4">
+        <header className="relative w-full bg-background border-b border-border py-1 px-4 z-[60]">
           <div className="flex justify-between items-center">
             <Link to="/dashboard" className="text-foreground hover:text-comic-purple text-sm">
               Back to Library
