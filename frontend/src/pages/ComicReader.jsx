@@ -720,12 +720,14 @@ export default function ComicReader() {
       {/* Navigation areas for clicking left/right sides of screen */}
       <div 
         className={`page-navigation left-0 ${isFullscreen ? 'z-[55]' : ''}`}
+        style={{ bottom: '60px' }} // Leave space for controls to prevent overlap
         onClick={() => handleScreenNavClick('left')}
         aria-label="Previous page"
       ></div>
       
       <div 
         className={`page-navigation right-0 ${isFullscreen ? 'z-[55]' : ''}`}
+        style={{ bottom: '60px' }} // Leave space for controls to prevent overlap
         onClick={() => handleScreenNavClick('right')}
         aria-label="Next page"
       ></div>

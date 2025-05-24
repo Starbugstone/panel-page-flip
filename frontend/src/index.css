@@ -94,7 +94,7 @@
   }
 
   .page-navigation {
-    @apply fixed top-0 bottom-0 w-1/5 bg-transparent cursor-pointer opacity-0 hover:opacity-10 transition-opacity z-10;
+    @apply fixed top-0 bottom-0 w-1/5 bg-transparent cursor-pointer opacity-0 hover:opacity-10 transition-opacity z-0;
   }
   
   .fullscreen-container {
