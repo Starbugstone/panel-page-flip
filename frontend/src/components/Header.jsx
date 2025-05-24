@@ -4,14 +4,29 @@ import { ThemeToggle } from "./ThemeToggle.jsx";
 import { useLocation } from "react-router-dom";
 import { Button } from "./ui/button.jsx";
 import { BookOpen, Upload, Settings, User } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export function Header({ isLoggedIn, onLogout, isAdmin }) {
   const location = useLocation();
   const isReaderPage = location.pathname.includes("/read/");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
   if (isReaderPage) {
+    // If in fullscreen mode, use hover effect; otherwise, always show the header
     return (
-      <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-background/90 to-transparent p-4 opacity-0 hover:opacity-100 transition-opacity duration-300">
+      <header className={`fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-background/90 to-transparent p-4 ${isFullscreen ? 'opacity-0 hover:opacity-100 transition-opacity duration-300' : 'opacity-100'}`}>
         <div className="flex justify-between items-center">
           <Link to="/dashboard" className="text-foreground hover:text-comic-purple">
             Back to Library
