@@ -57,6 +57,11 @@ export default function ComicReader() {
     setIsSavingProgress(true);
 
     try {
+      // Check if component is still mounted before making the request
+      if (controller.signal.aborted) {
+        return;
+      }
+      
       const response = await fetch(`/api/comics/${comicId}/progress`, {
         method: 'POST',
         headers: {
@@ -75,8 +80,14 @@ export default function ComicReader() {
       }
       // Optional: toast({ title: "Progress Saved", description: `Page ${pageToSave} saved.` });
     } catch (error) {
-      // Don't show errors for aborted requests
-      if (error.name === 'AbortError') return;
+      // Don't show errors for aborted requests or network errors when component unmounts
+      if (error.name === 'AbortError' || controller.signal.aborted) return;
+      
+      // Handle network errors more gracefully
+      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+        console.warn("Network error when saving reading progress - will retry on next page change");
+        return; // Don't show toast for network errors, as they're often transient
+      }
       
       console.error("Failed to save reading progress:", error);
       toast({
@@ -85,6 +96,7 @@ export default function ComicReader() {
         variant: "destructive",
       });
     } finally {
+      // Only update state if this controller is still the current one
       if (progressAbortController.current === controller) {
         setIsSavingProgress(false);
         progressAbortController.current = null;
@@ -428,6 +440,15 @@ export default function ComicReader() {
       lastSavedPage.current = currentPage;
       updateReadingProgress(currentPage + 1);
     }
+    
+    // Cleanup function to abort any in-progress requests when component unmounts
+    // or when dependencies change
+    return () => {
+      if (progressAbortController.current) {
+        progressAbortController.current.abort();
+        progressAbortController.current = null;
+      }
+    };
   }, [currentPage, comic, comicId, comicPages.length, updateReadingProgress]);
 
   const handlePreviousPage = useCallback(() => {
@@ -539,6 +560,7 @@ export default function ComicReader() {
     }
     
     return () => {
+      // Always remove the event listener on cleanup, even if isFullscreen changed
       window.removeEventListener("keydown", handleFullscreenKeyPress);
     };
   }, [isFullscreen, handlePreviousPage, handleNextPage]);
