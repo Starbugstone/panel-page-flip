@@ -9,7 +9,8 @@ import { Upload } from "lucide-react"; // Plus removed as it's not used
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast.js";
 import { ComicEditDialog } from "@/components/ComicEditDialog.jsx";
-import { ShareComicModal } from "@/components/ShareComicModal.jsx"; // Added import
+import { ShareComicModal } from "@/components/ShareComicModal.jsx";
+import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
 
 export default function Dashboard() {
   const [comics, setComics] = useState([]);
@@ -111,7 +112,7 @@ export default function Dashboard() {
   
   useEffect(() => {
     loadComics();
-  }, [toast]); // loadComics itself doesn't change, but toast is a dependency of its internals indirectly
+  }, []); // loadComics itself doesn't change, but toast is a dependency of its internals indirectly
 
   // Constants for input validation
   const MAX_SEARCH_QUERY_LENGTH = 100;
@@ -271,6 +272,9 @@ export default function Dashboard() {
       <div className="mb-8 flex justify-center">
         <SearchBar onSearch={handleSearch} isSearching={isSearching} />
       </div>
+      
+      {/* Pending Shares Alert */}
+      <PendingSharesAlert />
 
       {/* Loading overlay for search operations */}
       {isSearching && !isLoading && (

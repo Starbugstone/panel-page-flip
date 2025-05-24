@@ -41,6 +41,28 @@ class ShareTokenRepository extends ServiceEntityRepository
             ->getQuery()
             ->getSingleScalarResult();
     }
+    
+    /**
+     * Find pending share tokens for a specific email address
+     * 
+     * @param string $email The email address to find pending shares for
+     * @return ShareToken[] Array of pending share tokens
+     */
+    public function findPendingSharesByEmail(string $email): array
+    {
+        $now = new \DateTimeImmutable();
+        
+        return $this->createQueryBuilder('s')
+            ->andWhere('s.sharedWithEmail = :email')
+            ->andWhere('s.isUsed = :isUsed')
+            ->andWhere('s.expiresAt > :now')
+            ->setParameter('email', $email)
+            ->setParameter('isUsed', false)
+            ->setParameter('now', $now)
+            ->orderBy('s.createdAt', 'DESC')
+            ->getQuery()
+            ->getResult();
+    }
 
     //    /**
     //     * @return ShareToken[] Returns an array of ShareToken objects

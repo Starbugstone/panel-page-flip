@@ -133,4 +133,6 @@ class ShareToken
         $this->expiresAt = $expiresAt;
         return $this;
     }
+
+
 }

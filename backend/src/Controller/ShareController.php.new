@@ -28,11 +28,19 @@ class ShareController extends AbstractController
 {
     private string $comicsDirectory;
     private string $frontendUrl;
+    private string $publicSharesDirectory;
 
     public function __construct(string $comicsDirectory, string $frontendUrl)
     {
         $this->comicsDirectory = $comicsDirectory;
         $this->frontendUrl = $frontendUrl;
+        // Create a public directory for shared comic covers
+        $this->publicSharesDirectory = dirname($comicsDirectory) . '/public/shared';
+        
+        // Ensure the public shares directory exists
+        if (!file_exists($this->publicSharesDirectory)) {
+            mkdir($this->publicSharesDirectory, 0775, true);
+        }
     }
     
     #[Route('/pending', name: 'app_share_pending', methods: ['GET'])]
@@ -61,7 +69,7 @@ class ShareController extends AbstractController
                     'id' => $comic->getId(),
                     'title' => $comic->getTitle(),
                     'author' => $comic->getAuthor(),
-                    'coverImagePath' => $comic->getCoverImagePath(),
+                    'coverImagePath' => $share->getPublicCoverPath() ?: $comic->getCoverImagePath(),
                 ],
                 'sharedBy' => [
                     'id' => $sharedBy->getId(),
@@ -106,6 +114,14 @@ class ShareController extends AbstractController
             // Mark the share as used
             $shareToken->setIsUsed(true);
             $entityManager->persist($shareToken);
+            
+            // Clean up the public cover image if it exists
+            if ($shareToken->getPublicCoverPath()) {
+                $publicCoverPath = $this->publicSharesDirectory . '/' . basename($shareToken->getPublicCoverPath());
+                if (file_exists($publicCoverPath)) {
+                    @unlink($publicCoverPath);
+                }
+            }
             
             $entityManager->flush();
             
@@ -172,6 +188,22 @@ class ShareController extends AbstractController
         try {
             // Create a new ShareToken entity
             $shareToken = new ShareToken($comic, $currentUser, $recipientEmail);
+
+            // Copy the cover image to a public location if it exists
+            if ($comic->getCoverImagePath()) {
+                $coverPath = $this->comicsDirectory . '/' . $currentUser->getId() . '/' . $comic->getCoverImagePath();
+                if (file_exists($coverPath)) {
+                    // Create a unique filename for the shared cover
+                    $sharedCoverFilename = 'share_' . $shareToken->getToken() . '_' . basename($comic->getCoverImagePath());
+                    $sharedCoverPath = $this->publicSharesDirectory . '/' . $sharedCoverFilename;
+                    
+                    // Copy the cover to the public directory
+                    copy($coverPath, $sharedCoverPath);
+                    
+                    // Store the public path in the token
+                    $shareToken->setPublicCoverPath('shared/' . $sharedCoverFilename);
+                }
+            }
 
             // Persist the ShareToken entity
             $entityManager->persist($shareToken);
