@@ -1,4 +1,20 @@
+# THIS PROJECT IS AN EXPERIANCE WITH VIBE CODING
+I did not write a single line of code, or even docker setup for the dev environment (well, I did one line but the bot was being so stupid and adding 10 files and even .sh files for a one line php fix !!)
+
+I did some reviews just to check the code and then guide the bot after to correct major bugs
+
+I had to help the bot with meny console errors, cutting him off and reguiding him before he went haywire. note : always test after each change and use git often. And tell the bot never to commit by himself or you will be cherry picking like hell (lil bastard almost crashed the entire project once, thank god for git)
+
+Tools used :
+- Lovable: frontend and init of the project
+- windsurf with Claude 3.7 and gemini 2.5 pro for most of debugging, construction of the backend and plugging into front end
+- google jules mostly to init extra features and then a pass (or 20) with claude and gemini to fix the errors, but easier than repassing via lovable as they don't allow branch creation / changing (I don't like to commit to main on major updates)
+
+I will add an extra paragraph if I feel up to in at the end of the project to give my full recomendations on each tool and the experience
+
 # CBZ Comic Reader
+
+(yes, even the readme was done by AI !! apart from my little extra just before, after this, all is 100% pure free range computer)
 
 ## Project Overview
 
