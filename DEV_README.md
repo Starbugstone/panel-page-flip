@@ -34,6 +34,15 @@ This document provides detailed information for developers working on the projec
 #### ✅ Tag System
 - **Tag Entity**: Defined in `Tag.php` for categorizing comics
 - **API Endpoints**: Available for managing tags and associating them with comics
+- **Per-User Tags**: Tags are unique per user (creator), allowing different users to have tags with the same name
+
+#### ✅ Comic Sharing System
+- **ShareToken Entity**: Defined in `ShareToken.php` to manage comic sharing between users
+- **Share Controller**: Implemented in `ShareController.php` with endpoints for sharing, accepting, and refusing comics
+- **Email Notifications**: Sends email notifications to recipients when a comic is shared with them
+- **Public Cover Images**: Temporarily stores shared comic cover images in a public directory for preview
+- **Cleanup Command**: `CleanupExpiredSharesCommand` removes expired share tokens and their public cover images
+- **File Handling**: When accepting a shared comic, creates a copy with a UUID-based filename in the recipient's directory
 
 #### ✅ Utility Commands
 - **CreateUserCommand**: Creates regular users (`app:create-user`)
@@ -70,12 +79,80 @@ This document provides detailed information for developers working on the projec
 #### ✅ Comic Upload
 - **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx` with chunked upload support, progress tracking, and tag management
 
+#### ✅ Comic Sharing
+- **Share Comic Modal**: Implemented in `ShareComicModal.jsx` for sharing comics with other users via email
+- **Pending Shares Alert**: Implemented in `PendingSharesAlert.jsx` to notify users of comics shared with them
+- **Accept Share Page**: Implemented in `AcceptSharePage.jsx` to handle the acceptance of shared comics
+- **Pending Shares Hook**: Custom hook `use-pending-shares.jsx` to fetch and manage pending shares
+
 The frontend is built with:
 - React with JavaScript (converted from TypeScript)
 - Vite for fast development and building
 - shadcn-ui components
 - Tailwind CSS for styling
 - React Router for navigation
+
+## Comic Sharing System
+
+### Database Schema
+
+#### ShareToken Entity
+- **id**: Primary key
+- **token**: Unique token for the share link (generated using UUID v4 in base58 format)
+- **comic**: ManyToOne relation to the Comic entity
+- **sharedByUser**: ManyToOne relation to the User entity (the user who shared the comic)
+- **sharedWithEmail**: Email address of the recipient
+- **createdAt**: When the share was created
+- **isUsed**: Boolean flag indicating if the share has been used (accepted or refused)
+- **expiresAt**: When the share expires (default: 7 days after creation)
+- **publicCoverPath**: Path to the temporary public cover image for preview
+
+### Sharing Workflow
+
+#### Sharing a Comic
+1. User clicks the share button on a comic card
+2. ShareComicModal opens, prompting for recipient's email
+3. On submission, a POST request is sent to `/api/share/comic/{comicId}` with the recipient's email
+4. Backend creates a ShareToken entity with a unique token
+5. If the comic has a cover image, a copy is created in the public shares directory
+6. An email is sent to the recipient with a link to accept the shared comic
+7. The link format is: `{frontendUrl}/share/accept/{token}`
+
+#### Accepting a Shared Comic
+1. Recipient clicks the link in the email or from the PendingSharesAlert
+2. AcceptSharePage loads and sends a POST request to `/api/share/accept/{token}`
+3. Backend validates the token (not used, not expired, correct recipient)
+4. A new copy of the comic is created in the recipient's directory with a UUID-based filename
+5. The comic's cover image is also copied to the recipient's directory
+6. Tags from the original comic are copied to the recipient's comic (creating new tags if needed)
+7. The ShareToken is marked as used
+8. The temporary public cover image is removed
+
+#### Refusing a Shared Comic
+1. Recipient clicks the refuse button in the PendingSharesAlert
+2. A POST request is sent to `/api/share/refuse/{token}`
+3. Backend validates the token and marks it as used
+4. No copy of the comic is created
+
+#### Cleanup Process
+1. The `app:cleanup-expired-shares` command can be run manually or via a cron job
+2. It finds all expired share tokens that haven't been used
+3. For each expired token, it removes the associated public cover image
+4. The token is marked as used to prevent further processing
+
+### File Storage
+
+#### Original Comics
+- Stored in user-specific directories: `/uploads/comics/{user_id}/{filename}`
+
+#### Shared Comics
+- Copied to recipient's directory with UUID-based filename: `/uploads/comics/{recipient_id}/{uuid}.cbz`
+- This makes it easy to distinguish between original uploads and shared comics
+
+#### Public Cover Images
+- Temporarily stored in: `/uploads/comics/public_shares/{token-based-filename}`
+- Accessible without authentication for preview in emails and pending shares alerts
+- Removed once the share is accepted, refused, or expires
 - **Theme Persistence**: Switched from `localStorage` to client-side cookies for storing theme preferences (light/dark mode), managed by `ThemeProvider.jsx` and a new utility module `frontend/src/lib/cookies.js`. Includes a migration step from `localStorage`.
 - **Authentication Hook (`use-auth.jsx`)**: The `checkAuth` function updated to use `/api/users/me` for fetching comprehensive authenticated user details, including roles.
 - **Cookie Utility (`frontend/src/lib/cookies.js`)**: New module added with helper functions for managing browser cookies.

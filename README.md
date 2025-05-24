@@ -35,6 +35,9 @@ The site should have a norma and dark mode.
 - **Responsive Design**: Optimized for both desktop and mobile devices
 - **Dark Mode**: Toggle between light and dark themes for comfortable reading
 - **Custom Tagging**: Create and assign custom tags to your comics for better organization
+- **Comic Sharing**: Share comics with other users via email invitations
+- **Pending Shares Management**: Accept or refuse comics shared with you
+- **Automatic Cleanup**: System automatically cleans up expired share tokens and their public cover images
 
 ## Architecture
 
@@ -92,6 +95,13 @@ The backend provides the following API endpoints:
 - `POST /api/tags` - Create a new tag
 - `PUT/PATCH /api/tags/{id}` - Update a tag
 - `DELETE /api/tags/{id}` - Delete a tag
+
+### Comic Sharing
+
+- `POST /api/share/comic/{comicId}` - Share a comic with another user via email
+- `GET /api/share/pending` - Get a list of comics shared with the current user
+- `POST /api/share/accept/{token}` - Accept a shared comic
+- `POST /api/share/refuse/{token}` - Refuse a shared comic
 
 ### User Management (Admin only)
 
