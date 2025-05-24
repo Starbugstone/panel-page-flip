@@ -112,6 +112,10 @@ class CreateAdminUserCommand extends Command
         $hashedPassword = $this->passwordHasher->hashPassword($user, $plainPassword);
         $user->setPassword($hashedPassword);
         $user->setRoles(['ROLE_ADMIN', 'ROLE_USER']); // Admin also gets standard user role
+        
+        // Set email as verified by default for admin users
+        $user->setIsEmailVerified(true);
+        
         // Timestamps are handled by User entity constructor/PreUpdate
 
         $this->entityManager->persist($user);

@@ -41,12 +41,16 @@ export function AuthProvider({ children }) {
         credentials: 'include', // Important for cookies
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Login failed');
-      }
-
       const data = await response.json();
+      
+      // Check if the response indicates email verification is required
+      if (response.status === 403 && data.requiresVerification) {
+        throw new Error(data.message || 'Email verification required', { cause: { requiresVerification: true, email } });
+      }
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed');
+      }
       
       // Store user data in localStorage
       localStorage.setItem('user', JSON.stringify(data.user));

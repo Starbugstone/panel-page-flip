@@ -41,6 +41,7 @@ The site should have a norma and dark mode.
 ## Features
 
 - **User Authentication**: Secure login system to protect your comic collection
+- **Email Verification**: Email verification required before users can log in
 - **Password Recovery**: Forgot password functionality with email recovery
 - **Comic Library**: Browse and select from your collection of comics
 - **Reading Progress**: Automatically saves your reading position
@@ -322,6 +323,14 @@ The application features a complete authentication system:
   - `/api/forgot-password` - Request password reset (POST)
   - `/api/reset-password/validate/{token}` - Validate reset token (GET)
   - `/api/reset-password/reset/{token}` - Reset password with token (POST)
+  - `/api/email-verification/verify/{token}` - Verify email with token (GET)
+  - `/api/email-verification/resend` - Resend verification email (POST)
+
+- **Email Verification**:
+  - After registration, users receive a verification email
+  - Users must verify their email before they can log in
+  - Verification emails can be viewed in the Mailpit interface at http://localhost:8025
+  - Users can request a new verification email if needed
 
 - **Password Recovery**:
   - Click "Forgot password?" on the login page

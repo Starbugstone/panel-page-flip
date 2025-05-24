@@ -18,6 +18,7 @@ import ForgotPassword from "./pages/ForgotPassword.jsx";
 import ResetPassword from "./pages/ResetPassword.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import AcceptSharePage from "./pages/AcceptSharePage.jsx";
+import EmailVerification from "./pages/EmailVerification.jsx";
 
 const queryClient = new QueryClient();
 
@@ -72,6 +73,7 @@ const AppRoutes = () => {
             <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login />} />
             <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ForgotPassword />} />
             <Route path="/reset-password/:token" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ResetPassword />} />
+            <Route path="/email-verification" element={<EmailVerification />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/upload" element={<ProtectedRoute><UploadComic /></ProtectedRoute>} />
             <Route path="/read/:comicId" element={<ProtectedRoute><ComicReader /></ProtectedRoute>} />

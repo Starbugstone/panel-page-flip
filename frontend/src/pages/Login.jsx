@@ -39,6 +39,13 @@ export default function Login() {
       });
       navigate("/dashboard");
     } catch (error) {
+      // Check if the error is due to email verification
+      if (error.cause?.requiresVerification) {
+        // Redirect to email verification page with the email
+        navigate("/email-verification", { state: { email: error.cause.email } });
+        return;
+      }
+      
       toast({
         title: "Login Failed",
         description: error.message || "Invalid credentials. Please try again.",

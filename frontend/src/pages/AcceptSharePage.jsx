@@ -11,6 +11,7 @@ export default function AcceptSharePage() {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [acceptedComicTitle, setAcceptedComicTitle] = useState(null);
+  const [acceptedComicId, setAcceptedComicId] = useState(null);
 
   const { token } = useParams();
   const navigate = useNavigate();
@@ -36,6 +37,7 @@ export default function AcceptSharePage() {
         setError(null);
         setSuccessMessage(null);
         setAcceptedComicTitle(null);
+        setAcceptedComicId(null);
 
         try {
           const response = await fetch(`/api/share/accept/${token}`, {
@@ -53,7 +55,8 @@ export default function AcceptSharePage() {
           }
           
           // Store the comic details for display and navigation
-          setAcceptedComicTitle(data.title || "the comic");
+          setAcceptedComicTitle(data.comic?.title || "the comic");
+          setAcceptedComicId(data.comic?.id);
           setSuccessMessage("Comic successfully added to your library!");
           
           // Show a toast notification that will persist even after navigation
@@ -134,8 +137,9 @@ export default function AcceptSharePage() {
             </Button>
             <Button 
               variant="outline" 
-              onClick={() => navigate(`/read/${acceptedComicTitle}`)} 
-              className="flex items-center gap-2">
+              onClick={() => navigate(`/read/${acceptedComicId}`)} 
+              className="flex items-center gap-2"
+              disabled={!acceptedComicId}>
               <BookOpen className="h-4 w-4" />
               Start Reading
             </Button>
