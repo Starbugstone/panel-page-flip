@@ -25,6 +25,7 @@ export default function ComicReader() {
   
   // Refs for async operations
   const progressAbortController = useRef(null);
+  const reloadAbortController = useRef(null); // For aborting force reload operations
   const currentPageRef = useRef(0); // Ref to track current page for async operations
   const loadQueueRef = useRef([]); // Queue of pages to load
   const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
@@ -478,6 +479,16 @@ export default function ComicReader() {
       return;
     }
     
+    // If there's already a reload in progress, abort it
+    if (reloadAbortController.current) {
+      reloadAbortController.current.abort();
+      reloadAbortController.current = null;
+    }
+    
+    // Create a new abort controller for this reload
+    reloadAbortController.current = new AbortController();
+    const signal = reloadAbortController.current.signal;
+    
     // Store the current page to ensure we stay on it
     const pageToReload = currentPage;
     
@@ -498,83 +509,150 @@ export default function ComicReader() {
     setIsPageImageLoading(true);
     setImageLoadedSuccessfully(false);
     
-    // Force reload by adding a unique timestamp to the URL
-    const img = new Image();
+    // Use fetch with AbortController instead of Image directly
     const url = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
     
-    img.onload = () => {
-      try {
-        // Make sure we're still on the same page
-        if (currentPage !== pageToReload) {
-          // If page has changed, just update the cache but don't change UI
-          setImageCache(prev => ({
-            ...prev,
-            [pageToReload]: img
-          }));
-          return;
+    fetch(url, { signal })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
         }
+        return response.blob();
+      })
+      .then(blob => {
+        // Check if the operation was aborted
+        if (signal.aborted) return;
         
-        // Convert to data URL to prevent network requests
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        const dataUrl = canvas.toDataURL('image/jpeg');
+        // Create a URL for the blob
+        const blobUrl = URL.createObjectURL(blob);
         
-        // Create a new image with the data URL
-        const cachedImg = new Image();
-        cachedImg.src = dataUrl;
+        // Create an image from the blob URL
+        const img = new Image();
         
-        // Update cache with the new image
-        setImageCache(prev => ({
-          ...prev,
-          [pageToReload]: cachedImg
-        }));
+        img.onload = () => {
+          try {
+            // Check if the operation was aborted
+            if (signal.aborted) {
+              URL.revokeObjectURL(blobUrl);
+              return;
+            }
+            
+            // Make sure we're still on the same page
+            if (currentPage !== pageToReload) {
+              // If page has changed, just update the cache but don't change UI
+              setImageCache(prev => ({
+                ...prev,
+                [pageToReload]: img
+              }));
+              URL.revokeObjectURL(blobUrl);
+              return;
+            }
+            
+            // Convert to data URL to prevent network requests
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const dataUrl = canvas.toDataURL('image/jpeg');
+            
+            // Free the blob URL
+            URL.revokeObjectURL(blobUrl);
+            
+            // Create a new image with the data URL
+            const cachedImg = new Image();
+            cachedImg.src = dataUrl;
+            
+            // Update cache with the new image
+            setImageCache(prev => ({
+              ...prev,
+              [pageToReload]: cachedImg
+            }));
+            
+            // Update UI state only if we're still on the same page
+            setIsPageImageLoading(false);
+            setImageLoadedSuccessfully(true);
+            
+            // Success toast
+            toast({
+              title: "Page reloaded",
+              description: `Successfully reloaded page ${pageToReload + 1}`,
+              variant: "success",
+            });
+            
+            // Clear the abort controller reference
+            reloadAbortController.current = null;
+          } catch (error) {
+            // Check if the operation was aborted
+            if (signal.aborted) return;
+            
+            console.error("Error reloading page:", error);
+            
+            // Only show error if we're still on the same page
+            if (currentPage === pageToReload) {
+              toast({
+                title: "Error reloading",
+                description: "There was a problem reloading the page. Please try again.",
+                variant: "destructive",
+              });
+              setIsPageImageLoading(false);
+              setImageLoadedSuccessfully(false);
+            }
+            
+            // Clear the abort controller reference
+            reloadAbortController.current = null;
+          }
+        };
         
-        // Update UI state only if we're still on the same page
-        setIsPageImageLoading(false);
-        setImageLoadedSuccessfully(true);
+        img.onerror = () => {
+          // Check if the operation was aborted
+          if (signal.aborted) {
+            URL.revokeObjectURL(blobUrl);
+            return;
+          }
+          
+          console.error("Failed to reload image");
+          URL.revokeObjectURL(blobUrl);
+          
+          // Only show error if we're still on the same page
+          if (currentPage === pageToReload) {
+            toast({
+              title: "Reload failed",
+              description: "Could not reload the page. Please try again later.",
+              variant: "destructive",
+            });
+            setIsPageImageLoading(false);
+            setImageLoadedSuccessfully(false);
+          }
+          
+          // Clear the abort controller reference
+          reloadAbortController.current = null;
+        };
         
-        // Success toast
-        toast({
-          title: "Page reloaded",
-          description: `Successfully reloaded page ${pageToReload + 1}`,
-          variant: "success",
-        });
-      } catch (error) {
-        console.error("Error reloading page:", error);
+        // Set the source to start loading
+        img.src = blobUrl;
+      })
+      .catch(error => {
+        // Check if the operation was aborted
+        if (signal.aborted) return;
+        
+        // Handle fetch errors
+        console.error("Fetch error:", error);
         
         // Only show error if we're still on the same page
         if (currentPage === pageToReload) {
           toast({
-            title: "Error reloading",
-            description: "There was a problem reloading the page. Please try again.",
+            title: "Reload failed",
+            description: "Could not reload the page from server. Please try again later.",
             variant: "destructive",
           });
           setIsPageImageLoading(false);
           setImageLoadedSuccessfully(false);
         }
-      }
-    };
-    
-    img.onerror = () => {
-      console.error("Failed to reload image");
-      
-      // Only show error if we're still on the same page
-      if (currentPage === pageToReload) {
-        toast({
-          title: "Reload failed",
-          description: "Could not reload the page. Please try again later.",
-          variant: "destructive",
-        });
-        setIsPageImageLoading(false);
-        setImageLoadedSuccessfully(false);
-      }
-    };
-    
-    // Set the source to start loading
-    img.src = url;
+        
+        // Clear the abort controller reference
+        reloadAbortController.current = null;
+      });
   }, [comicPages, currentPage, toast]);
   
   const handleNextPage = useCallback(() => {
