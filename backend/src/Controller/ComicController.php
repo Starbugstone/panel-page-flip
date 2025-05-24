@@ -46,23 +46,93 @@ class ComicController extends AbstractController
 
     // Removed getPublicBaseUrlForUploads() method as it's no longer needed.
 
+    /**
+     * Check if user has exceeded search rate limit
+     * Simple implementation using session storage
+     */
+    private function checkSearchRateLimit(Request $request): ?JsonResponse
+    {
+        $session = $request->getSession();
+        $now = time();
+        $searchHistory = $session->get('search_history', []);
+        
+        // Keep only searches from the last minute
+        $searchHistory = array_filter($searchHistory, function($timestamp) use ($now) {
+            return $now - $timestamp < 60; // 1 minute window
+        });
+        
+        // Check if user has made too many searches
+        if (count($searchHistory) >= 10) { // Max 10 searches per minute
+            return $this->json([
+                'message' => 'Rate limit exceeded. Please try again later.',
+                'retryAfter' => 60 - ($now - min($searchHistory)) // Seconds until oldest search expires
+            ], Response::HTTP_TOO_MANY_REQUESTS);
+        }
+        
+        // Add current search timestamp
+        $searchHistory[] = $now;
+        $session->set('search_history', $searchHistory);
+        
+        return null;
+    }
+    
     #[Route('', name: 'list', methods: ['GET'])]
-    public function list(EntityManagerInterface $entityManager): JsonResponse
+    public function list(Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         // Get the current user
         $user = $this->getUser();
         if (!$user) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
-
-        $comicRepository = $entityManager->getRepository(Comic::class);
-        if (in_array('ROLE_ADMIN', $user->getRoles())) {
-            // Admin: Get all comics
-            $comics = $comicRepository->findAll();
-        } else {
-            // Regular user: Get comics for the current user
-            $comics = $comicRepository->findBy(['owner' => $user]);
+        
+        // Get search parameters
+        $search = $request->query->get('search');
+        $tagsParam = $request->query->get('tags');
+        
+        // Apply rate limiting only when search or tags parameters are present
+        if ($search || $tagsParam) {
+            // Check rate limit
+            $rateLimitResponse = $this->checkSearchRateLimit($request);
+            if ($rateLimitResponse) {
+                return $rateLimitResponse;
+            }
         }
+
+        $qb = $entityManager->createQueryBuilder();
+        $qb->select('c')
+            ->from(Comic::class, 'c');
+
+        // User Ownership Filter
+        if (!in_array('ROLE_ADMIN', $user->getRoles())) {
+            $qb->andWhere('c.owner = :owner')
+                ->setParameter('owner', $user);
+        }
+
+        // Search Filter
+        if ($search) {
+            $qb->andWhere($qb->expr()->orX(
+                $qb->expr()->like('LOWER(c.title)', ':search'),
+                $qb->expr()->like('LOWER(c.description)', ':search'),
+                $qb->expr()->like('LOWER(c.author)', ':search'),
+                $qb->expr()->like('LOWER(c.publisher)', ':search')
+            ))
+            ->setParameter('search', '%' . strtolower($search) . '%');
+        }
+
+        // Tags Filter - More efficient approach using JOIN, GROUP BY, and HAVING
+        if ($tagsParam) {
+            $tagNames = array_filter(array_map('trim', explode(',', $tagsParam)));
+            if (!empty($tagNames)) {
+                $qb->join('c.tags', 't')
+                   ->andWhere('LOWER(t.name) IN (:tagNames)')
+                   ->setParameter('tagNames', array_map('strtolower', $tagNames))
+                   ->groupBy('c.id')
+                   ->having('COUNT(DISTINCT t.id) = :tagCount')
+                   ->setParameter('tagCount', count($tagNames));
+            }
+        }
+        
+        $comics = $qb->getQuery()->getResult();
 
         // Transform comics to array
         $comicsArray = [];
@@ -72,7 +142,7 @@ class ComicController extends AbstractController
                 try {
                     $filename = basename($comic->getCoverImagePath());
                     // Manually construct the URL path to avoid using internal Docker hostnames
-                    $fullCoverUrl = '/api/comics/cover/' . $user->getId() . '/' . $comic->getId() . '/' . $filename;
+                    $fullCoverUrl = '/api/comics/cover/' . $comic->getOwner()->getId() . '/' . $comic->getId() . '/' . $filename;
                 } catch (\Exception $e) {
                     error_log("Error generating cover URL for comic ID " . $comic->getId() . ": " . $e->getMessage());
                     // $fullCoverUrl remains null
@@ -80,9 +150,11 @@ class ComicController extends AbstractController
             }
 
             // Get reading progress if exists
+            // Ensure $user is available in this scope for reading progress.
+            // It should be, as it's defined at the beginning of the method.
             $readingProgress = $entityManager->getRepository(ComicReadingProgress::class)
                 ->findOneBy(['comic' => $comic, 'user' => $user]);
-                
+
             $comicsArray[] = [
                 'id' => $comic->getId(),
                 'title' => $comic->getTitle(),

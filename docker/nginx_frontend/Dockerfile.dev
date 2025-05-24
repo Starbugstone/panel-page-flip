@@ -1,0 +1,32 @@
+ARG NODE_VERSION=18
+ARG NGINX_VERSION=1.25
+
+# Use a single image with both Node.js and Nginx
+FROM node:${NODE_VERSION}-alpine
+
+# Install Nginx
+RUN apk add --no-cache nginx supervisor
+
+# Set up working directory for the frontend
+WORKDIR /app
+
+# Copy package.json and package-lock.json first for better caching
+COPY frontend/package.json frontend/package-lock.json* ./
+
+# Install dependencies
+RUN npm install
+
+# Copy Nginx configuration
+COPY ./docker/nginx_frontend/nginx.dev.conf /etc/nginx/http.d/default.conf
+
+# Create directory for Nginx to store PID
+RUN mkdir -p /run/nginx
+
+# Copy supervisor configuration
+COPY ./docker/nginx_frontend/supervisord.conf /etc/supervisord.conf
+
+# Expose port 80 for Nginx
+EXPOSE 80
+
+# Start supervisor which will manage both Nginx and the Vite dev server
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]

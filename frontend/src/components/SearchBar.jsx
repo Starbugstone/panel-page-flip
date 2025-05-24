@@ -1,29 +1,87 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, X, Tag as TagIcon } from "lucide-react";
 
-export function SearchBar({ onSearch }) {
+export function SearchBar({ onSearch, isSearching = false }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState([]);
-  const [availableTags, setAvailableTags] = useState([
-    "DC", "Marvel", "Sci-Fi", "Fantasy", "Horror", "Adventure", "Superhero", "Manga", "Comedy"
-  ]);
+  const [availableTags, setAvailableTags] = useState([]);
+  const [isLoadingTags, setIsLoadingTags] = useState(true);
+  const [tagFetchError, setTagFetchError] = useState(null);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 3;
+
+  useEffect(() => {
+    const fetchTags = async () => {
+      setIsLoadingTags(true);
+      setTagFetchError(null);
+      try {
+        const response = await fetch("/api/tags");
+        if (!response.ok) {
+          const errorText = response.statusText;
+          const status = response.status;
+          let errorMessage;
+          
+          switch (status) {
+            case 401:
+              errorMessage = "You need to be logged in to view tags";
+              break;
+            case 403:
+              errorMessage = "You don't have permission to view these tags";
+              break;
+            case 404:
+              errorMessage = "Tag resource not found";
+              break;
+            case 500:
+              errorMessage = "Server error while fetching tags";
+              break;
+            default:
+              errorMessage = `Failed to fetch tags: ${errorText}`;
+          }
+          
+          throw new Error(errorMessage);
+        }
+        const data = await response.json();
+        setAvailableTags(data.tags || []); // Assuming the API returns { tags: [...] }
+        setRetryCount(0); // Reset retry count on success
+      } catch (error) {
+        console.error("Error fetching tags:", error);
+        setTagFetchError(error.message);
+        
+        // Implement retry logic for network errors
+        if (retryCount < MAX_RETRIES && (error.message.includes('network') || error.message.includes('Server error'))) {
+          setRetryCount(prev => prev + 1);
+          const retryDelay = Math.pow(2, retryCount) * 1000; // Exponential backoff
+          setTimeout(() => {
+            console.log(`Retrying tag fetch (${retryCount + 1}/${MAX_RETRIES})...`);
+            // This will trigger the useEffect again
+            setTagFetchError(null);
+          }, retryDelay);
+        }
+      } finally {
+        setIsLoadingTags(false);
+      }
+    };
+
+    fetchTags();
+  }, [retryCount]);
   
   const handleSearch = (e) => {
     e.preventDefault();
     onSearch({
       query: searchQuery,
-      tags: selectedTags
+      tags: selectedTags.map(tag => tag.name) // Send tag names
     });
   };
   
   const toggleTag = (tag) => {
-    if (selectedTags.includes(tag)) {
-      setSelectedTags(selectedTags.filter(t => t !== tag));
+    // Check if tag object is already selected by comparing IDs
+    if (selectedTags.find(t => t.id === tag.id)) {
+      setSelectedTags(selectedTags.filter(t => t.id !== tag.id));
     } else {
       setSelectedTags([...selectedTags, tag]);
     }
@@ -32,7 +90,7 @@ export function SearchBar({ onSearch }) {
   const clearSearch = () => {
     setSearchQuery("");
     setSelectedTags([]);
-    onSearch({ query: "", tags: [] });
+    onSearch({ query: "", tags: [] }); // Send empty array for tags
   };
   
   return (
@@ -64,27 +122,56 @@ export function SearchBar({ onSearch }) {
             variant="outline" 
             className="flex items-center gap-2"
             onClick={() => setShowTagDropdown(!showTagDropdown)}
+            disabled={isLoadingTags}
           >
-            <TagIcon className="h-4 w-4" />
-            Tags
+            {isLoadingTags ? (
+              <>
+                <svg className="animate-spin h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Tags
+              </>
+            ) : (
+              <>
+                <TagIcon className="h-4 w-4" />
+                Tags
+              </>
+            )}
           </Button>
           
           {showTagDropdown && (
             <div className="absolute right-0 z-10 mt-2 w-64 rounded-md border bg-card shadow-lg">
               <div className="p-3 max-h-60 overflow-y-auto">
                 <p className="text-sm font-medium mb-2">Filter by tags:</p>
-                <div className="flex flex-wrap gap-2">
-                  {availableTags.map((tag) => (
-                    <Badge 
-                      key={tag} 
-                      variant={selectedTags.includes(tag) ? "default" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => toggleTag(tag)}
-                    >
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
+                {isLoadingTags && <p className="text-sm text-muted-foreground">Loading tags...</p>}
+                {tagFetchError && (
+                  <div className="text-sm text-destructive">
+                    <p>Error: {tagFetchError}</p>
+                    {retryCount < MAX_RETRIES && (
+                      <button 
+                        className="text-sm text-primary hover:text-primary-focus mt-1"
+                        onClick={() => setRetryCount(prev => prev + 1)}
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                )}
+                {!isLoadingTags && !tagFetchError && (
+                  <div className="flex flex-wrap gap-2">
+                    {availableTags.map((tag) => (
+                      <Badge 
+                        key={tag.id} 
+                        variant={selectedTags.find(t => t.id === tag.id) ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tag.name}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="border-t p-2 flex justify-between">
                 <Button 
@@ -98,7 +185,14 @@ export function SearchBar({ onSearch }) {
                 <Button 
                   type="button" 
                   size="sm" 
-                  onClick={() => setShowTagDropdown(false)}
+                  onClick={() => {
+                    setShowTagDropdown(false);
+                    // Trigger search when applying tag selection
+                    onSearch({
+                      query: searchQuery,
+                      tags: selectedTags.map(tag => tag.name)
+                    });
+                  }}
                 >
                   Apply
                 </Button>
@@ -107,17 +201,27 @@ export function SearchBar({ onSearch }) {
           )}
         </div>
         
-        <Button type="submit">
-          Search
+        <Button type="submit" disabled={isSearching}>
+          {isSearching ? (
+            <>
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Searching...
+            </>
+          ) : (
+            "Search"
+          )}
         </Button>
       </form>
       
       {selectedTags.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-2">
           {selectedTags.map((tag) => (
-            <Badge key={tag} className="flex items-center gap-1">
+            <Badge key={tag.id} className="flex items-center gap-1">
               <TagIcon className="h-3 w-3" />
-              {tag}
+              {tag.name}
               <button 
                 type="button"
                 onClick={() => toggleTag(tag)} 

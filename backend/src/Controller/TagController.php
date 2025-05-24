@@ -15,16 +15,25 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 class TagController extends AbstractController
 {
     #[Route('', name: 'list', methods: ['GET'])]
-    public function list(EntityManagerInterface $entityManager): JsonResponse
+    public function list(Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         // Get the current user
+        /** @var \App\Entity\User $user */
         $user = $this->getUser();
         if (!$user) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        // Get all tags (both user-created and system tags)
-        $tags = $entityManager->getRepository(Tag::class)->findAll();
+        $showAll = $request->query->getBoolean('all');
+        $tagRepository = $entityManager->getRepository(Tag::class);
+
+        if ($showAll && $this->isGranted('ROLE_ADMIN')) {
+            // Admin with all=true: Get all tags
+            $tags = $tagRepository->findAll();
+        } else {
+            // Regular user or Admin without all=true: Get tags created by the user
+            $tags = $tagRepository->findBy(['creator' => $user]);
+        }
 
         // Transform tags to array
         $tagsArray = [];
