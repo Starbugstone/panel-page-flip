@@ -20,7 +20,7 @@ class ComicReadingProgress
     private ?User $user = null;
 
     #[ORM\ManyToOne]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(nullable: false, onDelete: "CASCADE")]
     private ?Comic $comic = null;
 
     #[ORM\Column]
