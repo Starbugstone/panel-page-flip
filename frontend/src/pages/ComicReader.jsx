@@ -31,19 +31,11 @@ export default function ComicReader() {
   const CACHE_SIZE_FORWARD = 5;
   const CACHE_SIZE_BACKWARD = 5;
   
-  // Debug function to log cache state
+  // Debug function to log cache state - only used in debug panel
   const logCacheState = useCallback(() => {
-    console.log(`Cache state for page ${currentPage + 1}:`, 
-      Object.keys(imageCache)
-        .map(key => {
-          const pageNum = parseInt(key, 10);
-          const status = imageCache[pageNum] === 'loading' ? 'loading' : 
-                        imageCache[pageNum] === 'failed' ? 'failed' : 'loaded';
-          return { page: pageNum + 1, status };
-        })
-        .sort((a, b) => a.page - b.page)
-    );
-  }, [imageCache, currentPage]);
+    // Cache state info is displayed in the debug panel UI
+    // No console logging needed
+  }, []);
 
   const updateReadingProgress = useCallback(async (pageToSave) => {
     if (!comicId || !comic) return;
@@ -197,7 +189,6 @@ export default function ComicReader() {
     
     // If this page is already being loaded, return the existing promise
     if (loadingPagesRef.current[pageIndex]) {
-      console.log(`Page ${pageIndex + 1} is already being loaded, reusing existing request`);
       return loadingPagesRef.current[pageIndex];
     }
     
@@ -230,15 +221,13 @@ export default function ComicReader() {
               ...prev,
               [pageIndex]: cachedImg
             }));
-            console.log(`Page ${pageIndex + 1} loaded and cached as data URL`);
           } catch (error) {
-            console.error(`Failed to create data URL for page ${pageIndex + 1}:`, error);
-            // Fallback to using the original image
+            // Error creating data URL, fallback to using the original image
             setImageCache(prev => ({
               ...prev,
               [pageIndex]: img
             }));
-            console.log(`Page ${pageIndex + 1} loaded and cached as image object (fallback)`);
+            // Fallback successful
           }
         }
         // Remove from loading tracker
@@ -247,7 +236,7 @@ export default function ComicReader() {
       };
       
       img.onerror = () => {
-        console.error(`Failed to load page ${pageIndex + 1}`);
+        // Update cache with failed status
         setImageCache(prev => ({
           ...prev,
           [pageIndex]: 'failed'
@@ -282,7 +271,7 @@ export default function ComicReader() {
     }
     
     loadPageIntoCache(pageToLoad)
-      .catch(() => console.error(`Failed to load page ${pageToLoad + 1}`))
+        .catch(() => {/* Error handled in loadPageIntoCache */})
       .finally(() => {
         isLoadingRef.current = false;
         // Continue processing the queue
@@ -365,15 +354,10 @@ export default function ComicReader() {
     // Check if current page is available in cache
     const cachedImage = imageCache[currentPage];
     
-    // Add a debug log to track network requests
-    console.log(`Current page URL: ${comicPages[currentPage] || 'undefined'}`);
-    console.log(`Cache status for page ${currentPage + 1}: ${cachedImage ? (cachedImage === 'loading' ? 'loading' : cachedImage === 'failed' ? 'failed' : 'cached') : 'not cached'}`);
-    
     if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
       // Image is in cache and fully loaded - show immediately
       setIsPageImageLoading(false);
       setImageLoadedSuccessfully(true);
-      console.log(`Page ${currentPage + 1} displayed from cache`);
       
       // Queue surrounding pages after a delay
       const queueTimer = setTimeout(() => {
@@ -385,19 +369,16 @@ export default function ComicReader() {
       // Image failed to load
       setIsPageImageLoading(false);
       setImageLoadedSuccessfully(false);
-      console.log(`Page ${currentPage + 1} failed to load`);
     } else {
       // Not in cache or still loading - show loading state
       setIsPageImageLoading(true);
       setImageLoadedSuccessfully(false);
-      console.log(`Page ${currentPage + 1} not in cache, loading from network`);
       
       // Use the optimized loading function to avoid duplicate requests
       loadPageIntoCache(currentPage)
         .then(() => {
           // Only update UI if this is still the current page
           if (currentPageRef.current === currentPage) {
-            console.log(`Successfully loaded current page ${currentPage + 1}`);
             setIsPageImageLoading(false);
             setImageLoadedSuccessfully(true);
             
@@ -410,7 +391,6 @@ export default function ComicReader() {
         .catch(() => {
           // Only update UI if this is still the current page
           if (currentPageRef.current === currentPage) {
-            console.error(`Failed to load current page ${currentPage + 1}`);
             setIsPageImageLoading(false);
             setImageLoadedSuccessfully(false);
           }
@@ -448,12 +428,10 @@ export default function ComicReader() {
   const handlePreviousPage = useCallback(() => {
     if (currentPage > 0) {
       const newPage = currentPage - 1;
-      console.log(`Navigating to previous page: ${currentPage + 1} -> ${newPage + 1}`);
       
       // Check if the page is already cached - if so, update UI immediately
       const cachedImage = imageCache[newPage];
       if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
-        console.log(`Page ${newPage + 1} already in cache, displaying immediately`);
         // Update UI state before changing page to ensure immediate display
         setIsPageImageLoading(false);
         setImageLoadedSuccessfully(true);
@@ -471,12 +449,10 @@ export default function ComicReader() {
   const handleNextPage = useCallback(() => {
     if (currentPage < comicPages.length - 1) {
       const newPage = currentPage + 1;
-      console.log(`Navigating to next page: ${currentPage + 1} -> ${newPage + 1}`);
       
       // Check if the page is already cached - if so, update UI immediately
       const cachedImage = imageCache[newPage];
       if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
-        console.log(`Page ${newPage + 1} already in cache, displaying immediately`);
         // Update UI state before changing page to ensure immediate display
         setIsPageImageLoading(false);
         setImageLoadedSuccessfully(true);
