@@ -183,13 +183,22 @@ export default function ComicReader() {
     return canvas.toDataURL('image/jpeg');
   };
   
+  // Object to track in-progress loads to prevent duplicate requests
+  const loadingPagesRef = useRef({});
+  
   // Function to load a single page and add it to the cache
   const loadPageIntoCache = useCallback((pageIndex) => {
     if (pageIndex < 0 || pageIndex >= comicPages.length) return Promise.resolve(); // Out of bounds
     
-    // If already fully loaded in cache or loading, no need to load again
-    if (imageCache[pageIndex] && imageCache[pageIndex] !== 'failed') {
+    // If already fully loaded in cache, no need to load again
+    if (imageCache[pageIndex] && imageCache[pageIndex] !== 'loading' && imageCache[pageIndex] !== 'failed') {
       return Promise.resolve();
+    }
+    
+    // If this page is already being loaded, return the existing promise
+    if (loadingPagesRef.current[pageIndex]) {
+      console.log(`Page ${pageIndex + 1} is already being loaded, reusing existing request`);
+      return loadingPagesRef.current[pageIndex];
     }
     
     // Mark as loading in the cache
@@ -198,7 +207,8 @@ export default function ComicReader() {
       [pageIndex]: 'loading'
     }));
     
-    return new Promise((resolve, reject) => {
+    // Create a new promise for this load
+    const loadPromise = new Promise((resolve, reject) => {
       // Create a new image object with a unique timestamp to prevent browser caching
       const img = new Image();
       const url = `${comicPages[pageIndex]}?_t=${Date.now()}`;
@@ -220,6 +230,7 @@ export default function ComicReader() {
               ...prev,
               [pageIndex]: cachedImg
             }));
+            console.log(`Page ${pageIndex + 1} loaded and cached as data URL`);
           } catch (error) {
             console.error(`Failed to create data URL for page ${pageIndex + 1}:`, error);
             // Fallback to using the original image
@@ -227,22 +238,33 @@ export default function ComicReader() {
               ...prev,
               [pageIndex]: img
             }));
+            console.log(`Page ${pageIndex + 1} loaded and cached as image object (fallback)`);
           }
         }
+        // Remove from loading tracker
+        delete loadingPagesRef.current[pageIndex];
         resolve(img);
       };
       
       img.onerror = () => {
+        console.error(`Failed to load page ${pageIndex + 1}`);
         setImageCache(prev => ({
           ...prev,
           [pageIndex]: 'failed'
         }));
+        // Remove from loading tracker
+        delete loadingPagesRef.current[pageIndex];
         reject();
       };
       
       // Set the source with the timestamp to prevent caching
       img.src = url;
     });
+    
+    // Store the promise in the loading tracker
+    loadingPagesRef.current[pageIndex] = loadPromise;
+    
+    return loadPromise;
   }, [imageCache, comicPages, isInCacheWindow]);
   
   // Function to process the load queue
@@ -370,52 +392,29 @@ export default function ComicReader() {
       setImageLoadedSuccessfully(false);
       console.log(`Page ${currentPage + 1} not in cache, loading from network`);
       
-      // Create a new image object for loading
-      const img = new Image();
-      
-      // Enable CORS for canvas operations
-      img.crossOrigin = 'Anonymous';
-      
-      // Set up event handlers before setting src
-      img.onload = () => {
-        // Only update if this is still the current page
-        if (currentPageRef.current === currentPage) {
-          console.log(`Successfully loaded current page ${currentPage + 1}`);
-          setIsPageImageLoading(false);
-          setImageLoadedSuccessfully(true);
-          
-          try {
-            // Convert the image to a data URL to prevent network requests
-            const dataUrl = imageToDataURL(img);
+      // Use the optimized loading function to avoid duplicate requests
+      loadPageIntoCache(currentPage)
+        .then(() => {
+          // Only update UI if this is still the current page
+          if (currentPageRef.current === currentPage) {
+            console.log(`Successfully loaded current page ${currentPage + 1}`);
+            setIsPageImageLoading(false);
+            setImageLoadedSuccessfully(true);
             
-            // Create a new image with the data URL
-            const cachedImg = new Image();
-            cachedImg.src = dataUrl;
-            
-            setImageCache(prev => ({ ...prev, [currentPage]: cachedImg }));
-          } catch (error) {
-            console.error(`Failed to create data URL for current page:`, error);
-            // Fallback to using the original image
-            setImageCache(prev => ({ ...prev, [currentPage]: img }));
+            // Queue surrounding pages after a delay
+            setTimeout(() => {
+              queuePagesToLoad();
+            }, 100);
           }
-          
-          // Queue surrounding pages after a delay
-          queuePagesToLoad();
-        }
-      };
-      
-      img.onerror = () => {
-        // Only update if this is still the current page
-        if (currentPageRef.current === currentPage) {
-          console.error(`Failed to load current page ${currentPage + 1}`);
-          setIsPageImageLoading(false);
-          setImageLoadedSuccessfully(false);
-          setImageCache(prev => ({ ...prev, [currentPage]: 'failed' }));
-        }
-      };
-      
-      // Start loading the image with a timestamp to prevent browser caching
-      img.src = `${comicPages[currentPage]}?_t=${Date.now()}`;
+        })
+        .catch(() => {
+          // Only update UI if this is still the current page
+          if (currentPageRef.current === currentPage) {
+            console.error(`Failed to load current page ${currentPage + 1}`);
+            setIsPageImageLoading(false);
+            setImageLoadedSuccessfully(false);
+          }
+        });
     }
     
     // Schedule cache cleanup after a delay
@@ -427,8 +426,8 @@ export default function ComicReader() {
     return () => {
       clearTimeout(cleanupTimer);
     };
-  // Remove imageCache from dependencies to prevent infinite loop
-  }, [currentPage, comicPages, queuePagesToLoad, cleanupCache, logCacheState]);
+  // Include loadPageIntoCache but not imageCache to prevent infinite loop
+  }, [currentPage, comicPages, queuePagesToLoad, cleanupCache, logCacheState, loadPageIntoCache]);
 
 
 
