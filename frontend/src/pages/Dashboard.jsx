@@ -14,6 +14,7 @@ export default function Dashboard() {
   // searchResults will now always mirror comics state, simplifying logic.
   // const [searchResults, setSearchResults] = useState([]); 
   const [isLoading, setIsLoading] = useState(true);
+  const [isSearching, setIsSearching] = useState(false); // Specific state for search operations
   const [error, setError] = useState(null); // Added error state
   const [searchParams, setSearchParams] = useState({ query: "", tags: [] });
   const [isSearchActive, setIsSearchActive] = useState(false);
@@ -31,7 +32,12 @@ export default function Dashboard() {
   };
 
   const fetchComicsFromApi = async (url) => {
-    setIsLoading(true);
+    // If this is a search operation, use the isSearching state instead of full isLoading
+    if (url.includes('search=') || url.includes('tags=')) {
+      setIsSearching(true);
+    } else {
+      setIsLoading(true);
+    }
     setError(null);
     try {
       const response = await fetch(url);
@@ -66,6 +72,7 @@ export default function Dashboard() {
       setComics([]);
     } finally {
       setIsLoading(false);
+      setIsSearching(false);
     }
   };
 
@@ -161,9 +168,22 @@ export default function Dashboard() {
       </div>
       
       <div className="mb-8 flex justify-center">
-        <SearchBar onSearch={handleSearch} />
+        <SearchBar onSearch={handleSearch} isSearching={isSearching} />
       </div>
 
+      {/* Loading overlay for search operations */}
+      {isSearching && !isLoading && (
+        <div className="fixed inset-0 bg-background/50 backdrop-blur-sm z-50 flex items-center justify-center pointer-events-none">
+          <div className="bg-card p-6 rounded-lg shadow-lg flex items-center space-x-4 border">
+            <svg className="animate-spin h-8 w-8 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span className="text-lg font-medium">Searching comics...</span>
+          </div>
+        </div>
+      )}
+      
       {isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {[...Array(6)].map((_, i) => (
