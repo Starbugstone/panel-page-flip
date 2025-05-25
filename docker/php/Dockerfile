@@ -6,14 +6,16 @@ FROM php:${PHP_VERSION}-fpm
 RUN apt-get update && apt-get install -y \
     git \
     curl \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    zip \
     unzip \
+    libpng-dev \
+    libjpeg-dev \
+    libfreetype6-dev \
     libzip-dev \
     libicu-dev \
     libxslt-dev \
+    libonig-dev \
+    libxml2-dev \
+    zip \
     acl
 
 # Install PHP extensions
@@ -30,6 +32,9 @@ RUN docker-php-ext-configure intl \
         zip \
         opcache \
         xsl
+
+# Note: RAR extension is not installed in Docker but is available on production
+# This is intentional as the application will detect and use it when available
 
 # Create log directory for PHP
 RUN mkdir -p /var/log/php && chmod 777 /var/log/php

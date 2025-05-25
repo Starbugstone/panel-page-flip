@@ -35,8 +35,8 @@ const UploadComicForm = () => {
   
   // Function to convert filename to readable title
   const generateTitleFromFilename = (filename) => {
-    // Remove the .cbz extension
-    let title = filename.replace(/\.cbz$/i, '');
+    // Remove the .cbz or .cbr extension
+    let title = filename.replace(/\.(cbz|cbr)$/i, '');
     
     // Handle snake_case
     title = title.replace(/_/g, ' ');
@@ -65,11 +65,12 @@ const UploadComicForm = () => {
   
   const handleFileChange = (e) => {
     if (e.target.files[0]) {
-      // Only accept .cbz files
-      if (!e.target.files[0].name.toLowerCase().endsWith('.cbz')) {
+      // Only accept .cbz and .cbr files
+      const fileName = e.target.files[0].name.toLowerCase();
+      if (!fileName.endsWith('.cbz') && !fileName.endsWith('.cbr')) {
         toast({
           title: "Invalid file",
-          description: "Please upload a .cbz file",
+          description: "Please upload a .cbz or .cbr file",
           variant: "destructive"
         });
         return;

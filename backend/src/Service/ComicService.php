@@ -8,7 +8,8 @@ use App\Entity\User;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\String\Slugger\SluggerInterface;
-use ZipArchive;
+use App\Service\FileHandler\ComicFileHandlerFactory;
+use App\Service\FileHandler\Interface\ComicFileHandlerInterface;
 
 /**
  * Service for handling comic-related operations
@@ -18,15 +19,18 @@ class ComicService
     private string $comicsDirectory;
     private EntityManagerInterface $entityManager;
     private SluggerInterface $slugger;
+    private ComicFileHandlerFactory $fileHandlerFactory;
 
     public function __construct(
         string $comicsDirectory,
         EntityManagerInterface $entityManager,
-        SluggerInterface $slugger
+        SluggerInterface $slugger,
+        ComicFileHandlerFactory $fileHandlerFactory
     ) {
         $this->comicsDirectory = $comicsDirectory;
         $this->entityManager = $entityManager;
         $this->slugger = $slugger;
+        $this->fileHandlerFactory = $fileHandlerFactory;
     }
 
     /**
@@ -68,14 +72,14 @@ class ComicService
             'error' => $file->getError()
         ]));
         
-        // Validate file is a CBZ
+        // Validate file is a CBZ or CBR
         $originalFilename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
         $extension = $file->getClientOriginalExtension();
         
         error_log('File extension: ' . $extension);
         
-        if (empty($extension) || strtolower($extension) !== 'cbz') {
-            $errorMessage = 'Only CBZ files are allowed. Got: ' . $extension;
+        if (empty($extension) || !in_array(strtolower($extension), ['cbz', 'cbr'])) {
+            $errorMessage = 'Only CBZ and CBR files are allowed. Got: ' . $extension;
             error_log($errorMessage);
             throw new \Exception($errorMessage);
         }
@@ -273,129 +277,95 @@ class ComicService
     }
 
     /**
-     * Extract the cover image from a CBZ file
+     * Extract the cover image from a comic file
      * 
-     * @param string $cbzPath Path to the CBZ file
-     * @param string $baseFilename Base filename for the cover image
-     * @param string $cbzAbsPath Full absolute path to the CBZ file
+     * @param string $comicPath Full absolute path to the comic file
      * @param User $user The user object
      * @param int $comicId The ID of the comic (already persisted)
-     * @param string $baseCoverFilename Base filename for the cover image (slugged original CBZ name)
+     * @param string $baseCoverFilename Base filename for the cover image (slugged original comic name)
      * @return string|null Path to the extracted cover image, relative to the user's comic directory.
      *                     e.g., "covers/456/mycomic-cover-qwert.jpg"
      * @throws \Exception If there's an error extracting the cover image
      */
-    private function extractCoverImage(string $cbzAbsPath, User $user, int $comicId, string $baseCoverFilename): ?string
+    private function extractCoverImage(string $comicPath, User $user, int $comicId, string $baseCoverFilename): ?string
     {
-        // Verify the CBZ file exists
-        if (!file_exists($cbzAbsPath)) {
-            error_log("CBZ file not found at path: {$cbzAbsPath}");
-            throw new \Exception("CBZ file not found at path: {$cbzAbsPath}");
+        // Verify the comic file exists
+        if (!file_exists($comicPath)) {
+            error_log("Comic file not found at path: {$comicPath}");
+            throw new \Exception("Comic file not found at path: {$comicPath}");
         }
         
-        $zip = new ZipArchive();
-        $openResult = $zip->open($cbzAbsPath);
-        if ($openResult !== true) {
-            error_log("Failed to open CBZ file {$cbzAbsPath}. Error code: {$openResult}");
-            throw new \Exception("Failed to open CBZ file. Error code: {$openResult}");
+        // Get the appropriate handler for this file
+        $handler = $this->fileHandlerFactory->getHandler($comicPath);
+        
+        if (!$handler) {
+            $extension = strtolower(pathinfo($comicPath, PATHINFO_EXTENSION));
+            error_log("No handler found for file format: {$extension}");
+            throw new \Exception("Unsupported file format: {$extension}");
         }
-
-        // Get all image files from the archive
-        $imageFiles = [];
-        for ($i = 0; $i < $zip->numFiles; $i++) {
-            $filename = $zip->getNameIndex($i);
-            // Skip files in macOS specific __MACOSX directory or other hidden files
-            if (strpos($filename, '__MACOSX/') === 0 || strpos($filename, '.') === 0) {
-                continue;
-            }
-            $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-            if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-                $imageFiles[] = $filename;
-            }
-        }
-
-        // Sort image files naturally (1, 2, 10 instead of 1, 10, 2)
-        usort($imageFiles, 'strnatcmp');
-
-        if (empty($imageFiles)) {
-            $zip->close();
-            error_log("No image files found in CBZ: {$cbzAbsPath}");
-            throw new \Exception("No image files found in the CBZ archive");
-        }
-
-        $firstImageNameInZip = $imageFiles[0];
-        $coverExtension = strtolower(pathinfo($firstImageNameInZip, PATHINFO_EXTENSION));
-        $actualCoverFilename = $baseCoverFilename . '-cover-' . uniqid() . '.' . $coverExtension;
-
+        
         // Path where this specific comic's covers will be stored (absolute)
-        // $this->comicsDirectory is already '%kernel.project_dir%/public/uploads/comics'
         $coverStorageDirAbs = $this->comicsDirectory . '/' . $user->getId() . '/covers/' . $comicId;
-
+        
+        // Ensure the cover directory exists
         if (!file_exists($coverStorageDirAbs)) {
             error_log("Creating cover directory: {$coverStorageDirAbs}");
             if (!mkdir($coverStorageDirAbs, 0777, true)) {
-                $zip->close();
                 error_log("Failed to create cover directory: {$coverStorageDirAbs}");
                 throw new \Exception("Failed to create cover directory: {$coverStorageDirAbs}");
             }
-            // No need to chmod 0777 on the final directory, parent directory permissions should suffice.
-        }
-
-        // Extract cover image data
-        $extractedImageData = $zip->getFromName($firstImageNameInZip);
-        if ($extractedImageData === false) {
-            $zip->close();
-            error_log("Failed to extract cover image data from {$firstImageNameInZip} in {$cbzAbsPath}");
-            throw new \Exception("Failed to extract cover image data from {$firstImageNameInZip} in {$cbzAbsPath}");
         }
         
-        $fullCoverPathOnDisk = $coverStorageDirAbs . '/' . $actualCoverFilename;
-        error_log("Saving cover image to disk: {$fullCoverPathOnDisk}");
-        if (file_put_contents($fullCoverPathOnDisk, $extractedImageData) === false) {
-            $zip->close();
-            error_log("Failed to save cover image to disk: {$fullCoverPathOnDisk}");
-            throw new \Exception("Failed to save cover image to disk: {$fullCoverPathOnDisk}");
-        }
-        chmod($fullCoverPathOnDisk, 0644); // Ensure the file itself is readable
+        // Extract the first image (cover) using the appropriate handler
+        $extractedPath = $handler->extractImage($comicPath, 0, $coverStorageDirAbs);
         
-        $zip->close();
-
-        // Return path relative to the user's main comic directory (e.g., "userId/covers/comicId/filename.jpg")
-        // The Comic->getCoverImagePath() should store "covers/comicId/filename.jpg"
-        // And the ComicController will prepend "userId/" to it.
-        // OR, more simply, the ComicController will prepend the *full base URL* up to "userId/"
-        // and this method returns the path *relative to the user's comic directory*.
-        return 'covers/' . $comicId . '/' . $actualCoverFilename;
-    }
-
-    /**
-     * Count the number of pages in a CBZ file
-     * 
-     * TODO: Improve page counting accuracy when implementing a proper CBZ tool.
-     * Current implementation may not correctly handle nested directories or
-     * non-image files that might be included in the CBZ archive.
-     * 
-     * @param string $cbzPath Path to the CBZ file
-     * @return int Number of pages (images) in the CBZ file
-     */
-    private function countPagesInCbz(string $cbzPath): int
-    {
-        $zip = new ZipArchive();
-        if ($zip->open($cbzPath) !== true) {
-            return 0;
+        if (!$extractedPath || !file_exists($extractedPath)) {
+            error_log("Failed to extract cover image from comic file: {$comicPath}");
+            throw new \Exception("Failed to extract cover image from comic file");
         }
-
-        // Count image files
-        $pageCount = 0;
-        for ($i = 0; $i < $zip->numFiles; $i++) {
-            $filename = $zip->getNameIndex($i);
-            $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-            if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-                $pageCount++;
+        
+        // Rename the extracted file to follow our naming convention
+        $coverExtension = strtolower(pathinfo($extractedPath, PATHINFO_EXTENSION));
+        $actualCoverFilename = $baseCoverFilename . '-cover-' . uniqid() . '.' . $coverExtension;
+        $newPath = $coverStorageDirAbs . '/' . $actualCoverFilename;
+        
+        if (basename($extractedPath) !== $actualCoverFilename) {
+            if (!rename($extractedPath, $newPath)) {
+                error_log("Failed to rename extracted cover image: {$extractedPath} to {$newPath}");
+                throw new \Exception("Failed to rename extracted cover image");
             }
         }
-
-        $zip->close();
-        return $pageCount;
+        
+        chmod($newPath, 0644); // Ensure the file itself is readable
+        
+        return 'covers/' . $comicId . '/' . $actualCoverFilename;
+    }
+    
+    /**
+     * Count the number of pages in a comic file
+     * 
+     * This method uses the appropriate file handler based on the file extension
+     * 
+     * @param string $comicPath Path to the comic file
+     * @return int Number of pages (images) in the comic file
+     */
+    public function countPages(string $comicPath): int
+    {
+        // Check if file exists and is readable
+        if (!file_exists($comicPath) || !is_readable($comicPath)) {
+            error_log("Comic file not found or not readable: {$comicPath}");
+            return 0;
+        }
+        
+        // Get the appropriate handler for this file
+        $handler = $this->fileHandlerFactory->getHandler($comicPath);
+        
+        if ($handler) {
+            return $handler->countImageFiles($comicPath);
+        } else {
+            $extension = strtolower(pathinfo($comicPath, PATHINFO_EXTENSION));
+            error_log("No handler found for file format: {$extension}");
+            return 0;
+        }
     }
 }
