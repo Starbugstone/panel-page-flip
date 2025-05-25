@@ -4,11 +4,12 @@ controllers:
         namespace: App\Controller
     type: attribute
 
-# API routes are handled by Symfony controllers
+# API routes are handled by Symfony controllers with /api prefix
 api:
-    resource: ../src/Controller/Api
+    resource: ../src/Controller/
     type: attribute
     prefix: /api
+    name_prefix: api_
 
 # React frontend routes - let the frontend handle routing
 frontend:
