@@ -12,6 +12,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Twig\Environment;
@@ -43,13 +44,15 @@ class TestEmailVerificationCommand extends Command
     private MailerInterface $mailer;
     private UrlGeneratorInterface $urlGenerator;
     private Environment $twig;
+    private ParameterBagInterface $params;
 
     public function __construct(
         EntityManagerInterface $entityManager,
         UserRepository $userRepository,
         MailerInterface $mailer,
         UrlGeneratorInterface $urlGenerator,
-        Environment $twig
+        Environment $twig,
+        ParameterBagInterface $params
     ) {
         parent::__construct();
         $this->entityManager = $entityManager;
@@ -57,6 +60,7 @@ class TestEmailVerificationCommand extends Command
         $this->mailer = $mailer;
         $this->urlGenerator = $urlGenerator;
         $this->twig = $twig;
+        $this->params = $params;
     }
 
     protected function configure(): void
@@ -143,7 +147,7 @@ class TestEmailVerificationCommand extends Command
             $io->writeln($apiVerificationUrl);
             
             // Get the frontend URL from parameters for display purposes
-            $frontendUrl = $this->getParameter('frontend_url');
+            $frontendUrl = $this->params->get('frontend_url');
             // Make sure the frontend URL doesn't have a trailing slash
             $frontendUrl = rtrim($frontendUrl, '/');
             
@@ -159,12 +163,12 @@ class TestEmailVerificationCommand extends Command
             $io->section('Sending verification email...');
             
             // Get the frontend URL from parameters
-            $frontendUrl = $this->getParameter('frontend_url');
+            $frontendUrl = $this->params->get('frontend_url');
             $io->note("Using frontend URL: {$frontendUrl}");
             
             // Get the mailer configuration
-            $fromEmail = $this->getParameter('mailer_from_address') ?: 'noreply@comicreader.example.com';
-            $fromName = $this->getParameter('mailer_from_name') ?: 'Comic Reader';
+            $fromEmail = $this->params->has('mailer_from_address') ? $this->params->get('mailer_from_address') : 'noreply@comicreader.example.com';
+            $fromName = $this->params->has('mailer_from_name') ? $this->params->get('mailer_from_name') : 'Comic Reader';
             
             $emailMessage = (new \Symfony\Component\Mime\Email())
                 ->from(new \Symfony\Component\Mime\Address($fromEmail, $fromName))
