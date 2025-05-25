@@ -4,17 +4,20 @@ on:
   # Trigger on direct pushes to main for emergency updates
   push:
     branches:
-      - main
+      - 'main'
   # Trigger on PR merges to main (normal workflow)
   pull_request:
     types: [closed]
     branches:
-      - main
+      - 'main'
 
 jobs:
   build-and-deploy:
     # Run on direct pushes to main OR when a PR to main is merged
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    # Explicitly check that we're working with the main branch
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') || 
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
     runs-on: ubuntu-latest
     
     steps:
