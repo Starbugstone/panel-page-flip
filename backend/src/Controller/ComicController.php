@@ -7,6 +7,9 @@ use App\Entity\ComicReadingProgress;
 use App\Entity\Tag;
 use App\Entity\User;
 use App\Service\ComicService;
+use App\Service\AdminContextService;
+use App\Service\FileSecurityService;
+use App\Service\FileHandler\ComicFileHandlerFactory;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\File\Exception\FileException;
@@ -28,15 +31,24 @@ class ComicController extends AbstractController
     private string $tempUploadDir;
     private RequestStack $requestStack;
     private UrlGeneratorInterface $urlGenerator;
+    private AdminContextService $adminContextService;
+    private FileSecurityService $fileSecurityService;
+    private ComicFileHandlerFactory $fileHandlerFactory;
     
     public function __construct(
         private string $comicsDirectory,
         RequestStack $requestStack,
-        UrlGeneratorInterface $urlGenerator
+        UrlGeneratorInterface $urlGenerator,
+        AdminContextService $adminContextService,
+        FileSecurityService $fileSecurityService,
+        ComicFileHandlerFactory $fileHandlerFactory
     ) {
         $this->tempUploadDir = sys_get_temp_dir() . '/comic_uploads';
         $this->requestStack = $requestStack;
         $this->urlGenerator = $urlGenerator;
+        $this->adminContextService = $adminContextService;
+        $this->fileSecurityService = $fileSecurityService;
+        $this->fileHandlerFactory = $fileHandlerFactory;
         
         // Ensure temp directory exists
         if (!file_exists($this->tempUploadDir)) {
@@ -102,8 +114,8 @@ class ComicController extends AbstractController
         $qb->select('c')
             ->from(Comic::class, 'c');
 
-        // Check if we're in admin context - only consider this parameter if user is an admin
-        $adminContext = $request->query->get('adminContext') === 'true' && in_array('ROLE_ADMIN', $user->getRoles());
+        // Check if we're in admin context using the AdminContextService
+        $adminContext = $this->adminContextService->isAdminContext($user);
         
         // User Ownership Filter - only show all comics to admins in admin context
         if (!$adminContext) {
@@ -199,9 +211,9 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
 
-        // Check permissions: Admin can access any, user only their own
-        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
-            return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN); // Or HTTP_NOT_FOUND
+        // Check permissions using AdminContextService
+        if (!$this->adminContextService->hasAccess($user, $comic)) {
+            return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN);
         }
 
         // Get reading progress if exists
@@ -790,10 +802,16 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        // Get comic by id and owner
-        $comic = $entityManager->getRepository(Comic::class)->findOneBy(['id' => $id, 'owner' => $user]);
+        // Get comic by id
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
+        }
+        
+        // Check if user has access to this comic (only owner can access)
+        // Note: We're not using adminContext here as per requirements - admins should only access their own comics
+        if ($comic->getOwner()->getId() !== $user->getId()) {
+            return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
         // Validate page number
@@ -806,9 +824,21 @@ class ComicController extends AbstractController
         $userDirectory = $comicsDirectory . '/' . $user->getId();
         $filePath = $userDirectory . '/' . $comic->getFilePath();
         
+        // Validate file paths for security
+        if (!$this->fileSecurityService->isPathSafe($filePath)) {
+            error_log("Security warning: Potentially unsafe file path detected: {$filePath}");
+            return $this->json(['message' => 'Invalid file path'], Response::HTTP_BAD_REQUEST);
+        }
+        
         // Fallback to old path if file doesn't exist in user directory
         if (!file_exists($filePath)) {
             $filePath = $comicsDirectory . '/' . $comic->getFilePath();
+            
+            // Validate fallback path for security
+            if (!$this->fileSecurityService->isPathSafe($filePath)) {
+                error_log("Security warning: Potentially unsafe fallback file path detected: {$filePath}");
+                return $this->json(['message' => 'Invalid file path'], Response::HTTP_BAD_REQUEST);
+            }
             
             // If still not found, return error
             if (!file_exists($filePath)) {
@@ -817,10 +847,8 @@ class ComicController extends AbstractController
             
             // If found in the old location, move it to the user's directory for future access
             try {
-                // Create user directory if it doesn't exist
-                if (!file_exists($userDirectory)) {
-                    mkdir($userDirectory, 0777, true);
-                }
+                // Create user directory if it doesn't exist using FileSecurityService
+                $this->fileSecurityService->validateDirectory($userDirectory, true, 0777);
                 
                 // Copy the file to the user's directory
                 copy($filePath, $userDirectory . '/' . $comic->getFilePath());
@@ -833,45 +861,72 @@ class ComicController extends AbstractController
             }
         }
 
-        // Open CBZ file
-        $zip = new ZipArchive();
-        if ($zip->open($filePath) !== true) {
-            return $this->json(['message' => 'Failed to open comic file'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        // Get the appropriate file handler for this comic file
+        $fileHandler = $this->fileHandlerFactory->createHandler($filePath);
+        if (!$fileHandler) {
+            return $this->json(['message' => 'Unsupported comic file format'], Response::HTTP_BAD_REQUEST);
         }
-
-        // Get all image files from the archive
-        $imageFiles = [];
-        for ($i = 0; $i < $zip->numFiles; $i++) {
-            $filename = $zip->getNameIndex($i);
-            $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-            if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-                $imageFiles[] = $filename;
+        
+        // Get the total number of images in the comic
+        try {
+            $imageCount = $fileHandler->countImages($filePath);
+            
+            // Update the comic's page count if it hasn't been set yet
+            if ($comic->getPageCount() === null) {
+                $comic->setPageCount($imageCount);
+                $entityManager->flush();
             }
-        }
-
-        // Sort image files naturally (1, 2, 10 instead of 1, 10, 2)
-        usort($imageFiles, 'strnatcmp');
-
-        // Check if requested page exists
-        if (!isset($imageFiles[$page - 1])) {
-            $zip->close();
-            return $this->json(['message' => 'Page not found'], Response::HTTP_NOT_FOUND);
-        }
-
-        // Get page image
-        $pageImage = $zip->getFromName($imageFiles[$page - 1]);
-        $zip->close();
-
-        if ($pageImage === false) {
-            return $this->json(['message' => 'Failed to extract page image'], Response::HTTP_INTERNAL_SERVER_ERROR);
+            
+            // Check if requested page exists
+            if ($page < 1 || $page > $imageCount) {
+                return $this->json(['message' => 'Page not found'], Response::HTTP_NOT_FOUND);
+            }
+            
+            // Create a temporary directory for extracting the image
+            $tempDir = sys_get_temp_dir() . '/comic_pages/' . $comic->getId();
+            if (!file_exists($tempDir)) {
+                mkdir($tempDir, 0777, true);
+            }
+            
+            // Extract the requested page image
+            $pageImagePath = $fileHandler->extractImage($filePath, $page - 1, $tempDir);
+            
+            if (!$pageImagePath || !file_exists($pageImagePath)) {
+                return $this->json(['message' => 'Failed to extract page image'], Response::HTTP_INTERNAL_SERVER_ERROR);
+            }
+            
+            // Read the image file contents
+            $pageImage = file_get_contents($pageImagePath);
+            
+            // Clean up the temporary file
+            unlink($pageImagePath);
+        } catch (\Exception $e) {
+            return $this->json(['message' => 'Error processing comic file: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
         // Return image
         $response = new Response($pageImage);
-        $extension = strtolower(pathinfo($imageFiles[$page - 1], PATHINFO_EXTENSION));
+        $extension = strtolower(pathinfo($pageImagePath, PATHINFO_EXTENSION));
         $mimeType = $this->getMimeTypeForExtension($extension);
         $response->headers->set('Content-Type', $mimeType);
         return $response;
+    }
+
+    /**
+     * Get the MIME type for a file extension
+     * 
+     * @param string $extension The file extension (without the dot)
+     * @return string The MIME type
+     */
+    private function getMimeTypeForExtension(string $extension): string
+    {
+        return match (strtolower($extension)) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            'webp' => 'image/webp',
+            default => 'application/octet-stream',
+        };
     }
 
     #[Route('/{id}/progress', name: 'update_progress', methods: ['POST'])]

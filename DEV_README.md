@@ -8,6 +8,18 @@ This document provides detailed information for developers working on the projec
 
 ## Current Implementation Status
 
+### Comic File Support
+
+#### ✅ CBZ File Support
+- **ZipArchive**: Uses PHP's built-in ZipArchive for handling CBZ files
+- **Extraction**: Extracts cover images and individual pages for reading
+- **Page Counting**: Accurately counts pages in CBZ files for progress tracking
+
+#### ✅ CBR File Support
+- **RAR Extension**: Primary method uses PHP's RAR extension when available
+- **Command-line Fallbacks**: Falls back to `unrar` and `7z` command-line tools if the RAR extension is not available
+- **Abstraction Layer**: Uses a file handler abstraction layer to support multiple comic file formats
+
 ### Backend (Symfony)
 
 #### ✅ User Authentication System
@@ -644,3 +656,78 @@ Key changes:
 The CBZ Comic Reader project has a solid backend foundation with user authentication, comic management, and reading progress tracking. The next major step is to implement the frontend to provide a user-friendly interface for reading comics.
 
 By following the recommended next steps, you can complete the project and create a fully functional comic reader application.
+
+## Docker Configuration for CBR Support
+
+To enable full CBR file support in your Docker environment (matching the production server), you need to install the RAR extension in your PHP container. Here's how to update your Docker configuration:
+
+### 1. Update the PHP Dockerfile
+
+Modify `docker/php/Dockerfile` to install the RAR extension:
+
+```dockerfile
+# Install RAR extension dependencies
+RUN apt-get update && apt-get install -y \
+    libarchive-dev \
+    unrar \
+    p7zip-full \
+    && pecl install rar \
+    && docker-php-ext-enable rar
+```
+
+Place this code block after the other PHP extensions installation and before the "Create log directory for PHP" section.
+
+### 2. Alternative Approach (if PECL installation fails)
+
+If the PECL installation doesn't work, you can try compiling the extension from source:
+
+```dockerfile
+RUN apt-get update && apt-get install -y \
+    libarchive-dev \
+    unrar \
+    p7zip-full \
+    && mkdir -p /tmp/rar \
+    && cd /tmp/rar \
+    && curl -fsSL https://pecl.php.net/get/rar -o rar.tgz \
+    && tar -xzf rar.tgz \
+    && cd rar-* \
+    && phpize \
+    && ./configure \
+    && make \
+    && make install \
+    && docker-php-ext-enable rar \
+    && rm -rf /tmp/rar
+```
+
+### 3. Ensure Command-line Tools are Available
+
+Even if the RAR extension installation fails, make sure the fallback command-line tools are installed:
+
+```dockerfile
+RUN apt-get update && apt-get install -y \
+    unrar \
+    p7zip-full
+```
+
+### 4. Rebuild Your Docker Container
+
+After making these changes, rebuild your Docker container:
+
+```bash
+docker-compose build php
+docker-compose up -d
+```
+
+### 5. Verify Installation
+
+You can verify that the RAR extension is properly installed by running:
+
+```bash
+docker-compose exec php php -m | grep rar
+```
+
+If the extension is installed, you should see "rar" in the output.
+
+### Note on Production Environment
+
+The production server already has the RAR extension installed. The application is designed to use the RAR extension when available and fall back to command-line tools when it's not. This ensures compatibility across different environments.

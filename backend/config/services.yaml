@@ -50,6 +50,18 @@ services:
             $mailerFromAddress: '%mailer_from_address%'
             $mailerFromName: '%mailer_from_name%'
             
+    # Comic file handlers
+    App\Service\FileHandler\CbzFileHandler:
+        tags: ['app.comic_file_handler']
+        
+    App\Service\FileHandler\CbrFileHandler:
+        tags: ['app.comic_file_handler']
+    
+    # Comic file handler factory
+    App\Service\FileHandler\ComicFileHandlerFactory:
+        arguments:
+            $handlers: !tagged_iterator app.comic_file_handler
+    
     # Comic service with comics directory configuration
     App\Service\ComicService:
         arguments:
