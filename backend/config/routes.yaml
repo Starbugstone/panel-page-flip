@@ -3,3 +3,18 @@ controllers:
         path: ../src/Controller/
         namespace: App\Controller
     type: attribute
+
+# API routes are handled by Symfony controllers
+api:
+    resource: ../src/Controller/Api
+    type: attribute
+    prefix: /api
+
+# React frontend routes - let the frontend handle routing
+frontend:
+    path: /{reactRouting}
+    controller: App\Controller\FrontendController::index
+    requirements:
+        reactRouting: ^(?!api|_wdt|_profiler).+
+    defaults:
+        reactRouting: ''
