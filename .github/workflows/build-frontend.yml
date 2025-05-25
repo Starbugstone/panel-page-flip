@@ -14,8 +14,10 @@ on:
 jobs:
   build-and-deploy:
     # Only run on direct pushes to main (not PR merge commits)
-    if: |
-      github.event_name == 'push' && !contains(github.event.head_commit.message, 'Merge pull request')
+    # Commented out conditions for reference:
+    # - (github.event_name == 'push' && !contains(github.event.head_commit.message, 'Merge pull request'))
+    # - (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    if: github.event_name == 'push' && !contains(github.event.head_commit.message, 'Merge pull request')
     runs-on: ubuntu-latest
     
     steps:
