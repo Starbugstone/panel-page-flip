@@ -1,11 +1,7 @@
 name: Build and Deploy Frontend
 
 on:
-  # Trigger on direct pushes to main for emergency updates
-  push:
-    branches:
-      - 'main'
-  # Trigger on PR merges to main (normal workflow)
+  # Only trigger on PR merges to main
   pull_request:
     types: [closed]
     branches:
@@ -13,11 +9,8 @@ on:
 
 jobs:
   build-and-deploy:
-    # Run on direct pushes to main OR when a PR to main is merged
-    # Explicitly check that we're working with the main branch
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') || 
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
+    # Only run when a PR to main is merged
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     
     steps:
