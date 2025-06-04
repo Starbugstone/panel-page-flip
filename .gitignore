@@ -29,3 +29,12 @@ passwords.txt
 
 # Uploaded content
 backend/public/uploads/
+
+# prod files
+.ftpquota
+backend/error_log
+backend/public/.ftp-deploy-sync-state.json
+backend/public/error_log
+backend/public/favicon.ico
+backend/public/placeholder.svg
+backend/public/robots.txt

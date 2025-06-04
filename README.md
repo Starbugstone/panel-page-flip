@@ -405,6 +405,50 @@ The application organizes uploaded comics and cover images as follows:
 
 This organization ensures proper separation of user content and makes it easier to manage comics and their associated cover images.
 
+### Environment Variables
+
+The application uses several environment variables for configuration. These are defined in different `.env` files depending on the environment:
+
+#### Core Environment Variables
+
+- `APP_ENV`: The application environment (`dev`, `prod`, etc.)
+- `APP_SECRET`: Secret key used for security-related operations
+- `DATABASE_URL`: Database connection string
+- `CORS_ALLOW_ORIGIN`: CORS configuration for API access
+
+#### Email Configuration
+
+- `MAILER_DSN`: Mail server connection string
+- `MAILER_FROM_ADDRESS`: Email address used as the sender
+- `MAILER_FROM_NAME`: Name displayed as the sender
+- `MAILER_TRANSPORT`: Transport method for emails (`smtp`, `sync`, etc.)
+
+#### Frontend URL Configuration
+
+- `FRONTEND_SCHEME`: Protocol used by the frontend (`http` or `https`)
+- `FRONTEND_HOST`: Hostname of the frontend application
+- `FRONTEND_PORT`: Port used by the frontend application
+
+#### Development vs. Production
+
+For development, use `.env.local` with settings like:
+```
+APP_ENV=dev
+FRONTEND_SCHEME=http
+FRONTEND_HOST=localhost
+FRONTEND_PORT=3001
+```
+
+For production, create `.env.prod.local` with settings like:
+```
+APP_ENV=prod
+FRONTEND_SCHEME=https
+FRONTEND_HOST=comics.yourdomain.com
+FRONTEND_PORT=443
+```
+
+> **Important**: When deploying to production, make sure to set the correct frontend URL configuration to ensure email verification links and password reset links point to your production site, not localhost.
+
 ## License
 
 This project is proprietary and confidential.
