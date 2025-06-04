@@ -30,8 +30,10 @@ const UploadComicForm = () => {
   const [tagSuggestions, setTagSuggestions] = useState([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const suggestionsRef = useRef(null);
   const tagInputRef = useRef(null);
+  const dropZoneRef = useRef(null);
   
   // Function to convert filename to readable title
   const generateTitleFromFilename = (filename) => {
@@ -85,6 +87,82 @@ const UploadComicForm = () => {
     }
   };
   
+  // Drag and drop handlers with improved event handling
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!uploading) {
+      setIsDragging(true);
+    }
+  };
+  
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!uploading) {
+      setIsDragging(true);
+    }
+  };
+  
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Only set isDragging to false if we're leaving the dropzone itself
+    // and not one of its children
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
+  };
+  
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    if (uploading) return;
+    
+    const droppedFiles = e.dataTransfer.files;
+    if (droppedFiles.length > 0) {
+      // Only accept .cbz files
+      if (!droppedFiles[0].name.toLowerCase().endsWith('.cbz')) {
+        toast({
+          title: "Invalid file",
+          description: "Please upload a .cbz file",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      // Create a proper File object from the dropped file
+      const selectedFile = new File(
+        [droppedFiles[0]], 
+        droppedFiles[0].name, 
+        { type: droppedFiles[0].type }
+      );
+      
+      // Ensure the file is properly set in state
+      setFile(selectedFile);
+      
+      // Generate title from filename if title field is empty
+      if (!title.trim()) {
+        const generatedTitle = generateTitleFromFilename(selectedFile.name);
+        setTitle(generatedTitle);
+      }
+      
+      console.log('File dropped successfully:', selectedFile.name);
+      
+      // Trigger a synthetic change event on the file input to ensure consistency
+      const fileInput = document.getElementById('comic-file');
+      if (fileInput) {
+        // Create a new FileList-like object
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(selectedFile);
+        fileInput.files = dataTransfer.files;
+      }
+    }
+  };
+  
   // Fetch tag suggestions based on input
   const fetchTagSuggestions = async (query) => {
     if (!query.trim() || query.trim().length < 2) {
@@ -115,6 +193,30 @@ const UploadComicForm = () => {
     }, 300);
     return () => clearTimeout(timeoutId);
   }, [tagInput]);
+
+  // Add global drag and drop event listeners
+  useEffect(() => {
+    if (!uploading && dropZoneRef.current) {
+      const preventDefaults = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
+      // Add these listeners to the window to ensure we catch all drag events
+      window.addEventListener('dragenter', preventDefaults, false);
+      window.addEventListener('dragover', preventDefaults, false);
+      window.addEventListener('dragleave', preventDefaults, false);
+      window.addEventListener('drop', preventDefaults, false);
+
+      return () => {
+        // Clean up the event listeners when component unmounts
+        window.removeEventListener('dragenter', preventDefaults, false);
+        window.removeEventListener('dragover', preventDefaults, false);
+        window.removeEventListener('dragleave', preventDefaults, false);
+        window.removeEventListener('drop', preventDefaults, false);
+      };
+    }
+  }, [uploading]);
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -420,8 +522,13 @@ const UploadComicForm = () => {
               <div className="space-y-2">
                 <Label htmlFor="comic-file">Comic File (.cbz)</Label>
                 <div 
-                  className={`border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center ${!uploading ? 'cursor-pointer hover:border-gray-400 dark:hover:border-gray-500' : ''}`} 
+                  ref={dropZoneRef}
+                  className={`border-2 border-dashed ${isDragging ? 'border-primary bg-primary/5' : 'border-gray-300 dark:border-gray-600'} rounded-lg p-6 text-center ${!uploading ? 'cursor-pointer hover:border-gray-400 dark:hover:border-gray-500' : ''}`} 
                   onClick={() => !uploading && document.getElementById('comic-file').click()}
+                  onDragOver={handleDragOver}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
                 >
                   <input 
                     id="comic-file" 
