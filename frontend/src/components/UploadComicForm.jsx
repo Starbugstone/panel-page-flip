@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useTags } from "@/hooks/use-tags.jsx";
+import { useConfig } from "@/hooks/use-config.jsx";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,7 @@ const UploadComicForm = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { searchTags, addTagToCache, isAdminContext } = useTags();
+  const { config } = useConfig();
   
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState("");
@@ -26,7 +28,11 @@ const UploadComicForm = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentChunk, setCurrentChunk] = useState(0);
   const [totalChunks, setTotalChunks] = useState(0);
+  const [concurrentUploads, setConcurrentUploads] = useState(5); // Default until config loads
+  const [activeUploads, setActiveUploads] = useState(0);
+  const [uploadedChunks, setUploadedChunks] = useState([]);
   const [uploadStatus, setUploadStatus] = useState(null); // 'initializing', 'uploading', 'processing', 'complete', 'error'
+  const [cancelUpload, setCancelUpload] = useState(false);
   const [tagSuggestions, setTagSuggestions] = useState([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -193,6 +199,19 @@ const UploadComicForm = () => {
     }, 300);
     return () => clearTimeout(timeoutId);
   }, [tagInput]);
+  
+  // Update concurrentUploads when config changes
+  useEffect(() => {
+    if (config.upload && config.upload.maxConcurrentUploads) {
+      console.log('Setting concurrent uploads to:', config.upload.maxConcurrentUploads);
+      setConcurrentUploads(config.upload.maxConcurrentUploads);
+    }
+  }, [config]);
+  
+  // Log the current concurrentUploads value when it changes
+  useEffect(() => {
+    console.log('Current concurrent uploads setting:', concurrentUploads);
+  }, [concurrentUploads]);
 
   // Add global drag and drop event listeners
   useEffect(() => {
@@ -303,14 +322,17 @@ const UploadComicForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!file || !title) {
+    if (!file) {
       toast({
-        title: "Missing information",
-        description: "Please provide a title and select a file",
+        title: "No file selected",
+        description: "Please select a file to upload",
         variant: "destructive"
       });
       return;
     }
+    
+    // Reset cancel flag
+    setCancelUpload(false);
     
     setUploading(true);
     setUploadProgress(0);
@@ -362,40 +384,110 @@ const UploadComicForm = () => {
       
       setUploadStatus('uploading');
       
-      // Step 2: Upload each chunk
-      for (let chunkIndex = 0; chunkIndex < chunks; chunkIndex++) {
-        setCurrentChunk(chunkIndex + 1);
-        
-        const start = chunkIndex * chunkSize;
-        const end = Math.min(file.size, start + chunkSize);
-        const chunk = file.slice(start, end);
-        
-        const formData = new FormData();
-        formData.append('fileId', fileId);
-        formData.append('chunkIndex', chunkIndex);
-        formData.append('chunk', new Blob([chunk]));
-        
-        const chunkResponse = await fetch('/api/comics/upload/chunk', {
-          method: 'POST',
-          headers: {
-            'X-XSRF-TOKEN': getCsrfToken(),
-          },
-          body: formData,
-          credentials: 'include'
-        });
-        
-        if (!chunkResponse.ok) {
-          const errorText = await chunkResponse.text();
-          try {
-            const errorData = JSON.parse(errorText);
-            throw new Error(errorData.message || `Failed to upload chunk ${chunkIndex + 1}`);
-          } catch (e) {
-            throw new Error(`Failed to upload chunk ${chunkIndex + 1}: Server returned an invalid response`);
+      // Step 2: Upload chunks concurrently
+      setUploadedChunks([]);
+      
+      // Create an array of chunk indices to upload
+      const chunkIndices = Array.from({ length: chunks }, (_, i) => i);
+      
+      // Function to upload a single chunk
+      const uploadChunk = async (chunkIndex) => {
+        try {
+          setActiveUploads(prev => prev + 1);
+          
+          const start = chunkIndex * chunkSize;
+          const end = Math.min(file.size, start + chunkSize);
+          const chunk = file.slice(start, end);
+          
+          const formData = new FormData();
+          formData.append('fileId', fileId);
+          formData.append('chunkIndex', chunkIndex);
+          formData.append('chunk', new Blob([chunk]));
+          
+          const chunkResponse = await fetch('/api/comics/upload/chunk', {
+            method: 'POST',
+            headers: {
+              'X-XSRF-TOKEN': getCsrfToken(),
+            },
+            body: formData,
+            credentials: 'include'
+          });
+          
+          if (!chunkResponse.ok) {
+            const errorText = await chunkResponse.text();
+            try {
+              const errorData = JSON.parse(errorText);
+              throw new Error(errorData.message || `Failed to upload chunk ${chunkIndex + 1}`);
+            } catch (e) {
+              throw new Error(`Failed to upload chunk ${chunkIndex + 1}: Server returned an invalid response`);
+            }
           }
+          
+          // Mark this chunk as uploaded
+          setUploadedChunks(prev => {
+            const newUploaded = [...prev, chunkIndex];
+            setUploadProgress(Math.round((newUploaded.length / chunks) * 80)); // 80% of progress for chunks
+            setCurrentChunk(newUploaded.length);
+            return newUploaded;
+          });
+          
+          return true;
+        } catch (error) {
+          console.error(`Error uploading chunk ${chunkIndex}:`, error);
+          throw error;
+        } finally {
+          setActiveUploads(prev => prev - 1);
         }
-        
-        setUploadProgress(Math.round(((chunkIndex + 1) / chunks) * 80)); // 80% of progress for chunks
-      }
+      };
+      
+      // Process chunks with limited concurrency
+      const processChunks = async () => {
+        try {
+          // Process chunks with limited concurrency
+          while (chunkIndices.length > 0) {
+            // Check if upload was cancelled
+            if (cancelUpload) {
+              throw new Error('Upload cancelled by user');
+            }
+            
+            // Calculate how many new uploads we can start
+            const availableSlots = Math.max(0, concurrentUploads - activeUploads);
+            
+            if (availableSlots === 0 || chunkIndices.length === 0) {
+              // Wait a bit before checking again
+              await new Promise(resolve => setTimeout(resolve, 100));
+              continue;
+            }
+            
+            // Start new uploads to fill available slots
+            const uploadPromises = [];
+            for (let i = 0; i < Math.min(availableSlots, chunkIndices.length); i++) {
+              const chunkIndex = chunkIndices.shift();
+              uploadPromises.push(uploadChunk(chunkIndex));
+            }
+            
+            // Wait for this batch to complete
+            await Promise.all(uploadPromises);
+          }
+          
+          // Wait for all active uploads to complete
+          while (activeUploads > 0) {
+            // Check if upload was cancelled
+            if (cancelUpload) {
+              throw new Error('Upload cancelled by user');
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          
+          return true;
+        } catch (error) {
+          console.error('Error in processChunks:', error);
+          throw error;
+        }
+      };
+      
+      // Start the upload process
+      await processChunks();
       
       // Step 3: Complete the upload
       setUploadStatus('processing');
@@ -466,8 +558,8 @@ const UploadComicForm = () => {
       setUploadStatus('error');
       toast({
         title: "Upload failed",
-        description: error.message || "An error occurred during upload",
-        variant: "destructive"
+        description: cancelUpload ? "Upload cancelled" : (error.message || "An error occurred during upload"),
+        variant: cancelUpload ? "default" : "destructive"
       });
       setUploading(false);
     } finally {
@@ -479,32 +571,34 @@ const UploadComicForm = () => {
 
   // Status display component
   const UploadStatus = () => {
-    if (!uploadStatus) return null;
-    
-    const statusMessages = {
-      initializing: 'Preparing upload...',
-      uploading: `Uploading chunk ${currentChunk} of ${totalChunks}`,
-      processing: 'Processing comic file...',
-      complete: 'Upload complete!',
-      error: 'Upload failed'
-    };
-    
-    const statusIcons = {
-      initializing: <FileUp className="animate-pulse" />,
-      uploading: <FileUp className="animate-bounce" />,
-      processing: <FileUp className="animate-spin" />,
-      complete: <CheckCircle className="text-green-500" />,
-      error: <AlertCircle className="text-red-500" />
-    };
-    
     return (
-      <div className="mt-4 flex flex-col items-center space-y-2">
-        <div className="flex items-center space-x-2">
-          {statusIcons[uploadStatus]}
-          <span>{statusMessages[uploadStatus]}</span>
+      <div className="space-y-2 mt-4">
+        <div className="flex justify-between text-sm">
+          <span>
+            {uploadStatus === 'initializing' && 'Preparing upload...'}
+            {uploadStatus === 'uploading' && `Uploading chunks (${uploadedChunks.length}/${totalChunks})`}
+            {uploadStatus === 'processing' && 'Processing upload...'}
+            {uploadStatus === 'complete' && 'Upload complete!'}
+            {uploadStatus === 'error' && 'Upload failed'}
+          </span>
+          <span>{uploadProgress}%</span>
         </div>
-        <Progress value={uploadProgress} className="w-full" />
-        <span className="text-xs text-muted-foreground">{uploadProgress}%</span>
+        <Progress value={uploadProgress} className="h-2" />
+        {uploadStatus === 'uploading' && (
+          <div className="flex justify-between items-center mt-2">
+            <div className="text-xs text-muted-foreground">
+              Active uploads: {activeUploads}/{concurrentUploads}
+            </div>
+            <Button 
+              type="button" 
+              variant="destructive" 
+              size="sm"
+              onClick={() => setCancelUpload(true)}
+            >
+              Cancel Upload
+            </Button>
+          </div>
+        )}
       </div>
     );
   };
@@ -566,7 +660,11 @@ const UploadComicForm = () => {
                 </div>
               </div>
               
-              {uploading && <UploadStatus />}
+              {uploading && (
+                <>
+                  <UploadStatus />
+                </>
+              )}
               
               <div className="space-y-2">
                 <Label htmlFor="title">Title</Label>

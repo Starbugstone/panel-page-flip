@@ -7,6 +7,8 @@ parameters:
     comics_directory: '%kernel.project_dir%/public/uploads/comics'
     mailer_from_address: '%env(MAILER_FROM_ADDRESS)%'
     mailer_from_name: '%env(MAILER_FROM_NAME)%'
+    max_concurrent_uploads: '%env(int:default:max_concurrent_uploads_default:MAX_CONCURRENT_UPLOADS)%'
+    max_concurrent_uploads_default: 3
     # Frontend URL configuration with fallbacks
     # Priority: FRONTEND_URL env var > FRONTEND_HOST/PORT/SCHEME env vars > defaults
     frontend_scheme: '%env(default:frontend_scheme_default:FRONTEND_SCHEME)%'
