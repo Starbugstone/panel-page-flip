@@ -33,6 +33,7 @@ const UploadComicForm = () => {
   const [uploadedChunks, setUploadedChunks] = useState([]);
   const [uploadStatus, setUploadStatus] = useState(null); // 'initializing', 'uploading', 'processing', 'complete', 'error'
   const [cancelUpload, setCancelUpload] = useState(false);
+  const cancelUploadRef = useRef(false); // Use a ref to ensure we always have the latest value
   const [tagSuggestions, setTagSuggestions] = useState([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -331,8 +332,9 @@ const UploadComicForm = () => {
       return;
     }
     
-    // Reset cancel flag
+    // Reset cancel flags
     setCancelUpload(false);
+    cancelUploadRef.current = false;
     
     setUploading(true);
     setUploadProgress(0);
@@ -393,6 +395,12 @@ const UploadComicForm = () => {
       // Function to upload a single chunk
       const uploadChunk = async (chunkIndex) => {
         try {
+          // Check if upload was cancelled before starting this chunk
+          if (cancelUploadRef.current) {
+            console.log(`Skipping chunk ${chunkIndex} due to cancellation`);
+            return false;
+          }
+          
           setActiveUploads(prev => prev + 1);
           
           const start = chunkIndex * chunkSize;
@@ -404,14 +412,30 @@ const UploadComicForm = () => {
           formData.append('chunkIndex', chunkIndex);
           formData.append('chunk', new Blob([chunk]));
           
+          // Create an AbortController to cancel the fetch request if needed
+          const controller = new AbortController();
+          const signal = controller.signal;
+          
+          // Set up a check for cancellation
+          const cancelCheck = setInterval(() => {
+            if (cancelUploadRef.current) {
+              controller.abort();
+              clearInterval(cancelCheck);
+            }
+          }, 100);
+          
           const chunkResponse = await fetch('/api/comics/upload/chunk', {
             method: 'POST',
             headers: {
               'X-XSRF-TOKEN': getCsrfToken(),
             },
             body: formData,
-            credentials: 'include'
+            credentials: 'include',
+            signal: signal
           });
+          
+          // Clear the interval since we don't need it anymore
+          clearInterval(cancelCheck);
           
           if (!chunkResponse.ok) {
             const errorText = await chunkResponse.text();
@@ -446,7 +470,8 @@ const UploadComicForm = () => {
           // Process chunks with limited concurrency
           while (chunkIndices.length > 0) {
             // Check if upload was cancelled
-            if (cancelUpload) {
+            if (cancelUploadRef.current) {
+              console.log('Upload cancelled by user, stopping chunk processing');
               throw new Error('Upload cancelled by user');
             }
             
@@ -473,7 +498,8 @@ const UploadComicForm = () => {
           // Wait for all active uploads to complete
           while (activeUploads > 0) {
             // Check if upload was cancelled
-            if (cancelUpload) {
+            if (cancelUploadRef.current) {
+              console.log('Upload cancelled by user, stopping wait for active uploads');
               throw new Error('Upload cancelled by user');
             }
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -593,7 +619,11 @@ const UploadComicForm = () => {
               type="button" 
               variant="destructive" 
               size="sm"
-              onClick={() => setCancelUpload(true)}
+              onClick={() => {
+                console.log('Cancel button clicked');
+                setCancelUpload(true);
+                cancelUploadRef.current = true;
+              }}
             >
               Cancel Upload
             </Button>
