@@ -2,6 +2,7 @@
 import { Toaster } from "@/components/ui/toaster.jsx";
 import { Toaster as Sonner } from "@/components/ui/sonner.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip.jsx";
+import SessionMonitor from "@/components/SessionMonitor.jsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider.jsx";
@@ -96,6 +97,7 @@ const App = () => {
             <TooltipProvider>
               <Toaster />
               <Sonner />
+              <SessionMonitor />
               <AppRoutes />
             </TooltipProvider>
           </TagProvider>

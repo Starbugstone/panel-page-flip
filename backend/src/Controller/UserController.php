@@ -8,6 +8,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Session\SessionInterface;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
@@ -49,13 +50,43 @@ class UserController extends AbstractController
         return $this->json(['users' => $usersArray]);
     }
 
-    #[Route('/me', name: 'me', methods: ['GET'])]
-    public function me(): JsonResponse
+    #[Route('/me', name: 'me', methods: ['GET', 'POST'])]
+    public function me(Request $request, SessionInterface $session): JsonResponse
     {
         // Get the current user and assert its type
         $user = $this->getUser();
         if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
+            return $this->json([
+                'message' => 'User not authenticated or invalid user type',
+                'debug' => [
+                    'method' => $request->getMethod(),
+                    'hasSession' => $session->isStarted(),
+                    'tokenId' => $session->getId()
+                ]
+            ], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // For POST requests, explicitly refresh the session
+        $sessionRefreshed = false;
+        if ($request->isMethod('POST')) {
+            try {
+                // Force the session to be saved and started
+                if (!$session->isStarted()) {
+                    $session->start();
+                }
+                
+                // Migrate the session to a new ID and keep the current attributes
+                $session->migrate(true);
+                
+                // Set the last activity time
+                $session->set('last_activity', time());
+                
+                // Mark as refreshed
+                $sessionRefreshed = true;
+            } catch (\Exception $e) {
+                // Log the error but continue - we'll still return user data
+                error_log('Session refresh error: ' . $e->getMessage());
+            }
         }
 
         // Return user data
@@ -66,7 +97,8 @@ class UserController extends AbstractController
                 'name' => $user->getName(),
                 'roles' => $user->getRoles(),
                 'isAdmin' => in_array('ROLE_ADMIN', $user->getRoles())
-            ]
+            ],
+            'sessionRefreshed' => $sessionRefreshed
         ]);
     }
 

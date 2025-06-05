@@ -1,10 +1,12 @@
 import { useState, useEffect, createContext, useContext } from 'react';
+import sessionManager from '@/lib/session-manager';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   // Check if user is already logged in on mount and validate session with backend
   useEffect(() => {
@@ -137,6 +139,36 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Initialize session manager when user is authenticated
+  useEffect(() => {
+    if (user) {
+      // Start session manager with session expiration handler
+      sessionManager.start({
+        onSessionExpired: () => {
+          console.log('Session expired detected by session manager');
+          setSessionExpired(true);
+          logout();
+        }
+      });
+    } else {
+      // Stop session manager when user is not authenticated
+      sessionManager.stop();
+    }
+    
+    return () => {
+      // Clean up on unmount
+      sessionManager.stop();
+    };
+  }, [user]);
+
+  // Handle session expired state
+  useEffect(() => {
+    if (sessionExpired && user) {
+      logout();
+      setSessionExpired(false);
+    }
+  }, [sessionExpired]);
+
   const value = {
     user,
     loading,
@@ -145,6 +177,14 @@ export function AuthProvider({ children }) {
     logout,
     checkAuth,
     isAuthenticated: !!user,
+    sessionExpired,
+    refreshSession: async () => {
+      const isValid = await sessionManager.forceSessionCheck();
+      if (!isValid && user) {
+        logout();
+      }
+      return isValid;
+    }
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
