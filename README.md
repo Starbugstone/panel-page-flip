@@ -3,7 +3,7 @@ I did not write a single line of code, or even docker setup for the dev environm
 
 I did some reviews just to check the code and then guide the bot after to correct major bugs
 
-I had to help the bot with meny console errors, cutting him off and reguiding him before he went haywire. 
+I had to help the bot with many console errors, cutting him off and reguiding him before he went haywire. 
 
 note : always test after each change and use git often. And tell the bot never to commit by himself or you will be cherry picking like hell (lil bastard almost crashed the entire project once, thank god for git)
 
