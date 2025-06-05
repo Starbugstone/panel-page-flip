@@ -1,6 +1,19 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
+import sessionManager from "@/lib/session-manager";
+
+// Check if we're in development mode
+const isDevelopment = process.env.NODE_ENV === 'development' || 
+  window.location.hostname === 'localhost' || 
+  window.location.hostname === '127.0.0.1';
+
+// Logger function that only logs in development
+const logger = {
+  log: (...args) => isDevelopment && console.log(...args),
+  warn: (...args) => isDevelopment && console.warn(...args),
+  error: (...args) => console.error(...args) // Always log errors
+};
 import { useToast } from "@/hooks/use-toast";
 import { useTags } from "@/hooks/use-tags.jsx";
 import { useConfig } from "@/hooks/use-config.jsx";
@@ -15,7 +28,7 @@ import { Progress } from "@/components/ui/progress";
 const UploadComicForm = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshSession } = useAuth();
   const { searchTags, addTagToCache, isAdminContext } = useTags();
   const { config } = useConfig();
   
@@ -157,7 +170,7 @@ const UploadComicForm = () => {
         setTitle(generatedTitle);
       }
       
-      console.log('File dropped successfully:', selectedFile.name);
+      logger.log('File dropped successfully:', selectedFile.name);
       
       // Trigger a synthetic change event on the file input to ensure consistency
       const fileInput = document.getElementById('comic-file');
@@ -186,7 +199,7 @@ const UploadComicForm = () => {
       setTagSuggestions(results.map(tag => tag.name));
       setShowSuggestions(true);
     } catch (error) {
-      console.error('Error fetching tag suggestions:', error);
+      logger.error('Error fetching tag suggestions:', error);
       setTagSuggestions([]);
     } finally {
       setIsLoadingSuggestions(false);
@@ -204,14 +217,14 @@ const UploadComicForm = () => {
   // Update concurrentUploads when config changes
   useEffect(() => {
     if (config.upload && config.upload.maxConcurrentUploads) {
-      console.log('Setting concurrent uploads to:', config.upload.maxConcurrentUploads);
+      logger.log('Setting concurrent uploads to:', config.upload.maxConcurrentUploads);
       setConcurrentUploads(config.upload.maxConcurrentUploads);
     }
   }, [config]);
   
   // Log the current concurrentUploads value when it changes
   useEffect(() => {
-    console.log('Current concurrent uploads setting:', concurrentUploads);
+    logger.log('Current concurrent uploads setting:', concurrentUploads);
   }, [concurrentUploads]);
 
   // Add global drag and drop event listeners
@@ -332,6 +345,17 @@ const UploadComicForm = () => {
       return;
     }
     
+    // Verify session is active before starting upload
+    const sessionValid = await refreshSession();
+    if (!sessionValid) {
+      toast({
+        title: "Session expired",
+        description: "Your session has expired. Please log in again.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     // Reset cancel flags
     setCancelUpload(false);
     cancelUploadRef.current = false;
@@ -349,6 +373,15 @@ const UploadComicForm = () => {
       
       // Step 1: Initialize the upload
       const csrfToken = getCsrfToken();
+      
+      // Start session keep-alive pings during upload, but not too frequent
+      // Use a longer interval to prevent overwhelming the server
+      const keepAliveInterval = setInterval(() => {
+        // Only ping if we're not already checking the session
+        if (!sessionManager.checkInProgress) {
+          sessionManager.pingKeepAlive();
+        }
+      }, 60000); // 60 seconds - reduced frequency
       
       // Create metadata object for the comic
       const metadata = {
@@ -388,6 +421,8 @@ const UploadComicForm = () => {
       
       // Step 2: Upload chunks concurrently
       setUploadedChunks([]);
+      setCurrentChunk(0);
+      setActiveUploads(0);
       
       // Create an array of chunk indices to upload
       const chunkIndices = Array.from({ length: chunks }, (_, i) => i);
@@ -397,7 +432,7 @@ const UploadComicForm = () => {
         try {
           // Check if upload was cancelled before starting this chunk
           if (cancelUploadRef.current) {
-            console.log(`Skipping chunk ${chunkIndex} due to cancellation`);
+            logger.log(`Skipping chunk ${chunkIndex} due to cancellation`);
             return false;
           }
           
@@ -447,9 +482,14 @@ const UploadComicForm = () => {
             }
           }
           
-          // Mark this chunk as uploaded
+          // Mark this chunk as uploaded - use a callback to ensure we're working with the latest state
           setUploadedChunks(prev => {
+            // Make sure we don't add duplicates
+            if (prev.includes(chunkIndex)) {
+              return prev;
+            }
             const newUploaded = [...prev, chunkIndex];
+            // Update progress based on actual uploaded chunks count
             setUploadProgress(Math.round((newUploaded.length / chunks) * 80)); // 80% of progress for chunks
             setCurrentChunk(newUploaded.length);
             return newUploaded;
@@ -457,10 +497,11 @@ const UploadComicForm = () => {
           
           return true;
         } catch (error) {
-          console.error(`Error uploading chunk ${chunkIndex}:`, error);
+          logger.error(`Error uploading chunk ${chunkIndex}:`, error);
           throw error;
         } finally {
-          setActiveUploads(prev => prev - 1);
+          // Ensure we properly decrement the active uploads counter
+          setActiveUploads(prev => Math.max(0, prev - 1));
         }
       };
       
@@ -471,12 +512,20 @@ const UploadComicForm = () => {
           while (chunkIndices.length > 0) {
             // Check if upload was cancelled
             if (cancelUploadRef.current) {
-              console.log('Upload cancelled by user, stopping chunk processing');
+              logger.log('Upload cancelled by user, stopping chunk processing');
               throw new Error('Upload cancelled by user');
             }
             
+            // Get the current active uploads count to ensure we have accurate data
+            // This is safer than relying on the state variable directly
+            let currentActiveUploads = 0;
+            setActiveUploads(prev => {
+              currentActiveUploads = prev;
+              return prev;
+            });
+            
             // Calculate how many new uploads we can start
-            const availableSlots = Math.max(0, concurrentUploads - activeUploads);
+            const availableSlots = Math.max(0, concurrentUploads - currentActiveUploads);
             
             if (availableSlots === 0 || chunkIndices.length === 0) {
               // Wait a bit before checking again
@@ -486,28 +535,52 @@ const UploadComicForm = () => {
             
             // Start new uploads to fill available slots
             const uploadPromises = [];
-            for (let i = 0; i < Math.min(availableSlots, chunkIndices.length); i++) {
-              const chunkIndex = chunkIndices.shift();
-              uploadPromises.push(uploadChunk(chunkIndex));
+            const slotsToUse = Math.min(availableSlots, chunkIndices.length);
+            
+            for (let i = 0; i < slotsToUse; i++) {
+              if (chunkIndices.length > 0) {
+                const chunkIndex = chunkIndices.shift();
+                uploadPromises.push(uploadChunk(chunkIndex));
+              }
             }
             
             // Wait for this batch to complete
-            await Promise.all(uploadPromises);
+            if (uploadPromises.length > 0) {
+              await Promise.all(uploadPromises);
+            }
           }
           
           // Wait for all active uploads to complete
-          while (activeUploads > 0) {
+          let remainingUploads = 0;
+          do {
             // Check if upload was cancelled
             if (cancelUploadRef.current) {
-              console.log('Upload cancelled by user, stopping wait for active uploads');
+              logger.log('Upload cancelled by user, stopping wait for active uploads');
               throw new Error('Upload cancelled by user');
             }
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
+            
+            // Get the current active uploads count
+            setActiveUploads(prev => {
+              remainingUploads = prev;
+              return prev;
+            });
+            
+            if (remainingUploads > 0) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+          } while (remainingUploads > 0);
+          
+          // Final verification that all chunks are uploaded
+          setUploadedChunks(prev => {
+            if (prev.length !== chunks) {
+              logger.warn(`Upload inconsistency detected: ${prev.length} chunks uploaded out of ${chunks} expected`);
+            }
+            return prev;
+          });
           
           return true;
         } catch (error) {
-          console.error('Error in processChunks:', error);
+          logger.error('Error in processChunks:', error);
           throw error;
         }
       };
@@ -543,6 +616,9 @@ const UploadComicForm = () => {
       
       setUploadProgress(100);
       setUploadStatus('complete');
+      
+      // Clear the keep-alive interval
+      clearInterval(keepAliveInterval);
       
       try {
         const result = await completeResponse.json();
@@ -582,11 +658,27 @@ const UploadComicForm = () => {
       }
     } catch (error) {
       setUploadStatus('error');
-      toast({
-        title: "Upload failed",
-        description: cancelUpload ? "Upload cancelled" : (error.message || "An error occurred during upload"),
-        variant: cancelUpload ? "default" : "destructive"
-      });
+      // Clear the keep-alive interval on error
+      if (typeof keepAliveInterval !== 'undefined') {
+        clearInterval(keepAliveInterval);
+      }
+      
+      // Check if the error is due to session expiration
+      if (error.message && error.message.includes('unauthorized')) {
+        toast({
+          title: "Session expired",
+          description: "Your session expired during upload. Please log in again and retry.",
+          variant: "destructive"
+        });
+        // Force a session check
+        refreshSession();
+      } else {
+        toast({
+          title: "Upload failed",
+          description: cancelUpload ? "Upload cancelled" : (error.message || "An error occurred during upload"),
+          variant: cancelUpload ? "default" : "destructive"
+        });
+      }
       setUploading(false);
     } finally {
       if (uploadStatus !== 'complete') {
@@ -602,7 +694,7 @@ const UploadComicForm = () => {
         <div className="flex justify-between text-sm">
           <span>
             {uploadStatus === 'initializing' && 'Preparing upload...'}
-            {uploadStatus === 'uploading' && `Uploading chunks (${uploadedChunks.length}/${totalChunks})`}
+            {uploadStatus === 'uploading' && `Uploading chunks (${Math.min(uploadedChunks.length, totalChunks)}/${totalChunks})`}
             {uploadStatus === 'processing' && 'Processing upload...'}
             {uploadStatus === 'complete' && 'Upload complete!'}
             {uploadStatus === 'error' && 'Upload failed'}
@@ -620,7 +712,7 @@ const UploadComicForm = () => {
               variant="destructive" 
               size="sm"
               onClick={() => {
-                console.log('Cancel button clicked');
+                logger.log('Cancel button clicked');
                 setCancelUpload(true);
                 cancelUploadRef.current = true;
               }}

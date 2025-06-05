@@ -154,7 +154,8 @@ The frontend is built with:
 - Accessible without authentication for preview in emails and pending shares alerts
 - Removed once the share is accepted, refused, or expires
 - **Theme Persistence**: Switched from `localStorage` to client-side cookies for storing theme preferences (light/dark mode), managed by `ThemeProvider.jsx` and a new utility module `frontend/src/lib/cookies.js`. Includes a migration step from `localStorage`.
-- **Authentication Hook (`use-auth.jsx`)**: The `checkAuth` function updated to use `/api/users/me` for fetching comprehensive authenticated user details, including roles.
+- **Authentication Hook (`use-auth.jsx`)**: The `checkAuth` function updated to use `/api/users/me` for fetching comprehensive authenticated user details, including roles. The hook also includes a `refreshSession` method that forces an immediate session check.
+- **Session Management**: Consolidated session management to use a single endpoint (`/api/users/me`) for both session validation and session keep-alive functionality. The endpoint accepts both GET (for session checks) and POST (for explicit session refreshing) methods.
 - **Cookie Utility (`frontend/src/lib/cookies.js`)**: New module added with helper functions for managing browser cookies.
 
 ## Architecture Details

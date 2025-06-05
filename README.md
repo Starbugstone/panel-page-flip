@@ -57,6 +57,7 @@ The site should have a norma and dark mode.
 - **Comic Sharing**: Share comics with other users via email invitations
 - **Pending Shares Management**: Accept or refuse comics shared with you
 - **Automatic Cleanup**: System automatically cleans up expired share tokens and their public cover images
+- **Session Persistence**: Actively maintains user sessions to prevent unexpected logouts during activity or long uploads.
 
 ## Architecture
 
@@ -90,7 +91,7 @@ The backend provides the following API endpoints:
 - `POST /api/register` - Register a new user
 - `POST /api/logout` - Logout the current user
 - `GET /api/login_check` - Check if the user is authenticated
-- `GET /api/users/me` - Get the current user's information
+- `GET /api/users/me` - Get the current user's information. Also supports `POST` requests to refresh the user's session (keep-alive).
 - `POST /api/forgot-password` - Request a password reset email
 - `GET /api/reset-password/validate/{token}` - Validate a password reset token
 - `POST /api/reset-password/reset/{token}` - Reset password with a valid token
