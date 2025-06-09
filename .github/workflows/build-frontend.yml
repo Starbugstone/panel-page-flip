@@ -1,20 +1,16 @@
 name: Build and Deploy Frontend
 
 on:
-  # Trigger on PR merges to main
+  # Only trigger on PR merges to main (not direct pushes)
   pull_request:
     types: [closed]
-    branches:
-      - 'main'
-  # Also trigger on direct pushes to main
-  push:
     branches:
       - 'main'
 
 jobs:
   build-and-deploy:
-    # Run when a PR to main is merged OR when pushing directly to main
-    if: github.event_name == 'push' || github.event.pull_request.merged == true
+    # Only run when a PR to main is merged
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     
     steps:
@@ -43,9 +39,10 @@ jobs:
           path: frontend/dist
           retention-days: 7
           
-      - name: Deploy to o2switch via FTP
+      - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
+          # need to add these secrets to the repo
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
@@ -57,5 +54,5 @@ jobs:
             **/index.php
             **/error.php
             **/uploads/**
-          # Use timestamp-based state name to force fresh sync
-          state-name: .ftp-deploy-sync-state-${{ github.run_number }}.json
+          # Use clean slate to avoid file sync issues and state file accumulation
+          dangerous-clean-slate: true
