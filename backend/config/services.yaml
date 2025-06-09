@@ -67,3 +67,10 @@ services:
         arguments:
             $comicsDirectory: '%comics_directory%'
             $frontendUrl: '%frontend_url%'
+
+    App\Controller\DropboxController:
+        arguments:
+            $dropboxAppKey: '%env(DROPBOX_APP_KEY)%'
+            $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
+            $dropboxRedirectUri: '%env(DROPBOX_REDIRECT_URI)%'
+            $frontendBaseUrl: '%frontend_url%'

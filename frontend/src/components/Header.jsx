@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle.jsx";
 import { useLocation } from "react-router-dom";
 import { Button } from "./ui/button.jsx";
-import { BookOpen, Upload, Settings, User } from "lucide-react";
+import { BookOpen, Upload, Settings, User, Cloud } from "lucide-react";
 import { useEffect, useState } from "react";
 
 export function Header({ isLoggedIn, onLogout, isAdmin }) {
@@ -68,6 +68,10 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
               <Link to="/upload" className={`${location.pathname === "/upload" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden md:inline">Upload Comic</span>
                 <Upload className="inline md:hidden h-5 w-5" />
+              </Link>
+              <Link to="/dropbox-sync" className={`${location.pathname === "/dropbox-sync" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+                <span className="hidden md:inline">Dropbox Sync</span>
+                <Cloud className="inline md:hidden h-5 w-5" />
               </Link>
               {isAdmin && (
                 <Link to="/admin" className={`${location.pathname === "/admin" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>

@@ -6,11 +6,13 @@ on:
     types: [closed]
     branches:
       - 'main'
+  # Allow manual triggering
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
-    # Only run when a PR to main is merged
-    if: github.event.pull_request.merged == true
+    # Run when a PR to main is merged or manually triggered
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     
     steps:
@@ -47,3 +49,8 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./frontend/dist/
           server-dir: backend/public/
+          dangerous-clean-slate: true
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
