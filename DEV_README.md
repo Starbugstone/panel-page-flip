@@ -640,8 +640,81 @@ Key changes:
 - Enabled file polling with `CHOKIDAR_USEPOLLING` and `WATCHPACK_POLLING` environment variables
 - Added `--host 0.0.0.0` and `--force` flags to the Vite dev command
 
+## Production Deployment
+
+### Current Deployment Strategy
+
+The project uses GitHub Actions for automated deployment with a focus on safety and efficiency.
+
+#### Deployment Workflow
+
+**File**: `.github/workflows/build-frontend.yml`
+
+**Trigger**: Automatic deployment when Pull Requests from `develop` to `main` are merged (not on direct pushes to main)
+
+**Process**:
+1. **Frontend Build**: React app built with Vite for production
+2. **Frontend Deployment**: Built assets deployed via FTP to `backend/public/`
+3. **Backend Deployment**: Currently manual (see TODO below)
+
+#### Safety Features Implemented
+
+After experiencing a critical deployment failure that deleted user uploads and backend files, the following safety measures are now in place:
+
+- **Safe Mode Only**: `delete: false` - Never deletes anything on the server
+- **Force Upload**: `force-upload: true` - Ensures frontend assets are updated
+- **No Dangerous Options**: Removed `dangerous-clean-slate` which ignores exclude patterns
+- **Protected Directories**: User uploads and backend files are never touched by deployment
+
+#### Current Limitations & Planned Improvements
+
+**Backend Deployment TODO**: Currently requires manual SSH to production server:
+
+```bash
+cd /path/to/project
+git pull origin main
+composer install --no-dev --optimize-autoloader
+php bin/console cache:clear --env=prod
+php bin/console doctrine:migrations:migrate --no-interaction
+```
+
+**Planned SSH Automation**: The workflow includes comprehensive TODO comments for implementing SSH-based backend deployment, which would be much more efficient than FTP uploading the entire backend codebase.
+
+#### Deployment Lessons Learned
+
+1. **Never use `dangerous-clean-slate: true`** in production environments with mixed content
+2. **Always test deployment workflows** in staging environments first
+3. **Exclude patterns are ignored** by dangerous clean slate options
+4. **SSH + git pull is more efficient** than FTP uploading entire codebases
+5. **Separate frontend and backend deployment** strategies for better control
+6. **Always maintain backups** of user uploads and critical files
+
+#### Emergency Recovery
+
+An emergency restore workflow (`.github/workflows/emergency-backend-restore.yml`) is available for manual triggering to restore critical backend files in case of deployment issues.
+
+#### Required GitHub Secrets
+
+- `FTP_SERVER`: Production server hostname
+- `FTP_USERNAME`: FTP username for deployment  
+- `FTP_PASSWORD`: FTP password for deployment
+- `SSH_HOST`: (Future) SSH hostname for backend deployment
+- `SSH_USERNAME`: (Future) SSH username
+- `SSH_PASSWORD`: (Future) SSH password or private key
+
+### Development vs Production Workflow
+
+- **Development**: Direct commits to `develop` branch
+- **Production**: Pull Requests from `develop` to `main` trigger deployment
+- **No Direct Main Pushes**: Main branch reflects exact production state
+
 ## Conclusion
 
-The CBZ Comic Reader project has a solid backend foundation with user authentication, comic management, and reading progress tracking. The next major step is to implement the frontend to provide a user-friendly interface for reading comics.
+The CBZ Comic Reader project has a solid backend foundation with user authentication, comic management, and reading progress tracking. The deployment strategy has been hardened after learning from critical failures, prioritizing safety over convenience.
 
-By following the recommended next steps, you can complete the project and create a fully functional comic reader application.
+The next major steps are:
+1. Implement SSH automation for backend deployment
+2. Complete any remaining frontend features
+3. Add comprehensive monitoring and alerting for production
+
+By following the recommended next steps and deployment practices, you can maintain a stable and secure comic reader application.
