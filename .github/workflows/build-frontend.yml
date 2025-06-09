@@ -1,16 +1,20 @@
 name: Build and Deploy Frontend
 
 on:
-  # Only trigger on PR merges to main
+  # Trigger on PR merges to main
   pull_request:
     types: [closed]
+    branches:
+      - 'main'
+  # Also trigger on direct pushes to main
+  push:
     branches:
       - 'main'
 
 jobs:
   build-and-deploy:
-    # Only run when a PR to main is merged
-    if: github.event.pull_request.merged == true
+    # Run when a PR to main is merged OR when pushing directly to main
+    if: github.event_name == 'push' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     
     steps:
