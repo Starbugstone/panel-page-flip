@@ -48,11 +48,8 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./frontend/dist/
           server-dir: backend/public/
-          # Exclude important backend files from deletion
-          exclude: |
-            **/.htaccess
-            **/index.php
-            **/error.php
-            **/uploads/**
-          # Use clean slate to avoid file sync issues and state file accumulation
-          dangerous-clean-slate: true
+          # SAFE MODE: Only upload/overwrite files that exist in local-dir
+          # This will NEVER delete anything on the server
+          delete: false
+          # Force overwrite of existing files to ensure updates
+          force-upload: true

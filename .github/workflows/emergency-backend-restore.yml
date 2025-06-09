@@ -1,0 +1,29 @@
+name: Emergency Backend Restore
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  restore-backend:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Deploy backend files via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./backend/public/
+          server-dir: backend/public/
+          # Only upload specific backend files and directory structure
+          include: |
+            index.php
+            .htaccess
+            error.php
+            uploads/
+          # Don't delete anything
+          delete: false 
