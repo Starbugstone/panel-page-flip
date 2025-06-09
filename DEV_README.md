@@ -44,6 +44,14 @@ This document provides detailed information for developers working on the projec
 - **Cleanup Command**: `CleanupExpiredSharesCommand` removes expired share tokens and their public cover images
 - **File Handling**: When accepting a shared comic, creates a copy with a UUID-based filename in the recipient's directory
 
+#### ✅ Dropbox Integration System
+- **DropboxController**: Handles OAuth flow, connection status, file listing, and manual sync
+- **Dropbox OAuth Flow**: Complete implementation with CSRF protection and token management
+- **File Sync**: Downloads CBZ files from Dropbox to user-specific directories with recursive folder scanning
+- **Automatic Tagging**: Intelligent conversion of folder names to tags (camelCase, snake_case, kebab-case support)
+- **API Endpoints**: Status check, disconnect, file listing, and manual sync triggers
+- **Background Sync**: Console command for automated syncing with rate limiting
+
 #### ✅ Utility Commands
 - **CreateUserCommand**: Creates regular users (`app:create-user`)
 - **CreateAdminUserCommand**: Creates admin users (`app:create-admin-user`)
@@ -52,6 +60,7 @@ This document provides detailed information for developers working on the projec
 - **SetupUploadDirectoriesCommand**: Sets up necessary directories for uploads (`app:setup-upload-directories`)
 - **GenerateSampleDataCommand**: Generates sample data for testing (`app:generate-sample-data`)
 - **TestApiEndpointsCommand**: Tests API endpoints for registration and login (`app:test-api-endpoints`)
+- **DropboxSyncCommand**: Syncs comics from Dropbox for all connected users (`app:dropbox-sync`)
 
 ### Frontend (React)
 
@@ -84,6 +93,13 @@ This document provides detailed information for developers working on the projec
 - **Pending Shares Alert**: Implemented in `PendingSharesAlert.jsx` to notify users of comics shared with them
 - **Accept Share Page**: Implemented in `AcceptSharePage.jsx` to handle the acceptance of shared comics
 - **Pending Shares Hook**: Custom hook `use-pending-shares.jsx` to fetch and manage pending shares
+
+#### ✅ Dropbox Integration
+- **Dropbox Sync Page**: Complete UI in `DropboxSyncPage.jsx` for managing Dropbox connection and sync
+- **Connection Status**: Real-time detection of Dropbox connection status
+- **File Management**: Display of Dropbox files with sync status indicators
+- **Manual Sync**: UI for triggering manual sync operations
+- **Dashboard Integration**: Dedicated "Dropbox" tab in the main dashboard for synced comics
 
 The frontend is built with:
 - React with JavaScript (converted from TypeScript)
@@ -149,6 +165,12 @@ The frontend is built with:
 - Copied to recipient's directory with UUID-based filename: `/uploads/comics/{recipient_id}/{uuid}.cbz`
 - This makes it easy to distinguish between original uploads and shared comics
 
+#### Dropbox Synced Comics
+- Stored in user-specific Dropbox subdirectories: `/uploads/comics/{user_id}/dropbox/{filename}`
+- Original filenames are preserved from Dropbox
+- Tagged with "Dropbox" for easy identification and filtering
+- One-way sync: files are downloaded from Dropbox to server
+
 #### Public Cover Images
 - Temporarily stored in: `/uploads/comics/public_shares/{token-based-filename}`
 - Accessible without authentication for preview in emails and pending shares alerts
@@ -157,6 +179,325 @@ The frontend is built with:
 - **Authentication Hook (`use-auth.jsx`)**: The `checkAuth` function updated to use `/api/users/me` for fetching comprehensive authenticated user details, including roles. The hook also includes a `refreshSession` method that forces an immediate session check.
 - **Session Management**: Consolidated session management to use a single endpoint (`/api/users/me`) for both session validation and session keep-alive functionality. The endpoint accepts both GET (for session checks) and POST (for explicit session refreshing) methods.
 - **Cookie Utility (`frontend/src/lib/cookies.js`)**: New module added with helper functions for managing browser cookies.
+
+## Dropbox Integration System
+
+### Overview
+
+The Dropbox integration provides seamless synchronization of CBZ comic files from users' Dropbox accounts to the server. This is implemented as a one-way sync (Dropbox → Server) to allow users to easily share comics after they're synced.
+
+### Configuration
+
+#### Environment Variables
+
+The Dropbox integration is fully configurable via environment variables in `backend/.env`:
+
+```env
+# =============================================================================
+# DROPBOX INTEGRATION CONFIGURATION
+# =============================================================================
+# Dropbox App Credentials (get from https://www.dropbox.com/developers/apps)
+DROPBOX_APP_KEY=your_dropbox_app_key_here
+DROPBOX_APP_SECRET=your_dropbox_app_secret_here
+
+# Dropbox OAuth Redirect URI (must match exactly in Dropbox app settings)
+DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
+
+# Dropbox App Folder Configuration
+# This is the folder path in each user's Dropbox where comics will be synced from
+# Default: /Apps/StarbugStoneComics (created automatically when users connect)
+DROPBOX_APP_FOLDER=/Apps/StarbugStoneComics
+
+# Dropbox Sync Configuration
+# Maximum number of files to sync per user per sync operation (prevents overload)
+DROPBOX_SYNC_LIMIT=10
+
+# Dropbox Rate Limiting (requests per minute to prevent API limits)
+DROPBOX_RATE_LIMIT=60
+```
+
+#### Services Configuration
+
+The configuration is injected via `config/services.yaml`:
+
+```yaml
+parameters:
+    dropbox_app_folder: '%env(DROPBOX_APP_FOLDER)%'
+    dropbox_sync_limit: '%env(int:DROPBOX_SYNC_LIMIT)%'
+    dropbox_rate_limit: '%env(int:DROPBOX_RATE_LIMIT)%'
+
+services:
+    App\Controller\DropboxController:
+        arguments:
+            $dropboxAppKey: '%env(DROPBOX_APP_KEY)%'
+            $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
+            $dropboxRedirectUri: '%env(DROPBOX_REDIRECT_URI)%'
+            $frontendBaseUrl: '%frontend_url%'
+            $comicsDirectory: '%comics_directory%'
+            $dropboxAppFolder: '%dropbox_app_folder%'
+
+    App\Command\DropboxSyncCommand:
+        arguments:
+            $comicsDirectory: '%comics_directory%'
+            $dropboxAppFolder: '%dropbox_app_folder%'
+            $defaultSyncLimit: '%dropbox_sync_limit%'
+```
+
+#### Dropbox App Setup Requirements
+
+**Required Permissions:**
+- `files.metadata.read` - Required for listing files and folders
+- `files.content.read` - Required for downloading CBZ files
+- `files.content.write` - Optional, for future upload features
+
+**App Configuration:**
+- **Access Type**: "App folder" (recommended) or "Full Dropbox"
+- **Redirect URI**: Must match `DROPBOX_REDIRECT_URI` exactly
+- **App Folder Name**: Should match the folder name in `DROPBOX_APP_FOLDER`
+
+#### Configuration Benefits
+
+- **Environment-Specific**: Different settings for dev/staging/prod
+- **Centralized**: Single source of truth for all Dropbox settings
+- **Type-Safe**: Integer casting for numeric values
+- **Maintainable**: Change once, affects all components
+- **Secure**: Credentials stored in environment variables, not code
+
+### Integration Workflow
+
+#### Connection Process
+1. User clicks "Connect to Dropbox" in the Dropbox Sync page
+2. System redirects to Dropbox OAuth authorization
+3. User authorizes the application
+4. Dropbox redirects back with authorization code
+5. System exchanges code for access and refresh tokens
+6. Tokens are stored in the user's database record
+
+#### Sync Process
+1. **Manual Sync**: Users can trigger sync from the Dropbox Sync page
+2. **Automatic Sync**: Background command can be scheduled via cron
+3. **File Discovery**: Recursively scans CBZ files in user's Dropbox app folder and all subfolders
+4. **Tag Generation**: Automatically creates tags from folder structure using intelligent naming conversion
+5. **Duplicate Check**: Compares with existing comics to avoid duplicates
+6. **Download**: Downloads new CBZ files to user's dropbox subdirectory
+7. **Import**: Creates comic entries with "Dropbox" tag plus folder-based tags and metadata
+
+#### File Organization
+```
+uploads/comics/
+├── {user_id}/
+│   ├── dropbox/           # Dropbox synced files
+│   │   ├── comic1.cbz
+│   │   └── comic2.cbz
+│   ├── regular_upload.cbz # Manual uploads
+│   └── covers/            # Cover images
+└── covers/                # Global covers directory
+```
+
+### API Endpoints
+
+- `GET /api/dropbox/connect` - Initiate OAuth flow
+- `GET /api/dropbox/callback` - Handle OAuth callback
+- `GET /api/dropbox/status` - Check connection status and user info
+- `POST /api/dropbox/disconnect` - Remove Dropbox connection
+- `GET /api/dropbox/files` - List CBZ files in Dropbox with sync status
+- `POST /api/dropbox/sync` - Trigger manual sync
+
+### Background Sync Command
+
+The `app:dropbox-sync` command provides automated syncing capabilities with configurable defaults:
+
+```bash
+# Basic usage (uses DROPBOX_SYNC_LIMIT from .env, default: 10 files per user)
+php bin/console app:dropbox-sync
+
+# Custom limit (overrides environment default)
+php bin/console app:dropbox-sync --limit=5
+
+# Specific user only
+php bin/console app:dropbox-sync --user-id=123
+
+# Dry run (see what would be synced without actually syncing)
+php bin/console app:dropbox-sync --dry-run
+
+# Combine options
+php bin/console app:dropbox-sync --user-id=123 --limit=20 --dry-run
+```
+
+#### Command Configuration
+
+The command respects these environment variables:
+
+- **`DROPBOX_SYNC_LIMIT`**: Default number of files to sync per user (default: 10)
+- **`DROPBOX_APP_FOLDER`**: Folder path to scan in each user's Dropbox (default: /Apps/StarbugStoneComics)
+- **`DROPBOX_RATE_LIMIT`**: API rate limiting (default: 60 requests per minute)
+
+#### Rate Limiting & Performance
+
+- **Configurable Limits**: Prevents server overload during automated syncing
+- **Per-User Limits**: Each user is limited to the configured number of files per sync
+- **API Rate Limiting**: Respects Dropbox API limits to prevent throttling
+- **Memory Efficient**: Processes files one at a time to minimize memory usage
+
+#### Cron Integration
+
+Can be scheduled to run automatically with various strategies:
+
+```bash
+# Sync with environment default limit (10 files per user)
+0 0 * * * cd /path/to/project && php bin/console app:dropbox-sync
+
+# Sync with custom limit
+0 0 * * * cd /path/to/project && php bin/console app:dropbox-sync --limit=5
+
+# Sync every 6 hours with rate limiting
+0 */6 * * * cd /path/to/project && php bin/console app:dropbox-sync --limit=3
+
+# Sync specific high-priority user more frequently
+*/30 * * * * cd /path/to/project && php bin/console app:dropbox-sync --user-id=1 --limit=1
+```
+
+### Frontend Integration
+
+- **Dropbox Sync Page**: Complete management interface at `/dropbox-sync`
+- **Connection Status**: Real-time status detection and user info display
+- **File Listing**: Shows Dropbox files with sync status indicators
+- **Manual Sync**: One-click sync with progress feedback
+- **Dashboard Integration**: Dedicated "Dropbox" tab for synced comics
+- **Navigation**: Header includes link to Dropbox sync page
+
+### Automatic Tagging System
+
+The Dropbox integration includes an intelligent tagging system that automatically creates tags based on folder structure:
+
+#### Tag Generation Rules
+
+1. **Folder Path Parsing**: Each folder in the path becomes a separate tag
+2. **Name Formatting**: Folder names are converted to readable tag names
+3. **Case Handling**: Supports multiple naming conventions
+
+#### Supported Naming Conventions
+
+| Folder Name | Generated Tag | Description |
+|-------------|---------------|-------------|
+| `superHero` | "Super Hero" | camelCase → Title Case |
+| `space_opera` | "Space Opera" | snake_case → Title Case |
+| `sci-fi` | "Sci Fi" | kebab-case → Title Case |
+| `MANGA` | "Manga" | ALL CAPS → Title Case |
+| `ActionAdventure` | "Action Adventure" | PascalCase → Title Case |
+
+#### Examples
+
+```
+Dropbox Structure → Generated Tags
+(with default DROPBOX_APP_FOLDER=/Apps/StarbugStoneComics)
+
+Apps/StarbugStoneComics/
+├── Superman.cbz → ["Dropbox"]
+├── superHero/
+│   └── Batman.cbz → ["Dropbox", "Super Hero"]
+├── Manga/
+│   ├── naruto.cbz → ["Dropbox", "Manga"]
+│   └── Anime/
+│       └── blackCat.cbz → ["Dropbox", "Manga", "Anime"]
+└── sci-fi/
+    └── space_opera/
+        └── Foundation.cbz → ["Dropbox", "Sci Fi", "Space Opera"]
+
+With custom DROPBOX_APP_FOLDER=/Apps/MyComics:
+
+Apps/MyComics/
+├── Superman.cbz → ["Dropbox"]
+├── Marvel/
+│   └── Spider-Man.cbz → ["Dropbox", "Marvel"]
+└── DC_Comics/
+    └── batman_begins.cbz → ["Dropbox", "DC Comics"]
+```
+
+#### Implementation Details
+
+- **Recursive Scanning**: The system scans all subfolders recursively
+- **Path Extraction**: Uses `dirname()` to extract folder path from file location
+- **Tag Deduplication**: Ensures no duplicate tags are created
+- **Preservation**: Original folder structure is preserved in file paths
+- **Performance**: Efficient single-pass processing during sync
+
+### Security Considerations
+
+- **OAuth 2.0**: Secure token-based authentication with Dropbox
+- **CSRF Protection**: State parameter validation during OAuth flow
+- **Token Storage**: Encrypted storage of access and refresh tokens
+- **App Folder Access**: Limited to app-specific folder in user's Dropbox
+- **User Isolation**: Each user's files are stored in separate directories
+
+### Troubleshooting
+
+#### Common Issues
+
+**1. Permission Denied Error**
+```
+Your app (ID: XXXXXXX) is not permitted to access this endpoint because it does not have the required scope 'files.metadata.read'
+```
+**Solution**: Enable required scopes in Dropbox App Console:
+- Go to https://www.dropbox.com/developers/apps
+- Select your app → Permissions tab
+- Enable: `files.metadata.read`, `files.content.read`, `files.content.write`
+
+**2. Redirect URI Mismatch**
+```
+redirect_uri_mismatch: The redirect URI does not match the one configured for the app
+```
+**Solution**: Ensure `DROPBOX_REDIRECT_URI` exactly matches the URI in Dropbox App Console
+
+**3. Cache/Autowiring Issues**
+```
+Cannot autowire service "App\Command\DropboxSyncCommand"
+```
+**Solution**: Clear cache and ensure services.yaml is properly configured:
+```bash
+php bin/console cache:clear
+docker compose restart php
+```
+
+**4. File Permission Issues**
+```
+Permission denied when creating directories
+```
+**Solution**: Fix file permissions:
+```bash
+chown -R www-data:www-data var/cache var/log public/uploads
+chmod -R 775 var/cache var/log public/uploads
+```
+
+**5. Missing Spatie Dropbox Package**
+```
+ClassNotFoundError: Attempted to load class "Client" from namespace "Spatie\Dropbox"
+```
+**Solution**: Install the package:
+```bash
+composer require spatie/dropbox-api
+composer dump-autoload
+```
+
+#### Debug Tips
+
+**Enable Debug Mode**: Set `APP_ENV=dev` in `.env` for detailed error messages
+
+**Check Logs**: Monitor Symfony logs for detailed error information:
+```bash
+tail -f var/log/dev.log
+```
+
+**Test API Connection**: Use the status endpoint to verify configuration:
+```bash
+curl -X GET http://localhost:8080/api/dropbox/status \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Dry Run Sync**: Test sync without actually downloading files:
+```bash
+php bin/console app:dropbox-sync --dry-run --user-id=1
+```
 
 ## Architecture Details
 
@@ -192,6 +533,8 @@ The frontend is built with:
 - `password`: Hashed password
 - `roles`: Array of user roles (ROLE_USER, ROLE_ADMIN)
 - `name`: User's name (optional)
+- `dropboxAccessToken`: Dropbox OAuth access token (nullable)
+- `dropboxRefreshToken`: Dropbox OAuth refresh token (nullable)
 - `createdAt`: Timestamp of user creation
 - `updatedAt`: Timestamp of last update
 - Relationships:

@@ -18,9 +18,12 @@ parameters:
     frontend_port: '%env(default:frontend_port_default:FRONTEND_PORT)%'
     frontend_port_default: '3001'
     # Complete frontend URL (overrides individual components if set)
-    frontend_url: '%env(default:frontend_url_constructed:FRONTEND_URL)%'
+    frontend_url: '%env(FRONTEND_URL)%'
     # Constructed URL from components if FRONTEND_URL is not set
     frontend_url_constructed: '%frontend_scheme%://%frontend_host%:%frontend_port%'
+    dropbox_app_folder: '%env(DROPBOX_APP_FOLDER)%'
+    dropbox_sync_limit: '%env(int:DROPBOX_SYNC_LIMIT)%'
+    dropbox_rate_limit: '%env(int:DROPBOX_RATE_LIMIT)%'
 
 services:
     # default configuration for services in *this* file
@@ -74,3 +77,11 @@ services:
             $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
             $dropboxRedirectUri: '%env(DROPBOX_REDIRECT_URI)%'
             $frontendBaseUrl: '%frontend_url%'
+            $comicsDirectory: '%comics_directory%'
+            $dropboxAppFolder: '%dropbox_app_folder%'
+
+    App\Command\DropboxSyncCommand:
+        arguments:
+            $comicsDirectory: '%comics_directory%'
+            $dropboxAppFolder: '%dropbox_app_folder%'
+            $defaultSyncLimit: '%dropbox_sync_limit%'
