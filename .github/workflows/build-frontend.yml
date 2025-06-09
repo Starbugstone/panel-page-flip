@@ -1,7 +1,7 @@
 name: Build and Deploy Frontend
 
 on:
-  # Only trigger on PR merges to main
+  # Only trigger on PR merges to main (not direct pushes)
   pull_request:
     types: [closed]
     branches:
@@ -26,7 +26,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
           
-      - name: Install dependencies
+      - name: Install frontend dependencies
         working-directory: ./frontend
         run: npm ci
         
@@ -41,7 +41,7 @@ jobs:
           path: frontend/dist
           retention-days: 7
           
-      - name: Deploy to o2switch via FTP
+      - name: Deploy Frontend via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
           server: ${{ secrets.FTP_SERVER }}
@@ -49,6 +49,36 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./frontend/dist/
           server-dir: backend/public/
+          # SAFE MODE: Only upload/overwrite frontend files - NEVER deletes anything
+          delete: false
+          force-upload: true
+
+          
+# TODO: Add SSH automation for backend deployment
+# Instead of FTP uploading entire backend (too heavy), use SSH to:
+# 1. SSH into production server
+# 2. cd to project directory  
+# 3. git pull origin main
+# 4. composer install --no-dev --optimize-autoloader
+# 5. php bin/console cache:clear --env=prod
+# 6. php bin/console doctrine:migrations:migrate --no-interaction
+#
+# This approach is much more efficient and follows standard deployment practices.
+# Required secrets: SSH_HOST, SSH_USERNAME, SSH_PASSWORD (or SSH_PRIVATE_KEY)
+#
+# Example implementation:
+# - name: Deploy Backend via SSH
+#   uses: appleboy/ssh-action@v1.0.3
+#   with:
+#     host: ${{ secrets.SSH_HOST }}
+#     username: ${{ secrets.SSH_USERNAME }}
+#     password: ${{ secrets.SSH_PASSWORD }}
+#     script: |
+#       cd /path/to/project
+#       git pull origin main
+#       composer install --no-dev --optimize-autoloader
+#       php bin/console cache:clear --env=prod
+#       php bin/console doctrine:migrations:migrate --no-interaction
           dangerous-clean-slate: true
           exclude: |
             **/.git*
