@@ -51,3 +51,11 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./frontend/dist/
           server-dir: backend/public/
+          # Exclude important backend files from deletion
+          exclude: |
+            **/.htaccess
+            **/index.php
+            **/error.php
+            **/uploads/**
+          # Use timestamp-based state name to force fresh sync
+          state-name: .ftp-deploy-sync-state-${{ github.run_number }}.json
