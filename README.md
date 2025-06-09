@@ -450,6 +450,65 @@ FRONTEND_PORT=443
 
 > **Important**: When deploying to production, make sure to set the correct frontend URL configuration to ensure email verification links and password reset links point to your production site, not localhost.
 
+## Deployment
+
+### Production Deployment
+
+The application uses GitHub Actions for automated deployment when changes are merged into the `main` branch.
+
+#### Current Deployment Process
+
+1. **Trigger**: Deployment occurs automatically when a Pull Request from `develop` to `main` is merged
+2. **Frontend Build**: The React frontend is built using Vite
+3. **Frontend Deployment**: Built files are deployed via FTP to the production server's `backend/public/` directory
+4. **Backend Deployment**: Currently requires manual intervention (see TODO below)
+
+#### GitHub Secrets Required
+
+The following secrets must be configured in your GitHub repository:
+
+- `FTP_SERVER`: Your production server hostname
+- `FTP_USERNAME`: FTP username for deployment
+- `FTP_PASSWORD`: FTP password for deployment
+
+#### Deployment Safety Features
+
+- **Safe Mode**: The deployment never deletes existing files on the server
+- **Protected Directories**: User uploads (`uploads/`) and backend files are never touched
+- **Force Upload**: Ensures frontend assets are always updated even if they appear identical
+
+#### Current Limitations & TODO
+
+**Backend Deployment**: Currently, backend code changes require manual deployment. The recommended approach is to SSH into the production server and run:
+
+```bash
+cd /path/to/project
+git pull origin main
+composer install --no-dev --optimize-autoloader
+php bin/console cache:clear --env=prod
+php bin/console doctrine:migrations:migrate --no-interaction
+```
+
+**Planned Improvement**: Automate backend deployment via SSH in the GitHub Actions workflow. This would be much more efficient than FTP uploading the entire backend codebase.
+
+#### Deployment Workflow File
+
+The deployment configuration is in `.github/workflows/build-frontend.yml`. This workflow:
+
+- Only triggers on PR merges to `main` (not direct pushes)
+- Builds the frontend with production optimizations
+- Deploys frontend assets safely without affecting backend files or user data
+- Includes comprehensive TODO comments for SSH automation implementation
+
+#### Emergency Recovery
+
+In case of deployment issues, an emergency restore workflow is available at `.github/workflows/emergency-backend-restore.yml` that can be manually triggered to restore critical backend files.
+
+### Development vs Production
+
+- **Development**: Use `docker compose up -d` for local development with hot reload
+- **Production**: Deployed via GitHub Actions with optimized builds and proper caching headers
+
 ## License
 
 This project is proprietary and confidential.
