@@ -11,6 +11,7 @@ Tools used :
 - Lovable: frontend and init of the project
 - windsurf with Claude 3.7 and gemini 2.5 pro for most of debugging, construction of the backend and plugging into front end
 - google jules mostly to init extra features and then a pass (or 20) with claude and gemini to fix the errors, but easier than repassing via lovable as they don't allow branch creation / changing (I don't like to commit to main on major updates)
+- Moved to Cursor and Claude 4 beginning of juin after anthropic shut off windsurf (https://windsurf.com/blog/anthropic-models)
 
 I will add an extra paragraph if I feel up to in at the end of the project to give my full recomendations on each tool and the experience
 
