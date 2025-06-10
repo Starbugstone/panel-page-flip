@@ -50,8 +50,13 @@ jobs:
           local-dir: ./frontend/dist/
           server-dir: backend/public/
           # SAFE MODE: Only upload/overwrite frontend files - NEVER deletes anything
-          delete: false
-          force-upload: true
+          dangerous-clean-slate: false
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/uploads/**
+            uploads/
 
           
 # TODO: Add SSH automation for backend deployment
@@ -79,8 +84,3 @@ jobs:
 #       composer install --no-dev --optimize-autoloader
 #       php bin/console cache:clear --env=prod
 #       php bin/console doctrine:migrations:migrate --no-interaction
-#          dangerous-clean-slate: true
-#          exclude: |
-#            **/.git*
-#            **/.git*/**
-#            **/node_modules/**
