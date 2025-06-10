@@ -205,8 +205,8 @@ DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
 
 # Dropbox App Folder Configuration
 # This is the folder path in each user's Dropbox where comics will be synced from
-# Default: /Apps/StarbugStoneComics (created automatically when users connect)
-DROPBOX_APP_FOLDER=/Apps/StarbugStoneComics
+# Default: /Applications/StarbugStoneComics (created automatically when users connect)
+DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics
 
 # Dropbox Sync Configuration
 # Maximum number of files to sync per user per sync operation (prevents overload)
@@ -329,7 +329,7 @@ php bin/console app:dropbox-sync --user-id=123 --limit=20 --dry-run
 The command respects these environment variables:
 
 - **`DROPBOX_SYNC_LIMIT`**: Default number of files to sync per user (default: 10)
-- **`DROPBOX_APP_FOLDER`**: Folder path to scan in each user's Dropbox (default: /Apps/StarbugStoneComics)
+- **`DROPBOX_APP_FOLDER`**: Folder path to scan in each user's Dropbox (default: /Applications/StarbugStoneComics)
 - **`DROPBOX_RATE_LIMIT`**: API rate limiting (default: 60 requests per minute)
 
 #### Rate Limiting & Performance
@@ -390,9 +390,9 @@ The Dropbox integration includes an intelligent tagging system that automaticall
 
 ```
 Dropbox Structure → Generated Tags
-(with default DROPBOX_APP_FOLDER=/Apps/StarbugStoneComics)
+(with default DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics)
 
-Apps/StarbugStoneComics/
+Applications/StarbugStoneComics/
 ├── Superman.cbz → ["Dropbox"]
 ├── superHero/
 │   └── Batman.cbz → ["Dropbox", "Super Hero"]
@@ -404,9 +404,9 @@ Apps/StarbugStoneComics/
     └── space_opera/
         └── Foundation.cbz → ["Dropbox", "Sci Fi", "Space Opera"]
 
-With custom DROPBOX_APP_FOLDER=/Apps/MyComics:
+With custom DROPBOX_APP_FOLDER=/Applications/MyComics:
 
-Apps/MyComics/
+Applications/MyComics/
 ├── Superman.cbz → ["Dropbox"]
 ├── Marvel/
 │   └── Spider-Man.cbz → ["Dropbox", "Marvel"]

@@ -224,8 +224,8 @@ DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
 
 # Dropbox App Folder Configuration
 # This is the folder path in each user's Dropbox where comics will be synced from
-# Default: /Apps/StarbugStoneComics (created automatically when users connect)
-DROPBOX_APP_FOLDER=/Apps/StarbugStoneComics
+# Default: /Applications/StarbugStoneComics (created automatically when users connect)
+DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics
 
 # Dropbox Sync Configuration
 # Maximum number of files to sync per user per sync operation (prevents overload)
@@ -309,7 +309,7 @@ php bin/console app:dropbox-sync --user-id=123 --limit=20 --dry-run
 The sync command respects these environment variables:
 
 - **`DROPBOX_SYNC_LIMIT`**: Default number of files to sync per user (default: 10)
-- **`DROPBOX_APP_FOLDER`**: Folder path to scan in each user's Dropbox (default: /Apps/StarbugStoneComics)
+- **`DROPBOX_APP_FOLDER`**: Folder path to scan in each user's Dropbox (default: /Applications/StarbugStoneComics)
 - **`DROPBOX_RATE_LIMIT`**: API rate limiting (default: 60 requests per minute)
 
 ### Automated Sync with Cron
@@ -337,7 +337,7 @@ The sync command will:
 
 ### Folder-Based Tagging
 
-The system automatically creates tags from your Dropbox folder structure. Organize your files in your configured app folder (default: `Apps/StarbugStoneComics`) using subfolders to automatically generate meaningful tags.
+The system automatically creates tags from your Dropbox folder structure. Organize your files in your configured app folder (default: `Applications/StarbugStoneComics`) using subfolders to automatically generate meaningful tags.
 
 **Quick Organization Guide:**
 - Create folders in your app directory (configured via `DROPBOX_APP_FOLDER`)
@@ -346,15 +346,15 @@ The system automatically creates tags from your Dropbox folder structure. Organi
 - Smart naming conversion handles various conventions
 - App folder name itself is excluded from tags
 
-**Examples (with default `DROPBOX_APP_FOLDER=/Apps/StarbugStoneComics`):**
-- `Apps/StarbugStoneComics/Superman.cbz` → Tags: ["Dropbox"]
-- `Apps/StarbugStoneComics/superHero/Batman.cbz` → Tags: ["Dropbox", "Super Hero"]
-- `Apps/StarbugStoneComics/Manga/Action/naruto.cbz` → Tags: ["Dropbox", "Manga", "Action"]
-- `Apps/StarbugStoneComics/sci-fi/space_opera/Foundation.cbz` → Tags: ["Dropbox", "Sci Fi", "Space Opera"]
+**Examples (with default `DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics`):**
+- `Applications/StarbugStoneComics/Superman.cbz` → Tags: ["Dropbox"]
+- `Applications/StarbugStoneComics/superHero/Batman.cbz` → Tags: ["Dropbox", "Super Hero"]
+- `Applications/StarbugStoneComics/Manga/Action/naruto.cbz` → Tags: ["Dropbox", "Manga", "Action"]
+- `Applications/StarbugStoneComics/sci-fi/space_opera/Foundation.cbz` → Tags: ["Dropbox", "Sci Fi", "Space Opera"]
 
-**With Custom App Folder (`DROPBOX_APP_FOLDER=/Apps/MyComics`):**
-- `Apps/MyComics/Superman.cbz` → Tags: ["Dropbox"]
-- `Apps/MyComics/Marvel/Spider-Man.cbz` → Tags: ["Dropbox", "Marvel"]
+**With Custom App Folder (`DROPBOX_APP_FOLDER=/Applications/MyComics`):**
+- `Applications/MyComics/Superman.cbz` → Tags: ["Dropbox"]
+- `Applications/MyComics/Marvel/Spider-Man.cbz` → Tags: ["Dropbox", "Marvel"]
 
 **Naming Conventions Supported:**
 - camelCase: `superHero` → "Super Hero"
@@ -416,7 +416,7 @@ When deploying to production, update your environment variables:
 DROPBOX_APP_KEY=your_production_app_key
 DROPBOX_APP_SECRET=your_production_app_secret
 DROPBOX_REDIRECT_URI=https://yourdomain.com/api/dropbox/callback
-DROPBOX_APP_FOLDER=/Apps/StarbugStoneComics
+DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics
 DROPBOX_SYNC_LIMIT=5
 DROPBOX_RATE_LIMIT=30
 ```

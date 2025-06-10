@@ -33,7 +33,7 @@ const OrganizationGuide = () => {
           <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
             <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Quick Summary</h3>
             <p className="text-blue-800 dark:text-blue-200 text-sm">
-              Create folders in your <code className="bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">Apps/StarbugStoneComics</code> directory. 
+              Create folders in your <code className="bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">Applications/StarbugStoneComics</code> directory. 
               Each folder becomes a tag automatically! Supports nested folders and smart naming conversion.
             </p>
           </div>
@@ -46,7 +46,7 @@ const OrganizationGuide = () => {
             </h3>
             <div className="bg-muted p-4 rounded-lg font-mono text-sm">
               <div className="space-y-1">
-                <div>📁 Apps/StarbugStoneComics/</div>
+                <div>📁 Applications/StarbugStoneComics/</div>
                 <div className="ml-4">📄 Superman.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox</Badge></div>
                 <div className="ml-4">📁 superHero/</div>
                 <div className="ml-8">📄 Batman.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox, Super Hero</Badge></div>
@@ -340,7 +340,7 @@ function DropboxSyncPage() {
             <div className="text-sm">
               <span className="font-medium text-amber-800 dark:text-amber-200">Pro Tip:</span>
               <span className="text-amber-700 dark:text-amber-300 ml-1">
-                Add CBZ files to your <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Apps/StarbugStoneComics</code> folder. 
+                Add CBZ files to your <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Applications/StarbugStoneComics</code> folder. 
                 Organize in subfolders like <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">superHero/</code> or <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Manga/Action/</code> for automatic tagging!
               </span>
             </div>
@@ -409,7 +409,7 @@ function DropboxSyncPage() {
                 <div>
                   <h3 className="text-lg font-semibold mb-3">Dropbox Comics</h3>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Comics found in your <code className="bg-muted px-1 py-0.5 rounded">Apps/StarbugStoneComics</code> folder
+                    Comics found in your <code className="bg-muted px-1 py-0.5 rounded">Applications/StarbugStoneComics</code> folder
                   </p>
                   
                   {dropboxFiles.length > 0 ? (
@@ -449,7 +449,7 @@ function DropboxSyncPage() {
                       <Cloud className="h-12 w-12 mx-auto mb-4 opacity-50" />
                       <p>No comics found in your Dropbox folder</p>
                       <p className="text-sm">
-                        Add .cbz files to the <code>Apps/StarbugStoneComics</code> folder in your Dropbox
+                        Add .cbz files to the <code>Applications/StarbugStoneComics</code> folder in your Dropbox
                       </p>
                     </div>
                   )}
@@ -465,7 +465,7 @@ function DropboxSyncPage() {
                   Connect your Dropbox account to automatically sync your comic collection.
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Your comics should be placed in the <code className="bg-muted px-1 py-0.5 rounded">Apps/StarbugStoneComics</code> folder in your Dropbox.
+                  Your comics should be placed in the <code className="bg-muted px-1 py-0.5 rounded">Applications/StarbugStoneComics</code> folder in your Dropbox.
                 </p>
                 <Button onClick={handleConnectDropbox} className="flex items-center gap-2">
                   <Cloud className="h-4 w-4" />

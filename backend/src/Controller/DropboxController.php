@@ -406,9 +406,9 @@ class DropboxController extends AbstractController
     /**
      * Convert folder path to tags
      * Examples:
-     * - "/Apps/StarbugStoneComics/superHero" -> ["Super Hero"]
-     * - "/Apps/StarbugStoneComics/Manga/Anime" -> ["Manga", "Anime"]
-     * - "/Apps/StarbugStoneComics/sci-fi/space_opera" -> ["Sci Fi", "Space Opera"]
+     * - "/Applications/StarbugStoneComics/superHero" -> ["Super Hero"]
+     * - "/Applications/StarbugStoneComics/Manga/Anime" -> ["Manga", "Anime"]
+     * - "/Applications/StarbugStoneComics/sci-fi/space_opera" -> ["Sci Fi", "Space Opera"]
      */
     private function convertPathToTags(string $path): array
     {
