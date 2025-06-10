@@ -30,9 +30,20 @@ jobs:
         working-directory: ./frontend
         run: npm ci
         
+      - name: Clean previous build
+        working-directory: ./frontend
+        run: rm -rf dist
+        
       - name: Build frontend
         working-directory: ./frontend
         run: npm run build
+        env:
+          VITE_BUILD_ID: ${{ github.run_id }}
+          VITE_BUILD_TIME: ${{ github.event.head_commit.timestamp }}
+        
+      - name: Update file timestamps to force upload
+        working-directory: ./frontend/dist
+        run: find . -type f -exec touch {} \;
         
       - name: Upload build artifacts (for reference)
         uses: actions/upload-artifact@v4
@@ -51,6 +62,8 @@ jobs:
           server-dir: backend/public/
           # SAFE MODE: Only upload/overwrite frontend files - NEVER deletes anything
           dangerous-clean-slate: false
+          dry-run: false
+          log-level: verbose
           exclude: |
             **/.git*
             **/.git*/**
