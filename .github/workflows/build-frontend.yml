@@ -6,11 +6,13 @@ on:
     types: [closed]
     branches:
       - 'main'
+  # Allow manual triggering
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
-    # Only run when a PR to main is merged
-    if: github.event.pull_request.merged == true
+    # Run when a PR to main is merged or manually triggered
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     
     steps:
@@ -51,6 +53,7 @@ jobs:
           delete: false
           force-upload: true
 
+          
 # TODO: Add SSH automation for backend deployment
 # Instead of FTP uploading entire backend (too heavy), use SSH to:
 # 1. SSH into production server
@@ -76,3 +79,8 @@ jobs:
 #       composer install --no-dev --optimize-autoloader
 #       php bin/console cache:clear --env=prod
 #       php bin/console doctrine:migrations:migrate --no-interaction
+#          dangerous-clean-slate: true
+#          exclude: |
+#            **/.git*
+#            **/.git*/**
+#            **/node_modules/**

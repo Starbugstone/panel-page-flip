@@ -58,6 +58,11 @@ The site should have a norma and dark mode.
 - **Pending Shares Management**: Accept or refuse comics shared with you
 - **Automatic Cleanup**: System automatically cleans up expired share tokens and their public cover images
 - **Session Persistence**: Actively maintains user sessions to prevent unexpected logouts during activity or long uploads.
+- **Dropbox Integration**: Connect your Dropbox account to import CBZ files from your Dropbox folder
+- **Individual Import**: Choose specific comics to import from your Dropbox with individual import buttons
+- **Automatic Sync**: Background sync command that can be scheduled via cron to automatically import new comics
+- **Smart Sync Detection**: Accurately tracks which files have been imported to prevent duplicates
+- **Dropbox Comics Management**: Dedicated dashboard section for comics synced from Dropbox
 
 ## Architecture
 
@@ -122,6 +127,15 @@ The backend provides the following API endpoints:
 - `GET /api/share/pending` - Get a list of comics shared with the current user
 - `POST /api/share/accept/{token}` - Accept a shared comic
 - `POST /api/share/refuse/{token}` - Refuse a shared comic
+
+### Dropbox Integration
+
+- `GET /api/dropbox/connect` - Initiate Dropbox OAuth connection
+- `GET /api/dropbox/callback` - Handle Dropbox OAuth callback
+- `GET /api/dropbox/status` - Check Dropbox connection status
+- `POST /api/dropbox/disconnect` - Disconnect Dropbox account
+- `GET /api/dropbox/files` - List CBZ files in connected Dropbox account with sync status
+- `POST /api/dropbox/import` - Import a specific comic file from Dropbox
 
 ### User Management (Admin only)
 
@@ -191,6 +205,197 @@ The project uses several environment files:
 - `backend/.env` - Default Symfony environment variables
 - `backend/.env.local` - Local overrides for Symfony environment variables (database connection, mailer settings, etc.)
 
+### Dropbox Configuration
+
+The Dropbox integration allows users to sync their comic collections from their personal Dropbox accounts. Each user connects their own Dropbox account to the application.
+
+#### Environment Variables
+
+Add these environment variables to your `backend/.env` or `backend/.env.local`:
+
+```env
+# =============================================================================
+# DROPBOX INTEGRATION CONFIGURATION
+# =============================================================================
+# Dropbox App Credentials (get from https://www.dropbox.com/developers/apps)
+DROPBOX_APP_KEY=your_dropbox_app_key_here
+DROPBOX_APP_SECRET=your_dropbox_app_secret_here
+
+# Dropbox OAuth Redirect URI (must match exactly in Dropbox app settings)
+DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
+
+# Dropbox App Folder Configuration
+# For app-scoped Dropbox apps, this should be set to "/" (root of the app's scope)
+# Users must create the "Applications/StarbugStoneComics" folder in their Dropbox
+# but from the app's perspective, this folder becomes the root ("/")
+DROPBOX_APP_FOLDER=/
+
+# Dropbox Sync Configuration
+# Maximum number of files to sync per user per sync operation (prevents overload)
+DROPBOX_SYNC_LIMIT=10
+
+# Dropbox Rate Limiting (requests per minute to prevent API limits)
+DROPBOX_RATE_LIMIT=60
+```
+
+#### Setting up Dropbox App
+
+**Step-by-Step Setup:**
+1. **Go to Dropbox App Console**: https://www.dropbox.com/developers/apps
+2. **Create New App**:
+   - Click "Create app"
+   - Choose "Scoped access"
+   - Choose "App folder" (recommended) or "Full Dropbox"
+   - Name your app (e.g., "StarbugStoneComics")
+3. **Configure Permissions**:
+   - Go to the "Permissions" tab
+   - Enable these scopes:
+     - ✅ `files.metadata.read` (required for listing files)
+     - ✅ `files.content.read` (required for downloading files)
+     - ✅ `files.content.write` (optional, for future upload features)
+4. **Set Redirect URI**:
+   - Go to the "Settings" tab
+   - Add your redirect URI: `http://localhost:8080/api/dropbox/callback`
+   - For production: `https://yourdomain.com/api/dropbox/callback`
+5. **Get Credentials**:
+   - Copy the "App key" and "App secret"
+   - Add them to your environment variables
+
+#### Environment-Specific Configuration
+
+**Development:**
+```env
+DROPBOX_APP_KEY=your_dev_app_key
+DROPBOX_APP_SECRET=your_dev_app_secret
+DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
+```
+
+**Production:**
+```env
+DROPBOX_APP_KEY=your_prod_app_key
+DROPBOX_APP_SECRET=your_prod_app_secret
+DROPBOX_REDIRECT_URI=https://yourdomain.com/api/dropbox/callback
+```
+
+**Staging:**
+```env
+DROPBOX_APP_KEY=your_staging_app_key
+DROPBOX_APP_SECRET=your_staging_app_secret
+DROPBOX_REDIRECT_URI=https://staging.yourdomain.com/api/dropbox/callback
+```
+
+## Dropbox Sync
+
+The application supports both manual and automatic syncing of comics from Dropbox.
+
+### Manual Import via Web Interface
+
+Users can import their comics individually through the Dropbox sync page:
+
+1. **Connect Dropbox**: Click "Connect to Dropbox" and authorize the application with proper scopes
+2. **View Files**: See all CBZ files in your `Applications/StarbugStoneComics` folder with real-time sync status
+3. **Import Comics**: Click "Import" next to each comic you want to add to your library
+4. **Refresh Files**: Use "Refresh Files" button to check for new files in your Dropbox
+
+**File Status Indicators:**
+- **Pending**: File detected in Dropbox but not yet imported (shows Import button)
+- **Synced**: File has been successfully downloaded and added to your comic library (no import button)
+
+**Benefits of Individual Import:**
+- Choose exactly which comics to import
+- See detailed information about each file before importing
+- Control your library growth and storage usage
+- Smart duplicate detection prevents importing the same comic twice
+- Automatic tagging based on folder structure
+
+### Automatic Sync Command
+
+The application includes a console command for automatically syncing comics from Dropbox. The command uses configurable defaults from your environment variables.
+
+### Command Usage
+
+```bash
+# Sync all users (uses DROPBOX_SYNC_LIMIT from .env, default: 10 files per user)
+php bin/console app:dropbox-sync
+
+# Sync with custom limit (overrides environment default)
+php bin/console app:dropbox-sync --limit=5
+
+# Sync specific user only
+php bin/console app:dropbox-sync --user-id=123
+
+# Dry run (see what would be synced without actually syncing)
+php bin/console app:dropbox-sync --dry-run
+
+# Combine options
+php bin/console app:dropbox-sync --user-id=123 --limit=20 --dry-run
+```
+
+### Configuration
+
+The sync command respects these environment variables:
+
+- **`DROPBOX_SYNC_LIMIT`**: Default number of files to sync per user (default: 10)
+- **`DROPBOX_APP_FOLDER`**: Should be "/" for app-scoped Dropbox apps (users create Applications/StarbugStoneComics folder)
+- **`DROPBOX_RATE_LIMIT`**: API rate limiting (default: 60 requests per minute)
+
+### Automated Sync with Cron
+
+To automatically sync comics at midnight every day, add this to your crontab:
+
+```bash
+# Sync with environment default limit (10 files per user)
+0 0 * * * cd /path/to/your/project && php bin/console app:dropbox-sync
+
+# Sync with custom limit
+0 0 * * * cd /path/to/your/project && php bin/console app:dropbox-sync --limit=5
+
+# Sync every 6 hours with rate limiting
+0 */6 * * * cd /path/to/your/project && php bin/console app:dropbox-sync --limit=3
+```
+
+The sync command will:
+- Find all users with connected Dropbox accounts
+- Recursively scan their Dropbox app folder for CBZ files in any subfolder
+- Download up to the specified limit of new files per user
+- Automatically create tags based on folder structure (e.g., `superHero` → "Super Hero", `Manga/Anime` → "Manga" + "Anime")
+- Create comic entries with "Dropbox" tag plus folder-based tags
+- Store files in user-specific `uploads/comics/{user_id}/dropbox/` directories
+
+### Folder-Based Tagging
+
+The system automatically creates tags from your Dropbox folder structure. Organize your files in your configured app folder (default: `Applications/StarbugStoneComics`) using subfolders to automatically generate meaningful tags.
+
+**Quick Organization Guide:**
+- Create folders in your app directory (configured via `DROPBOX_APP_FOLDER`)
+- Each subfolder becomes a tag automatically
+- Supports nested folders for hierarchical organization
+- Smart naming conversion handles various conventions
+- App folder name itself is excluded from tags
+
+**Examples (users create `Applications/StarbugStoneComics` folder in their Dropbox):**
+- `Applications/StarbugStoneComics/Superman.cbz` → Tags: ["Dropbox"]
+- `Applications/StarbugStoneComics/superHero/Batman.cbz` → Tags: ["Dropbox", "Super Hero"]
+- `Applications/StarbugStoneComics/Manga/Action/naruto.cbz` → Tags: ["Dropbox", "Manga", "Action"]
+- `Applications/StarbugStoneComics/sci-fi/space_opera/Foundation.cbz` → Tags: ["Dropbox", "Sci Fi", "Space Opera"]
+
+**With Custom App Folder (`DROPBOX_APP_FOLDER=/Applications/MyComics`):**
+- `Applications/MyComics/Superman.cbz` → Tags: ["Dropbox"]
+- `Applications/MyComics/Marvel/Spider-Man.cbz` → Tags: ["Dropbox", "Marvel"]
+
+**Naming Conventions Supported:**
+- camelCase: `superHero` → "Super Hero"
+- snake_case: `space_opera` → "Space Opera"  
+- kebab-case: `sci-fi` → "Sci Fi"
+- UPPERCASE: `MANGA` → "Manga"
+- PascalCase: `ActionAdventure` → "Action Adventure"
+
+**Common Organization Patterns:**
+- By Genre: `Action/`, `Comedy/`, `Drama/`, `Fantasy/`
+- By Publisher: `Marvel/`, `DC_Comics/`, `Image/`
+- By Series: `Batman/`, `Spider-Man/`, `X-Men/`
+- Mixed: `Marvel/superHero/`, `Manga/Action/`, `Indie/sci-fi/`
+
 ## Email Testing
 
 The application includes a password reset feature that sends emails. For development and testing purposes, the project includes Mailpit, a modern mail testing tool that captures outgoing emails.
@@ -226,6 +431,65 @@ routing:
 ```
 
 For production, you should uncomment the email routing line and run a Messenger consumer to process the queue:
+
+## Production Deployment
+
+### Dropbox Configuration for Production
+
+When deploying to production, update your environment variables:
+
+```env
+# Production Dropbox Configuration
+DROPBOX_APP_KEY=your_production_app_key
+DROPBOX_APP_SECRET=your_production_app_secret
+DROPBOX_REDIRECT_URI=https://yourdomain.com/api/dropbox/callback
+DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics
+DROPBOX_SYNC_LIMIT=5
+DROPBOX_RATE_LIMIT=30
+```
+
+**Important Production Steps:**
+
+1. **Update Dropbox App Settings**:
+   - Add production redirect URI to your Dropbox app
+   - Ensure all required permissions are enabled
+   - Test OAuth flow in production environment
+
+2. **Set Up Automated Sync**:
+   ```bash
+   # Add to production crontab
+   0 2 * * * cd /path/to/production/project && php bin/console app:dropbox-sync --limit=5
+   ```
+
+3. **Monitor Sync Performance**:
+   - Start with lower sync limits in production
+   - Monitor server resources during sync operations
+   - Adjust `DROPBOX_SYNC_LIMIT` based on server capacity
+
+4. **Security Considerations**:
+   - Use HTTPS for all Dropbox OAuth redirects
+   - Secure environment variable storage
+   - Regular token refresh monitoring
+   - File permission auditing
+
+### CI/CD Integration
+
+The project includes GitHub Actions for automated deployment. The frontend build process is already configured, and the workflow includes TODO comments for backend deployment via SSH.
+
+**Current Workflow:**
+- Builds React frontend on PR merge to main
+- Uploads frontend build to production via FTP
+- Safe mode: Never deletes existing files
+
+**Recommended Backend Deployment:**
+```bash
+# SSH into production server
+cd /path/to/project
+git pull origin main
+composer install --no-dev --optimize-autoloader
+php bin/console cache:clear --env=prod
+php bin/console doctrine:migrations:migrate --no-interaction
+```
 
 ```bash
 # For production: Run a Messenger consumer to process queued emails
