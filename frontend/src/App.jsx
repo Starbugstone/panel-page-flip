@@ -20,6 +20,7 @@ import ResetPassword from "./pages/ResetPassword.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import AcceptSharePage from "./pages/AcceptSharePage.jsx";
 import EmailVerification from "./pages/EmailVerification.jsx";
+import DropboxSyncPage from "./pages/DropboxSyncPage.jsx";
 
 const queryClient = new QueryClient();
 
@@ -80,6 +81,7 @@ const AppRoutes = () => {
             <Route path="/read/:comicId" element={<ProtectedRoute><ComicReader /></ProtectedRoute>} />
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
             <Route path="/share/accept/:token" element={<ProtectedRoute><AcceptSharePage /></ProtectedRoute>} />
+            <Route path="/dropbox-sync" element={<ProtectedRoute><DropboxSyncPage /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>

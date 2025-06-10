@@ -18,6 +18,12 @@ use Symfony\Component\Validator\Constraints as Assert;
 #[UniqueEntity(fields: ['email'], message: 'There is already an account with this email')]
 class User implements UserInterface, PasswordAuthenticatedUserInterface
 {
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $dropboxAccessToken = null;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $dropboxRefreshToken = null;
+
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
@@ -90,8 +96,28 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     #[ORM\OneToMany(targetEntity: ResetPasswordToken::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
     private Collection $resetPasswordTokens;
-    
 
+    public function getDropboxAccessToken(): ?string
+    {
+        return $this->dropboxAccessToken;
+    }
+
+    public function setDropboxAccessToken(?string $dropboxAccessToken): static
+    {
+        $this->dropboxAccessToken = $dropboxAccessToken;
+        return $this;
+    }
+
+    public function getDropboxRefreshToken(): ?string
+    {
+        return $this->dropboxRefreshToken;
+    }
+
+    public function setDropboxRefreshToken(?string $dropboxRefreshToken): static
+    {
+        $this->dropboxRefreshToken = $dropboxRefreshToken;
+        return $this;
+    }
 
     public function __construct()
     {

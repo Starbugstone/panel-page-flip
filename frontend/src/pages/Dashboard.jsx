@@ -242,6 +242,7 @@ export default function Dashboard() {
   // Filters now operate on the 'comics' state directly
   const inProgressComics = comics.filter(comic => comic.lastReadPage !== undefined && comic.lastReadPage > 0);
   const unreadComics = comics.filter(comic => comic.lastReadPage === undefined || comic.lastReadPage === 0);
+  const dropboxComics = comics.filter(comic => comic.tags && comic.tags.includes('Dropbox'));
 
   // Handlers for ShareComicModal
   const handleOpenShareModal = (comicId, comicTitle) => {
@@ -326,6 +327,11 @@ export default function Dashboard() {
         <Tabs defaultValue="all" className="space-y-6">
           <TabsList>
             <TabsTrigger value="all">All Comics ({comics.length})</TabsTrigger>
+            {dropboxComics.length > 0 && (
+              <TabsTrigger value="dropbox">
+                Dropbox ({dropboxComics.length})
+              </TabsTrigger>
+            )}
             {inProgressComics.length > 0 && (
               <TabsTrigger value="reading">
                 Currently Reading ({inProgressComics.length})
@@ -348,6 +354,29 @@ export default function Dashboard() {
                   onEditComic={handleEditComic}
                   onDeleteComic={deleteComic}
                   onShareClick={handleOpenShareModal} // Added onShareClick prop
+                />
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="dropbox">
+            <div className="mb-4 p-4 bg-muted rounded-lg">
+              <p className="text-sm text-muted-foreground">
+                Comics synced from your Dropbox account. 
+                <Link to="/dropbox-sync" className="text-primary hover:underline ml-1">
+                  Manage Dropbox sync →
+                </Link>
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {dropboxComics.map((comic) => (
+                <ComicCard 
+                  key={comic.id} 
+                  comic={comic} 
+                  onResetProgress={resetReadingProgress}
+                  onEditComic={handleEditComic}
+                  onDeleteComic={deleteComic}
+                  onShareClick={handleOpenShareModal}
                 />
               ))}
             </div>
