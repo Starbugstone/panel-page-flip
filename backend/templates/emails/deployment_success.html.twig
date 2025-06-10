@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Deployment Successful</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .header { background: #4CAF50; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; }
+        .info-box { background: #f5f5f5; padding: 15px; margin: 10px 0; border-left: 4px solid #4CAF50; }
+        .step { margin: 10px 0; padding: 10px; background: #e8f5e8; border-radius: 4px; }
+        .duration { font-weight: bold; color: #2e7d32; }
+        .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.9em; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✅ Deployment Successful</h1>
+    </div>
+    
+    <div class="content">
+        <div class="info-box">
+            <h3>📋 Deployment Information</h3>
+            <p><strong>Repository:</strong> {{ payload.repository }}</p>
+            <p><strong>Commit:</strong> {{ payload.commit }}</p>
+            <p><strong>Branch:</strong> {{ payload.branch ?? 'main' }}</p>
+            <p><strong>GitHub Run ID:</strong> {{ payload.run_id }}</p>
+            <p><strong>Timestamp:</strong> {{ payload.timestamp ?? 'now' }}</p>
+            <p class="duration"><strong>Total Duration:</strong> {{ result.duration }}</p>
+        </div>
+
+        <h3>🚀 Completed Steps</h3>
+        {% for step_name, step_data in result.steps %}
+            <div class="step">
+                <strong>{{ step_name|title|replace({'_': ' '}) }}:</strong> 
+                <span style="color: #2e7d32;">✅ Success</span>
+                <span style="float: right;">{{ step_data.duration }}s</span>
+                
+                {% if step_data.output %}
+                    <details style="margin-top: 10px;">
+                        <summary>View Output</summary>
+                        <pre style="background: #f8f8f8; padding: 10px; margin: 5px 0; border-radius: 4px; font-size: 12px; overflow-x: auto;">{{ step_data.output }}</pre>
+                    </details>
+                {% endif %}
+            </div>
+        {% endfor %}
+
+        <div class="footer">
+            <p>🎉 Your application has been successfully deployed and is ready to use!</p>
+            <p><small>This is an automated message from your deployment system.</small></p>
+        </div>
+    </div>
+</body>
+</html> 

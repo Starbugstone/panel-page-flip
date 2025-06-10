@@ -1,6 +1,7 @@
 monolog:
     channels:
-        - deprecation # Deprecations are logged in the dedicated "deprecation" channel when it exists
+        - deployment
+        - dropbox
 
 when@dev:
     monolog:
@@ -10,14 +11,26 @@ when@dev:
                 path: "%kernel.logs_dir%/%kernel.environment%.log"
                 level: debug
                 channels: ["!event"]
-            # uncomment to get logging in your browser
-            # you may have to allow bigger header sizes in your Web server configuration
-            #firephp:
-            #    type: firephp
-            #    level: info
-            #chromephp:
-            #    type: chromephp
-            #    level: info
+            
+            # Deployment logging for development
+            deployment:
+                type: rotating_file
+                path: "%kernel.logs_dir%/deployment/deployment.log"
+                level: "%env(DEPLOY_LOG_LEVEL)%"
+                max_files: 30
+                channels: ["deployment"]
+                formatter: monolog.formatter.json
+                
+            # Dropbox logging for development  
+            dropbox:
+                type: rotating_file
+                path: "%kernel.logs_dir%/dropbox/dropbox.log"
+                level: "%env(DROPBOX_LOG_LEVEL)%"
+                max_files: 30
+                channels: ["dropbox"]
+                formatter: monolog.formatter.json
+            
+            # Console output for development
             console:
                 type: console
                 process_psr_3_messages: false
@@ -45,18 +58,47 @@ when@prod:
                 action_level: error
                 handler: nested
                 excluded_http_codes: [404, 405]
-                buffer_size: 50 # How many messages should be saved? Prevent memory leaks
+                buffer_size: 50 # How many messages to keep in memory
+                channels: ["!event"]
             nested:
-                type: stream
-                path: php://stderr
+                type: rotating_file
+                path: "%kernel.logs_dir%/%kernel.environment%.log"
                 level: debug
-                formatter: monolog.formatter.json
-            console:
-                type: console
-                process_psr_3_messages: false
-                channels: ["!event", "!doctrine"]
+                max_files: 30
+                
+            # Production deployment logging
+            deployment:
+                type: rotating_file
+                path: "%kernel.logs_dir%/deployment/deployment.log"
+                level: "%env(DEPLOY_LOG_LEVEL)%"
+                max_files: 30
+                channels: ["deployment"]
+                formatter: deployment_formatter
+                
+            # Production Dropbox logging
+            dropbox:
+                type: rotating_file
+                path: "%kernel.logs_dir%/dropbox/dropbox.log" 
+                level: "%env(DROPBOX_LOG_LEVEL)%"
+                max_files: 30
+                channels: ["dropbox"]
+                formatter: dropbox_formatter
+                
+            # Deprecation warnings
             deprecation:
                 type: stream
-                channels: [deprecation]
-                path: php://stderr
-                formatter: monolog.formatter.json
+                path: "%kernel.logs_dir%/deprecation.log"
+                channels: ["php"]
+
+    formatters:
+        # Custom formatter for deployment logs
+        deployment_formatter:
+            type: line
+            format: "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n"
+            date_format: "Y-m-d H:i:s"
+            
+        # Custom formatter for Dropbox logs  
+        dropbox_formatter:
+            type: line
+            format: "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n"
+            date_format: "Y-m-d H:i:s"

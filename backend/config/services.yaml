@@ -79,11 +79,17 @@ services:
             $frontendBaseUrl: '%frontend_url%'
             $comicsDirectory: '%comics_directory%'
             $dropboxAppFolder: '%dropbox_app_folder%'
+            $logger: '@monolog.logger.dropbox'
 
     App\Command\DropboxSyncCommand:
         arguments:
             $comicsDirectory: '%comics_directory%'
             $dropboxAppFolder: '%dropbox_app_folder%'
             $defaultSyncLimit: '%dropbox_sync_limit%'
+
+    # Custom logger injection for deployment controller
+    App\Controller\DeploymentController:
+        arguments:
+            $deploymentLogger: '@monolog.logger.deployment'
 
 

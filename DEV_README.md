@@ -843,6 +843,242 @@ The comic reader component has been significantly optimized to improve performan
   docker compose exec php bin/console messenger:failed:show
   ```
 
+### Advanced Logging System
+
+The application now uses **Monolog** with dedicated channels and automatic log rotation:
+
+#### Log Channels and Files
+
+- **Deployment**: `var/log/deployment/deployment-YYYY-MM-DD.log`
+  - Webhook deployment events
+  - Composer install operations
+  - Database migrations
+  - Cache operations
+  - Success/failure notifications
+
+- **Dropbox**: `var/log/dropbox/dropbox-YYYY-MM-DD.log`
+  - OAuth connections
+  - File sync operations
+  - API rate limiting
+  - Import/sync results
+
+- **Application**: `var/log/dev.log` (development), `var/log/prod.log` (production)
+  - General application logs
+  - Errors and warnings
+  - Security events
+
+#### Environment Variables for Logging
+
+Add these to your `.env.local`:
+
+```env
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+# Deployment logging level (debug, info, warning, error)
+DEPLOY_LOG_LEVEL=info
+
+# Dropbox sync logging level (debug, info, warning, error)
+DROPBOX_LOG_LEVEL=info
+```
+
+#### Log Rotation
+
+- **Daily rotation**: New file created each day with timestamp
+- **30-day retention**: Logs older than 30 days are automatically deleted
+- **Structured format**: JSON in development, line format in production
+- **Size management**: Prevents disk space issues
+
+#### Viewing Logs in Development
+
+```bash
+# Watch deployment logs in real-time
+tail -f backend/var/log/deployment/deployment-$(date +%Y-%m-%d).log
+
+# Watch Dropbox logs
+tail -f backend/var/log/dropbox/dropbox-$(date +%Y-%m-%d).log
+
+# Watch all logs
+tail -f backend/var/log/dev.log
+```
+
+### Webhook-Based Deployment System
+
+The application features a **professional webhook deployment system** built with Symfony:
+
+#### Deployment Controller
+
+**Location**: `backend/src/Controller/DeploymentController.php`
+
+**Endpoints**:
+- `POST /api/deployment/webhook` - Receives deployment triggers
+- `GET /api/deployment/status` - View deployment logs (admin only)
+
+#### Security Features
+
+```php
+// Environment validation
+private const REQUIRED_ENV_VARS = [
+    'DEPLOY_WEBHOOK_SECRET',
+    'MAILER_FROM_ADDRESS'
+];
+
+// Cryptographic verification
+if (!hash_equals($expectedSecret, $providedSecret)) {
+    throw new \InvalidArgumentException('Invalid webhook secret');
+}
+```
+
+#### Deployment Process
+
+1. **GitHub Actions** uploads code via FTP
+2. **Webhook triggered** with deployment payload
+3. **Symfony controller** validates and processes request
+4. **Commands executed** using Symfony Process component:
+   - `composer install --no-dev --optimize-autoloader`
+   - `php bin/console doctrine:migrations:migrate`
+   - `php bin/console cache:clear --env=prod`
+   - `php bin/console cache:warmup --env=prod`
+5. **Email notifications** sent for success/failure
+6. **Structured logging** to dedicated log files
+
+#### Email Templates
+
+**Success**: `backend/templates/emails/deployment_success.html.twig`
+- Deployment information (repository, commit, duration)
+- Completed steps with execution times
+- Command outputs in collapsible sections
+
+**Error**: `backend/templates/emails/deployment_error.html.twig`
+- Error details and stack trace
+- Request information (IP, user agent)
+- Next steps for troubleshooting
+
+#### Required Environment Variables
+
+Add these to your production `.env.local`:
+
+```env
+# =============================================================================
+# DEPLOYMENT WEBHOOK CONFIGURATION
+# =============================================================================
+# Webhook secret for deployment automation (REQUIRED - minimum 32 characters)
+DEPLOY_WEBHOOK_SECRET=your-super-secure-random-secret-here
+
+# Email address for deployment notifications (optional)
+DEPLOY_NOTIFICATION_EMAIL=admin@yourdomain.com
+
+# Logging configuration
+DEPLOY_LOG_LEVEL=info
+DROPBOX_LOG_LEVEL=info
+```
+
+#### GitHub Secrets Required
+
+Set these in your GitHub repository settings:
+
+```
+FTP_SERVER=your-server.com
+FTP_USERNAME=your-ftp-username
+FTP_PASSWORD=your-ftp-password
+DEPLOY_WEBHOOK_SECRET=same-as-production-env-variable
+```
+
+#### Testing the Webhook
+
+**Manual test** (replace with your values):
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Deploy-Secret: your-webhook-secret" \
+  -d '{
+    "event": "deployment",
+    "repository": "test/repo",
+    "commit": "abc123",
+    "branch": "main",
+    "run_id": "123456",
+    "timestamp": "2025-01-01T12:00:00Z"
+  }' \
+  "https://comics.starbugstone.com/api/deployment/webhook"
+```
+
+#### Monitoring
+
+- **Real-time logs**: `tail -f var/log/deployment/deployment-$(date +%Y-%m-%d).log`
+- **Web interface**: `GET /api/deployment/status` (admin authentication required)
+- **Email notifications**: Automatic success/failure emails with detailed information
+- **GitHub Actions logs**: Full deployment pipeline logs in GitHub Actions tab
+
+### Dropbox Integration Improvements
+
+The Dropbox integration now features enhanced logging and better error handling:
+
+#### Improved Logging
+
+- **Dedicated log channel**: All Dropbox operations logged to separate files
+- **Structured logging**: JSON format with context and metadata
+- **Rate limiting logs**: Track API usage and throttling
+- **Import status**: Detailed success/failure tracking
+
+#### Log Format Example
+
+```json
+{
+  "timestamp": "2025-01-10 14:30:15",
+  "level": "INFO",
+  "channel": "dropbox",
+  "message": "File imported successfully",
+  "context": {
+    "user_id": 123,
+    "file_path": "/superHero/Batman.cbz",
+    "file_size": 25485760,
+    "import_duration": "2.5s",
+    "tags_created": ["Dropbox", "Super Hero"]
+  }
+}
+```
+
+#### Environment Variables
+
+```env
+# Dropbox logging level
+DROPBOX_LOG_LEVEL=info  # debug, info, warning, error
+```
+
+### Development Workflow Improvements
+
+#### Log Management Commands
+
+```bash
+# Clear all logs
+rm -rf backend/var/log/*
+
+# Clear specific logs
+rm -rf backend/var/log/deployment/*
+rm -rf backend/var/log/dropbox/*
+
+# View log statistics
+find backend/var/log -name "*.log" -exec wc -l {} \; | sort -nr
+```
+
+#### Docker Integration
+
+The logging directories are automatically created and mounted:
+
+```yaml
+# docker-compose.yml volumes ensure log persistence
+volumes:
+  - ./backend:/var/www/html
+  - ./backend/var/log:/var/www/html/var/log  # Log persistence
+```
+
+#### Performance Considerations
+
+- **Asynchronous logging**: Non-blocking log writes
+- **Buffer management**: Memory-efficient log handling
+- **Rotation scheduling**: Automatic cleanup prevents disk issues
+- **Channel separation**: Prevents log conflicts and improves performance
+
 ## Getting Started (Development)
 
 ### Prerequisites

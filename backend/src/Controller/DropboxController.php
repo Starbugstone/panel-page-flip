@@ -18,6 +18,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Security\Http\Attribute\CurrentUser;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
+use Psr\Log\LoggerInterface;
 
 #[Route('/api/dropbox')]
 class DropboxController extends AbstractController
@@ -30,6 +31,7 @@ class DropboxController extends AbstractController
     private string $frontendBaseUrl;
     private string $comicsDirectory;
     private string $dropboxAppFolder;
+    private LoggerInterface $logger;
 
     public function __construct(
         string $dropboxAppKey,
@@ -39,7 +41,8 @@ class DropboxController extends AbstractController
         HttpClientInterface $httpClient,
         string $frontendBaseUrl,
         string $comicsDirectory,
-        string $dropboxAppFolder
+        string $dropboxAppFolder,
+        LoggerInterface $logger
     ) {
         $this->dropboxAppKey = $dropboxAppKey;
         $this->dropboxAppSecret = $dropboxAppSecret;
@@ -49,6 +52,7 @@ class DropboxController extends AbstractController
         $this->frontendBaseUrl = $frontendBaseUrl;
         $this->comicsDirectory = $comicsDirectory;
         $this->dropboxAppFolder = $dropboxAppFolder;
+        $this->logger = $logger;
     }
 
     #[Route('/connect', name: 'dropbox_connect', methods: ['GET'])]
@@ -61,7 +65,11 @@ class DropboxController extends AbstractController
         // 1. Generate a secure random state for CSRF protection
         $state = bin2hex(random_bytes(16)); // 16 bytes = 32 hex characters
         $this->session->set('dropbox_oauth2_state', $state);
-        dump(['State SET in session (connect)' => $this->session->get('dropbox_oauth2_state'), 'Session ID (connect)' => $this->session->getId()]);
+        $this->logger->debug('Dropbox OAuth state set in session', [
+            'state' => $this->session->get('dropbox_oauth2_state'),
+            'session_id' => $this->session->getId(),
+            'user_id' => $user->getId()
+        ]);
 
         // 2. Manually construct the Dropbox authorization URL
         $authUrlParams = http_build_query([
@@ -81,7 +89,12 @@ class DropboxController extends AbstractController
     #[Route('/callback', name: 'dropbox_callback', methods: ['GET'])]
     public function callback(Request $request, EntityManagerInterface $entityManager, #[CurrentUser] ?User $user): Response
     {
-        dump(['CALLBACK START - Session ID' => $this->session->getId(), 'CALLBACK START - All Session Data' => $this->session->all()]);
+        $this->logger->debug('Dropbox OAuth callback started', [
+            'session_id' => $this->session->getId(),
+            'session_data_count' => count($this->session->all()),
+            'user_id' => $user?->getId()
+        ]);
+        
         if (!$user) {
             return $this->json(['error' => 'User not authenticated during callback'], Response::HTTP_UNAUTHORIZED);
         }
@@ -90,14 +103,29 @@ class DropboxController extends AbstractController
         $returnedState = $request->query->get('state');
         $savedState = $this->session->get('dropbox_oauth2_state');
 
-        dump(['State FROM Session (callback)' => $savedState, 'State FROM Dropbox (callback)' => $returnedState, 'Session ID (callback before check)' => $this->session->getId()]);
+        $this->logger->debug('Dropbox OAuth state validation', [
+            'saved_state' => $savedState,
+            'returned_state' => $returnedState,
+            'session_id' => $this->session->getId(),
+            'user_id' => $user->getId(),
+            'states_match' => ($returnedState === $savedState)
+        ]);
+        
         if (empty($returnedState) || $returnedState !== $savedState) {
             $this->session->remove('dropbox_oauth2_state');
+            $this->logger->warning('Dropbox OAuth state mismatch - possible CSRF attack', [
+                'saved_state' => $savedState,
+                'returned_state' => $returnedState,
+                'user_id' => $user->getId()
+            ]);
             return $this->json(['error' => 'Invalid OAuth state. CSRF attack suspected or session expired.'], Response::HTTP_UNAUTHORIZED);
         }
         $this->session->remove('dropbox_oauth2_state'); // State is valid, remove it
 
         if (!$code) {
+            $this->logger->error('Dropbox OAuth callback missing authorization code', [
+                'user_id' => $user->getId()
+            ]);
             return $this->json(['error' => 'Dropbox authorization denied or failed. No code received.'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -127,8 +155,10 @@ class DropboxController extends AbstractController
                     // Potentially also: $tokenData['uid'], $tokenData['account_id'], $tokenData['expires_in']
 
                     if (!$accessToken) {
-                        // Log error: Dropbox response did not contain an access token despite 200 OK.
-                        // $this->get('logger')->error('Dropbox OAuth: No access token in 200 OK response.', ['response_data' => $tokenData]);
+                        $this->logger->error('Dropbox OAuth: No access token in 200 OK response', [
+                            'response_data' => $tokenData,
+                            'user_id' => $user->getId()
+                        ]);
                         return $this->json(['error' => 'Dropbox connection succeeded but no access token was found in the response.'], Response::HTTP_INTERNAL_SERVER_ERROR);
                     }
 
@@ -137,21 +167,36 @@ class DropboxController extends AbstractController
                     $entityManager->persist($user);
                     $entityManager->flush();
 
+                    $this->logger->info('Dropbox OAuth connection successful', [
+                        'user_id' => $user->getId(),
+                        'has_refresh_token' => !empty($refreshToken)
+                    ]);
+
                     // Redirect to the frontend Dropbox sync page with a success indicator
                     $frontendSuccessUrl = rtrim($this->frontendBaseUrl, '/') . '/dropbox-sync?status=connected';
                     return new RedirectResponse($frontendSuccessUrl);
 
                 } else {
-                    // Log error: $response->getContent(false) might contain error details from Dropbox
-                    // $this->get('logger')->error('Dropbox OAuth Error: Failed to get token.', ['status_code' => $statusCode, 'response_body' => $response->getContent(false)]);
+                    $this->logger->error('Dropbox OAuth Error: Failed to get token', [
+                        'status_code' => $statusCode,
+                        'response_body' => $response->getContent(false),
+                        'user_id' => $user->getId()
+                    ]);
                     return $this->json(['error' => 'Failed to obtain Dropbox token. Status: ' . $statusCode, 'details' => $response->getContent(false)], Response::HTTP_BAD_GATEWAY);
                 }
 
             } catch (\Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface $e) {
-                // Log error: $this->get('logger')->error('Dropbox OAuth Transport Exception: ' . $e->getMessage());
+                $this->logger->error('Dropbox OAuth Transport Exception', [
+                    'message' => $e->getMessage(),
+                    'user_id' => $user->getId()
+                ]);
                 return $this->json(['error' => 'Network error while connecting to Dropbox: ' . $e->getMessage()], Response::HTTP_SERVICE_UNAVAILABLE);
             } catch (\Throwable $e) { // Catch any other generic error during the process
-                // Log error: $this->get('logger')->error('Dropbox OAuth Generic Exception: ' . $e->getMessage());
+                $this->logger->error('Dropbox OAuth Generic Exception', [
+                    'message' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                    'user_id' => $user->getId()
+                ]);
                 return $this->json(['error' => 'An unexpected error occurred during Dropbox connection: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
             }
 
@@ -171,7 +216,11 @@ class DropboxController extends AbstractController
             return $this->json(['message' => 'Dropbox connected successfully!']);
 
         } catch (\Exception $e) {
-            // Log error: $this->get('logger')->error('Dropbox OAuth Error: ' . $e->getMessage());
+            $this->logger->error('Dropbox OAuth Error', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $user->getId()
+            ]);
             return $this->json(['error' => 'Failed to connect Dropbox: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }

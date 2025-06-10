@@ -433,346 +433,169 @@ routing:
 
 For production, you should uncomment the email routing line and run a Messenger consumer to process the queue:
 
-## Production Deployment
-
-### Dropbox Configuration for Production
-
-When deploying to production, update your environment variables:
-
-```env
-# Production Dropbox Configuration
-DROPBOX_APP_KEY=your_production_app_key
-DROPBOX_APP_SECRET=your_production_app_secret
-DROPBOX_REDIRECT_URI=https://yourdomain.com/api/dropbox/callback
-DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics
-DROPBOX_SYNC_LIMIT=5
-DROPBOX_RATE_LIMIT=30
-```
-
-**Important Production Steps:**
-
-1. **Update Dropbox App Settings**:
-   - Add production redirect URI to your Dropbox app
-   - Ensure all required permissions are enabled
-   - Test OAuth flow in production environment
-
-2. **Set Up Automated Sync**:
-   ```bash
-   # Add to production crontab
-   0 2 * * * cd /path/to/production/project && php bin/console app:dropbox-sync --limit=5
-   ```
-
-3. **Monitor Sync Performance**:
-   - Start with lower sync limits in production
-   - Monitor server resources during sync operations
-   - Adjust `DROPBOX_SYNC_LIMIT` based on server capacity
-
-4. **Security Considerations**:
-   - Use HTTPS for all Dropbox OAuth redirects
-   - Secure environment variable storage
-   - Regular token refresh monitoring
-   - File permission auditing
-
-### CI/CD Integration
-
-The project includes GitHub Actions for automated deployment. The frontend build process is already configured, and the workflow includes TODO comments for backend deployment via SSH.
-
-**Current Workflow:**
-- Builds React frontend on PR merge to main
-- Uploads frontend build to production via FTP
-- Safe mode: Never deletes existing files
-
-**Recommended Backend Deployment:**
-```bash
-# SSH into production server
-cd /path/to/project
-git pull origin main
-composer install --no-dev --optimize-autoloader
-php bin/console cache:clear --env=prod
-php bin/console doctrine:migrations:migrate --no-interaction
-```
-
-```bash
-# For production: Run a Messenger consumer to process queued emails
-php bin/console messenger:consume async --time-limit=3600
-```
-
-### Testing Email Functionality
-
-A Symfony command is available to test email sending:
-
-```bash
-# Run via Docker
-docker compose exec php bin/console app:test-mail --to=test@example.com
-
-# Options
---to=EMAIL      # Required: Email address to send the test email to
---subject=TEXT  # Optional: Subject of the test email
---body=TEXT     # Optional: Body of the test email
-```
-
-## Password Reset Functionality
-
-The application includes a comprehensive password reset workflow with security features:
-
-### Complete Reset Flow
-
-1. **Request Reset**: User clicks "Forgot password?" on the login page and enters their email
-2. **Token Generation**: System generates a unique token, stores it in the database with an expiration time
-3. **Email Delivery**: System sends an email with a reset link to the frontend (not the API endpoint)
-4. **Token Validation**: When user clicks the link, the frontend validates the token with the backend
-5. **Password Reset**: User enters and confirms a new password
-6. **Confirmation**: System updates the password, invalidates the token, and redirects to login
-7. **Security Notification**: System sends a confirmation email notifying the user that their password was changed
-
-### Security Features
-
-- **Token Expiration**: Tokens expire after 24 hours for security
-- **One-time Use**: Tokens are invalidated immediately after use
-- **Privacy Protection**: System doesn't reveal whether an email exists in the database
-- **Change Notification**: Users receive an email notification when their password is changed
-- **Auto-redirect**: After successful reset, users are automatically redirected to the login page
-
-### Testing the Password Reset
-
-To test the password reset functionality in development:
-
-1. Click "Forgot password?" on the login page
-2. Enter a valid email address (e.g., `testuser1@example.com`)
-3. Check the Mailpit interface at http://localhost:8025 to view the reset email
-4. Click the reset link in the email to set a new password
-5. After setting a new password, you'll be redirected to the login page
-6. Check Mailpit again to see the password change notification email
-
-You can customize the ports and other settings by editing the `.env` file in the project root:
-
-```dotenv
-# Example from .env
-# Ports
-NGINX_PORT=8080     # Application access port
-MYSQL_PORT=3308     # Host port mapped to MySQL container
-ADMINER_PORT=8081   # Host port mapped to Adminer container
-```
-
-## Development Workflow
-
-### Frontend Development with Live Reload
-
-The frontend code is in the `frontend/` directory (specifically `frontend/src/`).
-
-For an enhanced development experience with Hot Module Replacement (HMR), a dedicated Vite development server is now configured. To use it:
-
-1.  Ensure all services are running via `docker compose up -d`.
-2.  Access the frontend directly through the Vite development server at: **`http://localhost:3001`**.
-
-Changes made to files within the `./frontend` directory will automatically trigger a rebuild and update your browser session live.
-
-The `nginx` service, accessible at `http://localhost:8080` (or your configured NGINX_PORT in the `.env` file), still handles API proxying to the backend and can serve a static production build of the frontend. However, for active development and immediate feedback, `http://localhost:3001` is the recommended URL. You no longer need to rebuild the `nginx` container to see frontend changes during development.
-
-### Backend Development
-
-The backend code is in the `backend/` directory. After making changes to the Symfony code, you may need to clear the cache:
-
-```sh
-docker compose exec php bin/console cache:clear
-```
-
-### Authentication System
-
-The application features a complete authentication system:
-
-- **API Endpoints**:
-  - `/api/login` - Login endpoint (POST)
-  - `/api/register` - Registration endpoint (POST)
-  - `/api/logout` - Logout endpoint (POST)
-  - `/api/login_check` - Check authentication status (GET)
-  - `/api/forgot-password` - Request password reset (POST)
-  - `/api/reset-password/validate/{token}` - Validate reset token (GET)
-  - `/api/reset-password/reset/{token}` - Reset password with token (POST)
-  - `/api/email-verification/verify/{token}` - Verify email with token (GET)
-  - `/api/email-verification/resend` - Resend verification email (POST)
-
-- **Email Verification**:
-  - After registration, users receive a verification email
-  - Users must verify their email before they can log in
-  - Verification emails can be viewed in the Mailpit interface at http://localhost:8025
-  - Users can request a new verification email if needed
-
-- **Password Recovery**:
-  - Click "Forgot password?" on the login page
-  - Enter your email address to receive a reset link
-  - Check the Mailpit interface at http://localhost:8025 to view the reset email
-  - Click the reset link to set a new password
-
-- **User Management**:
-  - Create new users with the registration form
-  - Manage users with the command line tool:
-  ```sh
-  docker compose exec php bin/console app:create-user email@example.com password
-  ```
-
-### Database Access
-
-You can access the MySQL database using your preferred database client (or Adminer at `http://localhost:8081`) with the following credentials:
-
-- Host: localhost
-- Port: 3308 (as defined in the .env file)
-- Database: cbz_reader
-- Username: cbz_user
-- Password: cbz_password
-
-For Adminer, the server name to connect to is `database` (the service name in `docker compose.yml`).
-
-### Database Migrations
-
-When making changes to entity classes, you need to create and run migrations:
-
-```sh
-# Create a new migration
-docker compose exec php bin/console make:migration
-
-# Run migrations
-docker compose exec php bin/console doctrine:migrations:migrate --no-interaction
-```
-
-### Utility Commands
-
-The application includes several utility commands to help with management and testing:
-
-```sh
-# Create an admin user
-docker compose exec php bin/console app:create-admin-user admin@example.com password123
-
-# Create a regular user
-docker compose exec php bin/console app:create-user user@example.com password123
-
-# Set up upload directories
-docker compose exec php bin/console app:setup-upload-directories
-
-# Import comics from a directory
-docker compose exec php bin/console app:import-comics /path/to/comics admin@example.com
-
-# Generate sample data for testing
-docker compose exec php bin/console app:generate-sample-data --force
-
-# Clean up unused comics and cover images
-docker compose exec php bin/console app:cleanup-comics --dry-run
-
-# Test API endpoints (registration and login)
-docker compose exec php bin/console app:test-api-endpoints
-```
-
-### File Organization
-
-The application organizes uploaded comics and cover images as follows:
-
-- **Comics**: Stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
-- **Cover Images**: Stored in comic-specific directories at `/uploads/comics/covers/{comic_id}/{cover_image.jpg}`
-
-This organization ensures proper separation of user content and makes it easier to manage comics and their associated cover images.
-
-### Environment Variables
-
-The application uses several environment variables for configuration. These are defined in different `.env` files depending on the environment:
-
-#### Core Environment Variables
-
-- `APP_ENV`: The application environment (`dev`, `prod`, etc.)
-- `APP_SECRET`: Secret key used for security-related operations
-- `DATABASE_URL`: Database connection string
-- `CORS_ALLOW_ORIGIN`: CORS configuration for API access
-
-#### Email Configuration
-
-- `MAILER_DSN`: Mail server connection string
-- `MAILER_FROM_ADDRESS`: Email address used as the sender
-- `MAILER_FROM_NAME`: Name displayed as the sender
-- `MAILER_TRANSPORT`: Transport method for emails (`smtp`, `sync`, etc.)
-
-#### Frontend URL Configuration
-
-- `FRONTEND_SCHEME`: Protocol used by the frontend (`http` or `https`)
-- `FRONTEND_HOST`: Hostname of the frontend application
-- `FRONTEND_PORT`: Port used by the frontend application
-
-#### Development vs. Production
-
-For development, use `.env.local` with settings like:
-```
-APP_ENV=dev
-FRONTEND_SCHEME=http
-FRONTEND_HOST=localhost
-FRONTEND_PORT=3001
-```
-
-For production, create `.env.prod.local` with settings like:
-```
-APP_ENV=prod
-FRONTEND_SCHEME=https
-FRONTEND_HOST=comics.yourdomain.com
-FRONTEND_PORT=443
-```
-
-> **Important**: When deploying to production, make sure to set the correct frontend URL configuration to ensure email verification links and password reset links point to your production site, not localhost.
-
 ## Deployment
 
 ### Production Deployment
 
-The application uses GitHub Actions for automated deployment when changes are merged into the `main` branch.
+The application uses **automated webhook-based deployment** when changes are merged into the `main` branch.
 
 #### Current Deployment Process
 
 1. **Trigger**: Deployment occurs automatically when a Pull Request from `develop` to `main` is merged
-2. **Frontend Build**: The React frontend is built using Vite
-3. **Frontend Deployment**: Built files are deployed via FTP to the production server's `backend/public/` directory
-4. **Backend Deployment**: Currently requires manual intervention (see TODO below)
+2. **Frontend Build & Deploy**: React frontend is built with Vite and deployed via FTP
+3. **Backend Code Deploy**: Symfony backend code is deployed via FTP (excluding sensitive files)
+4. **Backend Services**: Webhook triggers Composer install, migrations, and cache management
+5. **Email Notifications**: Success/failure notifications sent automatically
+
+#### Deployment Architecture
+
+```mermaid
+graph LR
+    A[GitHub Actions] --> B[Build Frontend]
+    B --> C[Deploy Frontend via FTP]
+    C --> D[Deploy Backend Code via FTP] 
+    D --> E[Trigger Webhook]
+    E --> F[Symfony Controller]
+    F --> G[Composer Install]
+    G --> H[Run Migrations]
+    H --> I[Clear Cache]
+    I --> J[Send Email Notification]
+```
 
 #### GitHub Secrets Required
 
-The following secrets must be configured in your GitHub repository:
-
+**FTP Deployment:**
 - `FTP_SERVER`: Your production server hostname
 - `FTP_USERNAME`: FTP username for deployment
 - `FTP_PASSWORD`: FTP password for deployment
 
-#### Deployment Safety Features
+**Webhook Security:**
+- `DEPLOY_WEBHOOK_SECRET`: Secret key for webhook authentication (minimum 32 characters)
 
-- **Safe Mode**: The deployment never deletes existing files on the server
-- **Protected Directories**: User uploads (`uploads/`) and backend files are never touched
-- **Force Upload**: Ensures frontend assets are always updated even if they appear identical
+#### Production Environment Configuration
 
-#### Current Limitations & TODO
+The following environment variables must be configured in your production `.env.local`:
 
-**Backend Deployment**: Currently, backend code changes require manual deployment. The recommended approach is to SSH into the production server and run:
+```env
+# Deployment Webhook Security (REQUIRED)
+DEPLOY_WEBHOOK_SECRET=your-super-secure-random-secret-here
 
-```bash
-cd /path/to/project
-git pull origin main
-composer install --no-dev --optimize-autoloader
-php bin/console cache:clear --env=prod
-php bin/console doctrine:migrations:migrate --no-interaction
+# Email Notifications (Optional but recommended)
+DEPLOY_NOTIFICATION_EMAIL=admin@yourdomain.com
+
+# Monolog Logging Configuration
+DEPLOY_LOG_LEVEL=info
+DROPBOX_LOG_LEVEL=info
 ```
 
-**Planned Improvement**: Automate backend deployment via SSH in the GitHub Actions workflow. This would be much more efficient than FTP uploading the entire backend codebase.
+#### Deployment Endpoints
+
+- **Webhook Endpoint**: `POST /api/deployment/webhook`
+  - Receives deployment triggers from GitHub Actions
+  - Validates webhook secret and payload
+  - Executes deployment steps (Composer, migrations, cache)
+  - Sends email notifications
+
+- **Status Endpoint**: `GET /api/deployment/status` (Admin only)
+  - View deployment logs and status
+  - Requires admin authentication
+
+#### Deployment Safety Features
+
+- **Protected Directories**: User uploads (`uploads/`) are never touched during deployment
+- **Environment Validation**: Fatal error if required secrets are not properly configured
+- **Secure Authentication**: Cryptographic verification of webhook requests
+- **Email Notifications**: Immediate alerts for deployment success/failure
+- **Structured Logging**: Detailed logs with daily rotation and monthly cleanup
+- **Process Timeouts**: Commands timeout after 5 minutes to prevent hanging
+- **Error Recovery**: Comprehensive error handling and reporting
 
 #### Deployment Workflow File
 
 The deployment configuration is in `.github/workflows/build-frontend.yml`. This workflow:
 
 - Only triggers on PR merges to `main` (not direct pushes)
-- Builds the frontend with production optimizations
-- Deploys frontend assets safely without affecting backend files or user data
-- Includes comprehensive TODO comments for SSH automation implementation
+- Builds frontend with production optimizations and unique build IDs
+- Deploys frontend assets safely without affecting backend files
+- Uploads backend code while protecting sensitive files and user data
+- Triggers webhook for backend services (Composer, migrations, cache)
+- Includes comprehensive error handling and retry logic
 
 #### Emergency Recovery
 
-In case of deployment issues, an emergency restore workflow is available at `.github/workflows/emergency-backend-restore.yml` that can be manually triggered to restore critical backend files.
+In case of deployment issues:
+
+1. **Check logs**: Visit `/api/deployment/status` (requires admin login)
+2. **View email notifications**: Check for detailed error reports
+3. **Manual intervention**: SSH to server and run commands manually if needed
+4. **Rollback**: Use git to revert to previous working commit
+
+#### Manual Deployment Steps (if webhook fails)
+
+```bash
+# SSH into production server
+cd /path/to/project/backend
+
+# Update dependencies
+composer install --no-dev --optimize-autoloader --no-interaction
+
+# Run database migrations
+php bin/console doctrine:migrations:migrate --no-interaction
+
+# Clear and warm up cache
+php bin/console cache:clear --env=prod --no-debug
+php bin/console cache:warmup --env=prod --no-debug
+```
 
 ### Development vs Production
 
 - **Development**: Use `docker compose up -d` for local development with hot reload
-- **Production**: Deployed via GitHub Actions with optimized builds and proper caching headers
+- **Production**: Deployed via GitHub Actions with optimized builds, automated migrations, and email notifications
+
+## Logging
+
+The application uses **Monolog** for structured logging with automatic rotation and cleanup.
+
+### Log Configuration
+
+Logs are organized by functionality with daily rotation and monthly cleanup:
+
+- **Deployment Logs**: `var/log/deployment/deployment-YYYY-MM-DD.log`
+- **Dropbox Sync Logs**: `var/log/dropbox/dropbox-YYYY-MM-DD.log`
+- **Application Logs**: `var/log/dev.log` (development), `var/log/prod.log` (production)
+
+### Log Levels
+
+Configure log levels via environment variables:
+
+```env
+# Deployment logging (debug, info, warning, error)
+DEPLOY_LOG_LEVEL=info
+
+# Dropbox sync logging (debug, info, warning, error)  
+DROPBOX_LOG_LEVEL=info
+```
+
+### Log Rotation
+
+- **Daily rotation**: New log file created each day
+- **Monthly cleanup**: Logs older than 30 days are automatically deleted
+- **Size limits**: Individual log files are limited to prevent disk space issues
+
+### Viewing Logs
+
+**Development:**
+```bash
+# View deployment logs
+tail -f backend/var/log/deployment/deployment-$(date +%Y-%m-%d).log
+
+# View Dropbox logs
+tail -f backend/var/log/dropbox/dropbox-$(date +%Y-%m-%d).log
+```
+
+**Production:**
+- Deployment logs available via admin-only endpoint: `/api/deployment/status`
+- Dropbox logs can be viewed via SSH or log aggregation tools
 
 ## License
 
