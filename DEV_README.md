@@ -45,12 +45,13 @@ This document provides detailed information for developers working on the projec
 - **File Handling**: When accepting a shared comic, creates a copy with a UUID-based filename in the recipient's directory
 
 #### ✅ Dropbox Integration System
-- **DropboxController**: Handles OAuth flow, connection status, file listing, and manual sync
-- **Dropbox OAuth Flow**: Complete implementation with CSRF protection and token management
-- **File Sync**: Downloads CBZ files from Dropbox to user-specific directories with recursive folder scanning
+- **DropboxController**: Handles OAuth flow, connection status, file listing, and individual comic import
+- **Dropbox OAuth Flow**: Complete implementation with CSRF protection, token management, and proper scopes
+- **Individual Import**: Users can import specific comics from their Dropbox with individual import buttons
+- **Smart Sync Detection**: Robust duplicate detection using filename and title similarity matching
 - **Automatic Tagging**: Intelligent conversion of folder names to tags (camelCase, snake_case, kebab-case support)
-- **API Endpoints**: Status check, disconnect, file listing, and manual sync triggers
-- **Background Sync**: Console command for automated syncing with rate limiting
+- **API Endpoints**: Status check, disconnect, file listing with sync status, and individual import
+- **Background Sync**: Console command for automated syncing with rate limiting (still available for bulk operations)
 
 #### ✅ Utility Commands
 - **CreateUserCommand**: Creates regular users (`app:create-user`)
@@ -95,10 +96,11 @@ This document provides detailed information for developers working on the projec
 - **Pending Shares Hook**: Custom hook `use-pending-shares.jsx` to fetch and manage pending shares
 
 #### ✅ Dropbox Integration
-- **Dropbox Sync Page**: Complete UI in `DropboxSyncPage.jsx` for managing Dropbox connection and sync
-- **Connection Status**: Real-time detection of Dropbox connection status
-- **File Management**: Display of Dropbox files with sync status indicators
-- **Manual Sync**: UI for triggering manual sync operations
+- **Dropbox Sync Page**: Complete UI in `DropboxSyncPage.jsx` for managing Dropbox connection and individual imports
+- **Connection Status**: Real-time detection of Dropbox connection status with proper OAuth scopes
+- **File Management**: Display of Dropbox files with accurate sync status indicators
+- **Individual Import**: UI for importing specific comics with individual import buttons and loading states
+- **Smart Status Detection**: Accurately shows which files have been imported to prevent duplicates
 - **Dashboard Integration**: Dedicated "Dropbox" tab in the main dashboard for synced comics
 
 The frontend is built with:
@@ -204,9 +206,10 @@ DROPBOX_APP_SECRET=your_dropbox_app_secret_here
 DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
 
 # Dropbox App Folder Configuration
-# This is the folder path in each user's Dropbox where comics will be synced from
-# Default: /Applications/StarbugStoneComics (created automatically when users connect)
-DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics
+# For app-scoped Dropbox apps, this should be set to "/" (root of the app's scope)
+# Users must create the "Applications/StarbugStoneComics" folder in their Dropbox
+# but from the app's perspective, this folder becomes the root ("/")
+DROPBOX_APP_FOLDER=/
 
 # Dropbox Sync Configuration
 # Maximum number of files to sync per user per sync operation (prevents overload)
@@ -329,7 +332,7 @@ php bin/console app:dropbox-sync --user-id=123 --limit=20 --dry-run
 The command respects these environment variables:
 
 - **`DROPBOX_SYNC_LIMIT`**: Default number of files to sync per user (default: 10)
-- **`DROPBOX_APP_FOLDER`**: Folder path to scan in each user's Dropbox (default: /Applications/StarbugStoneComics)
+- **`DROPBOX_APP_FOLDER`**: Should be "/" for app-scoped Dropbox apps (users create Applications/StarbugStoneComics folder)
 - **`DROPBOX_RATE_LIMIT`**: API rate limiting (default: 60 requests per minute)
 
 #### Rate Limiting & Performance
@@ -390,7 +393,7 @@ The Dropbox integration includes an intelligent tagging system that automaticall
 
 ```
 Dropbox Structure → Generated Tags
-(with default DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics)
+(users create Applications/StarbugStoneComics folder in their Dropbox)
 
 Applications/StarbugStoneComics/
 ├── Superman.cbz → ["Dropbox"]

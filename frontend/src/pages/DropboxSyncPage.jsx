@@ -185,6 +185,10 @@ function DropboxSyncPage() {
   const [syncStatus, setSyncStatus] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [dropboxFiles, setDropboxFiles] = useState([]);
+  const [importingFiles, setImportingFiles] = useState(new Set());
+  const [refreshingFiles, setRefreshingFiles] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   // Check connection status on component mount
   useEffect(() => {
@@ -213,7 +217,7 @@ function DropboxSyncPage() {
         setDropboxUser(data.user);
         setLastSync(data.lastSync);
         if (data.connected) {
-          fetchDropboxFiles();
+          await fetchDropboxFiles(false); // Don't show toast on initial load
         }
       }
     } catch (error) {
@@ -223,7 +227,8 @@ function DropboxSyncPage() {
     }
   };
 
-  const fetchDropboxFiles = async () => {
+  const fetchDropboxFiles = async (showToast = true) => {
+    setRefreshingFiles(true);
     try {
       const response = await fetch('/api/dropbox/files', {
         credentials: 'include'
@@ -232,17 +237,41 @@ function DropboxSyncPage() {
       if (response.ok) {
         const data = await response.json();
         setDropboxFiles(data.files || []);
+        if (showToast) {
+          toast({
+            title: "Files Refreshed",
+            description: `Found ${data.files?.length || 0} comics in your Dropbox folder.`,
+          });
+        }
+      } else {
+        toast({
+          title: "Refresh Failed",
+          description: "Failed to refresh Dropbox files.",
+          variant: "destructive"
+        });
       }
     } catch (error) {
       console.error('Error fetching Dropbox files:', error);
+      toast({
+        title: "Refresh Failed",
+        description: "Network error occurred while refreshing files.",
+        variant: "destructive"
+      });
+    } finally {
+      setRefreshingFiles(false);
     }
   };
 
   const handleConnectDropbox = () => {
-    window.location.href = '/api/dropbox/connect';
+    setConnecting(true);
+    // Add a small delay to show the loading state before redirect
+    setTimeout(() => {
+      window.location.href = '/api/dropbox/connect';
+    }, 100);
   };
 
   const handleDisconnectDropbox = async () => {
+    setDisconnecting(true);
     try {
       const response = await fetch('/api/dropbox/disconnect', {
         method: 'POST',
@@ -257,12 +286,64 @@ function DropboxSyncPage() {
           title: "Dropbox Disconnected",
           description: "Your Dropbox account has been disconnected.",
         });
+      } else {
+        toast({
+          title: "Disconnect Failed",
+          description: "Failed to disconnect Dropbox account.",
+          variant: "destructive"
+        });
       }
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to disconnect Dropbox account.",
+        title: "Disconnect Failed",
+        description: "Network error occurred while disconnecting.",
         variant: "destructive"
+      });
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  const handleImportSingle = async (fileName) => {
+    setImportingFiles(prev => new Set([...prev, fileName]));
+    
+    try {
+      const response = await fetch('/api/dropbox/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ fileName })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        toast({
+          title: "Import Successful",
+          description: `${data.comic?.title || fileName} has been imported successfully.`,
+        });
+        // Refresh the files list to update sync status
+        fetchDropboxFiles(false); // Don't show toast after import
+      } else {
+        const error = await response.json();
+        toast({
+          title: "Import Failed",
+          description: error.error || 'Failed to import comic',
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Import Failed",
+        description: "Network error occurred during import.",
+        variant: "destructive"
+      });
+    } finally {
+      setImportingFiles(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(fileName);
+        return newSet;
       });
     }
   };
@@ -379,23 +460,28 @@ function DropboxSyncPage() {
                   </div>
                   <div className="flex gap-2">
                     <Button
-                      onClick={handleSync}
-                      disabled={syncing}
+                      variant="outline"
+                      onClick={fetchDropboxFiles}
+                      disabled={refreshingFiles}
                       className="flex items-center gap-2"
                     >
-                      {syncing ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4" />
-                      )}
-                      {syncing ? 'Syncing...' : 'Sync Now'}
+                      <RefreshCw className={`h-4 w-4 ${refreshingFiles ? 'animate-spin' : ''}`} />
+                      {refreshingFiles ? 'Refreshing...' : 'Refresh Files'}
                     </Button>
                     <Button
                       variant="outline"
                       onClick={handleDisconnectDropbox}
-                      className="text-red-600 hover:text-red-700"
+                      disabled={disconnecting}
+                      className="text-red-600 hover:text-red-700 disabled:text-red-400"
                     >
-                      Disconnect
+                      {disconnecting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Disconnecting...
+                        </>
+                      ) : (
+                        'Disconnect'
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -441,6 +527,27 @@ function DropboxSyncPage() {
                               </div>
                             )}
                           </div>
+                          {!file.synced && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleImportSingle(file.name)}
+                              disabled={importingFiles.has(file.name)}
+                              className="ml-3 text-blue-600 border-blue-600 hover:bg-blue-50"
+                            >
+                              {importingFiles.has(file.name) ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  Importing...
+                                </>
+                              ) : (
+                                <>
+                                  <Download className="w-3 h-3 mr-1" />
+                                  Import
+                                </>
+                              )}
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -467,9 +574,22 @@ function DropboxSyncPage() {
                 <p className="text-sm text-muted-foreground">
                   Your comics should be placed in the <code className="bg-muted px-1 py-0.5 rounded">Applications/StarbugStoneComics</code> folder in your Dropbox.
                 </p>
-                <Button onClick={handleConnectDropbox} className="flex items-center gap-2">
-                  <Cloud className="h-4 w-4" />
-                  Connect to Dropbox
+                <Button 
+                  onClick={handleConnectDropbox} 
+                  disabled={connecting}
+                  className="flex items-center gap-2"
+                >
+                  {connecting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Cloud className="h-4 w-4" />
+                      Connect to Dropbox
+                    </>
+                  )}
                 </Button>
               </div>
             )}

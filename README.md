@@ -58,8 +58,10 @@ The site should have a norma and dark mode.
 - **Pending Shares Management**: Accept or refuse comics shared with you
 - **Automatic Cleanup**: System automatically cleans up expired share tokens and their public cover images
 - **Session Persistence**: Actively maintains user sessions to prevent unexpected logouts during activity or long uploads.
-- **Dropbox Integration**: Connect your Dropbox account to automatically sync CBZ files from your Dropbox folder
+- **Dropbox Integration**: Connect your Dropbox account to import CBZ files from your Dropbox folder
+- **Individual Import**: Choose specific comics to import from your Dropbox with individual import buttons
 - **Automatic Sync**: Background sync command that can be scheduled via cron to automatically import new comics
+- **Smart Sync Detection**: Accurately tracks which files have been imported to prevent duplicates
 - **Dropbox Comics Management**: Dedicated dashboard section for comics synced from Dropbox
 
 ## Architecture
@@ -132,8 +134,8 @@ The backend provides the following API endpoints:
 - `GET /api/dropbox/callback` - Handle Dropbox OAuth callback
 - `GET /api/dropbox/status` - Check Dropbox connection status
 - `POST /api/dropbox/disconnect` - Disconnect Dropbox account
-- `GET /api/dropbox/files` - List CBZ files in connected Dropbox account
-- `POST /api/dropbox/sync` - Manually trigger sync of Dropbox files
+- `GET /api/dropbox/files` - List CBZ files in connected Dropbox account with sync status
+- `POST /api/dropbox/import` - Import a specific comic file from Dropbox
 
 ### User Management (Admin only)
 
@@ -223,9 +225,10 @@ DROPBOX_APP_SECRET=your_dropbox_app_secret_here
 DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
 
 # Dropbox App Folder Configuration
-# This is the folder path in each user's Dropbox where comics will be synced from
-# Default: /Applications/StarbugStoneComics (created automatically when users connect)
-DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics
+# For app-scoped Dropbox apps, this should be set to "/" (root of the app's scope)
+# Users must create the "Applications/StarbugStoneComics" folder in their Dropbox
+# but from the app's perspective, this folder becomes the root ("/")
+DROPBOX_APP_FOLDER=/
 
 # Dropbox Sync Configuration
 # Maximum number of files to sync per user per sync operation (prevents overload)
@@ -281,7 +284,31 @@ DROPBOX_APP_SECRET=your_staging_app_secret
 DROPBOX_REDIRECT_URI=https://staging.yourdomain.com/api/dropbox/callback
 ```
 
-## Dropbox Sync Command
+## Dropbox Sync
+
+The application supports both manual and automatic syncing of comics from Dropbox.
+
+### Manual Import via Web Interface
+
+Users can import their comics individually through the Dropbox sync page:
+
+1. **Connect Dropbox**: Click "Connect to Dropbox" and authorize the application with proper scopes
+2. **View Files**: See all CBZ files in your `Applications/StarbugStoneComics` folder with real-time sync status
+3. **Import Comics**: Click "Import" next to each comic you want to add to your library
+4. **Refresh Files**: Use "Refresh Files" button to check for new files in your Dropbox
+
+**File Status Indicators:**
+- **Pending**: File detected in Dropbox but not yet imported (shows Import button)
+- **Synced**: File has been successfully downloaded and added to your comic library (no import button)
+
+**Benefits of Individual Import:**
+- Choose exactly which comics to import
+- See detailed information about each file before importing
+- Control your library growth and storage usage
+- Smart duplicate detection prevents importing the same comic twice
+- Automatic tagging based on folder structure
+
+### Automatic Sync Command
 
 The application includes a console command for automatically syncing comics from Dropbox. The command uses configurable defaults from your environment variables.
 
@@ -309,7 +336,7 @@ php bin/console app:dropbox-sync --user-id=123 --limit=20 --dry-run
 The sync command respects these environment variables:
 
 - **`DROPBOX_SYNC_LIMIT`**: Default number of files to sync per user (default: 10)
-- **`DROPBOX_APP_FOLDER`**: Folder path to scan in each user's Dropbox (default: /Applications/StarbugStoneComics)
+- **`DROPBOX_APP_FOLDER`**: Should be "/" for app-scoped Dropbox apps (users create Applications/StarbugStoneComics folder)
 - **`DROPBOX_RATE_LIMIT`**: API rate limiting (default: 60 requests per minute)
 
 ### Automated Sync with Cron
@@ -346,7 +373,7 @@ The system automatically creates tags from your Dropbox folder structure. Organi
 - Smart naming conversion handles various conventions
 - App folder name itself is excluded from tags
 
-**Examples (with default `DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics`):**
+**Examples (users create `Applications/StarbugStoneComics` folder in their Dropbox):**
 - `Applications/StarbugStoneComics/Superman.cbz` → Tags: ["Dropbox"]
 - `Applications/StarbugStoneComics/superHero/Batman.cbz` → Tags: ["Dropbox", "Super Hero"]
 - `Applications/StarbugStoneComics/Manga/Action/naruto.cbz` → Tags: ["Dropbox", "Manga", "Action"]

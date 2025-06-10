@@ -70,7 +70,7 @@ class DropboxController extends AbstractController
             'response_type' => 'code',
             'token_access_type' => 'offline', // To get a refresh token
             'state' => $state,
-            // 'scope' => 'files.content.read files.content.write account_info.read', // Optional: specify scopes if needed
+            'scope' => 'files.content.read files.content.write account_info.read', // Required scopes for file operations
         ]);
 
         $authUrl = 'https://www.dropbox.com/oauth2/authorize?' . $authUrlParams;
@@ -240,8 +240,15 @@ class DropboxController extends AbstractController
             
             // Get existing comics for this user to check what's already synced
             $existingComics = $entityManager->getRepository(Comic::class)->findBy(['owner' => $user]);
+            
+            // Create a more robust way to check if files are synced
+            // We'll check both filename and title similarity
             $existingFiles = array_map(function($comic) {
                 return basename($comic->getFilePath());
+            }, $existingComics);
+            
+            $existingTitles = array_map(function($comic) {
+                return $comic->getTitle();
             }, $existingComics);
 
             // Get all files recursively with folder structure from the configured app folder
@@ -249,19 +256,190 @@ class DropboxController extends AbstractController
             $files = [];
 
             foreach ($allFiles as $fileInfo) {
+                // Check if file is synced using multiple methods
+                $isSynced = $this->isDropboxFileSynced($fileInfo['name'], $existingFiles, $existingTitles);
+                
                 $files[] = [
                     'name' => $fileInfo['name'],
                     'path' => $fileInfo['path'],
                     'size' => $this->formatFileSize($fileInfo['size']),
                     'modified' => $fileInfo['modified'],
                     'tags' => $fileInfo['tags'],
-                    'synced' => in_array($fileInfo['name'], $existingFiles)
+                    'synced' => $isSynced
                 ];
             }
 
             return $this->json(['files' => $files]);
         } catch (\Exception $e) {
             return $this->json(['error' => 'Failed to fetch Dropbox files: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    #[Route('/import', name: 'dropbox_import_single', methods: ['POST'])]
+    public function importSingle(Request $request, #[CurrentUser] ?User $user, EntityManagerInterface $entityManager, ComicService $comicService): Response
+    {
+        error_log("Import endpoint called with request: " . $request->getContent());
+        
+        if (!$user) {
+            error_log("User not authenticated in import endpoint");
+            return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        if (!$user->getDropboxAccessToken()) {
+            return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $data = json_decode($request->getContent(), true);
+        $fileName = $data['fileName'] ?? null;
+
+        if (!$fileName) {
+            return $this->json(['error' => 'fileName is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            error_log("Import request received for file: " . $fileName);
+            
+            $client = new DropboxClient($user->getDropboxAccessToken());
+            
+            // Get existing comics for this user
+            $existingComics = $entityManager->getRepository(Comic::class)->findBy(['owner' => $user]);
+            $existingFiles = array_map(function($comic) {
+                return basename($comic->getFilePath());
+            }, $existingComics);
+
+            error_log("Existing files: " . implode(', ', $existingFiles));
+
+            // Check if file is already imported
+            if (in_array($fileName, $existingFiles)) {
+                error_log("File already exists: " . $fileName);
+                return $this->json(['error' => 'Comic is already imported'], Response::HTTP_BAD_REQUEST);
+            }
+
+            // Find the specific file in Dropbox
+            $allFiles = $this->getAllDropboxFiles($client, $this->dropboxAppFolder);
+            $targetFile = null;
+            
+            foreach ($allFiles as $fileInfo) {
+                if (basename($fileInfo['path']) === $fileName) {
+                    $targetFile = $fileInfo;
+                    break;
+                }
+            }
+
+            if (!$targetFile) {
+                error_log("File not found in Dropbox: " . $fileName);
+                return $this->json(['error' => 'File not found in Dropbox'], Response::HTTP_NOT_FOUND);
+            }
+
+            error_log("Target file found: " . json_encode($targetFile));
+
+            $userDirectory = $this->comicsDirectory . '/' . $user->getId();
+            
+            // Ensure user directory exists
+            if (!file_exists($userDirectory)) {
+                mkdir($userDirectory, 0777, true);
+            }
+
+            // Create dropbox subdirectory
+            $dropboxDirectory = $userDirectory . '/dropbox';
+            if (!file_exists($dropboxDirectory)) {
+                mkdir($dropboxDirectory, 0777, true);
+            }
+
+            // Test different path approaches
+            error_log("Testing path encoding approaches...");
+            
+            // Test 1: Original path from metadata
+            $originalPath = $targetFile['path'];
+            error_log("Original path: " . $originalPath);
+            
+            // Test 2: URL-encoded path
+            $encodedPath = rawurlencode($originalPath);
+            error_log("URL-encoded path: " . $encodedPath);
+            
+            // Test 3: Just the path_lower field
+            $lowerPath = $targetFile['path_lower'];
+            error_log("Lower path: " . $lowerPath);
+            
+            // Test 4: Try to use the name and rebuild path
+            $fileNameFromMeta = $targetFile['name'];
+            $folderPath = dirname($originalPath);
+            $rebuiltPath = $folderPath === '/' ? "/{$fileNameFromMeta}" : "{$folderPath}/{$fileNameFromMeta}";
+            error_log("Rebuilt path: " . $rebuiltPath);
+            
+            // For now, let's try the original path first
+            error_log("Attempting to download from path: " . $originalPath);
+            
+            // Try an alternative approach: get temporary link instead of direct download
+            error_log("Attempting temporary link approach as workaround...");
+            
+            try {
+                // Get temporary link first
+                $tempLink = $client->getTemporaryLink($originalPath);
+                error_log("Temporary link obtained: " . $tempLink);
+                
+                // Download using regular HTTP client
+                $httpClient = \Symfony\Component\HttpClient\HttpClient::create();
+                $response = $httpClient->request('GET', $tempLink);
+                $fileContent = $response->getContent();
+                
+                error_log("File downloaded via temporary link, size: " . strlen($fileContent) . " bytes");
+            } catch (\Exception $e) {
+                error_log("Temporary link approach failed: " . get_class($e) . " - " . $e->getMessage());
+                
+                // Fallback to original direct download attempt
+                error_log("Falling back to direct download...");
+                $fileContent = $client->download($originalPath);
+                error_log("Direct download successful, size: " . strlen($fileContent) . " bytes");
+            }
+            
+            // Save to dropbox subdirectory
+            $localPath = $dropboxDirectory . '/' . $fileName;
+            file_put_contents($localPath, $fileContent);
+            
+            // Create a temporary UploadedFile object for the ComicService
+            $tempFile = new UploadedFile(
+                $localPath,
+                $fileName,
+                'application/zip',
+                null,
+                true // Test mode
+            );
+            
+            // Extract title from filename
+            $title = pathinfo($fileName, PATHINFO_FILENAME);
+            $title = str_replace(['_', '-'], ' ', $title);
+            $title = ucwords($title);
+            
+            // Create tags from folder structure + Dropbox tag
+            $tags = array_merge(['Dropbox'], $targetFile['tags']);
+            
+            // Create comic entry
+            $comic = $comicService->uploadComic(
+                $tempFile,
+                $user,
+                $title,
+                null, // author
+                null, // publisher
+                'Synced from Dropbox', // description
+                $tags
+            );
+
+            return $this->json([
+                'message' => 'Comic imported successfully',
+                'comic' => [
+                    'id' => $comic->getId(),
+                    'title' => $comic->getTitle(),
+                    'tags' => $tags
+                ]
+            ]);
+        } catch (\Exception $e) {
+            error_log("Import failed with exception: " . $e->getMessage());
+            error_log("Exception trace: " . $e->getTraceAsString());
+            return $this->json([
+                'error' => 'Import failed: ' . $e->getMessage(),
+                'details' => $e->getTraceAsString()
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -384,6 +562,7 @@ class DropboxController extends AbstractController
                     
                     $allFiles[] = [
                         'path' => $entry['path_display'],
+                        'path_lower' => $entry['path_lower'] ?? $entry['path_display'],
                         'name' => $entry['name'],
                         'size' => $entry['size'],
                         'modified' => $entry['client_modified'],
@@ -468,5 +647,56 @@ class DropboxController extends AbstractController
         $formatted = ucwords(strtolower($formatted));
         
         return $formatted;
+    }
+
+    /**
+     * Check if a Dropbox file has already been synced/imported
+     * Uses multiple methods: exact filename match and title similarity
+     */
+    private function isDropboxFileSynced(string $dropboxFileName, array $existingFiles, array $existingTitles): bool
+    {
+        // Method 1: Exact filename match (for backwards compatibility)
+        if (in_array($dropboxFileName, $existingFiles)) {
+            return true;
+        }
+        
+        // Method 2: Check if a comic with similar title exists
+        // Extract title from Dropbox filename (remove extension and clean up)
+        $dropboxTitle = pathinfo($dropboxFileName, PATHINFO_FILENAME);
+        $dropboxTitle = str_replace(['_', '-'], ' ', $dropboxTitle);
+        $dropboxTitle = ucwords(strtolower($dropboxTitle));
+        
+        // Normalize titles for comparison
+        $normalizedDropboxTitle = $this->normalizeTitle($dropboxTitle);
+        
+        foreach ($existingTitles as $existingTitle) {
+            $normalizedExistingTitle = $this->normalizeTitle($existingTitle);
+            
+            // Check for high similarity (allowing for minor differences)
+            $similarity = 0;
+            similar_text($normalizedDropboxTitle, $normalizedExistingTitle, $similarity);
+            
+            if ($similarity > 85) { // 85% similarity threshold
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * Normalize title for comparison by removing special characters and extra spaces
+     */
+    private function normalizeTitle(string $title): string
+    {
+        // Convert to lowercase
+        $normalized = strtolower($title);
+        
+        // Remove special characters and extra spaces
+        $normalized = preg_replace('/[^a-z0-9\s]/', '', $normalized);
+        $normalized = preg_replace('/\s+/', ' ', $normalized);
+        $normalized = trim($normalized);
+        
+        return $normalized;
     }
 }

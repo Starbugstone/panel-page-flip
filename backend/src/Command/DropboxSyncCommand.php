@@ -290,11 +290,19 @@ class DropboxSyncCommand extends Command
         try {
             $response = $client->listFolder($path);
             
+            // Debug: Log what we got from Dropbox
+            error_log("DEBUG: Listing folder '{$path}', found " . count($response['entries']) . " entries");
+            
             foreach ($response['entries'] as $entry) {
+                // Debug: Log each entry
+                error_log("DEBUG: Found entry: " . $entry['name'] . " (type: " . $entry['.tag'] . ")");
+                
                 if ($entry['.tag'] === 'file' && strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)) === 'cbz') {
                     // Extract folder path and convert to tags
                     $folderPath = trim(dirname($entry['path_display']), '/');
                     $tags = $this->convertPathToTags($folderPath);
+                    
+                    error_log("DEBUG: Found CBZ file: " . $entry['name']);
                     
                     $allFiles[] = [
                         'path' => $entry['path_display'],
@@ -305,6 +313,7 @@ class DropboxSyncCommand extends Command
                     ];
                 } elseif ($entry['.tag'] === 'folder') {
                     // Recursively get files from subfolders
+                    error_log("DEBUG: Recursing into folder: " . $entry['path_display']);
                     $subFiles = $this->getAllDropboxFiles($client, $entry['path_display']);
                     $allFiles = array_merge($allFiles, $subFiles);
                 }

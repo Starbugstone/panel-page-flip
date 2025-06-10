@@ -79,8 +79,8 @@ jobs:
 #       composer install --no-dev --optimize-autoloader
 #       php bin/console cache:clear --env=prod
 #       php bin/console doctrine:migrations:migrate --no-interaction
-          dangerous-clean-slate: true
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
+#          dangerous-clean-slate: true
+#          exclude: |
+#            **/.git*
+#            **/.git*/**
+#            **/node_modules/**
