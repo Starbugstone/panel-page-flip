@@ -2,6 +2,10 @@
 
 namespace App\Controller;
 
+use App\Entity\DeploymentHistory;
+use App\Repository\DeploymentHistoryRepository;
+use App\Service\RollbackService;
+use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bridge\Monolog\Logger;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -25,13 +29,22 @@ class DeploymentController extends AbstractController
 
     private LoggerInterface $logger;
     private MailerInterface $mailer;
+    private EntityManagerInterface $entityManager;
+    private DeploymentHistoryRepository $deploymentRepository;
+    private RollbackService $rollbackService;
 
     public function __construct(
         LoggerInterface $deploymentLogger,
-        MailerInterface $mailer
+        MailerInterface $mailer,
+        EntityManagerInterface $entityManager,
+        DeploymentHistoryRepository $deploymentRepository,
+        RollbackService $rollbackService
     ) {
         $this->logger = $deploymentLogger;
         $this->mailer = $mailer;
+        $this->entityManager = $entityManager;
+        $this->deploymentRepository = $deploymentRepository;
+        $this->rollbackService = $rollbackService;
     }
 
     #[Route('/webhook', name: 'webhook', methods: ['POST'])]
@@ -56,6 +69,9 @@ class DeploymentController extends AbstractController
             
             // Execute deployment
             $result = $this->executeDeployment($payload);
+            
+            // Save deployment history
+            $this->saveDeploymentHistory($payload, $result, 'success');
             
             // Send notification email
             $this->sendDeploymentNotification($payload, $result);
@@ -85,6 +101,11 @@ class DeploymentController extends AbstractController
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
+            
+            // Save failed deployment history if we have payload
+            if (isset($payload)) {
+                $this->saveDeploymentHistory($payload, ['error' => $e->getMessage()], 'failed');
+            }
             
             // Send error notification
             $this->sendErrorNotification($e, $request);
@@ -188,9 +209,12 @@ class DeploymentController extends AbstractController
                 'php', 'bin/console', 
                 'doctrine:migrations:migrate', '--no-interaction'
             ],
+            'cache_cleanup' => [
+                'rm', '-rf', 'var/cache/*'
+            ],
             'cache_clear' => [
                 'php', 'bin/console', 
-                'cache:clear', '--env=prod', '--no-debug'
+                'cache:clear', '--env=prod', '--no-debug', '--no-warmup'
             ],
             'cache_warmup' => [
                 'php', 'bin/console', 
@@ -208,8 +232,7 @@ class DeploymentController extends AbstractController
                 $process->mustRun();
                 $steps[$name] = [
                     'status' => 'success',
-                    'output' => $process->getOutput(),
-                    'duration' => $process->getLastRunTime()
+                    'output' => $process->getOutput()
                 ];
                 
                 $this->logger->info("Deployment step '{$name}' completed successfully");
@@ -279,6 +302,134 @@ class DeploymentController extends AbstractController
         } catch (\Exception $e) {
             $this->logger->warning('Failed to send error notification email', [
                 'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    #[Route('/rollback', name: 'rollback', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function rollback(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+            
+            if (isset($data['commit'])) {
+                // Rollback to specific commit
+                $result = $this->rollbackService->rollbackToCommit(
+                    $data['commit'],
+                    $data['reason'] ?? 'Manual rollback via API'
+                );
+            } else {
+                // Rollback to previous deployment
+                $result = $this->rollbackService->rollbackToPrevious(
+                    $data['reason'] ?? 'Rollback to previous deployment'
+                );
+            }
+
+            return $this->json([
+                'status' => 'success',
+                'message' => 'Rollback completed successfully',
+                'result' => $result
+            ]);
+
+        } catch (\Exception $e) {
+            $this->logger->error('Rollback failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return $this->json([
+                'status' => 'error',
+                'message' => 'Rollback failed',
+                'error' => $e->getMessage()
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    #[Route('/history', name: 'history', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function deploymentHistory(Request $request): JsonResponse
+    {
+        $page = max(1, (int) $request->query->get('page', 1));
+        $limit = min(50, max(1, (int) $request->query->get('limit', 20)));
+
+        $deployments = $this->deploymentRepository->getDeploymentHistory($page, $limit);
+        $total = $this->deploymentRepository->countDeployments();
+
+        return $this->json([
+            'deployments' => array_map(function(DeploymentHistory $deployment) {
+                return [
+                    'id' => $deployment->getId(),
+                    'commit_hash' => $deployment->getCommitHash(),
+                    'short_commit' => $deployment->getShortCommitHash(),
+                    'branch' => $deployment->getBranch(),
+                    'repository' => $deployment->getRepository(),
+                    'deployed_at' => $deployment->getDeployedAt()?->format('Y-m-d H:i:s'),
+                    'status' => $deployment->getStatus(),
+                    'deployed_by' => $deployment->getDeployedBy(),
+                    'duration' => $deployment->getDuration(),
+                    'rollback_reason' => $deployment->getRollbackReason(),
+                    'rolled_back_at' => $deployment->getRolledBackAt()?->format('Y-m-d H:i:s'),
+                    'rolled_back_to_commit' => $deployment->getRolledBackToCommit(),
+                ];
+            }, $deployments),
+            'pagination' => [
+                'page' => $page,
+                'limit' => $limit,
+                'total' => $total,
+                'pages' => ceil($total / $limit)
+            ]
+        ]);
+    }
+
+    #[Route('/rollback-targets', name: 'rollback_targets', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function rollbackTargets(): JsonResponse
+    {
+        $targets = $this->rollbackService->getAvailableRollbackTargets();
+
+        return $this->json([
+            'targets' => array_map(function(DeploymentHistory $deployment) {
+                return [
+                    'commit_hash' => $deployment->getCommitHash(),
+                    'short_commit' => $deployment->getShortCommitHash(),
+                    'branch' => $deployment->getBranch(),
+                    'deployed_at' => $deployment->getDeployedAt()?->format('Y-m-d H:i:s'),
+                    'deployed_by' => $deployment->getDeployedBy(),
+                ];
+            }, $targets)
+        ]);
+    }
+
+    private function saveDeploymentHistory(array $payload, array $result, string $status): void
+    {
+        try {
+            $deployment = new DeploymentHistory();
+            $deployment->setCommitHash($payload['commit']);
+            $deployment->setBranch($payload['branch'] ?? 'main');
+            $deployment->setRepository($payload['repository'] ?? null);
+            $deployment->setGithubRunId($payload['run_id'] ?? null);
+            $deployment->setDeployedAt(new \DateTime());
+            $deployment->setStatus($status);
+            $deployment->setDeployedBy('github-actions');
+            $deployment->setDeploymentStepsArray($result);
+            
+            if (isset($result['duration'])) {
+                $deployment->setDuration($result['duration']);
+            }
+
+            $this->entityManager->persist($deployment);
+            $this->entityManager->flush();
+
+            $this->logger->info('Deployment history saved', [
+                'commit' => $payload['commit'],
+                'status' => $status
+            ]);
+
+        } catch (\Exception $e) {
+            $this->logger->warning('Failed to save deployment history', [
+                'error' => $e->getMessage(),
+                'payload' => $payload
             ]);
         }
     }

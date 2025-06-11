@@ -5,6 +5,7 @@ import { useLocation } from "react-router-dom";
 import { Button } from "./ui/button.jsx";
 import { BookOpen, Upload, Settings, User, Cloud } from "lucide-react";
 import { useEffect, useState } from "react";
+import DeploymentStatusIndicator from "./DeploymentStatusIndicator.jsx";
 
 export function Header({ isLoggedIn, onLogout, isAdmin }) {
   const location = useLocation();
@@ -74,10 +75,13 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
                 <Cloud className="inline md:hidden h-5 w-5" />
               </Link>
               {isAdmin && (
-                <Link to="/admin" className={`${location.pathname === "/admin" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
-                  <span className="hidden md:inline">Admin Panel</span>
-                  <Settings className="inline md:hidden h-5 w-5" />
-                </Link>
+                <>
+                  <Link to="/admin" className={`${location.pathname === "/admin" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+                    <span className="hidden md:inline">Admin Panel</span>
+                    <Settings className="inline md:hidden h-5 w-5" />
+                  </Link>
+                  <DeploymentStatusIndicator />
+                </>
               )}
               <div className="flex items-center gap-4">
                 <Button variant="ghost" onClick={onLogout} className="hidden md:flex gap-2">

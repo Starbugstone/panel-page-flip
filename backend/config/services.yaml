@@ -92,4 +92,10 @@ services:
         arguments:
             $deploymentLogger: '@monolog.logger.deployment'
 
+    # Rollback service with project directory and logger configuration
+    App\Service\RollbackService:
+        arguments:
+            $deploymentLogger: '@monolog.logger.deployment'
+            $projectDir: '%kernel.project_dir%'
+
 

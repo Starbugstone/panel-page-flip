@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Rollback Successful</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .header { background: #ff9800; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; }
+        .info-box { background: #fff3e0; padding: 15px; margin: 10px 0; border-left: 4px solid #ff9800; }
+        .step { margin: 10px 0; padding: 10px; background: #e8f5e8; border-radius: 4px; }
+        .warning-box { background: #fff3e0; padding: 15px; margin: 10px 0; border-left: 4px solid #ff9800; }
+        .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.9em; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔄 Rollback Successful</h1>
+    </div>
+    
+    <div class="content">
+        <div class="warning-box">
+            <h3>⚠️ Application Rollback Completed</h3>
+            <p>Your application has been successfully rolled back to a previous version.</p>
+        </div>
+
+        <div class="info-box">
+            <h3>📋 Rollback Information</h3>
+            <p><strong>From Commit:</strong> {{ result.from_commit }}</p>
+            <p><strong>To Commit:</strong> {{ result.to_commit }}</p>
+            <p><strong>Reason:</strong> {{ reason ?? 'Not specified' }}</p>
+            <p><strong>Triggered By:</strong> {{ triggered_by ?? 'System' }}</p>
+            <p><strong>Timestamp:</strong> {{ timestamp|date('Y-m-d H:i:s') }}</p>
+            {% if result.backup_info %}
+                <p><strong>Backup Created:</strong> {{ result.backup_info.path }}</p>
+            {% endif %}
+        </div>
+
+        <h3>🔧 Rollback Steps Completed</h3>
+        {% for step_name, step_data in result.steps %}
+            <div class="step">
+                <strong>{{ step_name|title|replace({'_': ' '}) }}:</strong> 
+                <span style="color: #2e7d32;">✅ Success</span>
+                
+                {% if step_data.output %}
+                    <details style="margin-top: 10px;">
+                        <summary>View Output</summary>
+                        <pre style="background: #f8f8f8; padding: 10px; margin: 5px 0; border-radius: 4px; font-size: 12px; overflow-x: auto;">{{ step_data.output }}</pre>
+                    </details>
+                {% endif %}
+            </div>
+        {% endfor %}
+
+        <div class="warning-box">
+            <h3>🔍 Next Steps</h3>
+            <ul>
+                <li>Verify that the application is working correctly</li>
+                <li>Check that all critical functionality is operational</li>
+                <li>Monitor logs for any issues</li>
+                <li>If issues persist, consider rolling back further or investigating the root cause</li>
+            </ul>
+        </div>
+
+        <div class="footer">
+            <p>🔄 Your application has been rolled back and should be operational.</p>
+            <p><strong>Important:</strong> User uploads and configuration files were preserved during the rollback.</p>
+            <p><small>This is an automated message from your deployment system.</small></p>
+        </div>
+    </div>
+</body>
+</html> 
