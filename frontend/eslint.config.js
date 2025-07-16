@@ -5,16 +5,17 @@ import reactRefresh from "eslint-plugin-react-refresh";
 
 // Removed: import tseslint from "typescript-eslint";
 
-export default [ // Changed from tseslint.config to a plain array
+export default [
   { ignores: ["dist"] },
   {
-    // Removed: extends: [js.configs.recommended, ...tseslint.configs.recommended],
-    // Now only extends js.configs.recommended
-    extends: [js.configs.recommended],
-    files: ["**/*.{js,jsx}"], // Changed from ts,tsx to js,jsx
+    files: ["**/*.{js,jsx}"],
+    ...js.configs.recommended,
     languageOptions: {
-      ecmaVersion: 2020,
-      sourceType: "module", // Added for clarity with ES modules
+      parserOptions: {
+        ecmaVersion: 2020,
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
       globals: globals.browser,
     },
     plugins: {
@@ -27,8 +28,6 @@ export default [ // Changed from tseslint.config to a plain array
         "warn",
         { allowConstantExport: true },
       ],
-      // Removed: "@typescript-eslint/no-unused-vars": "off",
-      // Standard 'no-unused-vars' from js.configs.recommended will apply.
     },
-  }
+  },
 ];
