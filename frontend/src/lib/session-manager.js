@@ -284,20 +284,6 @@ class SessionManager {
     }
   }
   
-  /**
-   * Force an immediate session check
-   * @returns {Promise<boolean>} True if session is valid, false otherwise
-   */
-  async forceSessionCheck() {
-    // If a check is already in progress, don't force another one
-    if (this.checkInProgress) {
-      logger.log('Session check already in progress, not forcing another');
-      return true; // Assume success to prevent cascading failures
-    }
-    
-    logger.log('Forcing session check');
-    return await this.checkSession(true);
-  }
 }
 
 // Create a singleton instance
