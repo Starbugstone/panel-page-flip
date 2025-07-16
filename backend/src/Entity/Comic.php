@@ -264,6 +264,11 @@ class Comic
             'author' => $this->author,
             'publisher' => $this->publisher,
             'description' => $this->description,
+            'owner' => [
+                'id'    => $this->owner?->getId(),
+                'name'  => $this->owner?->getName(),
+                'email' => $this->owner?->getEmail(),
+            ],
             'tags' => $tagNames
         ];
     }

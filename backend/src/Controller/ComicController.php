@@ -168,6 +168,11 @@ class ComicController extends AbstractController
                 'coverImagePath' => $fullCoverUrl,
                 'pageCount' => $comic->getPageCount(),
                 'uploadedAt' => $comic->getUploadedAt()->format('c'),
+                'owner' => [
+                    'id'    => $comic->getOwner()->getId(),
+                    'name'  => $comic->getOwner()->getName(),
+                    'email' => $comic->getOwner()->getEmail(),
+                ],
                 'tags' => array_map(function ($tag) {
                     return [
                         'id' => $tag->getId(),
@@ -230,6 +235,11 @@ class ComicController extends AbstractController
             'coverImagePath' => $fullCoverUrl,
             'pageCount' => $comic->getPageCount(),
             'uploadedAt' => $comic->getUploadedAt()->format('c'),
+            'owner' => [
+                'id'    => $comic->getOwner()->getId(),
+                'name'  => $comic->getOwner()->getName(),
+                'email' => $comic->getOwner()->getEmail(),
+            ],
             'tags' => array_map(function ($tag) {
                 return [
                     'id' => $tag->getId(),

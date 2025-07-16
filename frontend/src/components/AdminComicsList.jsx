@@ -25,9 +25,9 @@ export function AdminComicsList() {
           throw new Error('Failed to fetch comics');
         }
         const data = await response.json();
-        // Assuming API returns { comics: [...] } or just [...] 
-        // And each comic has an 'owner' object with 'email' or 'username'
-        // And 'tags' is an array of strings or objects with a 'name' property
+        // Assuming API returns { comics: [...] } or just [...]
+        // Each comic now includes an 'owner' object with 'name' and 'email'
+        // and 'tags' is an array of strings or objects with a 'name' property
         setComics(data.comics || data || []); 
       } catch (error) {
         console.error("Failed to load comics:", error);
@@ -40,13 +40,13 @@ export function AdminComicsList() {
     fetchComics();
   }, []);
   
-  const filteredComics = comics.filter(comic => 
+  const filteredComics = comics.filter(comic =>
     comic.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     comic.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (comic.owner && comic.owner.email && comic.owner.email.toLowerCase().includes(searchQuery.toLowerCase())) || // Adjusted for potential API structure
-    (comic.owner && comic.owner.username && comic.owner.username.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (comic.tags && comic.tags.some(tag => 
-      typeof tag === 'string' ? tag.toLowerCase().includes(searchQuery.toLowerCase()) : 
+    (comic.owner && comic.owner.name && comic.owner.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (comic.tags && comic.tags.some(tag =>
+      typeof tag === 'string' ? tag.toLowerCase().includes(searchQuery.toLowerCase()) :
       (tag.name && tag.name.toLowerCase().includes(searchQuery.toLowerCase()))
     ))
   );
@@ -136,8 +136,8 @@ export function AdminComicsList() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
-                        {/* Adjust based on your User entity's fields available in Comic's owner serialization */}
-                        <span>{comic.owner?.username || comic.owner?.email || 'N/A'}</span> 
+                        {/* Display owner's name when available, falling back to email */}
+                        <span>{comic.owner?.name || comic.owner?.email || 'N/A'}</span>
                         {comic.owner?.email && <span className="text-xs text-muted-foreground">{comic.owner.email}</span>}
                       </div>
                     </TableCell>
