@@ -5,8 +5,9 @@ namespace App\Command;
 use App\Entity\User;
 use App\Entity\Comic;
 use App\Service\ComicService;
+use App\Service\DropboxClientFactory;
 use Doctrine\ORM\EntityManagerInterface;
-use Spatie\Dropbox\Client as DropboxClient;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -57,10 +58,14 @@ class DropboxSyncCommand extends Command
     private string $comicsDirectory;
     private string $dropboxAppFolder;
     private int $defaultSyncLimit;
+    private LoggerInterface $logger;
+    private DropboxClientFactory $dropboxClientFactory;
 
     public function __construct(
         EntityManagerInterface $entityManager,
         ComicService $comicService,
+        LoggerInterface $logger,
+        DropboxClientFactory $dropboxClientFactory,
         string $comicsDirectory,
         string $dropboxAppFolder,
         int $defaultSyncLimit
@@ -68,6 +73,8 @@ class DropboxSyncCommand extends Command
         parent::__construct();
         $this->entityManager = $entityManager;
         $this->comicService = $comicService;
+        $this->logger = $logger;
+        $this->dropboxClientFactory = $dropboxClientFactory;
         $this->comicsDirectory = $comicsDirectory;
         $this->dropboxAppFolder = $dropboxAppFolder;
         $this->defaultSyncLimit = $defaultSyncLimit;
@@ -130,6 +137,10 @@ class DropboxSyncCommand extends Command
             
             try {
                 $result = $this->syncUserDropbox($user, $io, $dryRun, $limit);
+                if (!$dryRun) {
+                    $user->setDropboxLastSyncedAt(new \DateTimeImmutable());
+                    $this->entityManager->flush();
+                }
                 $totalNewFiles += $result['newFiles'];
                 $totalErrors += $result['errors'];
             } catch (\Exception $e) {
@@ -154,7 +165,7 @@ class DropboxSyncCommand extends Command
         $errors = 0;
 
         try {
-            $client = new DropboxClient($user->getDropboxAccessToken());
+            $client = $this->dropboxClientFactory->createForUser($user);
             
             // Get existing comics for this user
             $existingComics = $this->entityManager->getRepository(Comic::class)->findBy(['owner' => $user]);
@@ -290,20 +301,12 @@ class DropboxSyncCommand extends Command
         try {
             $response = $client->listFolder($path);
             
-            // Debug: Log what we got from Dropbox
-            error_log("DEBUG: Listing folder '{$path}', found " . count($response['entries']) . " entries");
-            
             foreach ($response['entries'] as $entry) {
-                // Debug: Log each entry
-                error_log("DEBUG: Found entry: " . $entry['name'] . " (type: " . $entry['.tag'] . ")");
-                
                 if ($entry['.tag'] === 'file' && strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)) === 'cbz') {
                     // Extract folder path and convert to tags
                     $folderPath = trim(dirname($entry['path_display']), '/');
                     $tags = $this->convertPathToTags($folderPath);
-                    
-                    error_log("DEBUG: Found CBZ file: " . $entry['name']);
-                    
+
                     $allFiles[] = [
                         'path' => $entry['path_display'],
                         'name' => $entry['name'],
@@ -313,14 +316,13 @@ class DropboxSyncCommand extends Command
                     ];
                 } elseif ($entry['.tag'] === 'folder') {
                     // Recursively get files from subfolders
-                    error_log("DEBUG: Recursing into folder: " . $entry['path_display']);
                     $subFiles = $this->getAllDropboxFiles($client, $entry['path_display']);
                     $allFiles = array_merge($allFiles, $subFiles);
                 }
             }
         } catch (\Exception $e) {
             // Handle pagination or other errors
-            error_log('Error listing Dropbox folder ' . $path . ': ' . $e->getMessage());
+            $this->logger->warning('Error listing Dropbox folder during sync.', ['exception' => $e]);
         }
         
         return $allFiles;
@@ -392,4 +394,4 @@ class DropboxSyncCommand extends Command
         
         return $formatted;
     }
-} 
+}

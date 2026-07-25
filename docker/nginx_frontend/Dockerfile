@@ -1,17 +1,16 @@
-ARG NODE_VERSION=18
+ARG NODE_VERSION=22
 ARG NGINX_VERSION=1.25 # Declare NGINX_VERSION globally
 
 # Stage 1: Build the React application
-FROM node:${NODE_VERSION}-alpine as builder
+FROM node:${NODE_VERSION}-alpine AS builder
 
 WORKDIR /app
 
 # Copy frontend's package.json and lock file to /app/
 COPY frontend/package.json frontend/package-lock.json* ./
 
-# Install dependencies
-# If you use npm ci, ensure package-lock.json is up-to-date
-RUN npm install
+# Reproduce the exact dependency graph from the lock file.
+RUN npm ci --ignore-scripts --no-audit --no-fund
 
 # Copy the entire frontend directory contents to /app/
 # This will place src, public, vite.config.js, etc., directly into /app/

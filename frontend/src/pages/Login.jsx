@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { useToast } from "@/hooks/use-toast.js";
 import { useAuth } from "@/hooks/use-auth.jsx";
+import { validatePassword } from "@/lib/password-policy";
 
 export default function Login() {
   // Login form state
@@ -25,6 +26,7 @@ export default function Login() {
   const defaultTab = searchParams.get("signup") ? "signup" : "login";
   const { toast } = useToast();
   const { login, register } = useAuth();
+  const registerPasswordErrors = validatePassword(registerPassword);
 
   const handleLoginSubmit = async (event) => {
     event.preventDefault();
@@ -61,7 +63,11 @@ export default function Login() {
     setRegisterLoading(true);
 
     try {
-      await register(registerEmail, registerPassword);
+      if (registerPasswordErrors.length > 0) {
+        throw new Error(`Password must include: ${registerPasswordErrors.join(", ")}.`);
+      }
+
+      await register(registerEmail, registerPassword, registerName);
       
       toast({
         title: "Success",
@@ -149,6 +155,11 @@ export default function Login() {
                   onChange={(e) => setRegisterName(e.target.value)}
                   required 
                 />
+                {registerPassword && registerPasswordErrors.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Password must include: {registerPasswordErrors.join(", ")}.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="signup-email">Email</Label>
@@ -168,6 +179,7 @@ export default function Login() {
                   type="password" 
                   value={registerPassword}
                   onChange={(e) => setRegisterPassword(e.target.value)}
+                  minLength={12}
                   required 
                 />
               </div>

@@ -24,6 +24,9 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $dropboxRefreshToken = null;
 
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $dropboxLastSyncedAt = null;
+
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
@@ -73,6 +76,9 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private ?\DateTimeImmutable $updatedAt = null;
 
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $lastLoginAt = null;
+
     /**
      * @var Collection<int, Comic>
      */
@@ -97,6 +103,12 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\OneToMany(targetEntity: ResetPasswordToken::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
     private Collection $resetPasswordTokens;
 
+    /**
+     * @var Collection<int, EmailVerificationToken>
+     */
+    #[ORM\OneToMany(targetEntity: EmailVerificationToken::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
+    private Collection $emailVerificationTokens;
+
     public function getDropboxAccessToken(): ?string
     {
         return $this->dropboxAccessToken;
@@ -119,12 +131,24 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
+    public function getDropboxLastSyncedAt(): ?\DateTimeImmutable
+    {
+        return $this->dropboxLastSyncedAt;
+    }
+
+    public function setDropboxLastSyncedAt(?\DateTimeImmutable $dropboxLastSyncedAt): static
+    {
+        $this->dropboxLastSyncedAt = $dropboxLastSyncedAt;
+        return $this;
+    }
+
     public function __construct()
     {
         $this->comics = new ArrayCollection();
         $this->readingProgress = new ArrayCollection();
         $this->createdTags = new ArrayCollection();
         $this->resetPasswordTokens = new ArrayCollection();
+        $this->emailVerificationTokens = new ArrayCollection();
         $this->isEmailVerified = false;
 
         $this->createdAt = new \DateTimeImmutable();
@@ -254,6 +278,17 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
+    public function getLastLoginAt(): ?\DateTimeImmutable
+    {
+        return $this->lastLoginAt;
+    }
+
+    public function setLastLoginAt(?\DateTimeImmutable $lastLoginAt): static
+    {
+        $this->lastLoginAt = $lastLoginAt;
+        return $this;
+    }
+
     /**
      * @return Collection<int, Comic>
      */
@@ -364,6 +399,35 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
 
         return $this;
     }
+
+    /**
+     * @return Collection<int, EmailVerificationToken>
+     */
+    public function getEmailVerificationTokens(): Collection
+    {
+        return $this->emailVerificationTokens;
+    }
+
+    public function addEmailVerificationToken(EmailVerificationToken $token): static
+    {
+        if (!$this->emailVerificationTokens->contains($token)) {
+            $this->emailVerificationTokens->add($token);
+            $token->setUser($this);
+        }
+
+        return $this;
+    }
+
+    public function removeEmailVerificationToken(EmailVerificationToken $token): static
+    {
+        if ($this->emailVerificationTokens->removeElement($token)) {
+            if ($token->getUser() === $this) {
+                $token->setUser(null);
+            }
+        }
+
+        return $this;
+    }
     
     public function getEmailVerificationToken(): ?string
     {
@@ -398,9 +462,10 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     
     public function generateEmailVerificationToken(): string
     {
-        $this->emailVerificationToken = bin2hex(random_bytes(32));
+        $plainToken = bin2hex(random_bytes(32));
+        $this->emailVerificationToken = hash('sha256', $plainToken);
         $this->emailVerificationTokenExpiresAt = (new \DateTimeImmutable())->modify('+24 hours');
         
-        return $this->emailVerificationToken;
+        return $plainToken;
     }
 }

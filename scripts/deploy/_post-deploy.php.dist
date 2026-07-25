@@ -1,0 +1,131 @@
+<?php
+/**
+ * One-shot post-deploy runner for FTP-only hosts.
+ *
+ * This file is copied to backend/public/_post-deploy.php by build-release.sh.
+ *
+ * Usage (called by scripts/post-deploy.sh):
+ *   GET  https://yourdomain.com/_post-deploy.php?token=XXX&action=health
+ *   POST https://yourdomain.com/_post-deploy.php?token=XXX&action=migrate
+ *   POST https://yourdomain.com/_post-deploy.php?token=XXX&action=cache-clear
+ *
+ * Security:
+ *   - The token comes from $_ENV['DEPLOY_TOKEN'] (set in backend/.env.prod.local
+ *     and consolidated by `composer dump-env prod`).
+ *   - The script ONLY runs when APP_ENV === 'prod'.
+ *   - Use HTTPS or this entire endpoint is a credential leak.
+ *   - Rotate DEPLOY_TOKEN regularly (e.g. on every deploy, see post-deploy.sh).
+ */
+
+declare(strict_types=1);
+
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+header('Content-Type: text/plain; charset=utf-8');
+header('X-Robots-Tag: noindex, nofollow, noarchive');
+
+set_time_limit(300);
+
+$projectRoot = dirname(__DIR__);
+
+require_once $projectRoot.'/vendor/autoload_runtime.php';
+
+// Load env (Symfony Runtime usually does this for index.php; we replicate it here).
+if (file_exists($projectRoot.'/.env.local.php')) {
+    $env = require $projectRoot.'/.env.local.php';
+    foreach ($env as $k => $v) {
+        $_ENV[$k] ??= $v;
+        $_SERVER[$k] ??= $v;
+    }
+} elseif (class_exists(\Symfony\Component\Dotenv\Dotenv::class) && file_exists($projectRoot.'/.env')) {
+    (new \Symfony\Component\Dotenv\Dotenv())->bootEnv($projectRoot.'/.env');
+}
+
+if (($_ENV['APP_ENV'] ?? 'prod') !== 'prod') {
+    http_response_code(403);
+    exit("Refusing to run: APP_ENV is not 'prod'.\n");
+}
+
+$expected = $_ENV['DEPLOY_TOKEN'] ?? '';
+$received = $_GET['token'] ?? $_SERVER['HTTP_X_DEPLOY_TOKEN'] ?? '';
+
+if ($expected === '' || !hash_equals($expected, $received)) {
+    // Constant-time mismatch + small jitter to discourage scraping.
+    usleep(random_int(150000, 350000));
+    http_response_code(404);
+    exit("Not found.\n");
+}
+
+$action = $_GET['action'] ?? 'health';
+$cli = function (array $command): array {
+    $app = new \Symfony\Bundle\FrameworkBundle\Console\Application(
+        new \App\Kernel($_ENV['APP_ENV'] ?? 'prod', false)
+    );
+    $app->setAutoExit(false);
+    $input = new \Symfony\Component\Console\Input\ArrayInput($command);
+    $output = new \Symfony\Component\Console\Output\BufferedOutput();
+    $code = $app->run($input, $output);
+    return ['code' => $code, 'output' => $output->fetch()];
+};
+
+echo "[post-deploy] action: {$action}\n";
+echo "[post-deploy] start:  ".date(DATE_ATOM)."\n";
+echo "----------------------------------------\n";
+
+try {
+    switch ($action) {
+        case 'health':
+            echo "OK\n";
+            echo "PHP version: ".PHP_VERSION."\n";
+            echo "APP_ENV: ".($_ENV['APP_ENV'] ?? 'n/a')."\n";
+            echo "DATABASE_URL set: ".(empty($_ENV['DATABASE_URL']) ? 'no' : 'yes')."\n";
+            break;
+
+        case 'migrate':
+            $r = $cli([
+                'command' => 'doctrine:migrations:migrate',
+                '--no-interaction' => true,
+                '--allow-no-migration' => true,
+            ]);
+            echo $r['output'];
+            if ($r['code'] !== 0) {
+                http_response_code(500);
+                exit("[post-deploy] migrate failed (exit {$r['code']})\n");
+            }
+            break;
+
+        case 'upgrade-data':
+            foreach (['app:migrate-dropbox-tokens', 'app:backfill-comic-file-size'] as $command) {
+                $r = $cli(['command' => $command]);
+                echo $r['output'];
+                if ($r['code'] !== 0) {
+                    http_response_code(500);
+                    exit("[post-deploy] {$command} failed (exit {$r['code']})\n");
+                }
+            }
+            break;
+
+        case 'cache-clear':
+            $r = $cli(['command' => 'cache:clear', '--no-warmup' => true]);
+            echo $r['output'];
+            $r2 = $cli(['command' => 'cache:warmup']);
+            echo $r2['output'];
+            break;
+
+        case 'about':
+            $r = $cli(['command' => 'about']);
+            echo $r['output'];
+            break;
+
+        default:
+            http_response_code(400);
+            exit("Unknown action: {$action}\n");
+    }
+
+    echo "----------------------------------------\n";
+    echo "[post-deploy] done:   ".date(DATE_ATOM)."\n";
+} catch (\Throwable $e) {
+    http_response_code(500);
+    echo "EXCEPTION: ".$e::class.": ".$e->getMessage()."\n";
+    echo $e->getTraceAsString()."\n";
+}

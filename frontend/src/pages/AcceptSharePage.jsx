@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, AlertCircle, CheckCircle2, BookOpen } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
 
 export default function AcceptSharePage() {
   const [isLoading, setIsLoading] = useState(true);
@@ -40,19 +41,7 @@ export default function AcceptSharePage() {
         setAcceptedComicId(null);
 
         try {
-          const response = await fetch(`/api/share/accept/${token}`, {
-            method: "POST",
-            headers: {
-              // Assuming cookie-based authentication, no explicit Authorization header needed
-              "Content-Type": "application/json",
-            },
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            throw new Error(data.error || `Failed to accept share. Status: ${response.status}`);
-          }
+          const data = await api.post(`/api/share/accept/${token}`, {});
           
           // Store the comic details for display and navigation
           setAcceptedComicTitle(data.comic?.title || "the comic");
@@ -78,7 +67,7 @@ export default function AcceptSharePage() {
         setError("No share token provided.");
         setIsLoading(false);
     }
-  }, [token, auth.isAuthenticated, auth.loading]); // Dependency array
+  }, [auth.isAuthenticated, auth.loading, toast, token]);
 
   const renderContent = () => {
     if (auth.loading || isLoading) {

@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input.jsx";
 import { Label } from "@/components/ui/label.jsx";
 import { useToast } from "@/hooks/use-toast.js";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card.jsx";
+import { validatePassword } from "@/lib/password-policy";
+import { api } from "@/lib/api";
 
 export default function ResetPassword() {
   const [password, setPassword] = useState("");
@@ -18,26 +20,15 @@ export default function ResetPassword() {
   const { token } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const passwordErrors = validatePassword(password);
 
   // Validate token on component mount
   useEffect(() => {
     const validateToken = async () => {
       try {
-        const response = await fetch(`/api/reset-password/validate/${token}`, {
-          method: 'GET',
-        });
-
-        if (response.ok) {
-          setTokenValid(true);
-        } else {
-          setTokenValid(false);
-          toast({
-            title: "Invalid or Expired Link",
-            description: "This password reset link is invalid or has expired.",
-            variant: "destructive",
-          });
-        }
-      } catch (error) {
+        await api.get(`/api/reset-password/validate/${token}`, { notifyUnauthorized: false });
+        setTokenValid(true);
+      } catch {
         setTokenValid(false);
         toast({
           title: "Validation Error",
@@ -70,21 +61,19 @@ export default function ResetPassword() {
       return;
     }
 
+    if (passwordErrors.length > 0) {
+      toast({
+        title: "Password Too Weak",
+        description: `Password must include: ${passwordErrors.join(", ")}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const response = await fetch(`/api/reset-password/reset/${token}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ password }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to reset password');
-      }
+      await api.post(`/api/reset-password/reset/${token}`, { password }, { notifyUnauthorized: false });
 
       setResetComplete(true);
       toast({
@@ -193,8 +182,13 @@ export default function ResetPassword() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={8}
+                minLength={12}
               />
+              {password && passwordErrors.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Password must include: {passwordErrors.join(", ")}.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirm-password">Confirm New Password</Label>
@@ -204,7 +198,7 @@ export default function ResetPassword() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                minLength={8}
+                minLength={12}
               />
             </div>
             <Button 

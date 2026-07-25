@@ -4,6 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, X, Tag as TagIcon } from "lucide-react";
+import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
 
 export function SearchBar({ onSearch, isSearching = false }) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -20,36 +22,11 @@ export function SearchBar({ onSearch, isSearching = false }) {
       setIsLoadingTags(true);
       setTagFetchError(null);
       try {
-        const response = await fetch("/api/tags");
-        if (!response.ok) {
-          const errorText = response.statusText;
-          const status = response.status;
-          let errorMessage;
-          
-          switch (status) {
-            case 401:
-              errorMessage = "You need to be logged in to view tags";
-              break;
-            case 403:
-              errorMessage = "You don't have permission to view these tags";
-              break;
-            case 404:
-              errorMessage = "Tag resource not found";
-              break;
-            case 500:
-              errorMessage = "Server error while fetching tags";
-              break;
-            default:
-              errorMessage = `Failed to fetch tags: ${errorText}`;
-          }
-          
-          throw new Error(errorMessage);
-        }
-        const data = await response.json();
+        const data = await api.get("/api/tags");
         setAvailableTags(data.tags || []); // Assuming the API returns { tags: [...] }
         setRetryCount(0); // Reset retry count on success
       } catch (error) {
-        console.error("Error fetching tags:", error);
+        logger.error("Error fetching tags:", error);
         setTagFetchError(error.message);
         
         // Implement retry logic for network errors
@@ -57,7 +34,7 @@ export function SearchBar({ onSearch, isSearching = false }) {
           setRetryCount(prev => prev + 1);
           const retryDelay = Math.pow(2, retryCount) * 1000; // Exponential backoff
           setTimeout(() => {
-            console.log(`Retrying tag fetch (${retryCount + 1}/${MAX_RETRIES})...`);
+            logger.log(`Retrying tag fetch (${retryCount + 1}/${MAX_RETRIES})...`);
             // This will trigger the useEffect again
             setTagFetchError(null);
           }, retryDelay);

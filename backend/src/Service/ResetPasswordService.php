@@ -7,6 +7,7 @@ use App\Entity\User;
 use App\Repository\ResetPasswordTokenRepository;
 use App\Repository\UserRepository;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
@@ -26,7 +27,8 @@ class ResetPasswordService
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly UserPasswordHasherInterface $passwordHasher,
         private readonly string $mailerFromAddress,
-        private readonly string $mailerFromName
+        private readonly string $mailerFromName,
+        private readonly LoggerInterface $logger
     ) {
     }
 
@@ -48,10 +50,10 @@ class ResetPasswordService
         $this->tokenRepository->invalidateAllTokensForUser($user);
         
         // Create a new token
-        $token = $this->createToken($user);
+        [$token, $plainToken] = $this->createToken($user);
         
         // Send the email
-        $this->sendEmail($user, $token);
+        $this->sendEmail($user, $plainToken);
         
         return true;
     }
@@ -117,14 +119,17 @@ class ResetPasswordService
             
         } catch (\Exception $e) {
             // Log the error but don't throw it (don't want to break the password reset process)
-            error_log("Error sending password changed notification: " . $e->getMessage());
+            $this->logger->warning('Error sending password changed notification.', ['exception' => $e]);
         }
     }
     
     /**
      * Create a new reset token for a user
      */
-    private function createToken(User $user): ResetPasswordToken
+    /**
+     * @return array{0: ResetPasswordToken, 1: string}
+     */
+    private function createToken(User $user): array
     {
         // Generate a random token
         $tokenString = bin2hex(random_bytes(32));
@@ -132,7 +137,7 @@ class ResetPasswordService
         // Create a new ResetPasswordToken entity
         $token = new ResetPasswordToken();
         $token->setUser($user);
-        $token->setToken($tokenString);
+        $token->setToken(hash('sha256', $tokenString));
         $token->setExpiresAt(new \DateTimeImmutable('+' . self::TOKEN_EXPIRY_HOURS . ' hours'));
         $token->setIsUsed(false);
         
@@ -140,13 +145,13 @@ class ResetPasswordService
         $this->entityManager->persist($token);
         $this->entityManager->flush();
         
-        return $token;
+        return [$token, $tokenString];
     }
     
     /**
      * Send the password reset email
      */
-    private function sendEmail(User $user, ResetPasswordToken $token): void
+    private function sendEmail(User $user, string $plainToken): void
     {
         try {
             // Generate the base URL (scheme + host + port)
@@ -157,7 +162,7 @@ class ResetPasswordService
             );
             
             // Create the frontend reset URL with the token
-            $resetUrl = $baseUrl . '/reset-password/' . $token->getToken();
+            $resetUrl = $baseUrl . '/reset-password/' . $plainToken;
             
 
             
@@ -175,18 +180,12 @@ class ResetPasswordService
                 ->subject('Reset your password - Comic Reader')
                 ->html($emailContent);
             
-            // Log email details (in development only)
-            error_log("Sending email to: {$user->getEmail()}");
-            error_log("From address: {$this->mailerFromAddress}");
-            error_log("Mailer DSN from environment: " . $_ENV['MAILER_DSN'] ?? 'not set');
-            
             // Send the email
             $this->mailer->send($email);
 
         } catch (\Exception $e) {
             // Log the error (in development only)
-            error_log("Error sending password reset email: " . $e->getMessage());
-            error_log("Error trace: " . $e->getTraceAsString());
+            $this->logger->error('Error sending password reset email.', ['exception' => $e]);
             
             // Re-throw the exception to be handled by the caller
             throw $e;

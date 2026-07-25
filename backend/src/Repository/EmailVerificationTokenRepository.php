@@ -27,10 +27,12 @@ class EmailVerificationTokenRepository extends ServiceEntityRepository
      */
     public function findValidToken(string $token): ?EmailVerificationToken
     {
+        $tokenHash = hash('sha256', $token);
+
         return $this->createQueryBuilder('t')
             ->where('t.token = :token')
             ->andWhere('t.expiresAt > :now')
-            ->setParameter('token', $token)
+            ->setParameter('token', $tokenHash)
             ->setParameter('now', new \DateTimeImmutable())
             ->getQuery()
             ->getOneOrNullResult();

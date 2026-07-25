@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   app_network:
     driver: bridge
@@ -31,7 +29,7 @@ services:
       context: .
       dockerfile: ./docker/nginx_frontend/Dockerfile
       args:
-        - NODE_VERSION=${NODE_VERSION:-18}
+        - NODE_VERSION=${NODE_VERSION:-22}
         - NGINX_VERSION=${NGINX_VERSION:-1.25}
     container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_nginx
     ports:
@@ -80,7 +78,7 @@ services:
 
   # Frontend Development Service
   frontend_dev:
-    image: node:${NODE_VERSION:-18}-alpine
+    image: node:${NODE_VERSION:-22}-alpine
     container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
     volumes:
       - ./frontend:/app

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast"; // Using useToast for consistency
+import { api } from "@/lib/api";
 
 export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, apiBaseUrl = "/api" }) {
   const [recipientEmail, setRecipientEmail] = useState("");
@@ -39,7 +40,7 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, apiBaseU
   const isValidEmail = (email) => {
     // More comprehensive email validation
     // This regex checks for most common email format requirements
-    return /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(email) && 
+    return /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(email) &&
       email.length <= 254; // RFC 5321 SMTP limit
   };
 
@@ -54,34 +55,7 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, apiBaseU
     setSuccessMessage(null);
 
     try {
-      const response = await fetch(`${apiBaseUrl}/share/comic/${comicId}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Assuming authentication is handled by cookies or a global fetch wrapper
-        },
-        body: JSON.stringify({ email: recipientEmail }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Handle specific error cases with user-friendly messages
-        if (response.status === 429) {
-          throw new Error('You have sent too many share invitations recently. Please try again later.');
-        } else if (response.status === 401) {
-          throw new Error('You need to be logged in to share comics.');
-        } else if (response.status === 403) {
-          throw new Error('You do not have permission to share this comic.');
-        } else if (response.status === 404) {
-          throw new Error('Comic not found.');
-        } else if (response.status === 409) {
-          throw new Error('This comic has already been shared with this email address.');
-        } else {
-          // Generic error message that doesn't expose implementation details
-          throw new Error(data.error || 'An error occurred while sharing the comic. Please try again.');
-        }
-      }
+      await api.post(`${apiBaseUrl}/share/comic/${comicId}`, { email: recipientEmail });
 
       setSuccessMessage(`Invitation sent to ${recipientEmail}!`);
       toast({
@@ -94,7 +68,14 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, apiBaseU
       }, 2000); 
 
     } catch (err) {
-      const errorMessage = err.message || "An unexpected error occurred.";
+      const statusMessages = {
+        401: "You need to be logged in to share comics.",
+        403: "You do not have permission to share this comic.",
+        404: "Comic not found.",
+        409: "This comic has already been shared with this email address.",
+        429: "You have sent too many share invitations recently. Please try again later.",
+      };
+      const errorMessage = statusMessages[err.status] || err.message || "An unexpected error occurred.";
       setError(errorMessage);
       toast({
         title: "Error Sharing Comic",

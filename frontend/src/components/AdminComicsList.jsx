@@ -1,44 +1,55 @@
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, Tag as TagIcon, Trash, Edit, Eye } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useToast } from "@/hooks/use-toast";
+import { ComicEditDialog } from "@/components/ComicEditDialog";
+import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // const mockComics = [ // Mock data removed
 
 
 export function AdminComicsList() {
+  const navigate = useNavigate();
+  const { toast } = useToast();
   const [comics, setComics] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [editingComic, setEditingComic] = useState(null);
+  const [comicToDelete, setComicToDelete] = useState(null);
+
+  const loadComics = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const data = await api.get("/api/comics?adminContext=true");
+      setComics(data.comics || data || []);
+    } catch (error) {
+      logger.error("Failed to load comics:", error);
+      toast({ title: "Failed to load comics", description: error.message, variant: "destructive" });
+      setComics([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
   
   useEffect(() => {
-    const fetchComics = async () => {
-      setIsLoading(true);
-      try {
-        const response = await fetch('/api/comics?adminContext=true', { // Explicitly request admin context
-          credentials: 'include',
-        });
-        if (!response.ok) {
-          throw new Error('Failed to fetch comics');
-        }
-        const data = await response.json();
-        // Assuming API returns { comics: [...] } or just [...] 
-        // And each comic has an 'owner' object with 'email' or 'username'
-        // And 'tags' is an array of strings or objects with a 'name' property
-        setComics(data.comics || data || []); 
-      } catch (error) {
-        console.error("Failed to load comics:", error);
-        setComics([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchComics();
-  }, []);
+    loadComics();
+  }, [loadComics]);
   
   const filteredComics = comics.filter(comic => 
     comic.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -59,36 +70,36 @@ export function AdminComicsList() {
   };
   
   const handleDeleteComic = async (comicId) => {
-    if (!window.confirm('Are you sure you want to delete this comic?')) {
-      return;
-    }
     try {
-      const response = await fetch(`/api/comics/${comicId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to delete comic');
-      }
-      setComics(comics.filter(comic => comic.id !== comicId));
-      console.log(`Comic ${comicId} deleted successfully`);
-      // Add success toast/message here
+      await api.delete(`/api/comics/${comicId}`);
+      setComics((currentComics) => currentComics.filter((comic) => comic.id !== comicId));
+      toast({ title: "Comic deleted" });
     } catch (error) {
-      console.error(`Failed to delete comic ${comicId}:`, error);
-      alert(`Error: ${error.message}`);
-      // Add error toast/message here
+      logger.error(`Failed to delete comic ${comicId}:`, error);
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
     }
   };
   
-  const handleEditComic = (comicId) => {
-    // This would navigate to a comic edit form
-    console.log(`Edit comic with ID: ${comicId}`);
+  const handleEditComic = (comic) => {
+    setEditingComic({
+      ...comic,
+      tags: (comic.tags || []).map((tag) => typeof tag === "string" ? tag : tag.name),
+    });
   };
   
   const handleViewComic = (comicId) => {
-    // This would navigate to the comic reader
-    console.log(`View comic with ID: ${comicId}`);
+    navigate(`/read/${comicId}`);
+  };
+
+  const handleSaveComic = async (payload) => {
+    const data = await api.patch(`/api/comics/${payload.id}`, payload);
+    setComics((currentComics) => currentComics.map((comic) => (
+      comic.id === payload.id
+        ? { ...comic, ...payload, tags: payload.tags.map((name, index) => ({ id: `${name}-${index}`, name })) }
+        : comic
+    )));
+    toast({ title: "Comic updated" });
+    return data.comic || payload;
   };
   
   return (
@@ -137,7 +148,7 @@ export function AdminComicsList() {
                     <TableCell>
                       <div className="flex flex-col">
                         {/* Adjust based on your User entity's fields available in Comic's owner serialization */}
-                        <span>{comic.owner?.username || comic.owner?.email || 'N/A'}</span> 
+                        <span>{comic.owner?.name || comic.owner?.email || 'N/A'}</span>
                         {comic.owner?.email && <span className="text-xs text-muted-foreground">{comic.owner.email}</span>}
                       </div>
                     </TableCell>
@@ -158,10 +169,10 @@ export function AdminComicsList() {
                         <Button variant="ghost" size="sm" onClick={() => handleViewComic(comic.id)}>
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleEditComic(comic.id)}>
+                        <Button variant="ghost" size="sm" onClick={() => handleEditComic(comic)}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDeleteComic(comic.id)}>
+                        <Button variant="ghost" size="sm" onClick={() => setComicToDelete(comic)}>
                           <Trash className="h-4 w-4" />
                         </Button>
                       </div>
@@ -186,6 +197,32 @@ export function AdminComicsList() {
           </Table>
         </div>
       )}
+      <ComicEditDialog
+        comic={editingComic}
+        isOpen={!!editingComic}
+        onClose={() => setEditingComic(null)}
+        onSave={handleSaveComic}
+      />
+      <AlertDialog open={!!comicToDelete} onOpenChange={(open) => !open && setComicToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete comic?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete {comicToDelete?.title}. This removes the comic from the library.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const id = comicToDelete?.id;
+              setComicToDelete(null);
+              if (id) handleDeleteComic(id);
+            }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

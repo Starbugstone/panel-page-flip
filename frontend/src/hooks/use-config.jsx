@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
+import { api } from '@/lib/api';
+import { logger } from '@/lib/logger';
 
 export function useConfig() {
   const [config, setConfig] = useState({
@@ -21,24 +23,12 @@ export function useConfig() {
     const fetchConfig = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch('/api/config', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include'
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch configuration');
-        }
-
-        const data = await response.json();
-        console.log('Config received from server:', data);
+        const data = await api.get('/api/config');
+        logger.log('Config received from server:', data);
         setConfig(data);
         setError(null);
       } catch (err) {
-        console.error('Error fetching configuration:', err);
+        logger.error('Error fetching configuration:', err);
         setError(err.message);
       } finally {
         setIsLoading(false);

@@ -1,0 +1,30 @@
+framework:
+    rate_limiter:
+        login:
+            policy: fixed_window
+            limit: 5
+            interval: '15 minutes'
+        register:
+            policy: fixed_window
+            limit: 3
+            interval: '1 hour'
+        forgot_password:
+            policy: fixed_window
+            limit: 5
+            interval: '1 hour'
+        verification_resend:
+            policy: fixed_window
+            limit: 5
+            interval: '1 hour'
+
+when@test:
+    framework:
+        rate_limiter:
+            login:
+                limit: 1000
+            register:
+                limit: 1000
+            forgot_password:
+                limit: 1000
+            verification_resend:
+                limit: 1000

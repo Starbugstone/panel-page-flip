@@ -32,6 +32,9 @@ class Comic
     #[ORM\Column(type: Types::INTEGER, nullable: true)]
     private ?int $pageCount = null;
 
+    #[ORM\Column(type: Types::BIGINT, nullable: true)]
+    private ?int $fileSize = null;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private ?\DateTimeImmutable $uploadedAt = null;
 
@@ -117,6 +120,17 @@ class Comic
     public function setPageCount(?int $pageCount): static
     {
         $this->pageCount = $pageCount;
+        return $this;
+    }
+
+    public function getFileSize(): ?int
+    {
+        return $this->fileSize;
+    }
+
+    public function setFileSize(?int $fileSize): static
+    {
+        $this->fileSize = $fileSize;
         return $this;
     }
 
@@ -259,6 +273,7 @@ class Comic
             'filePath' => $this->filePath,
             'coverImagePath' => $this->coverImagePath,
             'pageCount' => $this->pageCount,
+            'fileSize' => $this->fileSize,
             'uploadedAt' => $this->uploadedAt ? $this->uploadedAt->format('c') : null,
             'updatedAt' => $this->updatedAt ? $this->updatedAt->format('c') : null,
             'author' => $this->author,

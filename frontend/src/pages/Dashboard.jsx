@@ -1,16 +1,18 @@
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { ComicCard } from "@/components/ComicCard.jsx";
-// import { mockComics } from "@/lib/mockData.js";
+import { ComicTableView } from "@/components/ComicTableView.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { SearchBar } from "@/components/SearchBar.jsx";
 import { Button } from "@/components/ui/button";
-import { Upload } from "lucide-react"; // Plus removed as it's not used
+import { Grid3X3, List, Upload } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast.js";
 import { ComicEditDialog } from "@/components/ComicEditDialog.jsx";
 import { ShareComicModal } from "@/components/ShareComicModal.jsx";
 import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
+import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
 
 export default function Dashboard() {
   const [comics, setComics] = useState([]);
@@ -19,10 +21,10 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false); // Specific state for search operations
   const [error, setError] = useState(null); // Added error state
-  const [searchParams, setSearchParams] = useState({ query: "", tags: [] });
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [editingComic, setEditingComic] = useState(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [viewMode, setViewMode] = useState("grid");
   const { toast } = useToast();
 
   // State for ShareComicModal
@@ -30,7 +32,7 @@ export default function Dashboard() {
   const [shareModalComicId, setShareModalComicId] = useState(null);
   const [shareModalComicTitle, setShareModalComicTitle] = useState(null);
 
-  const processComicsResponse = (data) => {
+  const processComicsResponse = useCallback((data) => {
     const processedComics = data.comics.map(comic => ({
       ...comic,
       tags: comic.tags ? comic.tags.map(tag => tag.name) : [],
@@ -39,9 +41,9 @@ export default function Dashboard() {
     setComics(processedComics);
     // setSearchResults(processedComics); // comics state is now the single source of truth for display
     setError(null);
-  };
+  }, []);
 
-  const fetchComicsFromApi = async (url) => {
+  const fetchComicsFromApi = useCallback(async (url) => {
     // If this is a search operation, use the isSearching state instead of full isLoading
     if (url.includes('search=') || url.includes('tags=')) {
       setIsSearching(true);
@@ -50,46 +52,26 @@ export default function Dashboard() {
     }
     setError(null);
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "Failed to load comics." }));
-        console.error("Failed to load comics:", errorData.message);
-        
-        // Handle rate limiting specifically
-        if (response.status === 429) { // 429 Too Many Requests
-          const retryAfter = errorData.retryAfter || 60;
-          toast({ 
-            title: "Rate limit exceeded", 
-            description: `Please wait ${retryAfter} seconds before trying again.`, 
-            variant: "warning",
-            duration: 5000 // Show for 5 seconds
-          });
-          setError(`Search rate limit exceeded. Please wait ${retryAfter} seconds before trying again.`);
-        } else {
-          toast({ title: "Error", description: errorData.message || "Could not load comics.", variant: "destructive" });
-          setError(errorData.message || "Could not load comics.");
-        }
-        
-        setComics([]); // Clear comics on error
-        return;
-      }
-      const data = await response.json();
+      const data = await api.get(url);
       processComicsResponse(data);
     } catch (err) {
-      console.error("Failed to load comics:", err);
-      toast({ title: "Error", description: "Could not connect to server or other error.", variant: "destructive" });
-      setError("Could not connect to server or other error.");
+      logger.error("Failed to load comics:", err);
+      const message = err.status === 429
+        ? `Search rate limit exceeded. Please wait ${err.data?.retryAfter || 60} seconds before trying again.`
+        : err.message || "Could not load comics.";
+      toast({ title: err.status === 429 ? "Rate limit exceeded" : "Error", description: message, variant: "destructive" });
+      setError(message);
       setComics([]);
     } finally {
       setIsLoading(false);
       setIsSearching(false);
     }
-  };
+  }, [processComicsResponse, toast]);
 
-  const loadComics = async () => {
+  const loadComics = useCallback(async () => {
     setIsSearchActive(false); // Reset search active state
     await fetchComicsFromApi('/api/comics');
-  };
+  }, [fetchComicsFromApi]);
 
   const fetchFilteredComics = async (searchQuery, tagNamesArray) => {
     let url = '/api/comics';
@@ -112,7 +94,7 @@ export default function Dashboard() {
   
   useEffect(() => {
     loadComics();
-  }, []); // loadComics itself doesn't change, but toast is a dependency of its internals indirectly
+  }, [loadComics]);
 
   // Constants for input validation
   const MAX_SEARCH_QUERY_LENGTH = 100;
@@ -142,8 +124,6 @@ export default function Dashboard() {
       });
     }
     
-    setSearchParams(sanitizedParams); // Keep track of current search parameters
-    
     if (!sanitizedParams.query && (!sanitizedParams.tags || sanitizedParams.tags.length === 0)) {
       loadComics(); // Fetch all comics if search is cleared
     } else {
@@ -153,17 +133,7 @@ export default function Dashboard() {
 
   const resetReadingProgress = async (comicId) => {
     try {
-      const response = await fetch(`/api/comics/${comicId}/reading-progress/reset`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "Failed to reset reading progress." }));
-        throw new Error(errorData.message || "Failed to reset reading progress.");
-      }
+      await api.post(`/api/comics/${comicId}/reading-progress/reset`, {});
       
       // Update local state
       const updatedComics = comics.map(c => 
@@ -173,7 +143,7 @@ export default function Dashboard() {
       
       return true;
     } catch (error) {
-      console.error("Error resetting reading progress:", error);
+      logger.error("Error resetting reading progress:", error);
       throw error;
     }
   };
@@ -185,24 +155,18 @@ export default function Dashboard() {
   
   const handleSaveComic = async (updatedComic) => {
     try {
-      const response = await fetch(`/api/comics/${updatedComic.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          title: updatedComic.title,
-          author: updatedComic.author,
-          publisher: updatedComic.publisher,
-          description: updatedComic.description,
-          tags: updatedComic.tags
-        })
+      await api.patch("/api/comics", {
+        updates: [{
+          id: updatedComic.id,
+          changes: {
+            title: updatedComic.title,
+            author: updatedComic.author,
+            publisher: updatedComic.publisher,
+            description: updatedComic.description,
+            tags: updatedComic.tags,
+          },
+        }],
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "Failed to update comic." }));
-        throw new Error(errorData.message || "Failed to update comic.");
-      }
       
       // Update local state
       const updatedComics = comics.map(c => 
@@ -212,21 +176,14 @@ export default function Dashboard() {
       
       return true;
     } catch (error) {
-      console.error("Error updating comic:", error);
+      logger.error("Error updating comic:", error);
       throw error;
     }
   };
   
-  const deleteComic = async (comicId) => {
+  const deleteComic = async (comicId, { confirmOrphaned = false } = {}) => {
     try {
-      const response = await fetch(`/api/comics/${comicId}`, {
-        method: 'DELETE'
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "Failed to delete comic." }));
-        throw new Error(errorData.message || "Failed to delete comic.");
-      }
+      await api.delete("/api/comics", { body: { comicIds: [comicId], confirmOrphaned } });
       
       // Update local state
       const updatedComics = comics.filter(c => c.id !== comicId);
@@ -234,7 +191,47 @@ export default function Dashboard() {
       
       return true;
     } catch (error) {
-      console.error("Error deleting comic:", error);
+      if (error.data?.code !== "orphaned_comics_confirmation_required") {
+        logger.error("Error deleting comic:", error);
+      }
+      throw error;
+    }
+  };
+
+  const addTagToSelectedComics = async (comicIds, tag) => {
+    try {
+      await api.patch("/api/comics", {
+        updates: comicIds.map((id) => ({ id, changes: { addTags: [tag] } })),
+      });
+      setComics((currentComics) => currentComics.map((comic) => (
+        comicIds.includes(comic.id) && !comic.tags.includes(tag)
+          ? { ...comic, tags: [...comic.tags, tag] }
+          : comic
+      )));
+      toast({ title: "Tag added", description: `Added “${tag}” to ${comicIds.length} comic(s).` });
+    } catch (error) {
+      logger.error("Error adding a tag to selected comics:", error);
+      toast({ title: "Bulk update failed", description: error.message, variant: "destructive" });
+      throw error;
+    }
+  };
+
+  const deleteSelectedComics = async (comicIds, { confirmOrphaned = false } = {}) => {
+    try {
+      const result = await api.delete("/api/comics", { body: { comicIds, confirmOrphaned } });
+      setComics((currentComics) => currentComics.filter((comic) => !comicIds.includes(comic.id)));
+      const orphanCount = result.orphanedComicIds?.length || 0;
+      toast({
+        title: "Comics deleted",
+        description: orphanCount > 0
+          ? `${comicIds.length} ${comicIds.length === 1 ? "record" : "records"} removed; ${orphanCount} comic ${orphanCount === 1 ? "file was" : "files were"} already missing.`
+          : `${comicIds.length} ${comicIds.length === 1 ? "comic was" : "comics were"} removed from your library.`,
+      });
+    } catch (error) {
+      if (error.data?.code !== "orphaned_comics_confirmation_required") {
+        logger.error("Error deleting selected comics:", error);
+        toast({ title: "Bulk deletion failed", description: error.message, variant: "destructive" });
+      }
       throw error;
     }
   };
@@ -262,12 +259,22 @@ export default function Dashboard() {
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
         <h1 className="text-3xl font-comic">My Comic Library</h1>
-        <Link to="/upload">
-          <Button className="flex items-center gap-2">
-            <Upload size={16} />
-            Upload New Comic
-          </Button>
-        </Link>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="flex rounded-md border p-1" aria-label="Library view">
+            <Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}>
+              <Grid3X3 className="mr-2 h-4 w-4" /> Grid
+            </Button>
+            <Button variant={viewMode === "table" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}>
+              <List className="mr-2 h-4 w-4" /> Table
+            </Button>
+          </div>
+          <Link to="/upload">
+            <Button className="flex items-center gap-2">
+              <Upload size={16} />
+              Upload New Comic
+            </Button>
+          </Link>
+        </div>
       </div>
       
       <div className="mb-8 flex justify-center">
@@ -323,6 +330,13 @@ export default function Dashboard() {
             </Link>
            )}
         </div>
+      ) : viewMode === "table" ? (
+        <ComicTableView
+          comics={comics}
+          onEditComic={handleEditComic}
+          onBulkAddTag={addTagToSelectedComics}
+          onBulkDelete={deleteSelectedComics}
+        />
       ) : (
         <Tabs defaultValue="all" className="space-y-6">
           <TabsList>

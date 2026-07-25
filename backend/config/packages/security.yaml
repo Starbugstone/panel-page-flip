@@ -47,22 +47,20 @@ security:
     # Note: Only the *first* access control that matches will be used
     access_control:
         # Public routes (no authentication required)
-        - { path: ^/api/login, roles: PUBLIC_ACCESS }
-        - { path: ^/api/register, roles: PUBLIC_ACCESS }
-        - { path: ^/api/login_check, roles: PUBLIC_ACCESS }
-        - { path: ^/api/forgot-password, roles: PUBLIC_ACCESS }
+        - { path: ^/api/login$, roles: PUBLIC_ACCESS }
+        - { path: ^/api/register$, roles: PUBLIC_ACCESS }
+        - { path: ^/api/login_check$, roles: PUBLIC_ACCESS }
+        - { path: ^/api/forgot-password$, roles: PUBLIC_ACCESS }
         - { path: ^/api/reset-password, roles: PUBLIC_ACCESS }
         - { path: ^/api/email-verification/verify, roles: PUBLIC_ACCESS }
-        - { path: ^/api/email-verification/resend, roles: PUBLIC_ACCESS }
+        - { path: ^/api/email-verification/resend$, roles: PUBLIC_ACCESS }
         
-        # Admin routes (require ROLE_ADMIN)
-        - { path: ^/api/users$, roles: ROLE_ADMIN, methods: [GET] }
-        - { path: ^/api/users/[0-9]+$, roles: [ROLE_ADMIN, IS_AUTHENTICATED_FULLY], methods: [DELETE] }
+        # Admin routes (all methods)
+        - { path: ^/api/users(/[0-9]+)?$, roles: ROLE_ADMIN }
+        - { path: ^/api/admin, roles: ROLE_ADMIN }
         
         # User routes (require authentication)
-        - { path: ^/api/users/me, roles: IS_AUTHENTICATED_FULLY }
-        - { path: ^/api/comics, roles: IS_AUTHENTICATED_FULLY }
-        - { path: ^/api/tags, roles: IS_AUTHENTICATED_FULLY }
+        - { path: ^/api/me$, roles: IS_AUTHENTICATED_FULLY }
         
         # Secure everything else by default
         - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }

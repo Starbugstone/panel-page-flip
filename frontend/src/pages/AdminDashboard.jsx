@@ -6,10 +6,13 @@ import { Navigate } from "react-router-dom";
 import { AdminUsersList } from "@/components/AdminUsersList";
 import { AdminComicsList } from "@/components/AdminComicsList";
 import { AdminTagsList } from "@/components/AdminTagsList";
+import { AdminOverview } from "@/components/AdminOverview";
+import { AdminDropbox } from "@/components/AdminDropbox";
+import { AdminAuditList } from "@/components/AdminAuditList";
 
 export default function AdminDashboard() {
   const { user, loading } = useAuth(); // Destructure loading state
-  const [activeTab, setActiveTab] = useState("users");
+  const [activeTab, setActiveTab] = useState("overview");
 
   // Display a loading message while authentication is in progress
   if (loading) {
@@ -22,7 +25,6 @@ export default function AdminDashboard() {
   
   // If loading is complete and user is not admin, redirect to dashboard
   if (!user || !user.roles || !user.roles.includes("ROLE_ADMIN")) {
-    // console.log("AdminDashboard: Redirecting. User object after loading:", user); // For debugging
     return <Navigate to="/dashboard" replace />;
   }
   
@@ -32,10 +34,22 @@ export default function AdminDashboard() {
       
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="mb-6">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="pending">Pending</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="comics">Comics</TabsTrigger>
           <TabsTrigger value="tags">Tags</TabsTrigger>
+          <TabsTrigger value="dropbox">Dropbox</TabsTrigger>
+          <TabsTrigger value="audit">Audit</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
+          <AdminOverview />
+        </TabsContent>
+
+        <TabsContent value="pending" className="space-y-6">
+          <AdminUsersList showOnlyUnverified />
+        </TabsContent>
         
         <TabsContent value="users" className="space-y-6">
           <AdminUsersList />
@@ -47,6 +61,14 @@ export default function AdminDashboard() {
         
         <TabsContent value="tags" className="space-y-6">
           <AdminTagsList />
+        </TabsContent>
+
+        <TabsContent value="dropbox" className="space-y-6">
+          <AdminDropbox />
+        </TabsContent>
+
+        <TabsContent value="audit" className="space-y-6">
+          <AdminAuditList />
         </TabsContent>
       </Tabs>
     </div>
