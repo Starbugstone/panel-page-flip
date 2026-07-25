@@ -23,6 +23,10 @@ I will add an extra paragraph if I feel up to in at the end of the project to gi
 
 CBZ Comic Reader is a web application that allows users to read comic books in CBZ format. The application features a secure login system, a comic selection interface, and a reading progress tracker that remembers where you left off.
 
+**Production site:** [https://comics.starbugstone.com/](https://comics.starbugstone.com/)
+
+Bug reports can be submitted through the [GitHub issue tracker](https://github.com/Starbugstone/panel-page-flip/issues).
+
 ## Initial Project Requirements
 
 The following prompt was used to initiate this project:
@@ -44,10 +48,11 @@ The site should have a norma and dark mode.
 - **User Authentication**: Secure login system to protect your comic collection
 - **Email Verification**: Email verification required before users can log in
 - **Password Recovery**: Forgot password functionality with email recovery
-- **Comic Library**: Browse and select from your collection of comics
+- **Comic Library**: Browse comics in a card grid or a selectable table
 - **Reading Progress**: Automatically saves your reading position
 - **CBZ Format Support**: Read comics in the popular CBZ archive format
-- **Chunked Uploads**: Support for large file uploads via chunking (1MB chunks)
+- **Bulk Uploads**: Queue and upload multiple CBZ files with chunked transfer and per-file progress
+- **Bulk Library Management**: Add tags or safely delete multiple selected comics at once
 - **Upload Progress**: Real-time progress tracking during file uploads
 - **Advanced Caching**: Smart page caching system that prevents unnecessary network calls
 - **Fast Navigation**: Immediate display of cached pages for smooth reading experience
@@ -64,6 +69,7 @@ The site should have a norma and dark mode.
 - **Automatic Sync**: Background sync command that can be scheduled via cron to automatically import new comics
 - **Smart Sync Detection**: Accurately tracks which files have been imported to prevent duplicates
 - **Dropbox Comics Management**: Dedicated dashboard section for comics synced from Dropbox
+- **Administration**: Manage users, comics, tags, Dropbox connections, cleanup previews, and audit history
 
 ## Architecture
 
@@ -97,7 +103,8 @@ The backend provides the following API endpoints:
 - `POST /api/register` - Register a new user
 - `POST /api/logout` - Logout the current user
 - `GET /api/login_check` - Check if the user is authenticated
-- `GET /api/users/me` - Get the current user's information. Also supports `POST` requests to refresh the user's session (keep-alive).
+- `GET /api/me` - Get the current user's information
+- `POST /api/me` - Refresh the authenticated session
 - `POST /api/forgot-password` - Request a password reset email
 - `GET /api/reset-password/validate/{token}` - Validate a password reset token
 - `POST /api/reset-password/reset/{token}` - Reset password with a valid token
@@ -110,6 +117,8 @@ The backend provides the following API endpoints:
 - `POST /api/comics/upload/init` - Initialize a chunked upload (for large files)
 - `POST /api/comics/upload/chunk` - Upload a single chunk of a comic file
 - `POST /api/comics/upload/complete` - Complete a chunked upload
+- `PATCH /api/comics` - Atomically update one or more owned comics using an `updates` array
+- `DELETE /api/comics` - Safely delete one or more owned comics using a `comicIds` array
 - `PUT/PATCH /api/comics/{id}` - Update a comic's information
 - `DELETE /api/comics/{id}` - Delete a comic
 - `GET /api/comics/{id}/pages/{page}` - Get a specific page from a comic
@@ -257,7 +266,7 @@ DROPBOX_RATE_LIMIT=60
 4. **Set Redirect URI**:
    - Go to the "Settings" tab
    - Add your redirect URI: `http://localhost:8080/api/dropbox/callback`
-   - For production: `https://yourdomain.com/api/dropbox/callback`
+   - For production: `https://comics.starbugstone.com/api/dropbox/callback`
 5. **Get Credentials**:
    - Copy the "App key" and "App secret"
    - Add them to your environment variables
@@ -275,7 +284,7 @@ DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
 ```env
 DROPBOX_APP_KEY=your_prod_app_key
 DROPBOX_APP_SECRET=your_prod_app_secret
-DROPBOX_REDIRECT_URI=https://yourdomain.com/api/dropbox/callback
+DROPBOX_REDIRECT_URI=https://comics.starbugstone.com/api/dropbox/callback
 ```
 
 **Staging:**
@@ -443,7 +452,7 @@ When deploying to production, update your environment variables:
 # Production Dropbox Configuration
 DROPBOX_APP_KEY=your_production_app_key
 DROPBOX_APP_SECRET=your_production_app_secret
-DROPBOX_REDIRECT_URI=https://yourdomain.com/api/dropbox/callback
+DROPBOX_REDIRECT_URI=https://comics.starbugstone.com/api/dropbox/callback
 DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics
 DROPBOX_SYNC_LIMIT=5
 DROPBOX_RATE_LIMIT=30
@@ -475,22 +484,9 @@ DROPBOX_RATE_LIMIT=30
 
 ### CI/CD Integration
 
-The project includes GitHub Actions for automated deployment. The frontend build process is already configured, and the workflow includes TODO comments for backend deployment via SSH.
+GitHub Actions validates the frontend and backend on pull requests and pushes to `main`. It runs linting, tests, dependency audits, migrations, Symfony validation, and a production frontend build. It deliberately does **not** deploy only the frontend, because frontend and backend changes must be released together.
 
-**Current Workflow:**
-- Builds React frontend on PR merge to main
-- Uploads frontend build to production via FTP
-- Safe mode: Never deletes existing files
-
-**Recommended Backend Deployment:**
-```bash
-# SSH into production server
-cd /path/to/project
-git pull origin main
-composer install --no-dev --optimize-autoloader
-php bin/console cache:clear --env=prod
-php bin/console doctrine:migrations:migrate --no-interaction
-```
+Production releases use the backup-gated scripts documented in [deploy.md](deploy.md) for FTP/FTPS hosting or [SSH-deploy.md](SSH-deploy.md) for SSH hosting. These workflows preserve uploaded comics, require a verified database and uploads backup before migrations, and keep deployment separate from validation.
 
 ```bash
 # For production: Run a Messenger consumer to process queued emails
@@ -709,8 +705,9 @@ For production, create `.env.prod.local` with settings like:
 ```
 APP_ENV=prod
 FRONTEND_SCHEME=https
-FRONTEND_HOST=comics.yourdomain.com
+FRONTEND_HOST=comics.starbugstone.com
 FRONTEND_PORT=443
+FRONTEND_URL=https://comics.starbugstone.com
 ```
 
 > **Important**: When deploying to production, make sure to set the correct frontend URL configuration to ensure email verification links and password reset links point to your production site, not localhost.
@@ -719,60 +716,19 @@ FRONTEND_PORT=443
 
 ### Production Deployment
 
-The application uses GitHub Actions for automated deployment when changes are merged into the `main` branch.
+The live application is [https://comics.starbugstone.com/](https://comics.starbugstone.com/).
 
-#### Current Deployment Process
+Deploy frontend and backend together using one of the documented, backup-gated workflows:
 
-1. **Trigger**: Deployment occurs automatically when a Pull Request from `develop` to `main` is merged
-2. **Frontend Build**: The React frontend is built using Vite
-3. **Frontend Deployment**: Built files are deployed via FTP to the production server's `backend/public/` directory
-4. **Backend Deployment**: Currently requires manual intervention (see TODO below)
+- [FTP/FTPS deployment](deploy.md)
+- [SSH deployment](SSH-deploy.md)
 
-#### GitHub Secrets Required
-
-The following secrets must be configured in your GitHub repository:
-
-- `FTP_SERVER`: Your production server hostname
-- `FTP_USERNAME`: FTP username for deployment
-- `FTP_PASSWORD`: FTP password for deployment
-
-#### Deployment Safety Features
-
-- **Safe Mode**: The deployment never deletes existing files on the server
-- **Protected Directories**: User uploads (`uploads/`) and backend files are never touched
-- **Force Upload**: Ensures frontend assets are always updated even if they appear identical
-
-#### Current Limitations & TODO
-
-**Backend Deployment**: Currently, backend code changes require manual deployment. The recommended approach is to SSH into the production server and run:
-
-```bash
-cd /path/to/project
-git pull origin main
-composer install --no-dev --optimize-autoloader
-php bin/console cache:clear --env=prod
-php bin/console doctrine:migrations:migrate --no-interaction
-```
-
-**Planned Improvement**: Automate backend deployment via SSH in the GitHub Actions workflow. This would be much more efficient than FTP uploading the entire backend codebase.
-
-#### Deployment Workflow File
-
-The deployment configuration is in `.github/workflows/build-frontend.yml`. This workflow:
-
-- Only triggers on PR merges to `main` (not direct pushes)
-- Builds the frontend with production optimizations
-- Deploys frontend assets safely without affecting backend files or user data
-- Includes comprehensive TODO comments for SSH automation implementation
-
-#### Emergency Recovery
-
-In case of deployment issues, an emergency restore workflow is available at `.github/workflows/emergency-backend-restore.yml` that can be manually triggered to restore critical backend files.
+Before every upgrade, preserve `APP_DATA_KEY`, verify a current database and `backend/public/uploads/` backup, build the release, apply Doctrine migrations, run the data-upgrade commands, and complete the authenticated smoke checks. GitHub Actions validates release candidates but does not mutate production.
 
 ### Development vs Production
 
 - **Development**: Use `docker compose up -d` for local development with hot reload
-- **Production**: Deployed via GitHub Actions with optimized builds and proper caching headers
+- **Production**: Built and deployed as a coordinated frontend/backend release after a verified backup
 
 ## License
 

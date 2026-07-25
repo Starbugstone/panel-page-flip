@@ -52,8 +52,16 @@ export default function Landing() {
       </section>
 
       <footer className="bg-background py-6 px-4 border-t">
-        <div className="max-w-5xl mx-auto text-center text-sm text-muted-foreground">
+        <div className="max-w-5xl mx-auto flex flex-col items-center justify-between gap-2 text-center text-sm text-muted-foreground sm:flex-row sm:text-left">
           <p>© {new Date().getFullYear()} Comic Reader App. All rights reserved.</p>
+          <a
+            href="https://github.com/Starbugstone/panel-page-flip/issues"
+            target="_blank"
+            rel="noreferrer"
+            className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
+          >
+            Report a bug
+          </a>
         </div>
       </footer>
     </div>
