@@ -1,4 +1,4 @@
-ARG NODE_VERSION=18
+ARG NODE_VERSION=22
 ARG NGINX_VERSION=1.25 # Declare NGINX_VERSION globally
 
 # Stage 1: Build the React application
