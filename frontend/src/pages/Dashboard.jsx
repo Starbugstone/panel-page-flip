@@ -1,10 +1,11 @@
 
 import { useCallback, useState, useEffect } from "react";
 import { ComicCard } from "@/components/ComicCard.jsx";
+import { ComicTableView } from "@/components/ComicTableView.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { SearchBar } from "@/components/SearchBar.jsx";
 import { Button } from "@/components/ui/button";
-import { Upload } from "lucide-react"; // Plus removed as it's not used
+import { Grid3X3, List, Upload } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast.js";
 import { ComicEditDialog } from "@/components/ComicEditDialog.jsx";
@@ -23,6 +24,7 @@ export default function Dashboard() {
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [editingComic, setEditingComic] = useState(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [viewMode, setViewMode] = useState("grid");
   const { toast } = useToast();
 
   // State for ShareComicModal
@@ -153,13 +155,18 @@ export default function Dashboard() {
   
   const handleSaveComic = async (updatedComic) => {
     try {
-      await api.put(`/api/comics/${updatedComic.id}`, {
-          title: updatedComic.title,
-          author: updatedComic.author,
-          publisher: updatedComic.publisher,
-          description: updatedComic.description,
-          tags: updatedComic.tags
-        });
+      await api.patch("/api/comics", {
+        updates: [{
+          id: updatedComic.id,
+          changes: {
+            title: updatedComic.title,
+            author: updatedComic.author,
+            publisher: updatedComic.publisher,
+            description: updatedComic.description,
+            tags: updatedComic.tags,
+          },
+        }],
+      });
       
       // Update local state
       const updatedComics = comics.map(c => 
@@ -176,7 +183,7 @@ export default function Dashboard() {
   
   const deleteComic = async (comicId) => {
     try {
-      await api.delete(`/api/comics/${comicId}`);
+      await api.delete("/api/comics", { body: { comicIds: [comicId] } });
       
       // Update local state
       const updatedComics = comics.filter(c => c.id !== comicId);
@@ -185,6 +192,36 @@ export default function Dashboard() {
       return true;
     } catch (error) {
       logger.error("Error deleting comic:", error);
+      throw error;
+    }
+  };
+
+  const addTagToSelectedComics = async (comicIds, tag) => {
+    try {
+      await api.patch("/api/comics", {
+        updates: comicIds.map((id) => ({ id, changes: { addTags: [tag] } })),
+      });
+      setComics((currentComics) => currentComics.map((comic) => (
+        comicIds.includes(comic.id) && !comic.tags.includes(tag)
+          ? { ...comic, tags: [...comic.tags, tag] }
+          : comic
+      )));
+      toast({ title: "Tag added", description: `Added “${tag}” to ${comicIds.length} comic(s).` });
+    } catch (error) {
+      logger.error("Error adding a tag to selected comics:", error);
+      toast({ title: "Bulk update failed", description: error.message, variant: "destructive" });
+      throw error;
+    }
+  };
+
+  const deleteSelectedComics = async (comicIds) => {
+    try {
+      await api.delete("/api/comics", { body: { comicIds } });
+      setComics((currentComics) => currentComics.filter((comic) => !comicIds.includes(comic.id)));
+      toast({ title: "Comics deleted", description: `${comicIds.length} comic(s) were removed from your library.` });
+    } catch (error) {
+      logger.error("Error deleting selected comics:", error);
+      toast({ title: "Bulk deletion failed", description: error.message, variant: "destructive" });
       throw error;
     }
   };
@@ -212,12 +249,22 @@ export default function Dashboard() {
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
         <h1 className="text-3xl font-comic">My Comic Library</h1>
-        <Link to="/upload">
-          <Button className="flex items-center gap-2">
-            <Upload size={16} />
-            Upload New Comic
-          </Button>
-        </Link>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="flex rounded-md border p-1" aria-label="Library view">
+            <Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}>
+              <Grid3X3 className="mr-2 h-4 w-4" /> Grid
+            </Button>
+            <Button variant={viewMode === "table" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}>
+              <List className="mr-2 h-4 w-4" /> Table
+            </Button>
+          </div>
+          <Link to="/upload">
+            <Button className="flex items-center gap-2">
+              <Upload size={16} />
+              Upload New Comic
+            </Button>
+          </Link>
+        </div>
       </div>
       
       <div className="mb-8 flex justify-center">
@@ -273,6 +320,13 @@ export default function Dashboard() {
             </Link>
            )}
         </div>
+      ) : viewMode === "table" ? (
+        <ComicTableView
+          comics={comics}
+          onEditComic={handleEditComic}
+          onBulkAddTag={addTagToSelectedComics}
+          onBulkDelete={deleteSelectedComics}
+        />
       ) : (
         <Tabs defaultValue="all" className="space-y-6">
           <TabsList>

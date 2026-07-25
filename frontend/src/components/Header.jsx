@@ -57,13 +57,14 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
       <div className="container flex h-16 items-center justify-between px-4 md:px-6">
         <Link to="/" className="flex items-center gap-2">
           <BookOpen className="h-6 w-6 text-comic-purple" />
-          <span className="font-comic text-2xl">ComicReader</span>
+          <span className="hidden font-comic text-2xl sm:inline">ComicReader</span>
         </Link>
-        <nav className="flex gap-4 items-center">
+        <nav className="flex items-center gap-2 sm:gap-4">
           {isLoggedIn ? (
             <>
               <Link to="/dashboard" className={`${location.pathname === "/dashboard" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
-                My Comics
+                <span className="hidden sm:inline">My Comics</span>
+                <BookOpen className="h-5 w-5 sm:hidden" />
               </Link>
               <Link to="/upload" className={`${location.pathname === "/upload" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden md:inline">Upload Comic</span>
@@ -88,7 +89,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
                   <User size={16} />
                   Logout
                 </Button>
-                <Button variant="ghost" onClick={onLogout} className="md:hidden">
+                <Button variant="ghost" size="icon" onClick={onLogout} className="md:hidden" aria-label="Logout">
                   <User size={16} />
                 </Button>
               </div>
