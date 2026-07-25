@@ -94,108 +94,123 @@ export default function Login() {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
-      <div className="max-w-md w-full space-y-8 bg-card p-6 sm:p-8 rounded-lg shadow-lg">
-        <div className="text-center">
-          <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
-          <h1 className="mt-4 font-comic text-2xl">Welcome to Comic Reader</h1>
-          <p className="mt-2 text-muted-foreground">Access your comic collection</p>
+      <div className="max-w-md w-full space-y-6">
+        <div className="space-y-8 bg-card p-6 sm:p-8 rounded-lg shadow-lg">
+          <div className="text-center">
+            <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
+            <h1 className="mt-4 font-comic text-2xl">Welcome to Comic Reader</h1>
+            <p className="mt-2 text-muted-foreground">Access your comic collection</p>
+          </div>
+
+          <Tabs defaultValue={defaultTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="login">Login</TabsTrigger>
+              <TabsTrigger value="signup">Sign up</TabsTrigger>
+            </TabsList>
+            <TabsContent value="login">
+              <form onSubmit={handleLoginSubmit} className="space-y-4 mt-6">
+                <div className="space-y-2">
+                  <Label htmlFor="login-email">Email</Label>
+                  <Input 
+                    id="login-email" 
+                    type="email" 
+                    placeholder="your@email.com" 
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <Label htmlFor="login-password">Password</Label>
+                    <Link to="/forgot-password" className="text-xs text-comic-purple hover:underline">
+                      Forgot password?
+                    </Link>
+                  </div>
+                  <Input 
+                    id="login-password" 
+                    type="password" 
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button 
+                  type="submit" 
+                  className="w-full bg-comic-purple hover:bg-comic-purple-dark"
+                  disabled={loginLoading}
+                >
+                  {loginLoading ? "Logging in..." : "Log in"}
+                </Button>
+              </form>
+            </TabsContent>
+            <TabsContent value="signup">
+              <form onSubmit={handleRegisterSubmit} className="space-y-4 mt-6">
+                <div className="space-y-2">
+                  <Label htmlFor="signup-name">Name</Label>
+                  <Input 
+                    id="signup-name" 
+                    type="text" 
+                    placeholder="Your Name" 
+                    value={registerName}
+                    onChange={(e) => setRegisterName(e.target.value)}
+                    required 
+                  />
+                  {registerPassword && registerPasswordErrors.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Password must include: {registerPasswordErrors.join(", ")}.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-email">Email</Label>
+                  <Input 
+                    id="signup-email" 
+                    type="email" 
+                    placeholder="your@email.com" 
+                    value={registerEmail}
+                    onChange={(e) => setRegisterEmail(e.target.value)}
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-password">Password</Label>
+                  <Input 
+                    id="signup-password" 
+                    type="password" 
+                    value={registerPassword}
+                    onChange={(e) => setRegisterPassword(e.target.value)}
+                    minLength={12}
+                    required 
+                  />
+                </div>
+                <Button 
+                  type="submit" 
+                  className="w-full bg-comic-purple hover:bg-comic-purple-dark"
+                  disabled={registerLoading}
+                >
+                  {registerLoading ? "Creating account..." : "Create account"}
+                </Button>
+                <p className="text-xs text-center text-muted-foreground">
+                  By signing up, you agree to our Terms of Service and Privacy Policy.
+                </p>
+              </form>
+            </TabsContent>
+          </Tabs>
         </div>
 
-        <Tabs defaultValue={defaultTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="login">Login</TabsTrigger>
-            <TabsTrigger value="signup">Sign up</TabsTrigger>
-          </TabsList>
-          <TabsContent value="login">
-            <form onSubmit={handleLoginSubmit} className="space-y-4 mt-6">
-              <div className="space-y-2">
-                <Label htmlFor="login-email">Email</Label>
-                <Input 
-                  id="login-email" 
-                  type="email" 
-                  placeholder="your@email.com" 
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <Label htmlFor="login-password">Password</Label>
-                  <Link to="/forgot-password" className="text-xs text-comic-purple hover:underline">
-                    Forgot password?
-                  </Link>
-                </div>
-                <Input 
-                  id="login-password" 
-                  type="password" 
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  required
-                />
-              </div>
-              <Button 
-                type="submit" 
-                className="w-full bg-comic-purple hover:bg-comic-purple-dark"
-                disabled={loginLoading}
-              >
-                {loginLoading ? "Logging in..." : "Log in"}
-              </Button>
-            </form>
-          </TabsContent>
-          <TabsContent value="signup">
-            <form onSubmit={handleRegisterSubmit} className="space-y-4 mt-6">
-              <div className="space-y-2">
-                <Label htmlFor="signup-name">Name</Label>
-                <Input 
-                  id="signup-name" 
-                  type="text" 
-                  placeholder="Your Name" 
-                  value={registerName}
-                  onChange={(e) => setRegisterName(e.target.value)}
-                  required 
-                />
-                {registerPassword && registerPasswordErrors.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Password must include: {registerPasswordErrors.join(", ")}.
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="signup-email">Email</Label>
-                <Input 
-                  id="signup-email" 
-                  type="email" 
-                  placeholder="your@email.com" 
-                  value={registerEmail}
-                  onChange={(e) => setRegisterEmail(e.target.value)}
-                  required 
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="signup-password">Password</Label>
-                <Input 
-                  id="signup-password" 
-                  type="password" 
-                  value={registerPassword}
-                  onChange={(e) => setRegisterPassword(e.target.value)}
-                  minLength={12}
-                  required 
-                />
-              </div>
-              <Button 
-                type="submit" 
-                className="w-full bg-comic-purple hover:bg-comic-purple-dark"
-                disabled={registerLoading}
-              >
-                {registerLoading ? "Creating account..." : "Create account"}
-              </Button>
-              <p className="text-xs text-center text-muted-foreground">
-                By signing up, you agree to our Terms of Service and Privacy Policy.
-              </p>
-            </form>
-          </TabsContent>
-        </Tabs>
+        <div className="bg-card p-6 sm:p-8 rounded-lg shadow-lg space-y-2 text-center text-sm text-muted-foreground">
+          <p>
+            Comic Reader is your personal CBZ library on the web. Upload your comics,
+            organize them with tags, and read page by page with your progress saved
+            so you can pick up right where you left off.
+          </p>
+          <p>
+            Keep your collection tidy with search and reading filters, or sync CBZs
+            from Dropbox when you prefer. When a friend should see a book too, share
+            it by email — they can accept it into their own library and start reading.
+          </p>
+        </div>
       </div>
     </div>
   );
