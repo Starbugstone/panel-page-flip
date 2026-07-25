@@ -1,0 +1,71 @@
+# =============================================================================
+# Apache configuration for the Symfony front controller (production)
+# This file is shipped to backend/public/.htaccess via scripts/build-release.sh
+# Only used when the host runs Apache. Nginx-based hosts ignore it.
+# =============================================================================
+
+DirectoryIndex index.php
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Determine the RewriteBase automatically and set it as environment
+    # variable. If you are using Apache aliases to do mass virtual hosting or
+    # installing the project in a subdirectory, the base path will be prepended
+    # to allow proper resolution of the index.php file and to redirect the user.
+    RewriteCond %{REQUEST_URI}::$0 ^(/.+)/(.*)::\2$
+    RewriteRule .* - [E=BASE:%1]
+
+    # Sets the HTTP_AUTHORIZATION header removed by Apache.
+    RewriteCond %{HTTP:Authorization} .+
+    RewriteRule ^ - [E=HTTP_AUTHORIZATION:%0]
+
+    # Redirect to URI without front controller to prevent duplicate content.
+    RewriteCond %{ENV:REDIRECT_STATUS} =""
+    RewriteRule ^index\.php(?:/(.*)|$) %{ENV:BASE}/$1 [R=301,L]
+
+    # If the requested filename exists (an asset, an image, the SPA's index.html...),
+    # let Apache serve it directly.
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Otherwise rewrite all other queries to the Symfony front controller.
+    RewriteRule ^ %{ENV:BASE}/index.php [L]
+</IfModule>
+
+<IfModule !mod_rewrite.c>
+    <IfModule mod_alias.c>
+        # When mod_rewrite is unavailable, redirect missing URLs to the front controller.
+        RedirectMatch 307 ^/$ /index.php/
+    </IfModule>
+</IfModule>
+
+# =============================================================================
+# Hardening
+# =============================================================================
+
+# Block direct access to anything inside /uploads/ that isn't an image we serve.
+# Note: covers go through Symfony so the entire uploads dir can stay private.
+<IfModule mod_authz_core.c>
+    <FilesMatch "\.(env|env\..*|ini|log|sql|tar|gz|bak|swp|cbz|cbr|zip)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+# Disable directory listing.
+Options -Indexes
+
+# Send security headers if mod_headers is available.
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" "expr=%{HTTPS} == 'on'"
+    # Loosen 'unsafe-inline' below if you tighten Vite's CSS handling.
+    Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"
+</IfModule>
