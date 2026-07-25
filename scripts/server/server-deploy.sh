@@ -18,19 +18,20 @@
 #   * On the server:       sudo -u deploy ./scripts/server/server-deploy.sh
 #
 # Configuration is read from environment variables (typically passed by
-# deploy-ssh.sh) OR from /etc/comics-deploy.env if you set up a static config.
+# deploy-ssh.sh).
 #
 # Required env vars on the server:
 #   APP_DIR              absolute path to project root (must contain backend/)
-#   WEB_USER             www-data | nginx | http (default www-data)
-#   WEB_GROUP            web user's group (default = WEB_USER)
+#   BACKUP_COMMAND       command that backs up DB + uploads and fails on error
+#                        (use scripts/server/backup-comics.sh)
 #
 # Optional env vars:
+#   WEB_USER             www-data | nginx | http (default www-data)
+#   WEB_GROUP            web user's group (default = WEB_USER)
 #   SKIP_FRONTEND=1      don't run npm build, assume backend/public/ already has
 #                        index.html + assets/ uploaded another way
 #   SKIP_COMPOSER=1      skip composer install (PHP-only redeploys)
 #   POST_DEPLOY_HOOK     shell command run after cache:warmup
-#   BACKUP_COMMAND       required command that backs up DB + uploads first
 # =============================================================================
 
 set -euo pipefail
@@ -53,7 +54,7 @@ fail() { printf "\033[1;31m[fail]\033[0m   %s\n" "$*" >&2; exit 1; }
 if [ ! -f "$APP_DIR/backend/.env.prod.local" ] && [ ! -f "$APP_DIR/backend/.env.local.php" ]; then
     fail "Neither backend/.env.prod.local nor backend/.env.local.php found.
        Copy your prod env values to $APP_DIR/backend/.env.prod.local before
-       deploying for the first time. See SSH-deploy.md section 2.4."
+       deploying for the first time. See SSH-deploy.md section 4.4."
 fi
 
 [ -n "$BACKUP_COMMAND" ] || fail "BACKUP_COMMAND must back up the production database and uploads before deployment."

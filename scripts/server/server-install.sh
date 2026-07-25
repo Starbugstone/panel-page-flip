@@ -14,7 +14,7 @@
 #
 # Usage on the server:
 #   sudo mkdir -p /var/www/comics && sudo chown $USER:$USER /var/www/comics
-#   git clone git@github.com:youruser/yourrepo.git /var/www/comics
+#   git clone git@github.com:youruser/panel-page-flip.git /var/www/comics
 #   cd /var/www/comics
 #   APP_DIR=/var/www/comics ./scripts/server/server-install.sh
 # =============================================================================
@@ -153,13 +153,16 @@ Next steps (do them once):
 
 3. Create the first admin user
    cd $APP_DIR/backend
-   php bin/console app:create-admin-user --env=prod
-   (or use the seeder: php bin/console doctrine:fixtures:load --append --env=prod)
+   php bin/console app:create-admin-user admin@yourdomain.com 'YourSecureP@ssw0rd' --env=prod
 
-4. (Optional) Daily Dropbox sync — install a systemd timer or cron job:
+4. Point SSH_BACKUP_COMMAND at the shipped backup script (required for upgrades):
+   $APP_DIR/scripts/server/backup-comics.sh
+   Optionally: sudo ln -sf $APP_DIR/scripts/server/backup-comics.sh /usr/local/bin/backup-comics
+
+5. (Optional) Daily Dropbox sync — install a systemd timer or cron job:
    0 */2 * * * cd $APP_DIR/backend && php bin/console app:sync-dropbox-comics --env=prod >/var/log/comics-dropbox.log 2>&1
 
-5. From your laptop, set up scripts/.env.deploy and from now on deploy with:
+6. From your laptop, set up scripts/.env.deploy and from now on deploy with:
    ./scripts/deploy-ssh.sh
 
 ==============================================================================

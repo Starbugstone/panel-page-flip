@@ -468,7 +468,6 @@ Convert the workflow to call our scripts inside the runner:
 ```
 
 The runners on GitHub Actions have Docker, so the same scripts work unchanged.
-This is the cleanest endgame: tracked in upgrade.md → Task 4.8.
 
 ---
 
@@ -560,8 +559,8 @@ You can't, by design — both `build-release.sh` and `deploy-ftp.sh` exclude
 
 - Check `MAILER_DSN` in `scripts/.env.deploy` (`PROD_MAILER_DSN`).
 - Make sure the `Symfony\Component\Mailer\Messenger\SendEmailMessage` line in
-  `config/packages/messenger.yaml` is uncommented for prod (it currently isn't
-  — see `upgrade.md` Task 6.5).
+  `backend/config/packages/messenger.yaml` is uncommented for prod if you want
+  mail sent asynchronously (it is currently commented, so mailer runs sync).
 
 ### Database connection refused
 

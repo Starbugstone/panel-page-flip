@@ -17,7 +17,7 @@ $EDITOR scripts/.env.deploy           # fill in SSH_*, PROD_*
 # One-time setup, on the server (over SSH)
 ssh deploy@server.yourdomain.com
 sudo mkdir -p /var/www/comics && sudo chown $USER:$USER /var/www/comics
-git clone git@github.com:youruser/cbz-reader.git /var/www/comics
+git clone git@github.com:youruser/panel-page-flip.git /var/www/comics
 cd /var/www/comics
 APP_DIR=/var/www/comics ./scripts/server/server-install.sh
 $EDITOR backend/.env.prod.local       # fill in DB, mailer, secrets…
@@ -151,7 +151,7 @@ SSH_GIT_BRANCH=main                   # branch the server pulls from
 SSH_WEB_USER=www-data
 SSH_WEB_GROUP=www-data
 SSH_POST_DEPLOY_HOOK="sudo systemctl reload php8.2-fpm"
-SSH_BACKUP_COMMAND=/usr/local/bin/backup-comics # must back up DB + uploads and fail on error
+SSH_BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh # must back up DB + uploads and fail on error
 ```
 
 The `PROD_*` block in the same file is **only used by the FTP flow**. For SSH
@@ -183,7 +183,7 @@ sudo chown $USER:$USER /var/www/comics
 ### 4.2 Clone the repo
 
 ```sh
-git clone git@github.com:youruser/cbz-reader.git /var/www/comics
+git clone git@github.com:youruser/panel-page-flip.git /var/www/comics
 cd /var/www/comics
 ```
 
@@ -256,9 +256,13 @@ service.)
 APP_DIR=/var/www/comics ./scripts/server/server-install.sh
 ```
 
-This time it runs `server-deploy.sh` which:
+This time it runs `server-deploy.sh`. On first install the installer passes
+`BACKUP_COMMAND=true` (there is no production data to protect yet). On later
+deploys via `deploy-ssh.sh`, the real `SSH_BACKUP_COMMAND` runs first.
 
-1. Runs the configured `SSH_BACKUP_COMMAND` and stops unless the database and uploads backup succeeds.
+`server-deploy.sh` then:
+
+1. Runs `BACKUP_COMMAND` and stops unless it succeeds.
 2. Runs `composer install --no-dev --optimize-autoloader`.
 3. Consolidates `.env.prod.local` into `.env.local.php`.
 4. Builds and installs the frontend while retaining the previous asset bundle for rollback.
@@ -267,7 +271,24 @@ This time it runs `server-deploy.sh` which:
 7. Fixes ownership on `backend/var/` and `backend/public/uploads/`.
 
 When it finishes, the installer prints the next-step checklist (web server
-config, certbot, first admin).
+config, certbot, first admin, backup script wiring).
+
+**Before the first upgrade deploy from your laptop**, set `SSH_BACKUP_COMMAND`
+to the shipped script on the server:
+
+```sh
+# on the server (optional convenience symlink)
+sudo ln -sf /var/www/comics/scripts/server/backup-comics.sh /usr/local/bin/backup-comics
+
+# in scripts/.env.deploy on your laptop
+SSH_BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh
+```
+
+Smoke-test once:
+
+```sh
+./scripts/deploy-ssh.sh --command="/var/www/comics/scripts/server/backup-comics.sh"
+```
 
 ### 4.7 Configure the web server
 
@@ -282,30 +303,12 @@ sudo certbot --apache -d comics.yourdomain.com          # if apache
 
 ### 4.9 Create the first admin user
 
-The project ships an `app:create-admin-user` command (see `upgrade.md` Task
-3.1 — verify it exists in your branch first). If it does:
-
 ```sh
 cd /var/www/comics/backend
-php bin/console app:create-admin-user --env=prod
+php bin/console app:create-admin-user admin@yourdomain.com 'YourSecureP@ssw0rd' --env=prod
 ```
 
-If not yet, create one manually:
-
-```sh
-sudo mysql cbz_reader -e "
-  INSERT INTO user (id, email, roles, password, is_email_verified, created_at)
-  VALUES (
-    UUID(),
-    'admin@yourdomain.com',
-    '[\"ROLE_ADMIN\"]',
-    'TEMP_HASH',
-    1,
-    NOW()
-  );
-"
-# Then use the forgot-password flow to set a real password.
-```
+Both `email` and `password` are required arguments.
 
 ---
 
@@ -363,7 +366,9 @@ handles that:
 ssh deploy@server.yourdomain.com
 cd /var/www/comics
 git pull
-APP_DIR=/var/www/comics ./scripts/server/server-deploy.sh
+APP_DIR=/var/www/comics \
+BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh \
+./scripts/server/server-deploy.sh
 ```
 
 You can pass the same env vars `deploy-ssh.sh` would:
@@ -371,6 +376,7 @@ You can pass the same env vars `deploy-ssh.sh` would:
 ```sh
 APP_DIR=/var/www/comics \
 WEB_USER=www-data \
+BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh \
 SKIP_FRONTEND=1 \
 POST_DEPLOY_HOOK="sudo systemctl reload php8.2-fpm" \
 ./scripts/server/server-deploy.sh
@@ -380,8 +386,10 @@ POST_DEPLOY_HOOK="sudo systemctl reload php8.2-fpm" \
 
 ## 6. Web server configuration
 
-You want the web root to be `$SSH_REMOTE_PATH/backend/public/` and you want
-`/api/...` plus all SPA routes to fall through to `index.php`.
+The nginx/Apache snippets below are **examples to create on the server** — they
+are not shipped as files in this repo. You want the web root to be
+`$SSH_REMOTE_PATH/backend/public/` and you want `/api/...` plus all SPA routes
+to fall through to `index.php`.
 
 ### 6.1 Nginx (recommended)
 
@@ -496,22 +504,19 @@ You also need:
 
 ### 6.3 Docker on the server (optional)
 
-If the server has Docker and you'd rather run the prod stack as containers
-(matches dev exactly), commit a `docker-compose.prod.yml` based on the dev
-file and replace `server-deploy.sh`'s build with:
-
-```sh
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml exec -T php bin/console doctrine:migrations:migrate --no-interaction --env=prod
-```
-
-This is cleaner but out of scope for this guide. See `upgrade.md` Task 6.7
-("Containerise prod") for the proposed approach.
+There is no shipped `docker-compose.prod.yml` in this repo. If the server has
+Docker and you'd rather run the prod stack as containers, you can author one
+from the existing `docker-compose.yml` and replace `server-deploy.sh`'s build
+with compose pull/up plus a remote `doctrine:migrations:migrate`. That path is
+out of scope for this guide — keep using the git/SSH scripts unless you
+intentionally move to containers.
 
 ---
 
 ## 7. Background jobs (cron / systemd timers)
+
+These unit/cron fragments are also **server-side examples** (not repo files).
+Install them on the host if you need the corresponding job.
 
 ### 7.1 Dropbox sync (every 2 hours)
 
@@ -606,15 +611,19 @@ ln -sfn /var/www/comics/releases/2026-05-06_18-00-00 /var/www/comics/current
 sudo systemctl reload php8.2-fpm
 ```
 
-This is a meaningful refactor of the deploy scripts. Add it as a task in
-`upgrade.md` if you actually need it.
+This is a meaningful refactor of the deploy scripts and is not implemented
+today. Keep the simple in-place checkout unless you need zero-downtime
+releases.
 
 ---
 
 ## 9. GitHub Actions automation
 
-You can wire `deploy-ssh.sh` into CI so every push to `main` deploys
-automatically. Replace `.github/workflows/build-frontend.yml` with:
+You can add a separate workflow that runs `deploy-ssh.sh` on every push to
+`main`. Do **not** replace `.github/workflows/build-frontend.yml` — that file
+runs validation on PRs/pushes and should stay.
+
+Create `.github/workflows/deploy-ssh.yml` (example only; not shipped):
 
 ```yaml
 name: Deploy via SSH
@@ -639,16 +648,16 @@ jobs:
 
       - name: Write .env.deploy
         run: |
-          cat > scripts/.env.deploy <<EOF
-          SSH_HOST=${{ secrets.SSH_HOST }}
-          SSH_USER=${{ secrets.SSH_USER }}
-          SSH_PORT=${{ secrets.SSH_PORT }}
-          SSH_REMOTE_PATH=${{ secrets.SSH_REMOTE_PATH }}
-          SSH_GIT_BRANCH=main
-          SSH_WEB_USER=www-data
-          SSH_POST_DEPLOY_HOOK=${{ secrets.SSH_POST_DEPLOY_HOOK }}
-          SSH_BACKUP_COMMAND=${{ secrets.SSH_BACKUP_COMMAND }}
-          EOF
+          {
+            echo "SSH_HOST=${{ secrets.SSH_HOST }}"
+            echo "SSH_USER=${{ secrets.SSH_USER }}"
+            echo "SSH_PORT=${{ secrets.SSH_PORT }}"
+            echo "SSH_REMOTE_PATH=${{ secrets.SSH_REMOTE_PATH }}"
+            echo "SSH_GIT_BRANCH=main"
+            echo "SSH_WEB_USER=www-data"
+            echo "SSH_POST_DEPLOY_HOOK=${{ secrets.SSH_POST_DEPLOY_HOOK }}"
+            echo "SSH_BACKUP_COMMAND=${{ secrets.SSH_BACKUP_COMMAND }}"
+          } > scripts/.env.deploy
           chmod 600 scripts/.env.deploy
 
       - name: Deploy
@@ -656,7 +665,8 @@ jobs:
 ```
 
 Required secrets: `SSH_PRIVATE_KEY`, `SSH_HOST`, `SSH_USER`, `SSH_PORT`,
-`SSH_REMOTE_PATH`, `SSH_POST_DEPLOY_HOOK`, `SSH_BACKUP_COMMAND`.
+`SSH_REMOTE_PATH`, `SSH_POST_DEPLOY_HOOK`, `SSH_BACKUP_COMMAND`
+(typically `/var/www/comics/scripts/server/backup-comics.sh`).
 
 ---
 
@@ -781,16 +791,16 @@ backup + the server's daily snapshot.
    ```
    If `git status` shows uncommitted changes, someone edited files directly on
    the server. That's a forensic event — investigate.
-8. **Backups**: this guide deploys code; it does NOT back up the database or
-   `backend/public/uploads/`. Set up daily DB dumps and an off-site sync of
-   the uploads dir. Suggestion:
+8. **Backups**: this guide deploys code; set `SSH_BACKUP_COMMAND` to the shipped
+   script so every upgrade dumps the DB and syncs uploads first:
    ```sh
+   # scripts/.env.deploy
+   SSH_BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh
+
+   # Optional daily cron (same script)
    # /etc/cron.daily/comics-backup
    #!/bin/sh
-   DAY=$(date +%F)
-   mysqldump --single-transaction cbz_reader | gzip > /var/backups/comics/$DAY.sql.gz
-   rsync -a /var/www/comics/backend/public/uploads/ /var/backups/comics/uploads/
-   find /var/backups/comics -name '*.sql.gz' -mtime +30 -delete
+   APP_DIR=/var/www/comics /var/www/comics/scripts/server/backup-comics.sh
    ```
 
 ---
@@ -804,6 +814,7 @@ backup + the server's daily snapshot.
 | `scripts/deploy-ssh.sh`                    | Laptop-side driver. SSHes in, runs `git pull`, calls `server-deploy.sh`. |
 | `scripts/server/server-install.sh`         | One-time installer run on the server. Bootstraps the env file then runs `server-deploy.sh`. |
 | `scripts/server/server-deploy.sh`          | Server-side build: composer + npm + migrate + cache + chown + hook. |
+| `scripts/server/backup-comics.sh`          | Pre-deploy / cron backup of DB + `backend/public/uploads/`. Point `SSH_BACKUP_COMMAND` here. |
 | `scripts/post-deploy.sh`                   | Optional: same actions over HTTP/SSH for the FTP flow. SSH mode reuses the same `SSH_*` vars. |
 | `backend/.env.prod.local` *(server-only)*  | Holds prod secrets. NEVER committed, NEVER on the laptop.       |
 | `backend/.env.local.php` *(server-only)*   | Generated by `composer dump-env prod` from `.env.prod.local`.   |
@@ -815,16 +826,18 @@ backup + the server's daily snapshot.
 ```
 # Initial setup (laptop)
 cp scripts/.env.deploy.example scripts/.env.deploy && chmod 600 scripts/.env.deploy
-$EDITOR scripts/.env.deploy            # fill in SSH_* block
+$EDITOR scripts/.env.deploy            # fill in SSH_* block (incl. SSH_BACKUP_COMMAND)
 
 # Initial setup (server)
 ssh deploy@server.yourdomain.com
 sudo mkdir -p /var/www/comics && sudo chown $USER:$USER /var/www/comics
-git clone git@github.com:youruser/cbz-reader.git /var/www/comics
+git clone git@github.com:youruser/panel-page-flip.git /var/www/comics
 cd /var/www/comics
 APP_DIR=/var/www/comics ./scripts/server/server-install.sh   # writes env template
 $EDITOR backend/.env.prod.local
 APP_DIR=/var/www/comics ./scripts/server/server-install.sh   # actually builds
+# Wire backup (required before laptop deploys):
+# SSH_BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh
 
 # Standard release (laptop)
 git push origin main
