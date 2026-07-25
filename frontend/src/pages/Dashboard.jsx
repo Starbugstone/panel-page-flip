@@ -181,9 +181,9 @@ export default function Dashboard() {
     }
   };
   
-  const deleteComic = async (comicId) => {
+  const deleteComic = async (comicId, { confirmOrphaned = false } = {}) => {
     try {
-      await api.delete("/api/comics", { body: { comicIds: [comicId] } });
+      await api.delete("/api/comics", { body: { comicIds: [comicId], confirmOrphaned } });
       
       // Update local state
       const updatedComics = comics.filter(c => c.id !== comicId);
@@ -191,7 +191,9 @@ export default function Dashboard() {
       
       return true;
     } catch (error) {
-      logger.error("Error deleting comic:", error);
+      if (error.data?.code !== "orphaned_comics_confirmation_required") {
+        logger.error("Error deleting comic:", error);
+      }
       throw error;
     }
   };
@@ -214,14 +216,22 @@ export default function Dashboard() {
     }
   };
 
-  const deleteSelectedComics = async (comicIds) => {
+  const deleteSelectedComics = async (comicIds, { confirmOrphaned = false } = {}) => {
     try {
-      await api.delete("/api/comics", { body: { comicIds } });
+      const result = await api.delete("/api/comics", { body: { comicIds, confirmOrphaned } });
       setComics((currentComics) => currentComics.filter((comic) => !comicIds.includes(comic.id)));
-      toast({ title: "Comics deleted", description: `${comicIds.length} comic(s) were removed from your library.` });
+      const orphanCount = result.orphanedComicIds?.length || 0;
+      toast({
+        title: "Comics deleted",
+        description: orphanCount > 0
+          ? `${comicIds.length} ${comicIds.length === 1 ? "record" : "records"} removed; ${orphanCount} comic ${orphanCount === 1 ? "file was" : "files were"} already missing.`
+          : `${comicIds.length} ${comicIds.length === 1 ? "comic was" : "comics were"} removed from your library.`,
+      });
     } catch (error) {
-      logger.error("Error deleting selected comics:", error);
-      toast({ title: "Bulk deletion failed", description: error.message, variant: "destructive" });
+      if (error.data?.code !== "orphaned_comics_confirmation_required") {
+        logger.error("Error deleting selected comics:", error);
+        toast({ title: "Bulk deletion failed", description: error.message, variant: "destructive" });
+      }
       throw error;
     }
   };

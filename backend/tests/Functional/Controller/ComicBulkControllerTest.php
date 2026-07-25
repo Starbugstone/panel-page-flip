@@ -84,6 +84,7 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
 
         $payload = $this->deleteJson('/api/comics', [
             'comicIds' => [$first->getId(), $second->getId()],
+            'confirmOrphaned' => true,
         ]);
 
         self::assertResponseIsSuccessful();
@@ -92,6 +93,35 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
         self::assertNull($repository->find($first->getId()));
         self::assertNull($repository->find($second->getId()));
         self::assertNotNull($repository->find($kept->getId()));
+    }
+
+    public function testBulkDeleteRequiresConfirmationForMissingComicFiles(): void
+    {
+        $owner = $this->createAndLoginUser();
+        $orphanedComic = ComicFactory::new()->ownedBy($owner)->create([
+            'title' => 'Missing archive',
+            'filePath' => 'missing-archive.cbz',
+        ])->object();
+
+        $warning = $this->deleteJson('/api/comics', [
+            'comicIds' => [$orphanedComic->getId()],
+        ]);
+
+        self::assertResponseStatusCodeSame(409);
+        self::assertSame('orphaned_comics_confirmation_required', $warning['code']);
+        self::assertSame($orphanedComic->getId(), $warning['orphanedComics'][0]['id']);
+        self::assertNotNull(static::getContainer()->get(EntityManagerInterface::class)
+            ->getRepository(Comic::class)->find($orphanedComic->getId()));
+
+        $deleted = $this->deleteJson('/api/comics', [
+            'comicIds' => [$orphanedComic->getId()],
+            'confirmOrphaned' => true,
+        ]);
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([$orphanedComic->getId()], $deleted['orphanedComicIds']);
+        self::assertNull(static::getContainer()->get(EntityManagerInterface::class)
+            ->getRepository(Comic::class)->find($orphanedComic->getId()));
     }
 
     public function testBulkDeleteRejectsMixedOwnershipWithoutDeletingAnything(): void

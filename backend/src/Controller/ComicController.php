@@ -330,6 +330,26 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'One or more comics were not found'], Response::HTTP_NOT_FOUND);
         }
 
+        $orphanedComics = [];
+        foreach ($comics as $comic) {
+            if (!$comicService->comicArchiveExists($comic)) {
+                $orphanedComics[] = [
+                    'id' => $comic->getId(),
+                    'title' => $comic->getTitle(),
+                    'fileName' => basename((string) $comic->getFilePath()),
+                ];
+            }
+        }
+
+        $confirmOrphaned = ($data['confirmOrphaned'] ?? false) === true;
+        if ($orphanedComics !== [] && !$confirmOrphaned) {
+            return $this->json([
+                'code' => 'orphaned_comics_confirmation_required',
+                'message' => 'One or more comic files are missing. Confirm removal of the orphaned library entries.',
+                'orphanedComics' => $orphanedComics,
+            ], Response::HTTP_CONFLICT);
+        }
+
         $quarantinedFiles = [];
         try {
             $entityManager->beginTransaction();
@@ -360,6 +380,7 @@ class ComicController extends AbstractController
         return $this->json([
             'message' => sprintf('%d comic(s) deleted', count($comics)),
             'deletedComicIds' => $comicIds,
+            'orphanedComicIds' => array_column($orphanedComics, 'id'),
         ]);
     }
 

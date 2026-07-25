@@ -16,6 +16,7 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
   const [tagName, setTagName] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [orphanedComics, setOrphanedComics] = useState([]);
   const comicIds = useMemo(() => comics.map((comic) => comic.id), [comics]);
   const selectedComicIds = comicIds.filter((comicId) => selectedIds.has(comicId));
   const allSelected = comicIds.length > 0 && selectedComicIds.length === comicIds.length;
@@ -48,14 +49,18 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
     }
   };
 
-  const deleteSelected = async () => {
+  const deleteSelected = async (confirmOrphaned = false) => {
     setIsUpdating(true);
     try {
-      await onBulkDelete(selectedComicIds);
+      await onBulkDelete(selectedComicIds, { confirmOrphaned });
       setSelectedIds(new Set());
+      setOrphanedComics([]);
       setIsDeleteDialogOpen(false);
-    } catch {
-      // The dashboard reports the API error and keeps the confirmation open for retry.
+    } catch (error) {
+      if (error.data?.code === "orphaned_comics_confirmation_required") {
+        setOrphanedComics(error.data.orphanedComics || []);
+      }
+      // Other API errors are reported by the dashboard; keep the dialog open for retry.
     } finally {
       setIsUpdating(false);
     }
@@ -171,18 +176,39 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
         </Table>
       </div>
 
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <AlertDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDialogOpen(open);
+          if (!open) setOrphanedComics([]);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {selectedComicIds.length} selected comic(s)?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {orphanedComics.length > 0
+                ? `Delete ${orphanedComics.length} orphaned comic ${orphanedComics.length === 1 ? "record" : "records"}?`
+                : `Delete ${selectedComicIds.length} selected ${selectedComicIds.length === 1 ? "comic" : "comics"}?`}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              They will be removed from your library and their files moved to recoverable quarantine storage.
+              {orphanedComics.length > 0 ? (
+                <span className="space-y-2">
+                  <span className="block font-medium text-destructive">
+                    The CBZ file{orphanedComics.length === 1 ? " is" : "s are"} no longer present.
+                  </span>
+                  <span className="block">
+                    {orphanedComics.map((comic) => comic.title).join(", ")}. Only the orphaned library record{orphanedComics.length === 1 ? "" : "s"} can be removed.
+                  </span>
+                </span>
+              ) : (
+                "They will be removed from your library and their existing files moved to recoverable quarantine storage."
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isUpdating}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={(event) => { event.preventDefault(); deleteSelected(); }} disabled={isUpdating} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {isUpdating ? "Deleting..." : "Delete selected"}
+            <AlertDialogAction onClick={(event) => { event.preventDefault(); deleteSelected(orphanedComics.length > 0); }} disabled={isUpdating} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isUpdating ? "Deleting..." : orphanedComics.length === 1 ? "Delete orphaned record" : orphanedComics.length > 1 ? "Delete orphaned records" : "Delete selected"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

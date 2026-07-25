@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast.js";
 export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic, onShareClick }) {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isOrphaned, setIsOrphaned] = useState(false);
   const { toast } = useToast();
 
   const handleResetClick = (e) => {
@@ -39,13 +40,20 @@ export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic, 
 
   const confirmDelete = async () => {
     try {
-      await onDeleteComic(comic.id);
+      await onDeleteComic(comic.id, { confirmOrphaned: isOrphaned });
       setIsDeleteDialogOpen(false);
+      setIsOrphaned(false);
       toast({
         title: "Comic deleted",
-        description: "The comic has been removed from your library.",
+        description: isOrphaned
+          ? "The orphaned comic record has been removed from your library."
+          : "The comic has been removed from your library.",
       });
     } catch (error) {
+      if (error.data?.code === "orphaned_comics_confirmation_required") {
+        setIsOrphaned(true);
+        return;
+      }
       toast({
         title: "Error",
         description: error.message || "Failed to delete comic",
@@ -167,17 +175,27 @@ export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic, 
         </DialogContent>
       </Dialog>
       
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <Dialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteDialogOpen(open);
+          if (!open) setIsOrphaned(false);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Comic</DialogTitle>
+            <DialogTitle>{isOrphaned ? "Delete orphaned comic record?" : "Delete Comic"}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{comic.title}" from your library? This action cannot be undone.
+              {isOrphaned
+                ? `The CBZ file for “${comic.title}” is no longer present. Do you want to remove only its orphaned library record?`
+                : `Delete “${comic.title}” from your library? Its existing files will be moved to recoverable quarantine storage.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={confirmDelete}>Delete Comic</Button>
+            <Button variant="destructive" onClick={confirmDelete}>
+              {isOrphaned ? "Delete orphaned record" : "Delete Comic"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

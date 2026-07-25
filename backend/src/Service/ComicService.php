@@ -138,8 +138,9 @@ class ComicService
         }
 
         $paths = [];
-        if ($comic->getFilePath()) {
-            $paths[] = $this->comicsDirectory . '/' . $user->getId() . '/' . basename($comic->getFilePath());
+        $comicArchive = $this->findComicArchive($comic);
+        if ($comicArchive !== null) {
+            $paths[] = $comicArchive;
         }
 
         if ($comic->getCoverImagePath()) {
@@ -149,10 +150,39 @@ class ComicService
         return $this->fileQuarantine->quarantine($paths);
     }
 
+    public function comicArchiveExists(Comic $comic): bool
+    {
+        return $this->findComicArchive($comic) !== null;
+    }
+
     /** @param list<array{originalPath: string, quarantinePath: string}> $records */
     public function restoreQuarantinedFiles(array $records): void
     {
         $this->fileQuarantine->restore($records);
+    }
+
+    private function findComicArchive(Comic $comic): ?string
+    {
+        $filePath = $comic->getFilePath();
+        $owner = $comic->getOwner();
+        if (!$filePath || !$owner) {
+            return null;
+        }
+
+        $relativePath = ltrim($filePath, '/\\');
+        $candidates = [
+            $this->comicsDirectory . '/' . $owner->getId() . '/' . $relativePath,
+            $this->comicsDirectory . '/' . $owner->getId() . '/' . basename($relativePath),
+            $this->comicsDirectory . '/' . $relativePath,
+        ];
+
+        foreach (array_unique($candidates) as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function validateCbzArchive(string $absolutePath): void

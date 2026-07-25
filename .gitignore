@@ -47,3 +47,4 @@ backend/public/error_log
 backend/public/favicon.ico
 backend/public/placeholder.svg
 backend/public/robots.txt
+error_log
