@@ -273,7 +273,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className="border rounded-md">
+        <div className="overflow-x-auto border rounded-md">
           <Table>
             <TableHeader>
               <TableRow>
@@ -281,6 +281,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                 <TableHead>Role</TableHead>
                 <TableHead>Verified?</TableHead>
                 <TableHead>Created</TableHead>
+                <TableHead>Last login</TableHead>
                 <TableHead>Comics</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -316,6 +317,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                       )}
                     </TableCell>
                     <TableCell>{formatDate(user.createdAt)}</TableCell>
+                    <TableCell>{user.lastLoginAt ? formatDate(user.lastLoginAt) : "Never"}</TableCell>
                     <TableCell>{user.comicCount}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
@@ -362,7 +364,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8">
+                  <TableCell colSpan={7} className="text-center py-8">
                     {emptyMessage}
                   </TableCell>
                 </TableRow>
@@ -370,7 +372,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
             </TableBody>
             <TableFooter>
               <TableRow>
-                <TableCell colSpan={5}>{totalLabel}</TableCell>
+                <TableCell colSpan={6}>{totalLabel}</TableCell>
                 <TableCell className="text-right">{filteredUsers.length}</TableCell>
               </TableRow>
             </TableFooter>

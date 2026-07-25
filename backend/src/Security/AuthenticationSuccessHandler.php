@@ -3,6 +3,7 @@
 namespace App\Security;
 
 use App\Entity\User;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -12,6 +13,10 @@ use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerI
 
 class AuthenticationSuccessHandler implements AuthenticationSuccessHandlerInterface
 {
+    public function __construct(private readonly EntityManagerInterface $entityManager)
+    {
+    }
+
     public function onAuthenticationSuccess(Request $request, TokenInterface $token): Response
     {
         /** @var User $user */
@@ -26,7 +31,10 @@ class AuthenticationSuccessHandler implements AuthenticationSuccessHandlerInterf
                 'email' => $user->getUserIdentifier(),
             ], Response::HTTP_FORBIDDEN);
         }
-        
+
+        $user->setLastLoginAt(new \DateTimeImmutable());
+        $this->entityManager->flush();
+
         // Return a JSON response with user information
         return new JsonResponse([
             'success' => true,

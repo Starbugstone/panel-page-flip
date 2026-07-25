@@ -47,6 +47,7 @@ class UserController extends AbstractController
                 'name' => $u->getName(),
                 'roles' => $u->getRoles(),
                 'createdAt' => $u->getCreatedAt()->format('c'),
+                'lastLoginAt' => $u->getLastLoginAt()?->format('c'),
                 'isEmailVerified' => $u->isEmailVerified(),
                 'comicCount' => $u->getComics()->count(),
                 'tagCount' => $u->getCreatedTags()->count()
@@ -83,6 +84,7 @@ class UserController extends AbstractController
             'name' => $targetUser->getName(),
             'roles' => $targetUser->getRoles(),
             'createdAt' => $targetUser->getCreatedAt()->format('c'),
+            'lastLoginAt' => $targetUser->getLastLoginAt()?->format('c'),
             'isEmailVerified' => $targetUser->isEmailVerified(),
             'comicCount' => $targetUser->getComics()->count(),
             'tagCount' => $targetUser->getCreatedTags()->count()

@@ -20,17 +20,24 @@ class UserControllerSecurityTest extends AbstractApiTestCase
     public function testAdminCanListUsersWithoutPasswordOrTokensLeaking(): void
     {
         $this->createAndLoginAdmin(['email' => 'admin-list@test.local']);
+        $lastLoginAt = new \DateTimeImmutable('2026-07-25 14:30:00+00:00');
         UserFactory::createOne([
             'email' => 'listed-user@test.local',
             'dropboxAccessToken' => 'sensitive-access-token',
             'dropboxRefreshToken' => 'sensitive-refresh-token',
+            'lastLoginAt' => $lastLoginAt,
         ]);
 
         $payload = $this->getJson('/api/users');
         $encoded = json_encode($payload, JSON_THROW_ON_ERROR);
+        $listedUser = array_values(array_filter(
+            $payload['users'],
+            static fn (array $user): bool => $user['email'] === 'listed-user@test.local'
+        ))[0];
 
         self::assertResponseIsSuccessful();
         self::assertCount(2, $payload['users']);
+        self::assertSame($lastLoginAt->format('c'), $listedUser['lastLoginAt']);
         self::assertStringNotContainsString('password', strtolower($encoded));
         self::assertStringNotContainsString('sensitive-access-token', $encoded);
         self::assertStringNotContainsString('sensitive-refresh-token', $encoded);
