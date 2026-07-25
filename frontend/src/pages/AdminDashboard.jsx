@@ -25,7 +25,6 @@ export default function AdminDashboard() {
   
   // If loading is complete and user is not admin, redirect to dashboard
   if (!user || !user.roles || !user.roles.includes("ROLE_ADMIN")) {
-    // console.log("AdminDashboard: Redirecting. User object after loading:", user); // For debugging
     return <Navigate to="/dashboard" replace />;
   }
   

@@ -1,4 +1,4 @@
-
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster.jsx";
 import { Toaster as Sonner } from "@/components/ui/sonner.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip.jsx";
@@ -9,28 +9,30 @@ import { ThemeProvider } from "@/components/ThemeProvider.jsx";
 import { Header } from "@/components/Header.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
 import { TagProvider } from "./hooks/use-tags.jsx";
-import Landing from "./pages/Landing.jsx";
-import Login from "./pages/Login.jsx";
-import Dashboard from "./pages/Dashboard.jsx";
-import UploadComic from "./pages/UploadComic.jsx";
-import BulkUploadComic from "./pages/BulkUploadComic.jsx";
-import ComicReader from "./pages/ComicReader.jsx";
-import AdminDashboard from "./pages/AdminDashboard.jsx";
-import ForgotPassword from "./pages/ForgotPassword.jsx";
-import ResetPassword from "./pages/ResetPassword.jsx";
-import NotFound from "./pages/NotFound.jsx";
-import AcceptSharePage from "./pages/AcceptSharePage.jsx";
-import EmailVerification from "./pages/EmailVerification.jsx";
-import DropboxSyncPage from "./pages/DropboxSyncPage.jsx";
+
+const Landing = lazy(() => import("./pages/Landing.jsx"));
+const Login = lazy(() => import("./pages/Login.jsx"));
+const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
+const UploadComic = lazy(() => import("./pages/UploadComic.jsx"));
+const BulkUploadComic = lazy(() => import("./pages/BulkUploadComic.jsx"));
+const ComicReader = lazy(() => import("./pages/ComicReader.jsx"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard.jsx"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword.jsx"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword.jsx"));
+const NotFound = lazy(() => import("./pages/NotFound.jsx"));
+const AcceptSharePage = lazy(() => import("./pages/AcceptSharePage.jsx"));
+const EmailVerification = lazy(() => import("./pages/EmailVerification.jsx"));
+const DropboxSyncPage = lazy(() => import("./pages/DropboxSyncPage.jsx"));
 
 const queryClient = new QueryClient();
+const PageLoading = () => <div className="flex h-screen items-center justify-center">Loading...</div>;
 
 // Protected route component
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
   
   if (loading) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+    return <PageLoading />;
   }
   
   if (!isAuthenticated) {
@@ -45,7 +47,7 @@ const AdminRoute = ({ children }) => {
   const { isAuthenticated, loading, user } = useAuth();
   
   if (loading) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+    return <PageLoading />;
   }
   
   if (!isAuthenticated) {
@@ -71,7 +73,8 @@ const AppRoutes = () => {
           isAdmin={user?.roles?.includes("ROLE_ADMIN")} 
         />
         <main className="flex-1">
-          <Routes>
+          <Suspense fallback={<PageLoading />}>
+            <Routes>
             <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Landing />} />
             <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login />} />
             <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ForgotPassword />} />
@@ -85,7 +88,8 @@ const AppRoutes = () => {
             <Route path="/share/accept/:token" element={<ProtectedRoute><AcceptSharePage /></ProtectedRoute>} />
             <Route path="/dropbox-sync" element={<ProtectedRoute><DropboxSyncPage /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
-          </Routes>
+            </Routes>
+          </Suspense>
         </main>
       </div>
     </BrowserRouter>

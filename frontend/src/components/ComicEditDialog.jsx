@@ -52,8 +52,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
       const results = await searchTags(query.trim(), adminContext);
       setTagSuggestions(results.map(tag => tag.name));
       setShowSuggestions(true);
-    } catch (error) {
-      console.error('Error fetching tag suggestions:', error);
+    } catch {
       setTagSuggestions([]);
     } finally {
       setIsLoadingSuggestions(false);

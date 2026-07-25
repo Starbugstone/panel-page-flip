@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { BookOpen, X, Gift, Clock, Check, XCircle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
+import { logger } from '@/lib/logger';
 
 export function PendingSharesAlert() {
   const { pendingShares, loading } = usePendingShares();
@@ -51,7 +52,7 @@ export function PendingSharesAlert() {
       });
       
     } catch (error) {
-      console.error('Error refusing share:', error);
+      logger.error('Error refusing share:', error);
       toast({
         title: 'Error',
         description: error.message || 'Failed to refuse share',

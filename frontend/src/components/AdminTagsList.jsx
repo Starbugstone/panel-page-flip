@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Search, Plus, Trash, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,7 +35,7 @@ export function AdminTagsList() {
       const data = await api.get("/api/tags?all=true&adminContext=true");
       setTags(data.tags || data || []);
     } catch (error) {
-      console.error("Failed to load tags:", error);
+      logger.error("Failed to load tags:", error);
       toast({ title: "Error", description: error.message || "Could not load tags.", variant: "destructive" });
       setTags([]);
     } finally {
@@ -78,7 +79,7 @@ export function AdminTagsList() {
       setIsAddDialogOpen(false);
       toast({ title: "Success", description: "Tag created successfully" });
     } catch (error) {
-      console.error("Failed to create tag:", error);
+      logger.error("Failed to create tag:", error);
       toast({ title: "Error", description: error.message || "Could not create tag.", variant: "destructive" });
     }
   };
@@ -112,7 +113,7 @@ export function AdminTagsList() {
       setCurrentTag(null);
       toast({ title: "Success", description: "Tag updated successfully" });
     } catch (error) {
-      console.error("Failed to update tag:", error);
+      logger.error("Failed to update tag:", error);
       toast({ title: "Error", description: error.message || "Could not update tag.", variant: "destructive" });
     }
   };
@@ -133,7 +134,7 @@ export function AdminTagsList() {
       setTags((currentTags) => currentTags.filter((tag) => tag.id !== tagId));
       toast({ title: "Success", description: "Tag deleted successfully" });
     } catch (error) {
-      console.error(`Failed to delete tag ${tagId}:`, error);
+      logger.error(`Failed to delete tag ${tagId}:`, error);
       toast({ title: "Error", description: error.message || "Could not delete tag.", variant: "destructive" });
     }
   };

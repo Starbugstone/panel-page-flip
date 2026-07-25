@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { ComicEditDialog } from "@/components/ComicEditDialog";
 import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,7 +39,7 @@ export function AdminComicsList() {
       const data = await api.get("/api/comics?adminContext=true");
       setComics(data.comics || data || []);
     } catch (error) {
-      console.error("Failed to load comics:", error);
+      logger.error("Failed to load comics:", error);
       toast({ title: "Failed to load comics", description: error.message, variant: "destructive" });
       setComics([]);
     } finally {
@@ -74,7 +75,7 @@ export function AdminComicsList() {
       setComics((currentComics) => currentComics.filter((comic) => comic.id !== comicId));
       toast({ title: "Comic deleted" });
     } catch (error) {
-      console.error(`Failed to delete comic ${comicId}:`, error);
+      logger.error(`Failed to delete comic ${comicId}:`, error);
       toast({ title: "Delete failed", description: error.message, variant: "destructive" });
     }
   };

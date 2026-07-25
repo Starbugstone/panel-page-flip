@@ -66,7 +66,6 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
       const data = await api.get(`/api/users${query}`);
       setUsers(data.users || []);
     } catch (error) {
-      console.error("Failed to load users:", error);
       toast({
         title: "Failed to load users",
         description: error.message,
@@ -103,7 +102,6 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
       setUsers((currentUsers) => currentUsers.filter((user) => user.id !== userId));
       toast({ title: "User deleted" });
     } catch (error) {
-      console.error(`Failed to delete user ${userId}:`, error);
       toast({ title: "Delete failed", description: error.message, variant: "destructive" });
     }
   };
@@ -119,7 +117,6 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
       roles: Array.isArray(user.roles) ? [...user.roles] : [] 
     }); 
     setIsEditDialogOpen(true);
-    console.log(`Editing user:`, user);
   };
   
   const handlePromoteToAdmin = async (userId) => {
@@ -135,7 +132,6 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
       )));
       toast({ title: "User promoted to admin" });
     } catch (error) {
-      console.error(`Failed to promote user ${userId}:`, error);
       toast({ title: "Promotion failed", description: error.message, variant: "destructive" });
     }
   };
@@ -168,18 +164,14 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
       const newRoles = Array.from(new Set([...editFormData.roles, 'ROLE_USER']));
       payload.roles = newRoles;
     } else if (rolesChanged && editingUser.id === currentUser.id) {
-      console.warn("Admin cannot change their own roles through this form.");
       // Optionally, provide feedback to the user that their own roles cannot be changed here.
     }
 
     // If nothing to update, just close the dialog
     if (Object.keys(payload).length === 0) {
       setIsEditDialogOpen(false);
-      console.log("No changes to save.");
       return;
     }
-
-    console.log("Attempting to save user update with payload:", payload, "for user ID:", editingUser.id);
 
     try {
       const updatedUserResponse = await api.put(`/api/users/${editingUser.id}`, payload);
@@ -190,7 +182,6 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
       setEditingUser(null); // Clear editing state
       toast({ title: "User updated" });
     } catch (error) {
-      console.error(`Failed to update user ${editingUser.id}:`, error);
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
     }
   };

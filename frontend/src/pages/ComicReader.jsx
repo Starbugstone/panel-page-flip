@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button.jsx";
-// import { mockComics, generateComicPages } from "@/lib/mockData.js";
 import { ArrowLeft, ArrowRight, Info, Maximize, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";

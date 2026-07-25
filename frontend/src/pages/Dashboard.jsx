@@ -1,7 +1,6 @@
 
 import { useCallback, useState, useEffect } from "react";
 import { ComicCard } from "@/components/ComicCard.jsx";
-// import { mockComics } from "@/lib/mockData.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { SearchBar } from "@/components/SearchBar.jsx";
 import { Button } from "@/components/ui/button";
