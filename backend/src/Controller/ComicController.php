@@ -223,6 +223,146 @@ class ComicController extends AbstractController
         return $this->json(['comics' => $comicsArray]);
     }
 
+    #[Route('', name: 'batch_update', methods: ['PATCH'])]
+    public function batchUpdate(Request $request, EntityManagerInterface $entityManager): JsonResponse
+    {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $data = json_decode($request->getContent(), true);
+        if (!is_array($data)) {
+            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $updates = $this->normaliseComicUpdates($data['updates'] ?? null);
+        if ($updates === []) {
+            return $this->json(['message' => 'A valid updates array is required'], Response::HTTP_BAD_REQUEST);
+        }
+        $comicIds = array_column($updates, 'id');
+
+        $comics = $entityManager->getRepository(Comic::class)->findBy([
+            'id' => $comicIds,
+            'owner' => $user,
+        ]);
+        if (count($comics) !== count($comicIds)) {
+            return $this->json(['message' => 'One or more comics were not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $comicsById = [];
+        foreach ($comics as $comic) {
+            $comicsById[$comic->getId()] = $comic;
+        }
+        $tagsByName = [];
+        $getTag = function (string $tagName) use (&$tagsByName, $user, $entityManager): Tag {
+            $tagKey = mb_strtolower($tagName);
+            if (isset($tagsByName[$tagKey])) {
+                return $tagsByName[$tagKey];
+            }
+
+            $tag = $entityManager->getRepository(Tag::class)->findOneBy(['name' => $tagName, 'creator' => $user]);
+            if (!$tag) {
+                $tag = (new Tag())->setName($tagName)->setCreator($user);
+                $entityManager->persist($tag);
+            }
+
+            return $tagsByName[$tagKey] = $tag;
+        };
+
+        foreach ($updates as $update) {
+            $comic = $comicsById[$update['id']];
+            $changes = $update['changes'];
+
+            if (array_key_exists('title', $changes)) {
+                $comic->setTitle($changes['title']);
+            }
+            foreach (['author', 'publisher', 'description'] as $field) {
+                if (array_key_exists($field, $changes)) {
+                    $setter = 'set' . ucfirst($field);
+                    $comic->{$setter}($changes[$field]);
+                }
+            }
+
+            if (array_key_exists('tags', $changes)) {
+                foreach ($comic->getTags()->toArray() as $tag) {
+                    $comic->removeTag($tag);
+                }
+                foreach ($changes['tags'] as $tagName) {
+                    $comic->addTag($getTag($tagName));
+                }
+            }
+
+            foreach ($changes['addTags'] ?? [] as $tagName) {
+                $comic->addTag($getTag($tagName));
+            }
+        }
+        $entityManager->flush();
+
+        return $this->json([
+            'message' => sprintf('%d comic(s) updated', count($comics)),
+            'updatedComicIds' => $comicIds,
+        ]);
+    }
+
+    #[Route('', name: 'batch_delete', methods: ['DELETE'])]
+    public function batchDelete(
+        Request $request,
+        EntityManagerInterface $entityManager,
+        ComicService $comicService
+    ): JsonResponse {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $data = json_decode($request->getContent(), true);
+        $comicIds = is_array($data) ? $this->normaliseBulkComicIds($data['comicIds'] ?? null) : [];
+        if ($comicIds === []) {
+            return $this->json(['message' => 'comicIds are required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $comics = $entityManager->getRepository(Comic::class)->findBy([
+            'id' => $comicIds,
+            'owner' => $user,
+        ]);
+        if (count($comics) !== count($comicIds)) {
+            return $this->json(['message' => 'One or more comics were not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $quarantinedFiles = [];
+        try {
+            $entityManager->beginTransaction();
+            foreach ($comics as $comic) {
+                array_push($quarantinedFiles, ...$comicService->quarantineComicFiles($comic));
+                $entityManager->remove($comic);
+            }
+            $entityManager->flush();
+            $entityManager->commit();
+        } catch (\Throwable $exception) {
+            if ($entityManager->getConnection()->isTransactionActive()) {
+                $entityManager->rollback();
+            }
+
+            try {
+                $comicService->restoreQuarantinedFiles($quarantinedFiles);
+            } catch (\Throwable $restoreException) {
+                $this->logger->critical('Bulk comic deletion failed and quarantined files could not be restored.', [
+                    'exception' => $restoreException,
+                    'comic_ids' => $comicIds,
+                ]);
+            }
+
+            $this->logger->error('Bulk comic deletion failed.', ['exception' => $exception, 'comic_ids' => $comicIds]);
+            return $this->json(['message' => 'Bulk deletion failed. No database records were deleted.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json([
+            'message' => sprintf('%d comic(s) deleted', count($comics)),
+            'deletedComicIds' => $comicIds,
+        ]);
+    }
+
     #[Route('/{id}', name: 'get', methods: ['GET'])]
     public function get(int $id, EntityManagerInterface $entityManager): JsonResponse
     {
@@ -1031,6 +1171,115 @@ class ComicController extends AbstractController
         ];
 
         return $mimeTypes[$extension] ?? 'application/octet-stream';
+    }
+
+    /** @return list<int> */
+    private function normaliseBulkComicIds(mixed $comicIds): array
+    {
+        if (!is_array($comicIds) || count($comicIds) > 200) {
+            return [];
+        }
+
+        $normalised = [];
+        foreach ($comicIds as $comicId) {
+            if (!is_int($comicId) && !(is_string($comicId) && ctype_digit($comicId))) {
+                return [];
+            }
+
+            $comicId = (int) $comicId;
+            if ($comicId <= 0) {
+                return [];
+            }
+            $normalised[$comicId] = $comicId;
+        }
+
+        return array_values($normalised);
+    }
+
+    /**
+     * @return list<array{id: int, changes: array<string, mixed>}>
+     */
+    private function normaliseComicUpdates(mixed $updates): array
+    {
+        if (!is_array($updates) || $updates === [] || count($updates) > 200) {
+            return [];
+        }
+
+        $normalised = [];
+        foreach ($updates as $update) {
+            if (!is_array($update)) {
+                return [];
+            }
+
+            $ids = $this->normaliseBulkComicIds([$update['id'] ?? null]);
+            $changes = $update['changes'] ?? null;
+            if (count($ids) !== 1 || !is_array($changes) || $changes === []) {
+                return [];
+            }
+
+            $allowedFields = ['title', 'author', 'publisher', 'description', 'tags', 'addTags'];
+            if (array_diff(array_keys($changes), $allowedFields) !== []) {
+                return [];
+            }
+
+            if (array_key_exists('title', $changes) && (
+                !is_string($changes['title'])
+                || trim($changes['title']) === ''
+                || mb_strlen(trim($changes['title'])) > 255
+            )) {
+                return [];
+            }
+            if (array_key_exists('title', $changes)) {
+                $changes['title'] = trim($changes['title']);
+            }
+            foreach (['author', 'publisher', 'description'] as $field) {
+                if (array_key_exists($field, $changes) && !is_string($changes[$field]) && $changes[$field] !== null) {
+                    return [];
+                }
+            }
+            foreach (['author', 'publisher'] as $field) {
+                if (is_string($changes[$field] ?? null) && mb_strlen($changes[$field]) > 255) {
+                    return [];
+                }
+            }
+            foreach (['tags', 'addTags'] as $field) {
+                if (!array_key_exists($field, $changes)) {
+                    continue;
+                }
+                $tagNames = $this->normaliseTagNames($changes[$field]);
+                if ($tagNames === null) {
+                    return [];
+                }
+                $changes[$field] = $tagNames;
+            }
+
+            $normalised[$ids[0]] = ['id' => $ids[0], 'changes' => $changes];
+        }
+
+        return array_values($normalised);
+    }
+
+    /** @return list<string>|null */
+    private function normaliseTagNames(mixed $tags): ?array
+    {
+        if (!is_array($tags) || count($tags) > 50) {
+            return null;
+        }
+
+        $normalised = [];
+        foreach ($tags as $tag) {
+            $tagName = is_array($tag) ? ($tag['name'] ?? null) : $tag;
+            if (!is_string($tagName)) {
+                return null;
+            }
+            $tagName = trim($tagName);
+            if ($tagName === '' || mb_strlen($tagName) > 50) {
+                return null;
+            }
+            $normalised[mb_strtolower($tagName)] = $tagName;
+        }
+
+        return array_values($normalised);
     }
 
     #[Route('/cover/{userId}/{comicId}/{filename}', name: 'cover_image', methods: ['GET'])]

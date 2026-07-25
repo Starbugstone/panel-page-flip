@@ -135,10 +135,20 @@ abstract class AbstractApiTestCase extends WebTestCase
         return $this->json();
     }
 
-    protected function deleteJson(string $url): array
+    protected function deleteJson(string $url, array $payload = []): array
     {
-        $headers = array_merge(['HTTP_ACCEPT' => 'application/json'], $this->csrfHeader());
-        $this->client->request('DELETE', $url, [], [], $headers);
+        $headers = array_merge([
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+        ], $this->csrfHeader());
+        $this->client->request(
+            'DELETE',
+            $url,
+            [],
+            [],
+            $headers,
+            json_encode($payload, JSON_THROW_ON_ERROR)
+        );
 
         return $this->json();
     }
