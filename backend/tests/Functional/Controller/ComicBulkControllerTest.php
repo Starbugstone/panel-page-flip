@@ -3,6 +3,7 @@
 namespace App\Tests\Functional\Controller;
 
 use App\Entity\Comic;
+use App\Entity\ShareToken;
 use App\Entity\Tag;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
@@ -102,6 +103,11 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
             'title' => 'Missing archive',
             'filePath' => 'missing-archive.cbz',
         ])->object();
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $shareToken = new ShareToken($orphanedComic, $owner, 'recipient@example.com');
+        $entityManager->persist($shareToken);
+        $entityManager->flush();
+        $shareTokenId = $shareToken->getId();
 
         $warning = $this->deleteJson('/api/comics', [
             'comicIds' => [$orphanedComic->getId()],
@@ -110,8 +116,8 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(409);
         self::assertSame('orphaned_comics_confirmation_required', $warning['code']);
         self::assertSame($orphanedComic->getId(), $warning['orphanedComics'][0]['id']);
-        self::assertNotNull(static::getContainer()->get(EntityManagerInterface::class)
-            ->getRepository(Comic::class)->find($orphanedComic->getId()));
+        self::assertNotNull($entityManager->getRepository(Comic::class)->find($orphanedComic->getId()));
+        self::assertNotNull($entityManager->getRepository(ShareToken::class)->find($shareTokenId));
 
         $deleted = $this->deleteJson('/api/comics', [
             'comicIds' => [$orphanedComic->getId()],
@@ -120,8 +126,8 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame([$orphanedComic->getId()], $deleted['orphanedComicIds']);
-        self::assertNull(static::getContainer()->get(EntityManagerInterface::class)
-            ->getRepository(Comic::class)->find($orphanedComic->getId()));
+        self::assertNull($entityManager->getRepository(Comic::class)->find($orphanedComic->getId()));
+        self::assertNull($entityManager->getRepository(ShareToken::class)->find($shareTokenId));
     }
 
     public function testBulkDeleteRejectsMixedOwnershipWithoutDeletingAnything(): void

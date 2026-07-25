@@ -21,7 +21,7 @@ class ShareToken
     private string $token;
 
     #[ORM\ManyToOne(targetEntity: Comic::class)]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     #[Assert\NotNull]
     private Comic $comic;
 
