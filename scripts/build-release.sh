@@ -122,6 +122,13 @@ mkdir -p "$RELEASE_DIR/backend/public"
 # =============================================================================
 if [ "$DO_FRONTEND" = "1" ]; then
     log "Building frontend with node:${NODE_VERSION}-alpine"
+    # The development container can leave generated dist files owned by root.
+    # Remove only that disposable build output before switching to the host UID.
+    docker run --rm \
+        -v "$REPO_ROOT/frontend":/app \
+        -w /app \
+        "node:${NODE_VERSION}-alpine" \
+        sh -c 'rm -rf dist'
     docker run --rm \
         -v "$REPO_ROOT/frontend":/app \
         -w /app \
@@ -191,34 +198,45 @@ if [ "$DO_BACKEND" = "1" ]; then
     # Generate .env.prod.local from PROD_* vars (will be consolidated by dump-env).
     log "Writing temporary .env.prod.local"
     PROD_ENV_FILE="$RELEASE_DIR/backend/.env.prod.local"
-    cat > "$PROD_ENV_FILE" <<EOF
-APP_ENV=prod
-APP_DEBUG=0
-APP_SECRET=${PROD_APP_SECRET}
-APP_DATA_KEY=${PROD_APP_DATA_KEY}
-APP_SCHEME=${PROD_FRONTEND_SCHEME:-https}
-APP_HOST=${PROD_FRONTEND_HOST:-localhost}
-APP_PORT=${PROD_FRONTEND_PORT:-443}
-DATABASE_URL=${PROD_DATABASE_URL}
-CORS_ALLOW_ORIGIN=${PROD_CORS_ALLOW_ORIGIN:-^https://.*$}
-FRONTEND_URL=${PROD_FRONTEND_URL}
-FRONTEND_SCHEME=${PROD_FRONTEND_SCHEME:-https}
-FRONTEND_HOST=${PROD_FRONTEND_HOST:-localhost}
-FRONTEND_PORT=${PROD_FRONTEND_PORT:-443}
-MAILER_DSN=${PROD_MAILER_DSN:-null://null}
-MAILER_FROM_ADDRESS=${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}
-MAILER_FROM_NAME=${PROD_MAILER_FROM_NAME:-"Comic Reader"}
-MAILER_TRANSPORT=${PROD_MAILER_TRANSPORT:-smtp}
-MESSENGER_TRANSPORT_DSN=${PROD_MESSENGER_TRANSPORT_DSN:-doctrine://default?auto_setup=0}
-MAX_CONCURRENT_UPLOADS=${PROD_MAX_CONCURRENT_UPLOADS:-3}
-DROPBOX_APP_KEY=${PROD_DROPBOX_APP_KEY:-}
-DROPBOX_APP_SECRET=${PROD_DROPBOX_APP_SECRET:-}
-DROPBOX_REDIRECT_URI=${PROD_DROPBOX_REDIRECT_URI:-${PROD_FRONTEND_URL}/api/dropbox/callback}
-DROPBOX_APP_FOLDER=${PROD_DROPBOX_APP_FOLDER:-/}
-DROPBOX_SYNC_LIMIT=${PROD_DROPBOX_SYNC_LIMIT:-10}
-DROPBOX_RATE_LIMIT=${PROD_DROPBOX_RATE_LIMIT:-60}
-DEPLOY_TOKEN=${POST_DEPLOY_TOKEN}
-EOF
+    : > "$PROD_ENV_FILE"
+
+    write_dotenv() {
+        local key="$1" value="$2" escaped
+        if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+            fail "$key must not contain line breaks."
+        fi
+        escaped="${value//\\/\\\\}"
+        escaped="${escaped//\"/\\\"}"
+        escaped="${escaped//\$/\\\$}"
+        printf '%s="%s"\n' "$key" "$escaped" >> "$PROD_ENV_FILE"
+    }
+
+    write_dotenv APP_ENV prod
+    write_dotenv APP_DEBUG 0
+    write_dotenv APP_SECRET "$PROD_APP_SECRET"
+    write_dotenv APP_DATA_KEY "$PROD_APP_DATA_KEY"
+    write_dotenv APP_SCHEME "${PROD_FRONTEND_SCHEME:-https}"
+    write_dotenv APP_HOST "${PROD_FRONTEND_HOST:-localhost}"
+    write_dotenv APP_PORT "${PROD_FRONTEND_PORT:-443}"
+    write_dotenv DATABASE_URL "$PROD_DATABASE_URL"
+    write_dotenv CORS_ALLOW_ORIGIN "${PROD_CORS_ALLOW_ORIGIN:-^https://.*$}"
+    write_dotenv FRONTEND_URL "$PROD_FRONTEND_URL"
+    write_dotenv FRONTEND_SCHEME "${PROD_FRONTEND_SCHEME:-https}"
+    write_dotenv FRONTEND_HOST "${PROD_FRONTEND_HOST:-localhost}"
+    write_dotenv FRONTEND_PORT "${PROD_FRONTEND_PORT:-443}"
+    write_dotenv MAILER_DSN "${PROD_MAILER_DSN:-null://null}"
+    write_dotenv MAILER_FROM_ADDRESS "${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}"
+    write_dotenv MAILER_FROM_NAME "${PROD_MAILER_FROM_NAME:-Comic Reader}"
+    write_dotenv MAILER_TRANSPORT "${PROD_MAILER_TRANSPORT:-smtp}"
+    write_dotenv MESSENGER_TRANSPORT_DSN "${PROD_MESSENGER_TRANSPORT_DSN:-doctrine://default?auto_setup=0}"
+    write_dotenv MAX_CONCURRENT_UPLOADS "${PROD_MAX_CONCURRENT_UPLOADS:-3}"
+    write_dotenv DROPBOX_APP_KEY "${PROD_DROPBOX_APP_KEY:-}"
+    write_dotenv DROPBOX_APP_SECRET "${PROD_DROPBOX_APP_SECRET:-}"
+    write_dotenv DROPBOX_REDIRECT_URI "${PROD_DROPBOX_REDIRECT_URI:-${PROD_FRONTEND_URL}/api/dropbox/callback}"
+    write_dotenv DROPBOX_APP_FOLDER "${PROD_DROPBOX_APP_FOLDER:-/}"
+    write_dotenv DROPBOX_SYNC_LIMIT "${PROD_DROPBOX_SYNC_LIMIT:-10}"
+    write_dotenv DROPBOX_RATE_LIMIT "${PROD_DROPBOX_RATE_LIMIT:-60}"
+    write_dotenv DEPLOY_TOKEN "$POST_DEPLOY_TOKEN"
     chmod 600 "$PROD_ENV_FILE"
 
     log "Running composer install --no-dev inside php:${PHP_VERSION}-cli"
@@ -227,14 +245,16 @@ EOF
     docker run --rm \
         -v "$RELEASE_DIR/backend":/app \
         -w /app \
-        -u "$(id -u):$(id -g)" \
         -e APP_ENV=prod \
         -e APP_DEBUG=0 \
         -e COMPOSER_ALLOW_SUPERUSER=1 \
         -e COMPOSER_HOME=/tmp/composer \
+        -e RELEASE_UID="$(id -u)" \
+        -e RELEASE_GID="$(id -g)" \
         "php:${PHP_VERSION}-cli" \
         sh -c '
             set -e
+            trap '\''chown -R "$RELEASE_UID:$RELEASE_GID" /app'\'' EXIT
             apk add --no-cache --quiet git unzip libzip-dev icu-dev oniguruma-dev libxml2-dev 2>/dev/null \
                 || (apt-get update -qq && apt-get install -y -qq git unzip libzip-dev libicu-dev libonig-dev libxml2-dev)
             docker-php-ext-install -j"$(nproc)" zip intl pdo_mysql opcache >/dev/null

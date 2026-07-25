@@ -1,99 +1,107 @@
-name: Build and Deploy Frontend
+name: Validate Application
 
 on:
-  # Only trigger on PR merges to main (not direct pushes)
   pull_request:
-    types: [closed]
-    branches:
-      - 'main'
-  # Allow manual triggering
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-deploy:
-    # Run when a PR to main is merged or manually triggered
-    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
+  validate-frontend:
     runs-on: ubuntu-latest
-    
+
+    defaults:
+      run:
+        working-directory: frontend
+
     steps:
-      - name: Checkout code
+      - name: Check out repository
         uses: actions/checkout@v4
-        
-      - name: Setup Node.js
+
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "22"
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
-          
-      - name: Install frontend dependencies
-        working-directory: ./frontend
-        run: npm ci
-        
-      - name: Clean previous build
-        working-directory: ./frontend
-        run: rm -rf dist
-        
-      - name: Build frontend
-        working-directory: ./frontend
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Audit production dependencies
+        run: npm run audit:production
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build production frontend
         run: npm run build
         env:
           VITE_BUILD_ID: ${{ github.run_id }}
           VITE_BUILD_TIME: ${{ github.event.head_commit.timestamp }}
-        
-      - name: Update file timestamps to force upload
-        working-directory: ./frontend/dist
-        run: find . -type f -exec touch {} \;
-        
-      - name: Upload build artifacts (for reference)
+
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend-build
           path: frontend/dist
           retention-days: 7
-          
-      - name: Deploy Frontend via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./frontend/dist/
-          server-dir: backend/public/
-          # SAFE MODE: Only upload/overwrite frontend files - NEVER deletes anything
-          dangerous-clean-slate: false
-          dry-run: false
-          log-level: verbose
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
-            **/uploads/**
-            uploads/
 
-          
-# TODO: Add SSH automation for backend deployment
-# Instead of FTP uploading entire backend (too heavy), use SSH to:
-# 1. SSH into production server
-# 2. cd to project directory  
-# 3. git pull origin main
-# 4. composer install --no-dev --optimize-autoloader
-# 5. php bin/console cache:clear --env=prod
-# 6. php bin/console doctrine:migrations:migrate --no-interaction
-#
-# This approach is much more efficient and follows standard deployment practices.
-# Required secrets: SSH_HOST, SSH_USERNAME, SSH_PASSWORD (or SSH_PRIVATE_KEY)
-#
-# Example implementation:
-# - name: Deploy Backend via SSH
-#   uses: appleboy/ssh-action@v1.0.3
-#   with:
-#     host: ${{ secrets.SSH_HOST }}
-#     username: ${{ secrets.SSH_USERNAME }}
-#     password: ${{ secrets.SSH_PASSWORD }}
-#     script: |
-#       cd /path/to/project
-#       git pull origin main
-#       composer install --no-dev --optimize-autoloader
-#       php bin/console cache:clear --env=prod
-#       php bin/console doctrine:migrations:migrate --no-interaction
+  validate-backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Start PHP and database containers
+        run: docker compose up -d --build database php
+
+      - name: Wait for MySQL
+        run: |
+          for attempt in {1..60}; do
+            if docker compose exec -T database sh -lc 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs database
+          exit 1
+
+      - name: Install backend dependencies
+        run: docker compose exec -T php composer install --no-interaction --no-progress
+
+      - name: Create isolated test database
+        run: |
+          docker compose exec -T database sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE}_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}_test.* TO '\''${MYSQL_USER}'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+
+      - name: Apply test migrations
+        run: docker compose exec -T php php bin/console doctrine:migrations:migrate --env=test --no-interaction
+
+      - name: Validate Composer and Symfony
+        run: |
+          docker compose exec -T php composer validate --strict
+          docker compose exec -T php composer audit --locked --no-dev
+          docker compose exec -T php php bin/console lint:container --env=test
+          docker compose exec -T php php bin/console doctrine:schema:validate --env=test
+
+      - name: Run backend tests
+        run: docker compose exec -T php php bin/phpunit
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs
+
+# Production is deliberately not deployed from this workflow. Frontend and
+# backend changes must ship together through the backup-gated release scripts.

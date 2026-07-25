@@ -80,7 +80,7 @@ APP_DEBUG=0
 APP_SECRET=REPLACE_WITH_openssl_rand_-hex_32
 APP_DATA_KEY=REPLACE_WITH_openssl_rand_-base64_32
 
-DATABASE_URL=mysql://USER:PASSWORD@127.0.0.1:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4
+DATABASE_URL="mysql://USER:PASSWORD@127.0.0.1:3306/cbz_reader?serverVersion=8.0.32&charset=utf8mb4"
 
 CORS_ALLOW_ORIGIN=^https://comics\.yourdomain\.com$
 FRONTEND_URL=https://comics.yourdomain.com

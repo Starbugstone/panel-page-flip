@@ -10,7 +10,7 @@ export default [ // Changed from tseslint.config to a plain array
   { ignores: ["dist"] },
   js.configs.recommended,
   {
-    files: ["**/*.{js,jsx}"], // Changed from ts,tsx to js,jsx
+    files: ["**/*.{js,jsx,mjs}"], // Changed from ts,tsx to JavaScript sources
     languageOptions: {
       ecmaVersion: 2020,
       sourceType: "module", // Added for clarity with ES modules

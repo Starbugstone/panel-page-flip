@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "audit:production": "node scripts/audit-production.mjs",
     "lint": "eslint .",
     "test": "vitest run",
     "preview": "vite preview"
@@ -36,7 +37,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.53.0",
-    "react-router-dom": "^6.30.4",
+    "react-router-dom": "7.18.1",
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.2"
   },

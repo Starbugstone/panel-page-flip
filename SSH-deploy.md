@@ -211,7 +211,7 @@ APP_ENV=prod
 APP_DEBUG=0
 APP_SECRET=$(openssl rand -hex 32)                     # 64 hex chars
 APP_DATA_KEY=$(openssl rand -base64 32)                # generate once; preserve across every deploy
-DATABASE_URL=mysql://comics_user:STRONG_PASS@127.0.0.1:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4
+DATABASE_URL="mysql://comics_user:STRONG_PASS@127.0.0.1:3306/cbz_reader?serverVersion=8.0.32&charset=utf8mb4" # use SELECT VERSION() for the exact value
 CORS_ALLOW_ORIGIN=^https://comics\.yourdomain\.com$
 FRONTEND_URL=https://comics.yourdomain.com
 FRONTEND_HOST=comics.yourdomain.com

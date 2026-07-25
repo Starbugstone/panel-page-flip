@@ -61,10 +61,17 @@ done
 FTP_PROTOCOL="${FTP_PROTOCOL:-ftps}"
 FTP_PORT="${FTP_PORT:-21}"
 FTP_PARALLEL="${FTP_PARALLEL:-3}"
+FTP_VERIFY_CERTIFICATE="${FTP_VERIFY_CERTIFICATE:-1}"
 
 case "$FTP_PROTOCOL" in
     ftp|ftps|sftp) ;;
     *) fail "FTP_PROTOCOL must be one of: ftp, ftps, sftp" ;;
+esac
+
+case "$FTP_VERIFY_CERTIFICATE" in
+    0) SSL_VERIFY_CERTIFICATE=no ;;
+    1) SSL_VERIFY_CERTIFICATE=yes ;;
+    *) fail "FTP_VERIFY_CERTIFICATE must be 0 or 1" ;;
 esac
 
 command -v docker >/dev/null 2>&1 || fail "docker is required."
@@ -133,10 +140,10 @@ log "Dry-run:    $([ "$DRY_RUN" = "1" ] && echo "yes" || echo "no")"
 # Note: lftp uses a single -e "..." block of commands.
 LFTP_OPEN="open -u $FTP_USER,$FTP_PASSWORD -p $FTP_PORT $FTP_PROTOCOL://$FTP_HOST"
 
-# Disable cert checks for ftps if hosts often have weird certs; comment if you
-# trust the cert chain.
-LFTP_SETTINGS=$(cat <<'EOF'
-set ssl:verify-certificate no
+# Certificate verification is enabled by default. Operators must explicitly
+# opt out in scripts/.env.deploy for a temporary self-signed endpoint.
+LFTP_SETTINGS=$(cat <<EOF
+set ssl:verify-certificate ${SSL_VERIFY_CERTIFICATE}
 set ftp:ssl-protect-data true
 set net:max-retries 5
 set net:reconnect-interval-base 5
