@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Entity\User;
 use App\Repository\UserRepository;
+use App\Service\ApiRateLimiter;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -22,7 +23,7 @@ class EmailVerificationController extends AbstractController
         EntityManagerInterface $entityManager,
         Request $request
     ): Response {
-        $user = $userRepository->findOneBy(['emailVerificationToken' => $token]);
+        $user = $userRepository->findOneBy(['emailVerificationToken' => hash('sha256', $token)]);
 
         if (!$user) {
             return $this->redirectToFrontend('verification-failed', 'Invalid verification token');
@@ -52,10 +53,15 @@ class EmailVerificationController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager,
         UserRepository $userRepository,
+        ApiRateLimiter $rateLimiter,
         \Symfony\Component\Mailer\MailerInterface $mailer,
         UrlGeneratorInterface $urlGenerator,
         \Twig\Environment $twig
     ): JsonResponse {
+        if ($rateLimitResponse = $rateLimiter->limit($request, 'verification_resend')) {
+            return $rateLimitResponse;
+        }
+
         $data = json_decode($request->getContent(), true);
         $email = $data['email'] ?? null;
 

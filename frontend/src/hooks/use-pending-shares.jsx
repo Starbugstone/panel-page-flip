@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useAuth } from './use-auth';
+import { api } from '@/lib/api';
+import { logger } from '@/lib/logger';
 
 export function usePendingShares() {
   const [pendingShares, setPendingShares] = useState([]);
@@ -7,7 +9,7 @@ export function usePendingShares() {
   const [error, setError] = useState(null);
   const { isAuthenticated } = useAuth();
 
-  const fetchPendingShares = async () => {
+  const fetchPendingShares = useCallback(async () => {
     if (!isAuthenticated) {
       setPendingShares([]);
       setLoading(false);
@@ -18,33 +20,21 @@ export function usePendingShares() {
     setError(null);
 
     try {
-      const response = await fetch('/api/share/pending', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to fetch pending shares' }));
-        throw new Error(errorData.message || 'Failed to fetch pending shares');
-      }
-
-      const data = await response.json();
+      const data = await api.get('/api/share/pending');
       setPendingShares(data.pendingShares || []);
     } catch (err) {
-      console.error('Error fetching pending shares:', err);
+      logger.error('Error fetching pending shares:', err);
       setError(err.message || 'Failed to fetch pending shares');
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (isAuthenticated) {
       fetchPendingShares();
     }
-  }, [isAuthenticated]);
+  }, [fetchPendingShares, isAuthenticated]);
 
   return {
     pendingShares,

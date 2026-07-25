@@ -5,6 +5,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, AlertCircle, CheckCircle2, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
+import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
 
 export default function EmailVerification() {
   const [isLoading, setIsLoading] = useState(false);
@@ -47,15 +49,7 @@ export default function EmailVerification() {
 
     setIsLoading(true);
     try {
-      const response = await fetch("/api/email-verification/resend", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email }),
-      });
-
-      const data = await response.json();
+      const data = await api.post("/api/email-verification/resend", { email });
       
       toast({
         title: "Verification Email Sent",
@@ -65,7 +59,7 @@ export default function EmailVerification() {
       setStatus("resent");
       setMessage("Verification email has been resent. Please check your inbox.");
     } catch (error) {
-      console.error("Error resending verification email:", error);
+      logger.error("Error resending verification email:", error);
       toast({
         title: "Error",
         description: "Failed to resend verification email. Please try again.",

@@ -7,17 +7,8 @@
  * - Session expiration handling
  */
 
-// Check if we're in development mode
-const isDevelopment = process.env.NODE_ENV === 'development' || 
-  window.location.hostname === 'localhost' || 
-  window.location.hostname === '127.0.0.1';
-
-// Logger function that only logs in development
-const logger = {
-  log: (...args) => isDevelopment && console.log(...args),
-  warn: (...args) => isDevelopment && console.warn(...args),
-  error: (...args) => console.error(...args) // Always log errors
-};
+import { api } from '@/lib/api';
+import { logger } from '@/lib/logger';
 
 class SessionManager {
   constructor() {
@@ -26,10 +17,13 @@ class SessionManager {
     this.isActive = false;
     this.onSessionExpired = null;
     this.lastActivityTime = Date.now();
-    this.sessionEndpoint = '/api/users/me';
+    this.sessionEndpoint = '/api/me';
     this.checkInProgress = false;
     this.lastCheckTime = 0;
     this.minCheckInterval = 1000; // Minimum 1 second between checks
+    this.boundActivityHandler = this.handleUserActivity.bind(this);
+    this.consecutiveFailures = 0;
+    this.maxConsecutiveFailures = 2;
   }
 
   /**
@@ -99,7 +93,7 @@ class SessionManager {
    */
   addActivityListeners() {
     ['mousedown', 'keydown', 'touchstart', 'scroll'].forEach(eventType => {
-      document.addEventListener(eventType, this.handleUserActivity.bind(this), { passive: true });
+      document.addEventListener(eventType, this.boundActivityHandler, { passive: true });
     });
   }
 
@@ -108,7 +102,7 @@ class SessionManager {
    */
   removeActivityListeners() {
     ['mousedown', 'keydown', 'touchstart', 'scroll'].forEach(eventType => {
-      document.removeEventListener(eventType, this.handleUserActivity.bind(this));
+      document.removeEventListener(eventType, this.boundActivityHandler);
     });
   }
 
@@ -142,38 +136,8 @@ class SessionManager {
       this.lastCheckTime = now;
       logger.log('Sending session keep-alive ping');
       
-      // Get CSRF token from cookies
-      const csrfToken = this.getCsrfToken();
-      logger.log('Using CSRF token:', csrfToken ? 'Token present' : 'No token found');
-      
-      // Create headers with CSRF token
-      const headers = {
-        'Content-Type': 'application/json',
-      };
-      
-      // Only add CSRF token if it exists
-      if (csrfToken) {
-        headers['X-XSRF-TOKEN'] = csrfToken;
-      }
-      
-      const response = await fetch(this.sessionEndpoint, {
-        method: 'POST',  // Using POST to indicate this is a keep-alive ping
-        headers: headers,
-        credentials: 'include',
-      });
-      
-      if (!response.ok) {
-        logger.error('Keep-alive ping failed with status:', response.status);
-        // Try to get error details
-        try {
-          const errorData = await response.json();
-          logger.error('Error details:', errorData);
-        } catch (e) {
-          // Ignore if we can't parse the error response
-        }
-      }
-      
-      return response.ok;
+      await api.post(this.sessionEndpoint, {}, { notifyUnauthorized: false });
+      return true;
     } catch (error) {
       logger.error('Keep-alive ping failed:', error);
       return false;
@@ -205,25 +169,16 @@ class SessionManager {
       this.checkInProgress = true;
       this.lastCheckTime = now;
       
-      const response = await fetch(this.sessionEndpoint, {
-        method: 'GET',  // Using GET for session checks
-        credentials: 'include',
-      });
-      
-      if (!response.ok) {
-        if (triggerExpiration && this.onSessionExpired && this.isActive) {
-          // Only trigger once
-          const callback = this.onSessionExpired;
-          this.onSessionExpired = null;
-          callback();
-        }
-        return false;
-      }
-      
+      await api.get(this.sessionEndpoint, { notifyUnauthorized: false });
+      this.consecutiveFailures = 0;
       return true;
     } catch (error) {
-      logger.error('Session check error:', error);
+      logger.warn('Session check failed:', error.message);
       if (triggerExpiration && this.onSessionExpired && this.isActive) {
+        this.consecutiveFailures++;
+        if (error.status !== 401 && this.consecutiveFailures < this.maxConsecutiveFailures) {
+          return false;
+        }
         // Only trigger once
         const callback = this.onSessionExpired;
         this.onSessionExpired = null;
@@ -284,20 +239,6 @@ class SessionManager {
     }
   }
   
-  /**
-   * Force an immediate session check
-   * @returns {Promise<boolean>} True if session is valid, false otherwise
-   */
-  async forceSessionCheck() {
-    // If a check is already in progress, don't force another one
-    if (this.checkInProgress) {
-      logger.log('Session check already in progress, not forcing another');
-      return true; // Assume success to prevent cascading failures
-    }
-    
-    logger.log('Forcing session check');
-    return await this.checkSession(true);
-  }
 }
 
 // Create a singleton instance

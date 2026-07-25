@@ -3,12 +3,13 @@
 namespace App\Controller;
 
 use App\Entity\User;
+use App\Service\AdminAuditService;
+use App\Service\PasswordValidator;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\Session\SessionInterface;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
@@ -17,7 +18,7 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 class UserController extends AbstractController
 {
     #[Route('', name: 'list', methods: ['GET'])]
-    public function list(EntityManagerInterface $entityManager): JsonResponse
+    public function list(Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         // Get the current user and assert its type
         $user = $this->getUser();
@@ -30,8 +31,12 @@ class UserController extends AbstractController
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
-        // Get all users
-        $users = $entityManager->getRepository(User::class)->findAll();
+        $criteria = [];
+        if ($request->query->has('verified')) {
+            $criteria['isEmailVerified'] = $request->query->getBoolean('verified');
+        }
+
+        $users = $entityManager->getRepository(User::class)->findBy($criteria, ['createdAt' => 'DESC']);
 
         // Transform users to array
         $usersArray = [];
@@ -42,64 +47,13 @@ class UserController extends AbstractController
                 'name' => $u->getName(),
                 'roles' => $u->getRoles(),
                 'createdAt' => $u->getCreatedAt()->format('c'),
+                'isEmailVerified' => $u->isEmailVerified(),
                 'comicCount' => $u->getComics()->count(),
                 'tagCount' => $u->getCreatedTags()->count()
             ];
         }
 
         return $this->json(['users' => $usersArray]);
-    }
-
-    #[Route('/me', name: 'me', methods: ['GET', 'POST'])]
-    public function me(Request $request, SessionInterface $session): JsonResponse
-    {
-        // Get the current user and assert its type
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json([
-                'message' => 'User not authenticated or invalid user type',
-                'debug' => [
-                    'method' => $request->getMethod(),
-                    'hasSession' => $session->isStarted(),
-                    'tokenId' => $session->getId()
-                ]
-            ], Response::HTTP_UNAUTHORIZED);
-        }
-
-        // For POST requests, explicitly refresh the session
-        $sessionRefreshed = false;
-        if ($request->isMethod('POST')) {
-            try {
-                // Force the session to be saved and started
-                if (!$session->isStarted()) {
-                    $session->start();
-                }
-                
-                // Migrate the session to a new ID and keep the current attributes
-                $session->migrate(true);
-                
-                // Set the last activity time
-                $session->set('last_activity', time());
-                
-                // Mark as refreshed
-                $sessionRefreshed = true;
-            } catch (\Exception $e) {
-                // Log the error but continue - we'll still return user data
-                error_log('Session refresh error: ' . $e->getMessage());
-            }
-        }
-
-        // Return user data
-        return $this->json([
-            'user' => [
-                'id' => $user->getId(),
-                'email' => $user->getEmail(),
-                'name' => $user->getName(),
-                'roles' => $user->getRoles(),
-                'isAdmin' => in_array('ROLE_ADMIN', $user->getRoles())
-            ],
-            'sessionRefreshed' => $sessionRefreshed
-        ]);
     }
 
     #[Route('/{id}', name: 'get', methods: ['GET'])]
@@ -129,6 +83,7 @@ class UserController extends AbstractController
             'name' => $targetUser->getName(),
             'roles' => $targetUser->getRoles(),
             'createdAt' => $targetUser->getCreatedAt()->format('c'),
+            'isEmailVerified' => $targetUser->isEmailVerified(),
             'comicCount' => $targetUser->getComics()->count(),
             'tagCount' => $targetUser->getCreatedTags()->count()
         ];
@@ -142,7 +97,9 @@ class UserController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager,
         UserPasswordHasherInterface $passwordHasher,
-        ValidatorInterface $validator
+        ValidatorInterface $validator,
+        PasswordValidator $passwordValidator,
+        AdminAuditService $auditService
     ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
@@ -154,6 +111,11 @@ class UserController extends AbstractController
         // Basic validation for required fields
         if (empty($data['email']) || empty($data['password']) || empty($data['name'])) {
             return $this->json(['message' => 'Missing required fields: email, password, name'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $passwordErrors = $passwordValidator->validate((string) $data['password']);
+        if ($passwordErrors !== []) {
+            return $this->json(['message' => 'Password does not meet policy requirements.', 'errors' => ['password' => $passwordErrors]], Response::HTTP_BAD_REQUEST);
         }
 
         // Check if email already exists
@@ -174,6 +136,7 @@ class UserController extends AbstractController
         }
         $user->setRoles(array_unique($roles)); // Ensure roles are unique
         $user->setCreatedAt(new \DateTimeImmutable()); // Set creation date
+        $user->setIsEmailVerified(true);
 
         $violations = $validator->validate($user);
         if (count($violations) > 0) {
@@ -189,6 +152,12 @@ class UserController extends AbstractController
         $entityManager->persist($user);
         $entityManager->flush();
 
+        $admin = $this->getUser();
+        if ($admin instanceof User) {
+            $auditService->log($admin, 'user_create', 'user', $user->getId(), ['email' => $user->getEmail(), 'roles' => $user->getRoles()]);
+            $entityManager->flush();
+        }
+
         return $this->json([
             'message' => 'User created successfully',
             'user' => [
@@ -196,6 +165,7 @@ class UserController extends AbstractController
                 'email' => $user->getEmail(),
                 'name' => $user->getName(),
                 'roles' => $user->getRoles(),
+                'isEmailVerified' => $user->isEmailVerified(),
                 'createdAt' => $user->getCreatedAt()->format('c'),
             ]
         ], Response::HTTP_CREATED);
@@ -207,7 +177,9 @@ class UserController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager,
         UserPasswordHasherInterface $passwordHasher,
-        ValidatorInterface $validator
+        ValidatorInterface $validator,
+        PasswordValidator $passwordValidator,
+        AdminAuditService $auditService
     ): JsonResponse {
         // Get the current user and assert its type
         $user = $this->getUser();
@@ -232,6 +204,8 @@ class UserController extends AbstractController
             return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
         }
 
+        $beforeRoles = $targetUser->getRoles();
+
         // Update user properties
         if (isset($data['name'])) {
             $targetUser->setName($data['name']);
@@ -244,11 +218,28 @@ class UserController extends AbstractController
             if (!in_array('ROLE_USER', $roles)) {
                 $roles[] = 'ROLE_USER';
             }
+
+            if ($targetUser->getId() === $user->getId() && !in_array('ROLE_ADMIN', $roles, true)) {
+                return $this->json(['message' => 'You cannot remove your own admin role'], Response::HTTP_FORBIDDEN);
+            }
+
+            if (in_array('ROLE_ADMIN', $targetUser->getRoles(), true) && !in_array('ROLE_ADMIN', $roles, true)) {
+                $remainingAdmins = $entityManager->getRepository(User::class)->countAdminsExcluding($targetUser);
+                if ($remainingAdmins === 0) {
+                    return $this->json(['message' => 'There must be at least one admin'], Response::HTTP_CONFLICT);
+                }
+            }
+
             $targetUser->setRoles($roles);
         }
 
         // Update password if provided
         if (isset($data['password']) && !empty($data['password'])) {
+            $passwordErrors = $passwordValidator->validate((string) $data['password']);
+            if ($passwordErrors !== []) {
+                return $this->json(['message' => 'Password does not meet policy requirements.', 'errors' => ['password' => $passwordErrors]], Response::HTTP_BAD_REQUEST);
+            }
+
             $targetUser->setPassword($passwordHasher->hashPassword($targetUser, $data['password']));
         }
 
@@ -262,6 +253,17 @@ class UserController extends AbstractController
             return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
         }
 
+        if ($user instanceof User && in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+            $afterRoles = $targetUser->getRoles();
+            if ($beforeRoles !== $afterRoles || $user->getId() !== $targetUser->getId()) {
+                $auditService->log($user, 'user_update', 'user', $targetUser->getId(), [
+                    'email' => $targetUser->getEmail(),
+                    'rolesBefore' => $beforeRoles,
+                    'rolesAfter' => $afterRoles,
+                ]);
+            }
+        }
+
         // Save changes
         $entityManager->flush();
 
@@ -271,13 +273,14 @@ class UserController extends AbstractController
                 'id' => $targetUser->getId(),
                 'email' => $targetUser->getEmail(),
                 'name' => $targetUser->getName(),
-                'roles' => $targetUser->getRoles()
+                'roles' => $targetUser->getRoles(),
+                'isEmailVerified' => $targetUser->isEmailVerified(),
             ]
         ]);
     }
 
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
-    public function delete(int $id, EntityManagerInterface $entityManager): JsonResponse
+    public function delete(int $id, EntityManagerInterface $entityManager, AdminAuditService $auditService): JsonResponse
     {
         // Get the current user and assert its type
         $user = $this->getUser();
@@ -301,6 +304,15 @@ class UserController extends AbstractController
             return $this->json(['message' => 'Cannot delete your own account'], Response::HTTP_FORBIDDEN);
         }
 
+        if (in_array('ROLE_ADMIN', $targetUser->getRoles(), true)) {
+            $remainingAdmins = $entityManager->getRepository(User::class)->countAdminsExcluding($targetUser);
+            if ($remainingAdmins === 0) {
+                return $this->json(['message' => 'There must be at least one admin'], Response::HTTP_CONFLICT);
+            }
+        }
+
+        $auditService->log($user, 'user_delete', 'user', $targetUser->getId(), ['email' => $targetUser->getEmail()]);
+
         // Delete user
         $entityManager->remove($targetUser);
         $entityManager->flush();
@@ -308,5 +320,35 @@ class UserController extends AbstractController
         return $this->json(['message' => 'User deleted successfully']);
     }
 
-}
+    #[Route('/{id}/verify', name: 'verify', methods: ['POST'])]
+    public function verify(int $id, EntityManagerInterface $entityManager, AdminAuditService $auditService): JsonResponse
+    {
+        $admin = $this->getUser();
+        if (!$admin instanceof User || !in_array('ROLE_ADMIN', $admin->getRoles(), true)) {
+            return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
+        }
 
+        $targetUser = $entityManager->getRepository(User::class)->find($id);
+        if (!$targetUser) {
+            return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $targetUser->setIsEmailVerified(true);
+        $targetUser->setEmailVerificationToken(null);
+        $targetUser->setEmailVerificationTokenExpiresAt(null);
+        $auditService->log($admin, 'user_verify', 'user', $targetUser->getId(), ['email' => $targetUser->getEmail()]);
+        $entityManager->flush();
+
+        return $this->json([
+            'message' => 'User marked as verified',
+            'user' => [
+                'id' => $targetUser->getId(),
+                'email' => $targetUser->getEmail(),
+                'name' => $targetUser->getName(),
+                'roles' => $targetUser->getRoles(),
+                'isEmailVerified' => $targetUser->isEmailVerified(),
+            ],
+        ]);
+    }
+
+}

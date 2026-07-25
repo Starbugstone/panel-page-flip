@@ -7,9 +7,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { BookOpen, X, Gift, Clock, Check, XCircle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { api } from '@/lib/api';
 
 export function PendingSharesAlert() {
-  const { pendingShares, loading, refetch } = usePendingShares();
+  const { pendingShares, loading } = usePendingShares();
   const [dismissedShares, setDismissedShares] = useState([]);
   const [refusingShares, setRefusingShares] = useState({});
   const navigate = useNavigate();
@@ -38,17 +39,7 @@ export function PendingSharesAlert() {
     try {
       setRefusingShares(prev => ({ ...prev, [shareId]: true }));
       
-      const response = await fetch(`/api/share/refuse/${token}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to refuse share');
-      }
+      await api.post(`/api/share/refuse/${token}`, {});
       
       // Remove the share from the UI
       setDismissedShares(prev => [...prev, shareId]);

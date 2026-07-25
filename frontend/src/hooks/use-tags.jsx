@@ -1,6 +1,8 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from './use-auth';
 import { useToast } from './use-toast';
+import { api } from '@/lib/api';
+import { logger } from '@/lib/logger';
 
 // Create the context
 const TagContext = createContext(undefined);
@@ -9,6 +11,8 @@ export function TagProvider({ children }) {
   const [tags, setTags] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [lastFetched, setLastFetched] = useState(null);
+  const tagsRef = useRef([]);
+  const lastFetchedRef = useRef(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -22,8 +26,8 @@ export function TagProvider({ children }) {
     // If we have tags and they were fetched recently (within 5 minutes), use cached version
     // unless force refresh is requested
     const CACHE_TIME = 5 * 60 * 1000; // 5 minutes in milliseconds
-    if (!force && tags.length > 0 && lastFetched && (Date.now() - lastFetched) < CACHE_TIME) {
-      return tags;
+    if (!force && tagsRef.current.length > 0 && lastFetchedRef.current && (Date.now() - lastFetchedRef.current) < CACHE_TIME) {
+      return tagsRef.current;
     }
 
     setIsLoading(true);
@@ -33,23 +37,17 @@ export function TagProvider({ children }) {
         ? '/api/tags?adminContext=true' 
         : '/api/tags';
       
-      const response = await fetch(url);
-      if (!response.ok) {
-        // If unauthorized, don't show error toast, just return empty array
-        if (response.status === 401) {
-          return [];
-        }
-        throw new Error('Failed to fetch tags');
-      }
-      
-      const data = await response.json();
+      const data = await api.get(url);
       const fetchedTags = data.tags || [];
       
+      const fetchedAt = Date.now();
+      tagsRef.current = fetchedTags;
+      lastFetchedRef.current = fetchedAt;
       setTags(fetchedTags);
-      setLastFetched(Date.now());
+      setLastFetched(fetchedAt);
       return fetchedTags;
     } catch (error) {
-      console.error('Error fetching tags:', error);
+      logger.error('Error fetching tags:', error);
       // Only show toast for non-auth errors
       if (error.message !== 'Failed to fetch tags') {
         toast({
@@ -62,7 +60,7 @@ export function TagProvider({ children }) {
     } finally {
       setIsLoading(false);
     }
-  }, [user, toast]);
+  }, [toast, user]);
 
   // Function to search tags (using cache when possible)
   const searchTags = useCallback(async (query, isAdminContext = false) => {
@@ -72,13 +70,13 @@ export function TagProvider({ children }) {
 
     // Try to search locally first for immediate feedback
     const lowercaseQuery = query.toLowerCase().trim();
-    const localResults = tags
+    const localResults = tagsRef.current
       .filter(tag => tag.name.toLowerCase().includes(lowercaseQuery))
       .map(tag => ({ id: tag.id, name: tag.name }));
     
     // If we have local results and they were fetched recently, use them
     const CACHE_TIME = 5 * 60 * 1000; // 5 minutes
-    if (localResults.length > 0 && lastFetched && (Date.now() - lastFetched) < CACHE_TIME) {
+    if (localResults.length > 0 && lastFetchedRef.current && (Date.now() - lastFetchedRef.current) < CACHE_TIME) {
       return localResults;
     }
 
@@ -89,19 +87,14 @@ export function TagProvider({ children }) {
         ? `/api/tags/search?q=${encodeURIComponent(query.trim())}&adminContext=true` 
         : `/api/tags/search?q=${encodeURIComponent(query.trim())}`;
       
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error('Failed to search tags');
-      }
-      
-      const data = await response.json();
+      const data = await api.get(url);
       return data.tags || [];
     } catch (error) {
-      console.error('Error searching tags:', error);
+      logger.error('Error searching tags:', error);
       // Fall back to local results if API fails
       return localResults;
     }
-  }, [tags, lastFetched]);
+  }, []);
 
   // Function to add a tag to the local cache after creation
   const addTagToCache = useCallback((newTag) => {
@@ -110,7 +103,9 @@ export function TagProvider({ children }) {
       if (prevTags.some(tag => tag.id === newTag.id)) {
         return prevTags;
       }
-      return [...prevTags, newTag];
+      const updatedTags = [...prevTags, newTag];
+      tagsRef.current = updatedTags;
+      return updatedTags;
     });
   }, []);
 
@@ -123,13 +118,17 @@ export function TagProvider({ children }) {
         fetchTags();
       }
     } else {
+      tagsRef.current = [];
+      lastFetchedRef.current = null;
       setTags([]);
       setLastFetched(null);
     }
   }, [user, fetchTags]);
 
   // The context value
-  const value = {
+  const isAdminContext = useCallback(() => window.location.pathname.startsWith('/admin'), []);
+
+  const value = useMemo(() => ({
     tags,
     isLoading,
     fetchTags,
@@ -137,10 +136,8 @@ export function TagProvider({ children }) {
     addTagToCache,
     lastFetched,
     // Helper function to determine if we're in admin context
-    isAdminContext: () => {
-      return window.location.pathname.startsWith('/admin');
-    }
-  };
+    isAdminContext,
+  }), [addTagToCache, fetchTags, isAdminContext, isLoading, lastFetched, searchTags, tags]);
 
   return <TagContext.Provider value={value}>{children}</TagContext.Provider>;
 }

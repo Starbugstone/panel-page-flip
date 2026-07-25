@@ -5,33 +5,27 @@ import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Label } from "@/components/ui/label.jsx";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card.jsx";
+import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [formState, setFormState] = useState("idle"); // idle, loading, success
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     
     // Set loading state
     setFormState("loading");
     
-    // Simulate API call with setTimeout
-    setTimeout(() => {
-      // After "API call", set success state
+    try {
+      await api.post('/api/forgot-password', { email }, { notifyUnauthorized: false });
       setFormState("success");
-      
-      // Also make the actual API call in the background
-      fetch('/api/forgot-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email }),
-      }).catch(error => {
-        console.error('Error sending password reset request:', error);
-      });
-    }, 1500); // Simulate network delay
+    } catch (error) {
+      // Keep the response non-enumerating to avoid exposing whether an account exists.
+      logger.warn('Password reset request failed:', error.message);
+      setFormState("success");
+    }
   };
 
   // Render different UI based on form state

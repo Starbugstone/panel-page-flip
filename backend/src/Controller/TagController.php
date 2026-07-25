@@ -80,8 +80,11 @@ class TagController extends AbstractController
 
         $tagName = trim($data['name']);
 
-        // Check if tag already exists
-        $existingTag = $entityManager->getRepository(Tag::class)->findOneBy(['name' => $tagName]);
+        // Check if this user already has the tag
+        $existingTag = $entityManager->getRepository(Tag::class)->findOneBy([
+            'name' => $tagName,
+            'creator' => $user,
+        ]);
         if ($existingTag) {
             return $this->json([
                 'message' => 'Tag already exists',
@@ -157,8 +160,11 @@ class TagController extends AbstractController
 
         $tagName = trim($data['name']);
 
-        // Check if tag name already exists (excluding current tag)
-        $existingTag = $entityManager->getRepository(Tag::class)->findOneBy(['name' => $tagName]);
+        // Check if tag name already exists for this creator (excluding current tag)
+        $existingTag = $entityManager->getRepository(Tag::class)->findOneBy([
+            'name' => $tagName,
+            'creator' => $tag->getCreator(),
+        ]);
         if ($existingTag && $existingTag->getId() !== $tag->getId()) {
             return $this->json([
                 'message' => 'Tag name already exists',

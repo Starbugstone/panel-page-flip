@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button.jsx";
 import { ArrowLeft, ArrowRight, Info, Maximize, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
+import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
 
 export default function ComicReader() {
   const { comicId } = useParams();
@@ -14,7 +16,6 @@ export default function ComicReader() {
   const [isLoading, setIsLoading] = useState(true); // For overall comic data
   const [isPageImageLoading, setIsPageImageLoading] = useState(true); // For individual page images
   const [imageLoadedSuccessfully, setImageLoadedSuccessfully] = useState(true); // To track if image loaded
-  const [isSavingProgress, setIsSavingProgress] = useState(false); // For UI feedback on saving
   const [imageCache, setImageCache] = useState({});
   const [showDebug, setShowDebug] = useState(false); // For debug panel
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -29,7 +30,6 @@ export default function ComicReader() {
   const currentPageRef = useRef(0); // Ref to track current page for async operations
   const loadQueueRef = useRef([]); // Queue of pages to load
   const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
-  const cacheCleanupTimeoutRef = useRef(null); // Timeout for cache cleanup
   
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -55,30 +55,17 @@ export default function ComicReader() {
     const controller = new AbortController();
     progressAbortController.current = controller;
 
-    setIsSavingProgress(true);
-
     try {
       // Check if component is still mounted before making the request
       if (controller.signal.aborted) {
         return;
       }
       
-      const response = await fetch(`/api/comics/${comicId}/progress`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ currentPage: pageToSave }),
-        signal: controller.signal
-      });
+      await api.post(`/api/comics/${comicId}/progress`, { currentPage: pageToSave }, { signal: controller.signal });
 
       // If this request was aborted, just return silently
       if (controller.signal.aborted) return;
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "Failed to save progress." }));
-        throw new Error(errorData.message || "Server error saving progress.");
-      }
       // Optional: toast({ title: "Progress Saved", description: `Page ${pageToSave} saved.` });
     } catch (error) {
       // Don't show errors for aborted requests or network errors when component unmounts
@@ -86,11 +73,11 @@ export default function ComicReader() {
       
       // Handle network errors more gracefully
       if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-        console.warn("Network error when saving reading progress - will retry on next page change");
+        logger.warn("Network error when saving reading progress - will retry on next page change");
         return; // Don't show toast for network errors, as they're often transient
       }
       
-      console.error("Failed to save reading progress:", error);
+      logger.error("Failed to save reading progress:", error);
       toast({
         title: "Error Saving Progress",
         description: error.message || "Could not save your reading progress. Please try again.",
@@ -99,7 +86,6 @@ export default function ComicReader() {
     } finally {
       // Only update state if this controller is still the current one
       if (progressAbortController.current === controller) {
-        setIsSavingProgress(false);
         progressAbortController.current = null;
       }
     }
@@ -110,18 +96,7 @@ export default function ComicReader() {
     const loadComic = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch(`/api/comics/${comicId}`);
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ message: "Failed to load comic details." }));
-          toast({
-            title: "Error loading comic",
-            description: errorData.message || "The comic could not be loaded.",
-            variant: "destructive",
-          });
-          navigate("/dashboard");
-          return;
-        }
-        const data = await response.json();
+        const data = await api.get(`/api/comics/${comicId}`);
         setComic(data.comic);
         // Reset image loading states for the new comic
         setIsPageImageLoading(true);
@@ -147,7 +122,7 @@ export default function ComicReader() {
         }
 
       } catch (error) {
-        console.error("Failed to load comic:", error);
+        logger.error("Failed to load comic:", error);
         toast({
           title: "Error loading comic",
           description: "There was a problem loading the comic. Please try again.",
@@ -239,7 +214,7 @@ export default function ComicReader() {
               ...prev,
               [pageIndex]: cachedImg
             }));
-          } catch (error) {
+          } catch {
             // Error creating data URL, fallback to using the original image
             setImageCache(prev => ({
               ...prev,
@@ -425,7 +400,7 @@ export default function ComicReader() {
       clearTimeout(cleanupTimer);
     };
   // Include loadPageIntoCache but not imageCache to prevent infinite loop
-  }, [currentPage, comicPages, queuePagesToLoad, cleanupCache, logCacheState, loadPageIntoCache]);
+  }, [currentPage, comicPages, imageCache, queuePagesToLoad, cleanupCache, logCacheState, loadPageIntoCache]);
 
 
 
@@ -512,13 +487,7 @@ export default function ComicReader() {
     // Use fetch with AbortController instead of Image directly
     const url = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
     
-    fetch(url, { signal })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.blob();
-      })
+    api.blob(url, { signal })
       .then(blob => {
         // Check if the operation was aborted
         if (signal.aborted) return;
@@ -586,7 +555,7 @@ export default function ComicReader() {
             // Check if the operation was aborted
             if (signal.aborted) return;
             
-            console.error("Error reloading page:", error);
+            logger.error("Error reloading page:", error);
             
             // Only show error if we're still on the same page
             if (currentPage === pageToReload) {
@@ -611,7 +580,7 @@ export default function ComicReader() {
             return;
           }
           
-          console.error("Failed to reload image");
+          logger.error("Failed to reload image");
           URL.revokeObjectURL(blobUrl);
           
           // Only show error if we're still on the same page
@@ -637,7 +606,7 @@ export default function ComicReader() {
         if (signal.aborted) return;
         
         // Handle fetch errors
-        console.error("Fetch error:", error);
+        logger.error("Fetch error:", error);
         
         // Only show error if we're still on the same page
         if (currentPage === pageToReload) {

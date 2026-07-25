@@ -3,6 +3,8 @@
 namespace App\Controller;
 
 use App\Entity\User;
+use App\Service\ApiRateLimiter;
+use App\Service\PasswordValidator;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -24,6 +26,8 @@ class RegistrationController extends AbstractController
         UserPasswordHasherInterface $userPasswordHasher,
         EntityManagerInterface $entityManager,
         ValidatorInterface $validator,
+        PasswordValidator $passwordValidator,
+        ApiRateLimiter $rateLimiter,
         MailerInterface $mailer,
         UrlGeneratorInterface $urlGenerator,
         Environment $twig
@@ -33,11 +37,17 @@ class RegistrationController extends AbstractController
             return new JsonResponse(['message' => 'User already authenticated.'], Response::HTTP_FORBIDDEN);
         }
 
+        if ($rateLimitResponse = $rateLimiter->limit($request, 'register')) {
+            return $rateLimitResponse;
+        }
+
         // Get data from JSON request body
         $data = json_decode($request->getContent(), true);
         if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
             return new JsonResponse(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
         }
+
+        $password = $data['password'] ?? $data['plainPassword'] ?? null;
 
         // Validate required fields
         $constraints = new Assert\Collection([
@@ -47,10 +57,7 @@ class RegistrationController extends AbstractController
             ],
             'password' => [
                 new Assert\NotBlank(['message' => 'Password is required']),
-                new Assert\Length([
-                    'min' => 6,
-                    'minMessage' => 'Password must be at least {{ limit }} characters long'
-                ])
+                new Assert\Type('string')
             ],
             'plainPassword' => new Assert\Optional(new Assert\Type('string')),
             'name' => new Assert\Optional(new Assert\Type('string'))
@@ -65,6 +72,11 @@ class RegistrationController extends AbstractController
                 $errors[$propertyPath] = $violation->getMessage();
             }
             return new JsonResponse(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+        }
+
+        $passwordErrors = $passwordValidator->validate((string) $password);
+        if ($passwordErrors !== []) {
+            return new JsonResponse(['message' => 'Password does not meet policy requirements.', 'errors' => ['password' => $passwordErrors]], Response::HTTP_BAD_REQUEST);
         }
 
         // Check if user already exists
@@ -86,7 +98,6 @@ class RegistrationController extends AbstractController
         $user->setRoles(['ROLE_USER']);
         
         // Hash the password
-        $password = $data['password'] ?? $data['plainPassword'] ?? null;
         if (!$password) {
             return new JsonResponse(['message' => 'Password is required'], Response::HTTP_BAD_REQUEST);
         }

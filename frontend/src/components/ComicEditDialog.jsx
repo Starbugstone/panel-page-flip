@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
   const tagInputRef = useRef(null);
   const { toast } = useToast();
   const { searchTags, addTagToCache, isAdminContext } = useTags();
+  const adminContext = isAdminContext();
 
   useEffect(() => {
     if (comic) {
@@ -37,7 +38,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
   }, [comic]);
 
   // Fetch tag suggestions based on input
-  const fetchTagSuggestions = async (query) => {
+  const fetchTagSuggestions = useCallback(async (query) => {
     if (!query.trim() || query.trim().length < 2) {
       setTagSuggestions([]);
       setShowSuggestions(false);
@@ -48,7 +49,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
     try {
       // Use the tag context to search for tags
       // Pass the current context (admin or not)
-      const results = await searchTags(query.trim(), isAdminContext());
+      const results = await searchTags(query.trim(), adminContext);
       setTagSuggestions(results.map(tag => tag.name));
       setShowSuggestions(true);
     } catch (error) {
@@ -57,7 +58,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
     } finally {
       setIsLoadingSuggestions(false);
     }
-  };
+  }, [adminContext, searchTags]);
 
   // Debounce function for tag suggestions
   useEffect(() => {
@@ -65,7 +66,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
       fetchTagSuggestions(newTag);
     }, 300);
     return () => clearTimeout(timeoutId);
-  }, [newTag]);
+  }, [fetchTagSuggestions, newTag]);
 
   // Close suggestions when clicking outside
   useEffect(() => {

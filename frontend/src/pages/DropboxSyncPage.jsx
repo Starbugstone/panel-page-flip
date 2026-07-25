@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '@/hooks/use-auth.jsx';
+import { useCallback, useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast.js';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog.jsx';
 import { Loader2, Cloud, Download, AlertCircle, CheckCircle, RefreshCw, Info, FolderOpen, Tag } from 'lucide-react';
+import { api } from '@/lib/api';
+import { logger } from '@/lib/logger';
 
 // Organization Guide Component
 const OrganizationGuide = () => {
@@ -176,7 +177,6 @@ const OrganizationGuide = () => {
 };
 
 function DropboxSyncPage() {
-  const { user } = useAuth();
   const { toast } = useToast();
   const [isConnected, setIsConnected] = useState(false);
   const [dropboxUser, setDropboxUser] = useState(null);
@@ -190,68 +190,19 @@ function DropboxSyncPage() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [connecting, setConnecting] = useState(false);
 
-  // Check connection status on component mount
-  useEffect(() => {
-    checkConnectionStatus();
-    // Check for connection success from URL params
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('status') === 'connected') {
-      toast({
-        title: "Dropbox Connected!",
-        description: "Your Dropbox account has been successfully connected.",
-      });
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, []);
-
-  const checkConnectionStatus = async () => {
-    try {
-      const response = await fetch('/api/dropbox/status', {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setIsConnected(data.connected);
-        setDropboxUser(data.user);
-        setLastSync(data.lastSync);
-        if (data.connected) {
-          await fetchDropboxFiles(false); // Don't show toast on initial load
-        }
-      }
-    } catch (error) {
-      console.error('Error checking Dropbox status:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchDropboxFiles = async (showToast = true) => {
+  const fetchDropboxFiles = useCallback(async (showToast = true) => {
     setRefreshingFiles(true);
     try {
-      const response = await fetch('/api/dropbox/files', {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setDropboxFiles(data.files || []);
-        if (showToast) {
-          toast({
-            title: "Files Refreshed",
-            description: `Found ${data.files?.length || 0} comics in your Dropbox folder.`,
-          });
-        }
-      } else {
+      const data = await api.get('/api/dropbox/files');
+      setDropboxFiles(data.files || []);
+      if (showToast) {
         toast({
-          title: "Refresh Failed",
-          description: "Failed to refresh Dropbox files.",
-          variant: "destructive"
+          title: "Files Refreshed",
+          description: `Found ${data.files?.length || 0} comics in your Dropbox folder.`,
         });
       }
     } catch (error) {
-      console.error('Error fetching Dropbox files:', error);
+      logger.error('Error fetching Dropbox files:', error);
       toast({
         title: "Refresh Failed",
         description: "Network error occurred while refreshing files.",
@@ -260,7 +211,30 @@ function DropboxSyncPage() {
     } finally {
       setRefreshingFiles(false);
     }
-  };
+  }, [toast]);
+
+  const checkConnectionStatus = useCallback(async () => {
+    try {
+      const data = await api.get('/api/dropbox/status');
+      setIsConnected(data.connected);
+      setDropboxUser(data.user);
+      setLastSync(data.lastSync);
+      if (data.connected) await fetchDropboxFiles(false);
+    } catch (error) {
+      logger.error('Error checking Dropbox status:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchDropboxFiles]);
+
+  useEffect(() => {
+    checkConnectionStatus();
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('status') === 'connected') {
+      toast({ title: "Dropbox Connected!", description: "Your Dropbox account has been successfully connected." });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [checkConnectionStatus, toast]);
 
   const handleConnectDropbox = () => {
     setConnecting(true);
@@ -273,30 +247,18 @@ function DropboxSyncPage() {
   const handleDisconnectDropbox = async () => {
     setDisconnecting(true);
     try {
-      const response = await fetch('/api/dropbox/disconnect', {
-        method: 'POST',
-        credentials: 'include'
+      await api.post('/api/dropbox/disconnect', {});
+      setIsConnected(false);
+      setDropboxUser(null);
+      setDropboxFiles([]);
+      toast({
+        title: "Dropbox Disconnected",
+        description: "Your Dropbox account has been disconnected.",
       });
-      
-      if (response.ok) {
-        setIsConnected(false);
-        setDropboxUser(null);
-        setDropboxFiles([]);
-        toast({
-          title: "Dropbox Disconnected",
-          description: "Your Dropbox account has been disconnected.",
-        });
-      } else {
-        toast({
-          title: "Disconnect Failed",
-          description: "Failed to disconnect Dropbox account.",
-          variant: "destructive"
-        });
-      }
     } catch (error) {
       toast({
         title: "Disconnect Failed",
-        description: "Network error occurred while disconnecting.",
+        description: error.message || "Could not disconnect Dropbox.",
         variant: "destructive"
       });
     } finally {
@@ -308,35 +270,16 @@ function DropboxSyncPage() {
     setImportingFiles(prev => new Set([...prev, fileName]));
     
     try {
-      const response = await fetch('/api/dropbox/import', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ fileName })
+      const data = await api.post('/api/dropbox/import', { fileName });
+      toast({
+        title: "Import Successful",
+        description: `${data.comic?.title || fileName} has been imported successfully.`,
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        toast({
-          title: "Import Successful",
-          description: `${data.comic?.title || fileName} has been imported successfully.`,
-        });
-        // Refresh the files list to update sync status
-        fetchDropboxFiles(false); // Don't show toast after import
-      } else {
-        const error = await response.json();
-        toast({
-          title: "Import Failed",
-          description: error.error || 'Failed to import comic',
-          variant: "destructive"
-        });
-      }
+      fetchDropboxFiles(false);
     } catch (error) {
       toast({
         title: "Import Failed",
-        description: "Network error occurred during import.",
+        description: error.message || "Could not import this comic.",
         variant: "destructive"
       });
     } finally {
@@ -353,35 +296,19 @@ function DropboxSyncPage() {
     setSyncStatus('Syncing...');
     
     try {
-      const response = await fetch('/api/dropbox/sync', {
-        method: 'POST',
-        credentials: 'include'
+      const data = await api.post('/api/dropbox/sync', {});
+      setSyncStatus(`Sync completed: ${data.newFiles || 0} new files added`);
+      setLastSync(new Date().toISOString());
+      toast({
+        title: "Sync Complete",
+        description: `${data.newFiles || 0} new comics have been synced from Dropbox.`,
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setSyncStatus(`Sync completed: ${data.newFiles || 0} new files added`);
-        setLastSync(new Date().toISOString());
-        toast({
-          title: "Sync Complete",
-          description: `${data.newFiles || 0} new comics have been synced from Dropbox.`,
-        });
-        // Refresh the files list
-        fetchDropboxFiles();
-      } else {
-        const error = await response.json();
-        setSyncStatus(`Sync failed: ${error.message}`);
-        toast({
-          title: "Sync Failed",
-          description: error.message,
-          variant: "destructive"
-        });
-      }
+      fetchDropboxFiles();
     } catch (error) {
-      setSyncStatus('Sync failed: Network error');
+      setSyncStatus(`Sync failed: ${error.message}`);
       toast({
         title: "Sync Failed",
-        description: "Network error occurred during sync.",
+        description: error.message || "Could not sync Dropbox.",
         variant: "destructive"
       });
     } finally {
@@ -459,6 +386,10 @@ function DropboxSyncPage() {
                     )}
                   </div>
                   <div className="flex gap-2">
+                    <Button onClick={handleSync} disabled={syncing} className="flex items-center gap-2">
+                      <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+                      {syncing ? 'Syncing...' : 'Sync now'}
+                    </Button>
                     <Button
                       variant="outline"
                       onClick={fetchDropboxFiles}

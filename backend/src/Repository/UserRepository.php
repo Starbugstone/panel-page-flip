@@ -37,4 +37,16 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
         $this->getEntityManager()->persist($user);
         $this->getEntityManager()->flush();
     }
+
+    public function countAdminsExcluding(User $excludedUser): int
+    {
+        return (int) $this->createQueryBuilder('u')
+            ->select('COUNT(u.id)')
+            ->where('u.id != :excludedId')
+            ->andWhere('u.roles LIKE :adminRole')
+            ->setParameter('excludedId', $excludedUser->getId())
+            ->setParameter('adminRole', '%ROLE_ADMIN%')
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
 }

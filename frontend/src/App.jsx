@@ -13,6 +13,7 @@ import Landing from "./pages/Landing.jsx";
 import Login from "./pages/Login.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import UploadComic from "./pages/UploadComic.jsx";
+import BulkUploadComic from "./pages/BulkUploadComic.jsx";
 import ComicReader from "./pages/ComicReader.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
@@ -78,6 +79,7 @@ const AppRoutes = () => {
             <Route path="/email-verification" element={<EmailVerification />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/upload" element={<ProtectedRoute><UploadComic /></ProtectedRoute>} />
+            <Route path="/upload/bulk" element={<ProtectedRoute><BulkUploadComic /></ProtectedRoute>} />
             <Route path="/read/:comicId" element={<ProtectedRoute><ComicReader /></ProtectedRoute>} />
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
             <Route path="/share/accept/:token" element={<ProtectedRoute><AcceptSharePage /></ProtectedRoute>} />

@@ -3,6 +3,7 @@
 namespace App\Command;
 
 use App\Entity\Comic;
+use App\Service\ComicCleanupService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -52,14 +53,17 @@ class CleanupComicsCommand extends Command
 {
     private EntityManagerInterface $entityManager;
     private ParameterBagInterface $parameterBag;
+    private ComicCleanupService $cleanupService;
 
     public function __construct(
         EntityManagerInterface $entityManager,
-        ParameterBagInterface $parameterBag
+        ParameterBagInterface $parameterBag,
+        ComicCleanupService $cleanupService
     ) {
         parent::__construct();
         $this->entityManager = $entityManager;
         $this->parameterBag = $parameterBag;
+        $this->cleanupService = $cleanupService;
     }
 
     protected function configure(): void
@@ -76,6 +80,42 @@ class CleanupComicsCommand extends Command
         $dryRun = $input->getOption('dry-run');
         $force = $input->getOption('force');
         $days = $input->getOption('days');
+
+        if ($days === null) {
+            $scan = $this->cleanupService->scan();
+            $io->title('Cleanup Summary');
+
+            if (!empty($scan['error'])) {
+                $io->error($scan['error']);
+                return Command::FAILURE;
+            }
+
+            $io->text(sprintf('Orphaned comic files: %d', $scan['totals']['orphanedComics']));
+            $io->text(sprintf('Orphaned cover images: %d', $scan['totals']['orphanedCovers']));
+
+            if ($scan['totals']['orphanedComics'] === 0 && $scan['totals']['orphanedCovers'] === 0) {
+                $io->success('No files to clean up.');
+                return Command::SUCCESS;
+            }
+
+            if ($dryRun) {
+                $io->note('This was a dry run. No files were deleted.');
+                return Command::SUCCESS;
+            }
+
+            if (!$force && !$io->confirm('Do you want to proceed with deletion?', false)) {
+                $io->warning('Operation cancelled.');
+                return Command::SUCCESS;
+            }
+
+            $result = $this->cleanupService->apply();
+            $io->success([
+                sprintf('Deleted %d orphaned comic files.', $result['deleted']['orphanedComics']),
+                sprintf('Deleted %d orphaned cover images.', $result['deleted']['orphanedCovers']),
+            ]);
+
+            return Command::SUCCESS;
+        }
         
         $comicsDirectory = $this->parameterBag->get('comics_directory');
         if (!is_dir($comicsDirectory)) {

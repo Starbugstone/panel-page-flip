@@ -1,10 +1,21 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Search, Plus, Trash, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export function AdminTagsList() {
   const { toast } = useToast();
@@ -14,37 +25,31 @@ export function AdminTagsList() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [currentTag, setCurrentTag] = useState(null);
+  const [tagToDelete, setTagToDelete] = useState(null);
   const [newTagName, setNewTagName] = useState("");
 
-  useEffect(() => {
-    const fetchTags = async () => {
-      setIsLoading(true);
-      try {
-        const response = await fetch('/api/tags', {
-          credentials: 'include',
-        });
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ message: 'Failed to fetch tags and parse error response' }));
-          throw new Error(errorData.message || 'Failed to fetch tags');
-        }
-        const data = await response.json();
-        setTags(data.tags || data || []);
-      } catch (error) {
-        console.error("Failed to load tags:", error);
-        toast({ title: "Error", description: error.message || "Could not load tags.", variant: "destructive" });
-        setTags([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchTags();
+  const loadTags = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const data = await api.get("/api/tags?all=true&adminContext=true");
+      setTags(data.tags || data || []);
+    } catch (error) {
+      console.error("Failed to load tags:", error);
+      toast({ title: "Error", description: error.message || "Could not load tags.", variant: "destructive" });
+      setTags([]);
+    } finally {
+      setIsLoading(false);
+    }
   }, [toast]);
+
+  useEffect(() => {
+    loadTags();
+  }, [loadTags]);
 
   const filteredTags = tags.filter(tag =>
     tag.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (tag.creator && (tag.creator.username || tag.creator.email) &&
-     (tag.creator.username || tag.creator.email).toLowerCase().includes(searchQuery.toLowerCase()))
+    (tag.creator && (tag.creator.name || tag.creator.email) &&
+     (tag.creator.name || tag.creator.email).toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const formatDate = (dateString) => {
@@ -67,17 +72,7 @@ export function AdminTagsList() {
     }
 
     try {
-      const response = await fetch('/api/tags', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ name: newTagName.trim() }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to create tag and parse error response' }));
-        throw new Error(errorData.message || 'Failed to create tag');
-      }
-      const createdTag = await response.json();
+      const createdTag = await api.post("/api/tags", { name: newTagName.trim() });
       setTags([...tags, createdTag.tag || createdTag]);
       setNewTagName("");
       setIsAddDialogOpen(false);
@@ -109,17 +104,7 @@ export function AdminTagsList() {
     }
 
     try {
-      const response = await fetch(`/api/tags/${currentTag.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ name: newTagName.trim() }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to update tag and parse error response' }));
-        throw new Error(errorData.message || 'Failed to update tag');
-      }
-      const updatedTagData = await response.json();
+      const updatedTagData = await api.put(`/api/tags/${currentTag.id}`, { name: newTagName.trim() });
       const finalUpdatedTag = updatedTagData.tag || updatedTagData;
       setTags(tags.map(tag => (tag.id === currentTag.id ? finalUpdatedTag : tag)));
       setNewTagName("");
@@ -144,15 +129,8 @@ export function AdminTagsList() {
     }
 
     try {
-      const response = await fetch(`/api/tags/${tagId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      if (!response.ok) {
-         const errorData = await response.json().catch(() => ({ message: 'Failed to delete tag and parse error response' }));
-        throw new Error(errorData.message || 'Failed to delete tag');
-      }
-      setTags(tags.filter(tag => tag.id !== tagId));
+      await api.delete(`/api/tags/${tagId}`);
+      setTags((currentTags) => currentTags.filter((tag) => tag.id !== tagId));
       toast({ title: "Success", description: "Tag deleted successfully" });
     } catch (error) {
       console.error(`Failed to delete tag ${tagId}:`, error);
@@ -206,7 +184,7 @@ export function AdminTagsList() {
                       <span className="font-medium">{tag.name}</span>
                     </TableCell>
                     <TableCell>{tag.comicCount}</TableCell>
-                    <TableCell>{tag.creator?.username || tag.creator?.email || 'N/A'}</TableCell>
+                    <TableCell>{tag.creator?.name || tag.creator?.email || 'N/A'}</TableCell>
                     <TableCell>{formatDate(tag.createdAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
@@ -216,7 +194,7 @@ export function AdminTagsList() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteTag(tag.id)}
+                          onClick={() => setTagToDelete(tag)}
                           disabled={tag.comicCount > 0}
                         >
                           <Trash className="h-4 w-4" />
@@ -291,6 +269,29 @@ export function AdminTagsList() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!tagToDelete} onOpenChange={(open) => !open && setTagToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete tag?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete {tagToDelete?.name}. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const id = tagToDelete?.id;
+              setTagToDelete(null);
+              if (id) {
+                handleDeleteTag(id);
+              }
+            }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

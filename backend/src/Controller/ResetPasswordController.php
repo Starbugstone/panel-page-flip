@@ -3,6 +3,9 @@
 namespace App\Controller;
 
 use App\Service\ResetPasswordService;
+use App\Service\ApiRateLimiter;
+use App\Service\PasswordValidator;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -16,7 +19,10 @@ class ResetPasswordController extends AbstractController
 {
     public function __construct(
         private readonly ResetPasswordService $resetPasswordService,
-        private readonly ValidatorInterface $validator
+        private readonly ValidatorInterface $validator,
+        private readonly PasswordValidator $passwordValidator,
+        private readonly ApiRateLimiter $rateLimiter,
+        private readonly LoggerInterface $logger
     ) {
     }
 
@@ -24,14 +30,13 @@ class ResetPasswordController extends AbstractController
     public function forgotPassword(Request $request): JsonResponse
     {
         try {
+            if ($rateLimitResponse = $this->rateLimiter->limit($request, 'forgot_password')) {
+                return $rateLimitResponse;
+            }
+
             $data = json_decode($request->getContent(), true);
             $email = $data['email'] ?? '';
             
-            // Log the request (in development only)
-            if ($this->getParameter('kernel.environment') === 'dev') {
-                error_log("Forgot password request received for email: {$email}");
-            }
-
             // Validate email
             $emailConstraint = new Assert\Email();
             $errors = $this->validator->validate($email, $emailConstraint);
@@ -43,18 +48,10 @@ class ResetPasswordController extends AbstractController
             // Process the password reset request
             $result = $this->resetPasswordService->sendPasswordResetEmail($email);
             
-            // Log the result (in development only)
-            if ($this->getParameter('kernel.environment') === 'dev') {
-                error_log("Password reset email sent result: " . ($result ? 'success' : 'failure'));
-            }
-
             // Always return success for security reasons, even if email doesn't exist
             return $this->json(['message' => 'If an account exists with that email, you will receive password reset instructions.']);
         } catch (\Exception $e) {
-            // Log the error (in development only)
-            if ($this->getParameter('kernel.environment') === 'dev') {
-                error_log("Error in forgot password: " . $e->getMessage());
-            }
+            $this->logger->warning('Forgot password request failed.', ['exception' => $e]);
             
             return $this->json(['message' => 'An error occurred processing your request.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
@@ -84,6 +81,11 @@ class ResetPasswordController extends AbstractController
 
         if (count($errors) > 0) {
             return $this->json(['message' => 'Password cannot be empty'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $passwordErrors = $this->passwordValidator->validate((string) $password);
+        if ($passwordErrors !== []) {
+            return $this->json(['message' => 'Password does not meet policy requirements.', 'errors' => ['password' => $passwordErrors]], Response::HTTP_BAD_REQUEST);
         }
 
         // Reset the password
