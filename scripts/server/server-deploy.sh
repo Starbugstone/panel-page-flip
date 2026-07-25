@@ -30,6 +30,7 @@
 #                        index.html + assets/ uploaded another way
 #   SKIP_COMPOSER=1      skip composer install (PHP-only redeploys)
 #   POST_DEPLOY_HOOK     shell command run after cache:warmup
+#   BACKUP_COMMAND       required command that backs up DB + uploads first
 # =============================================================================
 
 set -euo pipefail
@@ -41,19 +42,23 @@ WEB_GROUP="${WEB_GROUP:-$WEB_USER}"
 SKIP_FRONTEND="${SKIP_FRONTEND:-0}"
 SKIP_COMPOSER="${SKIP_COMPOSER:-0}"
 POST_DEPLOY_HOOK="${POST_DEPLOY_HOOK:-}"
+BACKUP_COMMAND="${BACKUP_COMMAND:-}"
 
 log()  { printf "\033[1;36m[server]\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m[warn]\033[0m   %s\n" "$*"; }
 fail() { printf "\033[1;31m[fail]\033[0m   %s\n" "$*" >&2; exit 1; }
 
 [ -d "$APP_DIR/backend" ] || fail "$APP_DIR/backend does not exist."
-
 # ---- check the secret env file is present -----------------------------------
 if [ ! -f "$APP_DIR/backend/.env.prod.local" ] && [ ! -f "$APP_DIR/backend/.env.local.php" ]; then
     fail "Neither backend/.env.prod.local nor backend/.env.local.php found.
        Copy your prod env values to $APP_DIR/backend/.env.prod.local before
        deploying for the first time. See SSH-deploy.md section 2.4."
 fi
+
+[ -n "$BACKUP_COMMAND" ] || fail "BACKUP_COMMAND must back up the production database and uploads before deployment."
+log "Running pre-deploy backup"
+eval "$BACKUP_COMMAND"
 
 # =============================================================================
 # 1) Composer
@@ -84,10 +89,13 @@ if [ "$SKIP_FRONTEND" != "1" ]; then
         rm -rf dist
         npm run build
 
-        log "Copying frontend/dist/ into backend/public/ (preserving uploads/)"
-        # Remove old hashed assets to prevent stale leftovers, keep uploads/.
-        rm -rf "$APP_DIR/backend/public/assets"
-        cp -a "$APP_DIR/frontend/dist/." "$APP_DIR/backend/public/"
+        log "Installing frontend build while preserving uploads and rollback assets"
+        public_dir="$APP_DIR/backend/public"
+        rm -rf "$public_dir/assets.next" "$public_dir/assets.previous"
+        cp -a "$APP_DIR/frontend/dist/assets" "$public_dir/assets.next"
+        [ ! -d "$public_dir/assets" ] || mv "$public_dir/assets" "$public_dir/assets.previous"
+        mv "$public_dir/assets.next" "$public_dir/assets"
+        find "$APP_DIR/frontend/dist" -maxdepth 1 -type f -exec cp -a {} "$public_dir/" \;
     else
         warn "Frontend skipped: $APP_DIR/frontend missing or npm not installed."
         warn "Make sure backend/public/index.html + assets/ are already present."
@@ -103,6 +111,10 @@ log "doctrine:migrations:migrate"
 cd "$APP_DIR/backend"
 APP_ENV=prod APP_DEBUG=0 php bin/console doctrine:migrations:migrate \
     --no-interaction --allow-no-migration --env=prod
+
+log "Encrypting legacy Dropbox tokens and backfilling file sizes"
+APP_ENV=prod APP_DEBUG=0 php bin/console app:migrate-dropbox-tokens --env=prod
+APP_ENV=prod APP_DEBUG=0 php bin/console app:backfill-comic-file-size --env=prod
 
 # =============================================================================
 # 4) Cache

@@ -69,6 +69,8 @@ SSH_GIT_BRANCH="${SSH_GIT_BRANCH:-main}"
 SSH_WEB_USER="${SSH_WEB_USER:-www-data}"
 SSH_WEB_GROUP="${SSH_WEB_GROUP:-$SSH_WEB_USER}"
 SSH_POST_DEPLOY_HOOK="${SSH_POST_DEPLOY_HOOK:-}"
+SSH_BACKUP_COMMAND="${SSH_BACKUP_COMMAND:-}"
+[ -n "$SSH_BACKUP_COMMAND" ] || fail "Missing SSH_BACKUP_COMMAND; upgrades require a database and uploads backup."
 
 [ -n "$BRANCH_OVERRIDE" ] && SSH_GIT_BRANCH="$BRANCH_OVERRIDE"
 
@@ -102,6 +104,9 @@ fi
 # Rsync mode: build locally, rsync release/, then run migrate+cache:clear remotely
 # =============================================================================
 if [ "$USE_RSYNC" = "1" ]; then
+    log "running required production backup before upload"
+    run_remote "$SSH_BACKUP_COMMAND"
+
     [ -d "$REPO_ROOT/release" ] || {
         log "release/ not found — building first"
         "$SCRIPT_DIR/build-release.sh"
@@ -129,6 +134,8 @@ if [ "$USE_RSYNC" = "1" ]; then
 set -e
 cd "$SSH_REMOTE_PATH/backend"
 APP_ENV=prod php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration --env=prod
+APP_ENV=prod php bin/console app:migrate-dropbox-tokens --env=prod
+APP_ENV=prod php bin/console app:backfill-comic-file-size --env=prod
 APP_ENV=prod php bin/console cache:clear --env=prod --no-debug
 APP_ENV=prod php bin/console cache:warmup --env=prod --no-debug
 [ -n "$SSH_POST_DEPLOY_HOOK" ] && eval "$SSH_POST_DEPLOY_HOOK" || true
@@ -159,6 +166,7 @@ fi
 
 SKIP_FRONTEND_VAR=$([ "$DO_FRONTEND" = "1" ] && echo 0 || echo 1)
 SKIP_COMPOSER_VAR=$([ "$DO_COMPOSER" = "1" ] && echo 0 || echo 1)
+SSH_BACKUP_COMMAND_QUOTED=$(printf '%q' "$SSH_BACKUP_COMMAND")
 
 REMOTE_SCRIPT=$(cat <<EOF
 set -euo pipefail
@@ -175,6 +183,7 @@ WEB_GROUP="$SSH_WEB_GROUP" \\
 SKIP_FRONTEND="$SKIP_FRONTEND_VAR" \\
 SKIP_COMPOSER="$SKIP_COMPOSER_VAR" \\
 POST_DEPLOY_HOOK="$SSH_POST_DEPLOY_HOOK" \\
+BACKUP_COMMAND=$SSH_BACKUP_COMMAND_QUOTED \\
 "$SSH_REMOTE_PATH/scripts/server/server-deploy.sh"
 EOF
 )

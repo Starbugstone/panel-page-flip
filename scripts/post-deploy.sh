@@ -51,15 +51,21 @@ done
 
 # Default sequence when no action requested.
 if [ "${#ACTIONS[@]}" -eq 0 ]; then
-    ACTIONS=(health migrate cache-clear)
+    ACTIONS=(health migrate upgrade-data cache-clear)
 fi
 
 # Validate every action.
 for a in "${ACTIONS[@]}"; do
     case "$a" in
-        health|migrate|cache-clear|about) ;;
-        *) fail "Unknown action: $a (allowed: health migrate cache-clear about)" ;;
+        health|migrate|upgrade-data|cache-clear|about) ;;
+        *) fail "Unknown action: $a (allowed: health migrate upgrade-data cache-clear about)" ;;
     esac
+done
+
+for a in "${ACTIONS[@]}"; do
+    if [ "$a" = "migrate" ] && [ "${BACKUP_CONFIRMED:-0}" != "1" ]; then
+        fail "Set BACKUP_CONFIRMED=1 only after verifying a current database and uploads backup."
+    fi
 done
 
 # =============================================================================
@@ -100,6 +106,9 @@ ssh_call() {
             ;;
         migrate)
             ssh "$target" "cd ${remote_path} && php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration --env=prod"
+            ;;
+        upgrade-data)
+            ssh "$target" "cd ${remote_path} && php bin/console app:migrate-dropbox-tokens --env=prod && php bin/console app:backfill-comic-file-size --env=prod"
             ;;
         cache-clear)
             ssh "$target" "cd ${remote_path} && php bin/console cache:clear --env=prod && php bin/console cache:warmup --env=prod"

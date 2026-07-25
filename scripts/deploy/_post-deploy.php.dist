@@ -94,6 +94,17 @@ try {
             }
             break;
 
+        case 'upgrade-data':
+            foreach (['app:migrate-dropbox-tokens', 'app:backfill-comic-file-size'] as $command) {
+                $r = $cli(['command' => $command]);
+                echo $r['output'];
+                if ($r['code'] !== 0) {
+                    http_response_code(500);
+                    exit("[post-deploy] {$command} failed (exit {$r['code']})\n");
+                }
+            }
+            break;
+
         case 'cache-clear':
             $r = $cli(['command' => 'cache:clear', '--no-warmup' => true]);
             echo $r['output'];

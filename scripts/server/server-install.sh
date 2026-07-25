@@ -78,6 +78,7 @@ if [ ! -f "$ENV_FILE" ] && [ ! -f "$APP_DIR/backend/.env.local.php" ]; then
 APP_ENV=prod
 APP_DEBUG=0
 APP_SECRET=REPLACE_WITH_openssl_rand_-hex_32
+APP_DATA_KEY=REPLACE_WITH_openssl_rand_-base64_32
 
 DATABASE_URL=mysql://USER:PASSWORD@127.0.0.1:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4
 
@@ -129,6 +130,7 @@ log "Running first build via server-deploy.sh"
 APP_DIR="$APP_DIR" \
 WEB_USER="$WEB_USER" \
 WEB_GROUP="$WEB_GROUP" \
+BACKUP_COMMAND=true \
 "$APP_DIR/scripts/server/server-deploy.sh"
 
 # =============================================================================

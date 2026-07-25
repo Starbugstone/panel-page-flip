@@ -114,13 +114,14 @@ This file is **gitignored**. Fill in:
 | FTP target      | `FTP_HOST`, `FTP_USER`, `FTP_PASSWORD`, `FTP_PROTOCOL`, `FTP_PORT`, `FTP_REMOTE_ROOT`, `FTP_PARALLEL`    | Use `ftps` (FTP-over-TLS) whenever the host supports it. |
 | Public URL      | `PUBLIC_URL`                                                                                             | Used by `post-deploy.sh` to call the migration runner. |
 | Post-deploy     | `POST_DEPLOY_TOKEN`                                                                                      | Run `openssl rand -hex 32`. **Same value** is baked into `backend/.env.local.php` as `DEPLOY_TOKEN` and used as the `X-Deploy-Token` header. |
-| Symfony secrets | `PROD_APP_SECRET`, `PROD_DATABASE_URL`, `PROD_FRONTEND_URL`, `PROD_CORS_ALLOW_ORIGIN`, `PROD_MAILER_*`   | These are baked into `release/backend/.env.prod.local`, then consolidated into `release/backend/.env.local.php` by `composer dump-env prod`. The plaintext file is removed after consolidation. |
+| Symfony secrets | `PROD_APP_SECRET`, `PROD_APP_DATA_KEY`, `PROD_DATABASE_URL`, `PROD_FRONTEND_URL`, `PROD_CORS_ALLOW_ORIGIN`, `PROD_MAILER_*` | These are baked into `release/backend/.env.prod.local`, then consolidated into `backend/.env.local.php`. Preserve `PROD_APP_DATA_KEY` permanently or encrypted Dropbox credentials become unreadable. |
 | Dropbox (opt)   | `PROD_DROPBOX_*`                                                                                         | Skip if you don't use Dropbox sync. |
 
 Generate strong tokens:
 
 ```sh
 openssl rand -hex 32   # use one for PROD_APP_SECRET, another for POST_DEPLOY_TOKEN
+openssl rand -base64 32 # use once for PROD_APP_DATA_KEY; store it with backups
 ```
 
 ### 2.2 Verify Docker

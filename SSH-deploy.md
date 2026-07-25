@@ -151,6 +151,7 @@ SSH_GIT_BRANCH=main                   # branch the server pulls from
 SSH_WEB_USER=www-data
 SSH_WEB_GROUP=www-data
 SSH_POST_DEPLOY_HOOK="sudo systemctl reload php8.2-fpm"
+SSH_BACKUP_COMMAND=/usr/local/bin/backup-comics # must back up DB + uploads and fail on error
 ```
 
 The `PROD_*` block in the same file is **only used by the FTP flow**. For SSH
@@ -209,6 +210,7 @@ Critical values:
 APP_ENV=prod
 APP_DEBUG=0
 APP_SECRET=$(openssl rand -hex 32)                     # 64 hex chars
+APP_DATA_KEY=$(openssl rand -base64 32)                # generate once; preserve across every deploy
 DATABASE_URL=mysql://comics_user:STRONG_PASS@127.0.0.1:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4
 CORS_ALLOW_ORIGIN=^https://comics\.yourdomain\.com$
 FRONTEND_URL=https://comics.yourdomain.com
@@ -256,12 +258,13 @@ APP_DIR=/var/www/comics ./scripts/server/server-install.sh
 
 This time it runs `server-deploy.sh` which:
 
-1. `composer install --no-dev --optimize-autoloader`
-2. `composer dump-env prod` (consolidates `.env.prod.local` → `.env.local.php`)
-3. `npm ci && npm run build` (and copies `frontend/dist/*` into `backend/public/`)
-4. `php bin/console doctrine:migrations:migrate`
-5. `php bin/console cache:clear --env=prod && cache:warmup`
-6. `chown -R $WEB_USER:$WEB_GROUP backend/var/ backend/public/uploads/`
+1. Runs the configured `SSH_BACKUP_COMMAND` and stops unless the database and uploads backup succeeds.
+2. Runs `composer install --no-dev --optimize-autoloader`.
+3. Consolidates `.env.prod.local` into `.env.local.php`.
+4. Builds and installs the frontend while retaining the previous asset bundle for rollback.
+5. Runs Doctrine migrations, Dropbox token encryption, and the file-size backfill.
+6. Clears and warms the production cache.
+7. Fixes ownership on `backend/var/` and `backend/public/uploads/`.
 
 When it finishes, the installer prints the next-step checklist (web server
 config, certbot, first admin).
@@ -644,6 +647,7 @@ jobs:
           SSH_GIT_BRANCH=main
           SSH_WEB_USER=www-data
           SSH_POST_DEPLOY_HOOK=${{ secrets.SSH_POST_DEPLOY_HOOK }}
+          SSH_BACKUP_COMMAND=${{ secrets.SSH_BACKUP_COMMAND }}
           EOF
           chmod 600 scripts/.env.deploy
 
@@ -652,7 +656,7 @@ jobs:
 ```
 
 Required secrets: `SSH_PRIVATE_KEY`, `SSH_HOST`, `SSH_USER`, `SSH_PORT`,
-`SSH_REMOTE_PATH`, `SSH_POST_DEPLOY_HOOK`.
+`SSH_REMOTE_PATH`, `SSH_POST_DEPLOY_HOOK`, `SSH_BACKUP_COMMAND`.
 
 ---
 
