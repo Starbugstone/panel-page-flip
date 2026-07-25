@@ -37,17 +37,19 @@ class MigrateDropboxTokensCommand extends Command
         $updated = 0;
         $connection = $this->entityManager->getConnection();
 
-        foreach ($users as $user) {
-            if (!$user instanceof User || !$user->getId()) {
-                continue;
-            }
+        $connection->transactional(function () use ($connection, $users, &$updated): void {
+            foreach ($users as $user) {
+                if (!$user instanceof User || !$user->getId()) {
+                    continue;
+                }
 
-            $connection->update('user', [
-                'dropbox_access_token' => $this->encryption->encrypt($user->getDropboxAccessToken()),
-                'dropbox_refresh_token' => $this->encryption->encrypt($user->getDropboxRefreshToken()),
-            ], ['id' => $user->getId()]);
-            $updated++;
-        }
+                $connection->update('user', [
+                    'dropbox_access_token' => $this->encryption->encrypt($user->getDropboxAccessToken()),
+                    'dropbox_refresh_token' => $this->encryption->encrypt($user->getDropboxRefreshToken()),
+                ], ['id' => $user->getId()]);
+                $updated++;
+            }
+        });
 
         $io->success(sprintf('Encrypted Dropbox tokens for %d user(s).', $updated));
 

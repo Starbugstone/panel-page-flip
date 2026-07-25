@@ -33,14 +33,18 @@ class AppDataEncryptionService
 
         $payload = base64_decode(substr($value, strlen(self::PREFIX)), true);
         if ($payload === false || strlen($payload) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES) {
-            return null;
+            throw new \RuntimeException('Encrypted application data is malformed.');
         }
 
         $nonce = substr($payload, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
         $ciphertext = substr($payload, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
         $plaintext = sodium_crypto_secretbox_open($ciphertext, $nonce, $this->key);
 
-        return $plaintext === false ? null : $plaintext;
+        if ($plaintext === false) {
+            throw new \RuntimeException('Unable to decrypt application data. Verify APP_DATA_KEY.');
+        }
+
+        return $plaintext;
     }
 
     public function isEncrypted(?string $value): bool

@@ -17,7 +17,7 @@ class AdminAuditLog
     private ?int $id = null;
 
     #[ORM\ManyToOne]
-    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?User $adminUser = null;
 
     #[ORM\Column(length: 100)]
@@ -50,7 +50,7 @@ class AdminAuditLog
         return $this->adminUser;
     }
 
-    public function setAdminUser(User $adminUser): static
+    public function setAdminUser(?User $adminUser): static
     {
         $this->adminUser = $adminUser;
         return $this;

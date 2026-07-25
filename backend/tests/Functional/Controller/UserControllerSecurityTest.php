@@ -3,6 +3,7 @@
 namespace App\Tests\Functional\Controller;
 
 use App\Entity\AdminAuditLog;
+use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 use Doctrine\ORM\EntityManagerInterface;
@@ -97,6 +98,41 @@ class UserControllerSecurityTest extends AbstractApiTestCase
 
         self::assertResponseStatusCodeSame(403);
         self::assertSame('Cannot delete your own account', $payload['message']);
+    }
+
+    public function testAdminCannotCascadeDeleteAUsersComics(): void
+    {
+        $this->createAndLoginAdmin();
+        $owner = UserFactory::createOne()->object();
+        ComicFactory::new()->ownedBy($owner)->create();
+
+        $payload = $this->deleteJson('/api/users/' . $owner->getId());
+
+        self::assertResponseStatusCodeSame(409);
+        self::assertStringContainsString('still owns comics', $payload['message']);
+        self::assertSame(1, ComicFactory::repository()->count());
+    }
+
+    public function testAuditHistorySurvivesAdministratorDeletion(): void
+    {
+        $this->createAndLoginAdmin();
+        $formerAdmin = UserFactory::new()->admin()->create()->object();
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $audit = (new AdminAuditLog())
+            ->setAdminUser($formerAdmin)
+            ->setAction('historical_action')
+            ->setTargetType('system');
+        $entityManager->persist($audit);
+        $entityManager->flush();
+        $auditId = $audit->getId();
+
+        $entityManager->remove($formerAdmin);
+        $entityManager->flush();
+        $entityManager->clear();
+
+        $preservedAudit = $entityManager->find(AdminAuditLog::class, $auditId);
+        self::assertNotNull($preservedAudit);
+        self::assertNull($preservedAudit->getAdminUser());
     }
 
     public function testRegularUserCannotReadAnotherUserProfile(): void

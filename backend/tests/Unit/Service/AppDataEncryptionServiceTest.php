@@ -58,13 +58,18 @@ class AppDataEncryptionServiceTest extends TestCase
         self::assertSame('legacy-token', $this->encryption->decrypt('legacy-token'));
     }
 
-    public function testRejectsMalformedOrTamperedCiphertext(): void
+    public function testRejectsMalformedCiphertext(): void
     {
-        self::assertNull($this->encryption->decrypt('enc:v1:not-valid-base64'));
+        $this->expectException(\RuntimeException::class);
+        $this->encryption->decrypt('enc:v1:not-valid-base64');
+    }
 
+    public function testRejectsTamperedCiphertext(): void
+    {
         $encrypted = (string) $this->encryption->encrypt('sensitive');
         $tampered = substr($encrypted, 0, -2) . 'AA';
-        self::assertNull($this->encryption->decrypt($tampered));
+        $this->expectException(\RuntimeException::class);
+        $this->encryption->decrypt($tampered);
     }
 
     public function testAcceptsHexAndBase64EncodedKeys(): void

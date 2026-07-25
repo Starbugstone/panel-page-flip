@@ -77,12 +77,12 @@ export function AdminOverview() {
         <CardContent className="space-y-4">
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => runCleanup(false)} disabled={isCleaning}>Dry run</Button>
-            <Button onClick={() => runCleanup(true)} disabled={isCleaning || !cleanup}>Apply cleanup</Button>
+            <Button onClick={() => runCleanup(true)} disabled={isCleaning || !cleanup}>Quarantine files</Button>
           </div>
           {cleanup && (
             <div className="text-sm text-muted-foreground">
               Found {cleanup.totals?.orphanedComics || 0} orphan comics and {cleanup.totals?.orphanedCovers || 0} orphan covers.
-              {cleanup.deleted && ` Deleted ${cleanup.deleted.orphanedComics} comics and ${cleanup.deleted.orphanedCovers} covers.`}
+              {cleanup.quarantined && ` Quarantined ${cleanup.quarantined.orphanedComics} comics and ${cleanup.quarantined.orphanedCovers} covers.`}
             </div>
           )}
         </CardContent>

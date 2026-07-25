@@ -18,6 +18,7 @@ class ComicService
         private readonly EntityManagerInterface $entityManager,
         private readonly SluggerInterface $slugger,
         private readonly LoggerInterface $logger,
+        private readonly FileQuarantineService $fileQuarantine,
         private readonly int $uploadMaxTotalBytes,
         private readonly int $uploadUserQuotaBytes
     ) {
@@ -127,34 +128,31 @@ class ComicService
         return $comic;
     }
 
-    public function deleteComic(Comic $comic): bool
+    /** @return list<array{originalPath: string, quarantinePath: string}> */
+    public function quarantineComicFiles(Comic $comic): array
     {
         $user = $comic->getOwner();
         if (!$user) {
-            $this->logger->warning('Cannot delete comic files because comic has no owner.', ['comic_id' => $comic->getId()]);
-            return false;
+            $this->logger->warning('Cannot quarantine comic files because comic has no owner.', ['comic_id' => $comic->getId()]);
+            return [];
         }
 
+        $paths = [];
         if ($comic->getFilePath()) {
-            $cbzFilePath = $this->comicsDirectory . '/' . $user->getId() . '/' . basename($comic->getFilePath());
-            if (is_file($cbzFilePath)) {
-                unlink($cbzFilePath);
-            }
+            $paths[] = $this->comicsDirectory . '/' . $user->getId() . '/' . basename($comic->getFilePath());
         }
 
         if ($comic->getCoverImagePath()) {
-            $absoluteCoverPath = $this->comicsDirectory . '/' . $user->getId() . '/' . ltrim($comic->getCoverImagePath(), '/');
-            if (is_file($absoluteCoverPath)) {
-                unlink($absoluteCoverPath);
-
-                $comicCoverDir = dirname($absoluteCoverPath);
-                if (is_dir($comicCoverDir) && count(scandir($comicCoverDir)) === 2) {
-                    rmdir($comicCoverDir);
-                }
-            }
+            $paths[] = $this->comicsDirectory . '/' . $user->getId() . '/' . ltrim($comic->getCoverImagePath(), '/');
         }
 
-        return true;
+        return $this->fileQuarantine->quarantine($paths);
+    }
+
+    /** @param list<array{originalPath: string, quarantinePath: string}> $records */
+    public function restoreQuarantinedFiles(array $records): void
+    {
+        $this->fileQuarantine->restore($records);
     }
 
     private function validateCbzArchive(string $absolutePath): void

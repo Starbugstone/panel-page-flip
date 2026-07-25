@@ -10,6 +10,7 @@ class ComicCleanupService
 {
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
+        private readonly FileQuarantineService $fileQuarantine,
         private readonly string $comicsDirectory
     ) {
     }
@@ -68,14 +69,18 @@ class ComicCleanupService
     public function apply(): array
     {
         $scan = $this->scan();
-        $deletedComics = $this->deleteFiles($scan['orphanedComics']);
-        $deletedCovers = $this->deleteFiles($scan['orphanedCovers']);
+        if (isset($scan['error'])) {
+            return $scan;
+        }
+
+        $quarantinedComics = $this->quarantineFiles($scan['orphanedComics']);
+        $quarantinedCovers = $this->quarantineFiles($scan['orphanedCovers']);
 
         return [
             ...$scan,
-            'deleted' => [
-                'orphanedComics' => $deletedComics,
-                'orphanedCovers' => $deletedCovers,
+            'quarantined' => [
+                'orphanedComics' => $quarantinedComics,
+                'orphanedCovers' => $quarantinedCovers,
             ],
         ];
     }
@@ -165,15 +170,10 @@ class ComicCleanupService
         }
     }
 
-    private function deleteFiles(array $files): int
+    private function quarantineFiles(array $files): int
     {
-        $deleted = 0;
-        foreach ($files as $file) {
-            if (isset($file['path']) && is_file($file['path']) && unlink($file['path'])) {
-                $deleted++;
-            }
-        }
+        $paths = array_values(array_filter(array_column($files, 'path'), 'is_string'));
 
-        return $deleted;
+        return count($this->fileQuarantine->quarantine($paths));
     }
 }

@@ -161,7 +161,7 @@ class AdminController extends AbstractController
     {
         $admin = $this->getAdminUser();
         $result = $cleanupService->apply();
-        $auditService->log($admin, 'cleanup_orphan_files', 'filesystem', null, $result['deleted'] ?? null);
+        $auditService->log($admin, 'quarantine_orphan_files', 'filesystem', null, $result['quarantined'] ?? null);
         $entityManager->flush();
 
         return $this->json(['cleanup' => $result]);

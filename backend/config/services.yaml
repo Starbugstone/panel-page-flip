@@ -5,6 +5,7 @@
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
 parameters:
     comics_directory: '%kernel.project_dir%/public/uploads/comics'
+    quarantine_directory: '%kernel.project_dir%/var/quarantine/comics'
     mailer_from_address: '%env(MAILER_FROM_ADDRESS)%'
     mailer_from_name: '%env(MAILER_FROM_NAME)%'
     max_concurrent_uploads: '%env(int:default:max_concurrent_uploads_default:MAX_CONCURRENT_UPLOADS)%'
@@ -86,6 +87,11 @@ services:
     App\Service\ComicCleanupService:
         arguments:
             $comicsDirectory: '%comics_directory%'
+
+    App\Service\FileQuarantineService:
+        arguments:
+            $managedDirectory: '%comics_directory%'
+            $quarantineDirectory: '%quarantine_directory%'
             
     # Comic controller with comics directory configuration
     App\Controller\ComicController:

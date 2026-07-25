@@ -341,7 +341,7 @@ class ComicController extends AbstractController
                 ]
             ], Response::HTTP_CREATED);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->logger->warning('Comic upload failed.', ['user_id' => $user->getId(), 'exception' => $e]);
             return $this->json([
                 'message' => 'Upload failed: ' . $e->getMessage(),
@@ -481,13 +481,14 @@ class ComicController extends AbstractController
         if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
             return $this->json(['message' => 'You do not have permission to delete this comic'], Response::HTTP_FORBIDDEN);
         }
-        
+
+        $quarantinedFiles = [];
         try {
             // Use a transaction to ensure all operations succeed or fail together
             $entityManager->beginTransaction();
             
-            // First delete the files using the service
-            $comicService->deleteComic($comic);
+            // Keep files recoverable if the database transaction fails.
+            $quarantinedFiles = $comicService->quarantineComicFiles($comic);
             
             // The entity removal will cascade to reading progress thanks to the relationship setup
             $entityManager->remove($comic);
@@ -496,13 +497,21 @@ class ComicController extends AbstractController
             $entityManager->commit();
             
             return $this->json(['message' => 'Comic deleted successfully']);
-        } catch (\Exception $e) {
+        } catch (\Throwable) {
             // Rollback the transaction if anything fails
             if ($entityManager->getConnection()->isTransactionActive()) {
                 $entityManager->rollback();
             }
+
+            try {
+                $comicService->restoreQuarantinedFiles($quarantinedFiles);
+            } catch (\Throwable) {
+                return $this->json([
+                    'message' => 'Failed to delete the comic and restore its files. An administrator must inspect the quarantine.',
+                ], Response::HTTP_INTERNAL_SERVER_ERROR);
+            }
             
-            return $this->json(['message' => 'Failed to delete comic: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+            return $this->json(['message' => 'Failed to delete comic. No files were lost.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 

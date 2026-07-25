@@ -311,6 +311,12 @@ class UserController extends AbstractController
             }
         }
 
+        if (!$targetUser->getComics()->isEmpty()) {
+            return $this->json([
+                'message' => 'This user still owns comics. Reassign or delete those comics explicitly before deleting the account.',
+            ], Response::HTTP_CONFLICT);
+        }
+
         $auditService->log($user, 'user_delete', 'user', $targetUser->getId(), ['email' => $targetUser->getEmail()]);
 
         // Delete user
