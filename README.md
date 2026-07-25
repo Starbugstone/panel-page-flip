@@ -1,735 +1,265 @@
-# THIS PROJECT IS AN EXPERIANCE WITH VIBE CODING
-I did not write a single line of code, or even docker setup for the dev environment (well, I did one line but the bot was being so stupid and adding 10 files and even .sh files for a one line php fix !!)
+# Panel Page Flip
 
-I did some reviews just to check the code and then guide the bot after to correct major bugs
+Panel Page Flip is a self-hosted web application for managing and reading CBZ comic collections. It combines a responsive comic reader with per-user libraries, reading progress, sharing, bulk uploads, tagging, Dropbox imports, and administrative tools.
 
-I had to help the bot with many console errors, cutting him off and reguiding him before he went haywire. 
-
-note : always test after each change and use git often. And tell the bot never to commit by himself or you will be cherry picking like hell (lil bastard almost crashed the entire project once, thank god for git)
-
-Tools used :
-- Lovable: frontend and init of the project
-- windsurf with Claude 3.7 and gemini 2.5 pro for most of debugging, construction of the backend and plugging into front end
-- google jules mostly to init extra features and then a pass (or 20) with claude and gemini to fix the errors, but easier than repassing via lovable as they don't allow branch creation / changing (I don't like to commit to main on major updates)
-- Moved to Cursor and Claude 4 beginning of juin after anthropic shut off windsurf (https://windsurf.com/blog/anthropic-models)
-
-I will add an extra paragraph if I feel up to in at the end of the project to give my full recomendations on each tool and the experience
-
-# CBZ Comic Reader
-
-(yes, even the readme was done by AI !! apart from my little extra just before, after this, all is 100% pure free range computer)
-
-## Project Overview
-
-CBZ Comic Reader is a web application that allows users to read comic books in CBZ format. The application features a secure login system, a comic selection interface, and a reading progress tracker that remembers where you left off.
-
-**Production site:** [https://comics.starbugstone.com/](https://comics.starbugstone.com/)
-
-Bug reports can be submitted through the [GitHub issue tracker](https://github.com/Starbugstone/panel-page-flip/issues).
-
-## Initial Project Requirements
-
-The following prompt was used to initiate this project:
-
-```
-I need a front end for my new web app. It will be a comic book reader to read cbz files.
-The files will only be accessible when logged in so I will need a landing page to log in first.
-Then I will need a select comic section / page to select the comic I want to read, probably taken from the database / backend.
-The Database / backend will also know the history of the reading to be able to jump back to the last read page
-
-The backend will be handled by symfony.
-
-The aspect shuold be fun, minimalist with a comic book vibe. The actual read comic page should be very minimalist so the user can concentrate on reading the actual comic.
-The site should have a norma and dark mode.
-```
+**Live site:** [comics.starbugstone.com](https://comics.starbugstone.com/)  
+**Issues:** [GitHub issue tracker](https://github.com/Starbugstone/panel-page-flip/issues)
 
 ## Features
 
-- **User Authentication**: Secure login system to protect your comic collection
-- **Email Verification**: Email verification required before users can log in
-- **Password Recovery**: Forgot password functionality with email recovery
-- **Comic Library**: Browse comics in a card grid or a selectable table
-- **Reading Progress**: Automatically saves your reading position
-- **CBZ Format Support**: Read comics in the popular CBZ archive format
-- **Bulk Uploads**: Queue and upload multiple CBZ files with chunked transfer and per-file progress
-- **Bulk Library Management**: Add tags or safely delete multiple selected comics at once
-- **Upload Progress**: Real-time progress tracking during file uploads
-- **Advanced Caching**: Smart page caching system that prevents unnecessary network calls
-- **Fast Navigation**: Immediate display of cached pages for smooth reading experience
-- **Memory Optimization**: Efficient memory usage by only caching pages within the current reading window
-- **Responsive Design**: Optimized for both desktop and mobile devices
-- **Dark Mode**: Toggle between light and dark themes for comfortable reading
-- **Custom Tagging**: Create and assign custom tags to your comics for better organization
-- **Comic Sharing**: Share comics with other users via email invitations
-- **Pending Shares Management**: Accept or refuse comics shared with you
-- **Automatic Cleanup**: System automatically cleans up expired share tokens and their public cover images
-- **Session Persistence**: Actively maintains user sessions to prevent unexpected logouts during activity or long uploads.
-- **Dropbox Integration**: Connect your Dropbox account to import CBZ files from your Dropbox folder
-- **Individual Import**: Choose specific comics to import from your Dropbox with individual import buttons
-- **Automatic Sync**: Background sync command that can be scheduled via cron to automatically import new comics
-- **Smart Sync Detection**: Accurately tracks which files have been imported to prevent duplicates
-- **Dropbox Comics Management**: Dedicated dashboard section for comics synced from Dropbox
-- **Administration**: Manage users, comics, tags, Dropbox connections, cleanup previews, and audit history
+- Secure session-based authentication with email verification and password recovery
+- Private, per-user comic libraries with grid and table views
+- CBZ page streaming, fullscreen reading, keyboard navigation, and saved progress
+- Single and bulk chunked uploads with progress reporting
+- Search, custom tags, bulk tagging, and recoverable file cleanup
+- Comic sharing through expiring email invitations
+- One-way Dropbox imports with duplicate detection and folder-based tags
+- Responsive light and dark themes
+- Administration for users, comics, tags, Dropbox connections, cleanup, and audit history
 
-## Architecture
+## Technology
 
-The project is split into two main components:
+| Layer | Stack |
+| --- | --- |
+| Frontend | React 18, Vite 5, React Router, TanStack Query, Tailwind CSS, Radix UI |
+| Backend | PHP 8.2, Symfony 6.4, Doctrine ORM |
+| Data | MySQL 8 and filesystem-backed CBZ storage |
+| Development | Docker Compose, Nginx, PHP-FPM, Mailpit, Adminer |
+| Testing | Vitest, PHPUnit, Symfony functional tests |
+
+Nginx serves the production React build and forwards `/api` requests to Symfony. The backend owns authentication, authorization, metadata, reading progress, archive processing, integrations, and file access. Uploaded comics remain outside the frontend build in `backend/public/uploads/`.
+
+## Local development
+
+### Requirements
+
+- Git
+- Docker with Docker Compose
+
+Node.js 22 and PHP/Composer are only required when running tooling outside Docker.
+
+### Start the application
+
+```bash
+git clone https://github.com/Starbugstone/panel-page-flip.git
+cd panel-page-flip
+docker compose up -d --build
+docker compose exec php composer install
+docker compose exec php php bin/console doctrine:database:create --if-not-exists
+docker compose exec php php bin/console doctrine:migrations:migrate --no-interaction
+docker compose exec php php bin/console app:setup-upload-directories
+```
+
+Create an administrator for the first login:
+
+```bash
+docker compose exec php php bin/console app:create-admin-user admin@example.com 'ChangeMe-Strong-Password-123!'
+```
+
+The email and password are required positional arguments. Command-created users are marked as email-verified.
+
+Development services:
+
+| Service | URL |
+| --- | --- |
+| Vite frontend with hot reload | <http://localhost:3001> |
+| Nginx production-style frontend and API | <http://localhost:8080> |
+| Adminer | <http://localhost:8081> |
+| Mailpit | <http://localhost:8025> |
+
+The Vite server proxies `/api` to Nginx. Frontend changes are hot-reloaded; Symfony source is bind-mounted into the PHP container.
+
+Stop the environment with:
+
+```bash
+docker compose down
+```
+
+Add `-v` only when you intentionally want to delete the local MySQL volume.
+
+### Local configuration
+
+Docker service names, versions, ports, and development database credentials are configured in the root `.env`. Symfony defaults are in `backend/.env` and `backend/.env.dev`.
+
+Use the gitignored `backend/.env.local` for machine-specific values and secrets:
+
+```dotenv
+APP_SECRET=replace-with-a-random-value
+APP_DATA_KEY=replace-with-a-persistent-random-value
+DATABASE_URL="mysql://cbz_user:cbz_password@database:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4"
+MAILER_DSN=smtp://mailpit:1025
+FRONTEND_URL=http://localhost:3001
+```
+
+Generate suitable local secrets with `openssl rand -hex 32` for `APP_SECRET` and `openssl rand -base64 32` for `APP_DATA_KEY`.
+
+Important configuration variables:
+
+- `APP_SECRET` — Symfony application secret
+- `APP_DATA_KEY` — encrypts persisted integration credentials; do not rotate it without migrating existing data
+- `DATABASE_URL` — Doctrine connection string
+- `FRONTEND_URL` — base URL used in email and share links
+- `CORS_ALLOW_ORIGIN` — allowed browser origins
+- `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
+- `MAX_CONCURRENT_UPLOADS` — frontend upload concurrency returned by the application config endpoint
+- `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REDIRECT_URI` — optional Dropbox OAuth settings
+- `DROPBOX_APP_FOLDER`, `DROPBOX_SYNC_LIMIT`, `DROPBOX_RATE_LIMIT` — optional Dropbox import settings
+
+Never commit `.env.local`, `.env.prod.local`, `scripts/.env.deploy`, credentials, or production keys.
+
+## Common commands
+
+```bash
+# Create a regular user
+docker compose exec php php bin/console app:create-user user@example.com 'ChangeMe-Strong-Password-123!'
+
+# Create an administrator
+docker compose exec php php bin/console app:create-admin-user admin@example.com 'ChangeMe-Strong-Password-123!'
+
+# Import CBZ files from a directory visible inside the PHP container
+docker compose exec php php bin/console app:import-comics /path/to/comics user@example.com
+
+# Preview orphan cleanup without removing source files
+docker compose exec php php bin/console app:cleanup-comics --dry-run
+
+# Remove expired sharing invitations and temporary covers
+docker compose exec php php bin/console app:cleanup-expired-shares
+
+# Clear the Symfony cache
+docker compose exec php php bin/console cache:clear
+```
+
+`app:cleanup-comics` moves orphaned files to recoverable quarantine storage. Run its dry-run mode first.
+
+## Testing and quality checks
 
 ### Frontend
 
-The frontend is built with:
+Run inside the existing Node 22 development container:
 
-- React with JavaScript
-- Vite for fast development and building
-- shadcn-ui components
-- Tailwind CSS for styling
-- React Router for navigation
+```bash
+docker compose exec frontend_dev npm test
+docker compose exec frontend_dev npm run lint
+docker compose exec frontend_dev npm run build
+docker compose exec frontend_dev npm run audit:production
+```
+
+Alternatively, run `npm ci` and the same scripts from `frontend/` with a local Node.js 22 installation.
 
 ### Backend
 
-The backend is powered by:
-
-- Symfony PHP framework
-- MySQL database for storing user data and reading progress
-- Docker for containerization and easy setup
-
-## API Endpoints
-
-The backend provides the following API endpoints:
-
-### Authentication
-
-- `POST /api/login` - Login with email and password
-- `POST /api/register` - Register a new user
-- `POST /api/logout` - Logout the current user
-- `GET /api/login_check` - Check if the user is authenticated
-- `GET /api/me` - Get the current user's information
-- `POST /api/me` - Refresh the authenticated session
-- `POST /api/forgot-password` - Request a password reset email
-- `GET /api/reset-password/validate/{token}` - Validate a password reset token
-- `POST /api/reset-password/reset/{token}` - Reset password with a valid token
-
-### Comics
-
-- `GET /api/comics` - Get all comics for the current user
-- `GET /api/comics/{id}` - Get a specific comic by ID
-- `POST /api/comics` - Upload a new comic (multipart/form-data with file, title, and optional fields)
-- `POST /api/comics/upload/init` - Initialize a chunked upload (for large files)
-- `POST /api/comics/upload/chunk` - Upload a single chunk of a comic file
-- `POST /api/comics/upload/complete` - Complete a chunked upload
-- `PATCH /api/comics` - Atomically update one or more owned comics using an `updates` array
-- `DELETE /api/comics` - Safely delete one or more owned comics using a `comicIds` array
-- `PUT/PATCH /api/comics/{id}` - Update a comic's information
-- `DELETE /api/comics/{id}` - Delete a comic
-- `GET /api/comics/{id}/pages/{page}` - Get a specific page from a comic
-- `POST /api/comics/{id}/progress` - Update reading progress for a comic
-
-### Tags
-
-- `GET /api/tags` - Get all tags
-- `POST /api/tags` - Create a new tag
-- `PUT/PATCH /api/tags/{id}` - Update a tag
-- `DELETE /api/tags/{id}` - Delete a tag
-
-### Comic Sharing
-
-- `POST /api/share/comic/{comicId}` - Share a comic with another user via email
-- `GET /api/share/pending` - Get a list of comics shared with the current user
-- `POST /api/share/accept/{token}` - Accept a shared comic
-- `POST /api/share/refuse/{token}` - Refuse a shared comic
-
-### Dropbox Integration
-
-- `GET /api/dropbox/connect` - Initiate Dropbox OAuth connection
-- `GET /api/dropbox/callback` - Handle Dropbox OAuth callback
-- `GET /api/dropbox/status` - Check Dropbox connection status
-- `POST /api/dropbox/disconnect` - Disconnect Dropbox account
-- `GET /api/dropbox/files` - List CBZ files in connected Dropbox account with sync status
-- `POST /api/dropbox/import` - Import a specific comic file from Dropbox
-
-### User Management (Admin only)
-
-- `GET /api/users` - Get all users (admin only)
-- `GET /api/users/{id}` - Get a specific user
-- `PUT/PATCH /api/users/{id}` - Update a user
-- `DELETE /api/users/{id}` - Delete a user
-
-## Project Structure
-
-```
-./
-├── frontend/           # React frontend application
-│   ├── src/            # React source code
-│   │   ├── components/ # UI components
-│   │   ├── hooks/      # Custom React hooks including authentication
-│   │   ├── pages/      # Page components
-│   │   └── lib/        # Utility functions
-│   ├── public/         # Static assets for frontend
-│   └── package.json    # Frontend dependencies
-│   └── ...             # Other frontend config files
-├── backend/            # Symfony backend application
-│   ├── src/            # Symfony source code
-│   │   ├── Controller/ # API controllers
-│   │   ├── Entity/     # Database entities
-│   │   ├── Security/   # Authentication handlers
-│   │   └── Command/    # CLI commands
-│   └── ...             # Other Symfony files and folders
-├── docker/             # Docker configuration files
-│   ├── php/            # Dockerfile and config for PHP/Symfony service
-│   ├── nginx_frontend/ # Dockerfile and config for Nginx (serves frontend & proxies backend)
-│   └── .env            # Environment variables for Docker
-├── docker-compose.yml  # Docker Compose configuration for all services
-├── .env                # Main environment variables file
-└── .dockerignore       # Specifies intentionally untracked files for Docker context
-```
-
-## Setup Instructions
-
-### Prerequisites
-
-- Docker and Docker Compose
-
-### Development Setup
-
-```sh
-# Start all services with Docker from the project root directory
-docker compose up -d
-
-# The application (frontend and backend API) will be available at http://localhost:8080
-For frontend development with live reload, a dedicated service is available. See the 'Frontend Development with Live Reload' section below for details.
-# API endpoints are generally prefixed with /api/
-# To stop the services:
-# docker compose down
-```
-
-The first time you run the containers:
-- The `php` service's setup script will automatically install a new Symfony project in the `backend/` directory, install required Symfony packages, and configure the database connection if not already present.
-- The `nginx` service will build the React frontend application (from the `frontend/` directory) and configure Nginx to serve it and proxy API calls to the PHP backend.
-
-## Environment Configuration
-
-The project uses several environment files:
-
-- `.env` - Main environment file in the project root with Docker configuration (ports, service names, database credentials, etc.)
-- `frontend/.env` - Vite/React frontend specific environment variables (if any, loaded by Vite)
-- `backend/.env` - Default Symfony environment variables
-- `backend/.env.local` - Local overrides for Symfony environment variables (database connection, mailer settings, etc.)
-
-### Dropbox Configuration
-
-The Dropbox integration allows users to sync their comic collections from their personal Dropbox accounts. Each user connects their own Dropbox account to the application.
-
-#### Environment Variables
-
-Add these environment variables to your `backend/.env` or `backend/.env.local`:
-
-```env
-# =============================================================================
-# DROPBOX INTEGRATION CONFIGURATION
-# =============================================================================
-# Dropbox App Credentials (get from https://www.dropbox.com/developers/apps)
-DROPBOX_APP_KEY=your_dropbox_app_key_here
-DROPBOX_APP_SECRET=your_dropbox_app_secret_here
-
-# Dropbox OAuth Redirect URI (must match exactly in Dropbox app settings)
-DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
-
-# Dropbox App Folder Configuration
-# For app-scoped Dropbox apps, this should be set to "/" (root of the app's scope)
-# Users must create the "Applications/StarbugStoneComics" folder in their Dropbox
-# but from the app's perspective, this folder becomes the root ("/")
-DROPBOX_APP_FOLDER=/
-
-# Dropbox Sync Configuration
-# Maximum number of files to sync per user per sync operation (prevents overload)
-DROPBOX_SYNC_LIMIT=10
-
-# Dropbox Rate Limiting (requests per minute to prevent API limits)
-DROPBOX_RATE_LIMIT=60
-```
-
-#### Setting up Dropbox App
-
-**Step-by-Step Setup:**
-1. **Go to Dropbox App Console**: https://www.dropbox.com/developers/apps
-2. **Create New App**:
-   - Click "Create app"
-   - Choose "Scoped access"
-   - Choose "App folder" (recommended) or "Full Dropbox"
-   - Name your app (e.g., "StarbugStoneComics")
-3. **Configure Permissions**:
-   - Go to the "Permissions" tab
-   - Enable these scopes:
-     - ✅ `files.metadata.read` (required for listing files)
-     - ✅ `files.content.read` (required for downloading files)
-     - ✅ `files.content.write` (optional, for future upload features)
-4. **Set Redirect URI**:
-   - Go to the "Settings" tab
-   - Add your redirect URI: `http://localhost:8080/api/dropbox/callback`
-   - For production: `https://comics.starbugstone.com/api/dropbox/callback`
-5. **Get Credentials**:
-   - Copy the "App key" and "App secret"
-   - Add them to your environment variables
-
-#### Environment-Specific Configuration
-
-**Development:**
-```env
-DROPBOX_APP_KEY=your_dev_app_key
-DROPBOX_APP_SECRET=your_dev_app_secret
-DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
-```
-
-**Production:**
-```env
-DROPBOX_APP_KEY=your_prod_app_key
-DROPBOX_APP_SECRET=your_prod_app_secret
-DROPBOX_REDIRECT_URI=https://comics.starbugstone.com/api/dropbox/callback
-```
-
-**Staging:**
-```env
-DROPBOX_APP_KEY=your_staging_app_key
-DROPBOX_APP_SECRET=your_staging_app_secret
-DROPBOX_REDIRECT_URI=https://staging.yourdomain.com/api/dropbox/callback
-```
-
-## Dropbox Sync
-
-The application supports both manual and automatic syncing of comics from Dropbox.
-
-### Manual Import via Web Interface
-
-Users can import their comics individually through the Dropbox sync page:
-
-1. **Connect Dropbox**: Click "Connect to Dropbox" and authorize the application with proper scopes
-2. **View Files**: See all CBZ files in your `Applications/StarbugStoneComics` folder with real-time sync status
-3. **Import Comics**: Click "Import" next to each comic you want to add to your library
-4. **Refresh Files**: Use "Refresh Files" button to check for new files in your Dropbox
-
-**File Status Indicators:**
-- **Pending**: File detected in Dropbox but not yet imported (shows Import button)
-- **Synced**: File has been successfully downloaded and added to your comic library (no import button)
-
-**Benefits of Individual Import:**
-- Choose exactly which comics to import
-- See detailed information about each file before importing
-- Control your library growth and storage usage
-- Smart duplicate detection prevents importing the same comic twice
-- Automatic tagging based on folder structure
-
-### Automatic Sync Command
-
-The application includes a console command for automatically syncing comics from Dropbox. The command uses configurable defaults from your environment variables.
-
-### Command Usage
+Create and migrate the isolated test database once:
 
 ```bash
-# Sync all users (uses DROPBOX_SYNC_LIMIT from .env, default: 10 files per user)
-php bin/console app:dropbox-sync
-
-# Sync with custom limit (overrides environment default)
-php bin/console app:dropbox-sync --limit=5
-
-# Sync specific user only
-php bin/console app:dropbox-sync --user-id=123
-
-# Dry run (see what would be synced without actually syncing)
-php bin/console app:dropbox-sync --dry-run
-
-# Combine options
-php bin/console app:dropbox-sync --user-id=123 --limit=20 --dry-run
+docker compose exec database sh -lc \
+  'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE}_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}_test.* TO '\''${MYSQL_USER}'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+docker compose exec php php bin/console doctrine:migrations:migrate --env=test --no-interaction
 ```
 
-### Configuration
-
-The sync command respects these environment variables:
-
-- **`DROPBOX_SYNC_LIMIT`**: Default number of files to sync per user (default: 10)
-- **`DROPBOX_APP_FOLDER`**: Should be "/" for app-scoped Dropbox apps (users create Applications/StarbugStoneComics folder)
-- **`DROPBOX_RATE_LIMIT`**: API rate limiting (default: 60 requests per minute)
-
-### Automated Sync with Cron
-
-To automatically sync comics at midnight every day, add this to your crontab:
+Then run:
 
 ```bash
-# Sync with environment default limit (10 files per user)
-0 0 * * * cd /path/to/your/project && php bin/console app:dropbox-sync
-
-# Sync with custom limit
-0 0 * * * cd /path/to/your/project && php bin/console app:dropbox-sync --limit=5
-
-# Sync every 6 hours with rate limiting
-0 */6 * * * cd /path/to/your/project && php bin/console app:dropbox-sync --limit=3
+docker compose exec php php bin/phpunit
+docker compose exec php composer validate --strict
+docker compose exec php php bin/console lint:container --env=test
+docker compose exec php php bin/console doctrine:schema:validate --env=test
 ```
 
-The sync command will:
-- Find all users with connected Dropbox accounts
-- Recursively scan their Dropbox app folder for CBZ files in any subfolder
-- Download up to the specified limit of new files per user
-- Automatically create tags based on folder structure (e.g., `superHero` → "Super Hero", `Manga/Anime` → "Manga" + "Anime")
-- Create comic entries with "Dropbox" tag plus folder-based tags
-- Store files in user-specific `uploads/comics/{user_id}/dropbox/` directories
+GitHub Actions runs frontend linting, tests, dependency auditing, and a production build, plus backend tests, Composer auditing, migrations, and Symfony/Doctrine validation. CI validates releases but does not deploy them.
 
-### Folder-Based Tagging
+## Dropbox integration
 
-The system automatically creates tags from your Dropbox folder structure. Organize your files in your configured app folder (default: `Applications/StarbugStoneComics`) using subfolders to automatically generate meaningful tags.
+Dropbox support is optional and operates as a one-way import from Dropbox into the user's server-side library.
 
-**Quick Organization Guide:**
-- Create folders in your app directory (configured via `DROPBOX_APP_FOLDER`)
-- Each subfolder becomes a tag automatically
-- Supports nested folders for hierarchical organization
-- Smart naming conversion handles various conventions
-- App folder name itself is excluded from tags
+1. Create a scoped Dropbox app, preferably with **App folder** access.
+2. Enable `files.content.read`, `files.content.write`, and `account_info.read`.
+3. Add the exact callback URL used by the application, for example `http://localhost:8080/api/dropbox/callback`.
+4. Configure the `DROPBOX_*` variables in `backend/.env.local`.
+5. Connect the account from the Dropbox page in the application.
 
-**Examples (users create `Applications/StarbugStoneComics` folder in their Dropbox):**
-- `Applications/StarbugStoneComics/Superman.cbz` → Tags: ["Dropbox"]
-- `Applications/StarbugStoneComics/superHero/Batman.cbz` → Tags: ["Dropbox", "Super Hero"]
-- `Applications/StarbugStoneComics/Manga/Action/naruto.cbz` → Tags: ["Dropbox", "Manga", "Action"]
-- `Applications/StarbugStoneComics/sci-fi/space_opera/Foundation.cbz` → Tags: ["Dropbox", "Sci Fi", "Space Opera"]
+Users can import individual files from the interface. Folder names become tags, and previously imported files are detected to avoid duplicates.
 
-**With Custom App Folder (`DROPBOX_APP_FOLDER=/Applications/MyComics`):**
-- `Applications/MyComics/Superman.cbz` → Tags: ["Dropbox"]
-- `Applications/MyComics/Marvel/Spider-Man.cbz` → Tags: ["Dropbox", "Marvel"]
-
-**Naming Conventions Supported:**
-- camelCase: `superHero` → "Super Hero"
-- snake_case: `space_opera` → "Space Opera"  
-- kebab-case: `sci-fi` → "Sci Fi"
-- UPPERCASE: `MANGA` → "Manga"
-- PascalCase: `ActionAdventure` → "Action Adventure"
-
-**Common Organization Patterns:**
-- By Genre: `Action/`, `Comedy/`, `Drama/`, `Fantasy/`
-- By Publisher: `Marvel/`, `DC_Comics/`, `Image/`
-- By Series: `Batman/`, `Spider-Man/`, `X-Men/`
-- Mixed: `Marvel/superHero/`, `Manga/Action/`, `Indie/sci-fi/`
-
-## Email Testing
-
-The application includes a password reset feature that sends emails. For development and testing purposes, the project includes Mailpit, a modern mail testing tool that captures outgoing emails.
-
-### Mailpit Setup
-
-- Mailpit is included in the Docker Compose configuration
-- SMTP server runs on port 1025 (internally) and is mapped to host port 1025
-- Web interface runs on port 8025 (internally) and is mapped to host port 8025
-- Access the Mailpit web interface at http://localhost:8025
-
-### Email Configuration
-
-The email settings are configured in `backend/.env.local`:
-
-```
-# Using Mailpit for email testing
-MAILER_DSN=smtp://mailpit:1025
-MAILER_FROM_ADDRESS=noreply@comicreader.com
-MAILER_FROM_NAME="Comic Reader"
-```
-
-### Synchronous vs. Asynchronous Email Delivery
-
-By default, Symfony routes emails through the Messenger component, which queues them for asynchronous delivery. For development purposes, we've configured emails to be sent synchronously by commenting out the email routing in `config/packages/messenger.yaml`:
-
-```yaml
-routing:
-    # Comment out this line to send emails synchronously
-    # Symfony\Component\Mailer\Messenger\SendEmailMessage: async
-    Symfony\Component\Notifier\Message\ChatMessage: async
-    Symfony\Component\Notifier\Message\SmsMessage: async
-```
-
-For production, you should uncomment the email routing line and run a Messenger consumer to process the queue:
-
-## Production Deployment
-
-### Dropbox Configuration for Production
-
-When deploying to production, update your environment variables:
-
-```env
-# Production Dropbox Configuration
-DROPBOX_APP_KEY=your_production_app_key
-DROPBOX_APP_SECRET=your_production_app_secret
-DROPBOX_REDIRECT_URI=https://comics.starbugstone.com/api/dropbox/callback
-DROPBOX_APP_FOLDER=/Applications/StarbugStoneComics
-DROPBOX_SYNC_LIMIT=5
-DROPBOX_RATE_LIMIT=30
-```
-
-**Important Production Steps:**
-
-1. **Update Dropbox App Settings**:
-   - Add production redirect URI to your Dropbox app
-   - Ensure all required permissions are enabled
-   - Test OAuth flow in production environment
-
-2. **Set Up Automated Sync**:
-   ```bash
-   # Add to production crontab
-   0 2 * * * cd /path/to/production/project && php bin/console app:dropbox-sync --limit=5
-   ```
-
-3. **Monitor Sync Performance**:
-   - Start with lower sync limits in production
-   - Monitor server resources during sync operations
-   - Adjust `DROPBOX_SYNC_LIMIT` based on server capacity
-
-4. **Security Considerations**:
-   - Use HTTPS for all Dropbox OAuth redirects
-   - Secure environment variable storage
-   - Regular token refresh monitoring
-   - File permission auditing
-
-### CI/CD Integration
-
-GitHub Actions validates the frontend and backend on pull requests and pushes to `main`. It runs linting, tests, dependency audits, migrations, Symfony validation, and a production frontend build. It deliberately does **not** deploy only the frontend, because frontend and backend changes must be released together.
-
-Production releases use the backup-gated scripts documented in [deploy.md](deploy.md) for FTP/FTPS hosting or [SSH-deploy.md](SSH-deploy.md) for SSH hosting. These workflows preserve uploaded comics, require a verified database and uploads backup before migrations, and keep deployment separate from validation.
+For scheduled imports:
 
 ```bash
-# For production: Run a Messenger consumer to process queued emails
-php bin/console messenger:consume async --time-limit=3600
+# Preview imports for every connected user
+docker compose exec php php bin/console app:dropbox-sync --dry-run
+
+# Import up to five files per user
+docker compose exec php php bin/console app:dropbox-sync --limit=5
 ```
 
-### Testing Email Functionality
+Use `--user-id=<id>` to restrict a run to one user.
 
-A Symfony command is available to test email sending:
+## Data and backups
 
-```bash
-# Run via Docker
-docker compose exec php bin/console app:test-mail --to=test@example.com
+The application has two persistent data stores:
 
-# Options
---to=EMAIL      # Required: Email address to send the test email to
---subject=TEXT  # Optional: Subject of the test email
---body=TEXT     # Optional: Body of the test email
+- MySQL data, stored in the Docker `db_data` volume during local development
+- Uploaded comics, covers, temporary share assets, and related files under `backend/public/uploads/`
+
+A usable backup must include both stores. Production backups must also preserve `APP_DATA_KEY`; encrypted Dropbox credentials cannot be recovered without it.
+
+Before every production upgrade:
+
+1. Verify a current database backup.
+2. Verify a current `backend/public/uploads/` backup.
+3. Confirm the backed-up `APP_DATA_KEY` matches production.
+4. Build and deploy the frontend and backend as one release.
+5. Apply Doctrine migrations and the documented data-upgrade commands.
+6. Complete authenticated smoke tests.
+
+## Production deployment
+
+Production releases are backup-gated and intentionally separate from CI:
+
+- [SSH deployment guide](SSH-deploy.md) — recommended for a server with SSH and Git access
+- [FTP/FTPS deployment guide](deploy.md) — packaged releases for shared hosting
+
+The release tooling builds the React application, installs optimized production Composer dependencies, consolidates Symfony's production environment, and excludes user uploads from deployment.
+
+Do not deploy only `frontend/dist`: frontend and backend changes may depend on each other.
+
+## Project layout
+
+```text
+.
+├── backend/                 Symfony application, migrations, and tests
+│   ├── config/
+│   ├── migrations/
+│   ├── public/
+│   ├── src/
+│   │   ├── Command/
+│   │   ├── Controller/
+│   │   ├── Entity/
+│   │   ├── Repository/
+│   │   ├── Security/
+│   │   └── Service/
+│   └── tests/
+├── docker/                  PHP and Nginx development images
+├── frontend/                React application and frontend tests
+│   └── src/
+│       ├── components/
+│       ├── hooks/
+│       ├── lib/
+│       └── pages/
+├── scripts/                 Release, deployment, backup, and server scripts
+├── docker-compose.yml
+├── deploy.md
+└── SSH-deploy.md
 ```
 
-## Password Reset Functionality
-
-The application includes a comprehensive password reset workflow with security features:
-
-### Complete Reset Flow
-
-1. **Request Reset**: User clicks "Forgot password?" on the login page and enters their email
-2. **Token Generation**: System generates a unique token, stores it in the database with an expiration time
-3. **Email Delivery**: System sends an email with a reset link to the frontend (not the API endpoint)
-4. **Token Validation**: When user clicks the link, the frontend validates the token with the backend
-5. **Password Reset**: User enters and confirms a new password
-6. **Confirmation**: System updates the password, invalidates the token, and redirects to login
-7. **Security Notification**: System sends a confirmation email notifying the user that their password was changed
-
-### Security Features
-
-- **Token Expiration**: Tokens expire after 24 hours for security
-- **One-time Use**: Tokens are invalidated immediately after use
-- **Privacy Protection**: System doesn't reveal whether an email exists in the database
-- **Change Notification**: Users receive an email notification when their password is changed
-- **Auto-redirect**: After successful reset, users are automatically redirected to the login page
-
-### Testing the Password Reset
-
-To test the password reset functionality in development:
-
-1. Click "Forgot password?" on the login page
-2. Enter a valid email address (e.g., `testuser1@example.com`)
-3. Check the Mailpit interface at http://localhost:8025 to view the reset email
-4. Click the reset link in the email to set a new password
-5. After setting a new password, you'll be redirected to the login page
-6. Check Mailpit again to see the password change notification email
-
-You can customize the ports and other settings by editing the `.env` file in the project root:
-
-```dotenv
-# Example from .env
-# Ports
-NGINX_PORT=8080     # Application access port
-MYSQL_PORT=3308     # Host port mapped to MySQL container
-ADMINER_PORT=8081   # Host port mapped to Adminer container
-```
-
-## Development Workflow
-
-### Frontend Development with Live Reload
-
-The frontend code is in the `frontend/` directory (specifically `frontend/src/`).
-
-For an enhanced development experience with Hot Module Replacement (HMR), a dedicated Vite development server is now configured. To use it:
-
-1.  Ensure all services are running via `docker compose up -d`.
-2.  Access the frontend directly through the Vite development server at: **`http://localhost:3001`**.
-
-Changes made to files within the `./frontend` directory will automatically trigger a rebuild and update your browser session live.
-
-The `nginx` service, accessible at `http://localhost:8080` (or your configured NGINX_PORT in the `.env` file), still handles API proxying to the backend and can serve a static production build of the frontend. However, for active development and immediate feedback, `http://localhost:3001` is the recommended URL. You no longer need to rebuild the `nginx` container to see frontend changes during development.
-
-### Backend Development
-
-The backend code is in the `backend/` directory. After making changes to the Symfony code, you may need to clear the cache:
-
-```sh
-docker compose exec php bin/console cache:clear
-```
-
-### Authentication System
-
-The application features a complete authentication system:
-
-- **API Endpoints**:
-  - `/api/login` - Login endpoint (POST)
-  - `/api/register` - Registration endpoint (POST)
-  - `/api/logout` - Logout endpoint (POST)
-  - `/api/login_check` - Check authentication status (GET)
-  - `/api/forgot-password` - Request password reset (POST)
-  - `/api/reset-password/validate/{token}` - Validate reset token (GET)
-  - `/api/reset-password/reset/{token}` - Reset password with token (POST)
-  - `/api/email-verification/verify/{token}` - Verify email with token (GET)
-  - `/api/email-verification/resend` - Resend verification email (POST)
-
-- **Email Verification**:
-  - After registration, users receive a verification email
-  - Users must verify their email before they can log in
-  - Verification emails can be viewed in the Mailpit interface at http://localhost:8025
-  - Users can request a new verification email if needed
-
-- **Password Recovery**:
-  - Click "Forgot password?" on the login page
-  - Enter your email address to receive a reset link
-  - Check the Mailpit interface at http://localhost:8025 to view the reset email
-  - Click the reset link to set a new password
-
-- **User Management**:
-  - Create new users with the registration form
-  - Manage users with the command line tool:
-  ```sh
-  docker compose exec php bin/console app:create-user email@example.com password
-  ```
-
-### Database Access
-
-You can access the MySQL database using your preferred database client (or Adminer at `http://localhost:8081`) with the following credentials:
-
-- Host: localhost
-- Port: 3308 (as defined in the .env file)
-- Database: cbz_reader
-- Username: cbz_user
-- Password: cbz_password
-
-For Adminer, the server name to connect to is `database` (the service name in `docker compose.yml`).
-
-### Database Migrations
-
-When making changes to entity classes, you need to create and run migrations:
-
-```sh
-# Create a new migration
-docker compose exec php bin/console make:migration
-
-# Run migrations
-docker compose exec php bin/console doctrine:migrations:migrate --no-interaction
-```
-
-### Utility Commands
-
-The application includes several utility commands to help with management and testing:
-
-```sh
-# Create an admin user
-docker compose exec php bin/console app:create-admin-user admin@example.com password123
-
-# Create a regular user
-docker compose exec php bin/console app:create-user user@example.com password123
-
-# Set up upload directories
-docker compose exec php bin/console app:setup-upload-directories
-
-# Import comics from a directory
-docker compose exec php bin/console app:import-comics /path/to/comics admin@example.com
-
-# Generate sample data for testing
-docker compose exec php bin/console app:generate-sample-data --force
-
-# Clean up unused comics and cover images
-docker compose exec php bin/console app:cleanup-comics --dry-run
-
-# Test API endpoints (registration and login)
-docker compose exec php bin/console app:test-api-endpoints
-```
-
-### File Organization
-
-The application organizes uploaded comics and cover images as follows:
-
-- **Comics**: Stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
-- **Cover Images**: Stored in comic-specific directories at `/uploads/comics/covers/{comic_id}/{cover_image.jpg}`
-
-This organization ensures proper separation of user content and makes it easier to manage comics and their associated cover images.
-
-### Environment Variables
-
-The application uses several environment variables for configuration. These are defined in different `.env` files depending on the environment:
-
-#### Core Environment Variables
-
-- `APP_ENV`: The application environment (`dev`, `prod`, etc.)
-- `APP_SECRET`: Secret key used for security-related operations
-- `DATABASE_URL`: Database connection string
-- `CORS_ALLOW_ORIGIN`: CORS configuration for API access
-
-#### Email Configuration
-
-- `MAILER_DSN`: Mail server connection string
-- `MAILER_FROM_ADDRESS`: Email address used as the sender
-- `MAILER_FROM_NAME`: Name displayed as the sender
-- `MAILER_TRANSPORT`: Transport method for emails (`smtp`, `sync`, etc.)
-
-#### Frontend URL Configuration
-
-- `FRONTEND_SCHEME`: Protocol used by the frontend (`http` or `https`)
-- `FRONTEND_HOST`: Hostname of the frontend application
-- `FRONTEND_PORT`: Port used by the frontend application
-
-#### Development vs. Production
-
-For development, use `.env.local` with settings like:
-```
-APP_ENV=dev
-FRONTEND_SCHEME=http
-FRONTEND_HOST=localhost
-FRONTEND_PORT=3001
-```
-
-For production, create `.env.prod.local` with settings like:
-```
-APP_ENV=prod
-FRONTEND_SCHEME=https
-FRONTEND_HOST=comics.starbugstone.com
-FRONTEND_PORT=443
-FRONTEND_URL=https://comics.starbugstone.com
-```
-
-> **Important**: When deploying to production, make sure to set the correct frontend URL configuration to ensure email verification links and password reset links point to your production site, not localhost.
-
-## Deployment
-
-### Production Deployment
-
-The live application is [https://comics.starbugstone.com/](https://comics.starbugstone.com/).
-
-Deploy frontend and backend together using one of the documented, backup-gated workflows:
-
-- [FTP/FTPS deployment](deploy.md)
-- [SSH deployment](SSH-deploy.md)
-
-Before every upgrade, preserve `APP_DATA_KEY`, verify a current database and `backend/public/uploads/` backup, build the release, apply Doctrine migrations, run the data-upgrade commands, and complete the authenticated smoke checks. GitHub Actions validates release candidates but does not mutate production.
-
-### Development vs Production
-
-- **Development**: Use `docker compose up -d` for local development with hot reload
-- **Production**: Built and deployed as a coordinated frontend/backend release after a verified backup
+## Security notes
+
+- All application data and comic endpoints require an authenticated session unless explicitly public.
+- Administration endpoints require `ROLE_ADMIN`; backend checks remain authoritative.
+- Comic files and covers are served through ownership-aware backend endpoints.
+- Uploads are validated and cleanup uses quarantine before permanent deletion.
+- API protections include CSRF checks, rate limiting, password hashing, and encrypted integration credentials.
+- Production must use HTTPS, unique secrets, restricted filesystem permissions, and a real SMTP service.
+
+Report security-sensitive issues privately to the repository owner rather than opening a public issue.
 
 ## License
 
-This project is proprietary and confidential.
+This project is proprietary and confidential. No permission is granted to use, copy, modify, or distribute it without authorization from the owner.
