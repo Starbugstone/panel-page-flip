@@ -10,6 +10,7 @@ use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: ComicRepository::class)]
+#[ORM\Index(name: 'IDX_comic_owner_dropbox_path', columns: ['owner_id', 'dropbox_path'])]
 #[ORM\HasLifecycleCallbacks]
 class Comic
 {
@@ -59,6 +60,16 @@ class Comic
     
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $publisher = null;
+
+    /**
+     * Source path in the owner's Dropbox, set only for comics pulled in by the
+     * Dropbox integration. Used to skip files that have already been imported.
+     *
+     * Kept at 500 characters so (owner_id, dropbox_path) fits inside MySQL's
+     * utf8mb4 index key limit; real Dropbox paths are far shorter.
+     */
+    #[ORM\Column(length: 500, nullable: true)]
+    private ?string $dropboxPath = null;
 
     public function __construct()
     {
@@ -224,7 +235,19 @@ class Comic
 
         return $this;
     }
-    
+
+    public function getDropboxPath(): ?string
+    {
+        return $this->dropboxPath;
+    }
+
+    public function setDropboxPath(?string $dropboxPath): static
+    {
+        $this->dropboxPath = $dropboxPath;
+
+        return $this;
+    }
+
     /**
      * @return Collection<int, ComicReadingProgress>
      */
@@ -253,33 +276,5 @@ class Comic
         }
 
         return $this;
-    }
-    
-    /**
-     * Convert the Comic entity to an array representation
-     * 
-     * @return array The comic data as an array
-     */
-    public function toArray(): array
-    {
-        $tagNames = [];
-        foreach ($this->tags as $tag) {
-            $tagNames[] = $tag->getName();
-        }
-        
-        return [
-            'id' => $this->id,
-            'title' => $this->title,
-            'filePath' => $this->filePath,
-            'coverImagePath' => $this->coverImagePath,
-            'pageCount' => $this->pageCount,
-            'fileSize' => $this->fileSize,
-            'uploadedAt' => $this->uploadedAt ? $this->uploadedAt->format('c') : null,
-            'updatedAt' => $this->updatedAt ? $this->updatedAt->format('c') : null,
-            'author' => $this->author,
-            'publisher' => $this->publisher,
-            'description' => $this->description,
-            'tags' => $tagNames
-        ];
     }
 }

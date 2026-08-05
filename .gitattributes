@@ -1,0 +1,35 @@
+# Line-ending policy.
+#
+# Git stores text with LF, but a Windows checkout with core.autocrlf=true writes
+# CRLF back out. Several of those files are bind-mounted straight into the Linux
+# containers, where a CRLF shebang makes the kernel look for an interpreter
+# named "/bin/bash\r" and the entrypoint dies with "not found". Pinning eol=lf
+# keeps those files usable no matter which platform checked them out.
+
+* text=auto
+
+# Executed inside containers or on the server.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Windows-only scripts genuinely want CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.cbz binary
+*.cbr binary
+*.pdf binary
+*.lockb binary

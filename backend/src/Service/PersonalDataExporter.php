@@ -2,14 +2,17 @@
 
 namespace App\Service;
 
+use App\Entity\Comic;
 use App\Entity\ShareToken;
 use App\Entity\User;
 use Doctrine\ORM\EntityManagerInterface;
 
 final class PersonalDataExporter
 {
-    public function __construct(private readonly EntityManagerInterface $entityManager)
-    {
+    public function __construct(
+        private readonly EntityManagerInterface $entityManager,
+        private readonly ComicSerializer $comicSerializer,
+    ) {
     }
 
     /**
@@ -19,7 +22,7 @@ final class PersonalDataExporter
     {
         $comics = [];
         foreach ($user->getComics() as $comic) {
-            $comics[] = $comic->toArray();
+            $comics[] = $this->mapComic($comic);
         }
 
         $progress = [];
@@ -80,6 +83,33 @@ final class PersonalDataExporter
             'personalTags' => $tags,
             'shareInvitationsSent' => $sentShares,
             'shareInvitationsReceived' => $receivedShares,
+        ];
+    }
+
+    /**
+     * The comic as the owner supplied it. Deliberately not ComicSerializer's
+     * API shape: an export describes what the user stored, so it carries no
+     * reading progress (exported separately) and no internal storage path.
+     *
+     * @return array<string, mixed>
+     */
+    private function mapComic(Comic $comic): array
+    {
+        return [
+            'id' => $comic->getId(),
+            'title' => $comic->getTitle(),
+            'author' => $comic->getAuthor(),
+            'publisher' => $comic->getPublisher(),
+            'description' => $comic->getDescription(),
+            'coverImagePath' => $this->comicSerializer->coverUrl($comic),
+            'pageCount' => $comic->getPageCount(),
+            'fileSize' => $comic->getFileSize(),
+            'uploadedAt' => $comic->getUploadedAt()?->format(\DateTimeInterface::ATOM),
+            'updatedAt' => $comic->getUpdatedAt()?->format(\DateTimeInterface::ATOM),
+            'tags' => array_map(
+                static fn ($tag): ?string => $tag->getName(),
+                $comic->getTags()->toArray(),
+            ),
         ];
     }
 

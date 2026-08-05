@@ -6,50 +6,75 @@ use App\Entity\Comic;
 use App\Entity\ShareToken;
 use App\Entity\User;
 use App\Repository\ShareTokenRepository;
+use App\Service\ComicService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Mailer\MailerInterface;
+use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
-use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\CurrentUser;
-use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Twig\Environment;
-use App\Repository\ComicRepository;
 use App\Repository\TagRepository;
 use App\Entity\Tag;
-use Symfony\Component\String\Slugger\SluggerInterface;
 use Psr\Log\LoggerInterface; // For logging cover copy errors
 
 #[Route('/api/share')]
 class ShareController extends AbstractController
 {
-    private string $comicsDirectory;
-    private string $frontendUrl;
     private string $publicSharesDirectory;
-    private string $mailerFromAddress;
 
     public function __construct(
-        string $comicsDirectory,
-        string $frontendUrl,
-        string $mailerFromAddress,
-        ?string $publicSharesDirectory = null,
-    )
-    {
-        $this->comicsDirectory = $comicsDirectory;
-        $this->frontendUrl = $frontendUrl;
-        $this->mailerFromAddress = $mailerFromAddress;
+        private readonly string $comicsDirectory,
+        private readonly string $frontendUrl,
+        private readonly string $mailerFromAddress,
+        private readonly string $mailerFromName,
+        private readonly LoggerInterface $logger,
+        ?string $publicSharesDirectory = null
+    ) {
         // If not explicitly provided, use a subdirectory of the comics directory
         $this->publicSharesDirectory = $publicSharesDirectory ?? $comicsDirectory . '/public_shares';
-        
-        // Ensure the public shares directory exists
-        if (!file_exists($this->publicSharesDirectory)) {
-            mkdir($this->publicSharesDirectory, 0775, true);
+    }
+
+    /**
+     * Created on demand rather than in the constructor, so sharing a comic is
+     * what touches the filesystem instead of every request to this controller.
+     */
+    private function ensurePublicSharesDirectory(): void
+    {
+        if (!is_dir($this->publicSharesDirectory)
+            && !mkdir($this->publicSharesDirectory, 0775, true)
+            && !is_dir($this->publicSharesDirectory)
+        ) {
+            throw new \RuntimeException('Failed to create the public shares directory.');
         }
     }
-    
+
+    /**
+     * Resolve a path stored in the database against a user's comic directory.
+     *
+     * basename() is used rather than stripping "../" sequences: filtering can be
+     * defeated by nested payloads such as "....//", while basename() cannot
+     * produce a path outside the directory at all.
+     */
+    private function resolveUserFile(int $userId, string $storedPath, bool $keepCoverPrefix = false): string
+    {
+        $base = $this->comicsDirectory . '/' . $userId;
+
+        if (!$keepCoverPrefix) {
+            return $base . '/' . basename($storedPath);
+        }
+
+        // Cover paths are stored as "covers/{comicId}/{file}"; rebuild them from
+        // their own components so no segment can escape the directory.
+        $segments = array_map('basename', array_filter(explode('/', $storedPath), static fn ($s) => $s !== ''));
+
+        return $base . '/' . implode('/', $segments);
+    }
+
     #[Route('/pending', name: 'app_share_pending', methods: ['GET'])]
     public function getPendingShares(
         ShareTokenRepository $shareTokenRepository,
@@ -138,7 +163,6 @@ class ShareController extends AbstractController
         MailerInterface $mailer,
         Environment $twig,
         ShareTokenRepository $shareTokenRepository,
-        ValidatorInterface $validator,
         int $comicId,
         #[CurrentUser] ?User $currentUser
     ): JsonResponse {
@@ -190,19 +214,24 @@ class ShareController extends AbstractController
             
             // Copy the comic cover to the public shares directory if it exists
             if ($comic->getCoverImagePath()) {
-                $userId = $currentUser->getId();
-                $coverPath = $this->comicsDirectory . '/' . $userId . '/' . $comic->getCoverImagePath();
-                
+                $coverPath = $this->resolveUserFile($currentUser->getId(), $comic->getCoverImagePath(), true);
+
                 if (file_exists($coverPath)) {
+                    $this->ensurePublicSharesDirectory();
+
                     // Create a unique filename for the shared cover
                     $sharedCoverFilename = 'share_' . $shareToken->getToken() . '_' . basename($comic->getCoverImagePath());
                     $sharedCoverPath = $this->publicSharesDirectory . '/' . $sharedCoverFilename;
-                    
-                    // Copy the cover to the public shares directory
-                    copy($coverPath, $sharedCoverPath);
-                    
-                    // Store the public path in the token
-                    $shareToken->setPublicCoverPath('shared/' . $sharedCoverFilename);
+
+                    // Copy the cover to the public shares directory. Only record the
+                    // public path once the copy succeeds, otherwise the share would
+                    // point at a file that was never written.
+                    if (copy($coverPath, $sharedCoverPath)) {
+                        $shareToken->setPublicCoverPath('shared/' . $sharedCoverFilename);
+                    } else {
+                        // Share without a cover rather than failing the whole request
+                        $this->logger->error("Failed to copy cover image from {$coverPath} to {$sharedCoverPath}");
+                    }
                 }
             }
 
@@ -216,7 +245,6 @@ class ShareController extends AbstractController
             // Get the user's name and email for the email template
             $userName = $currentUser->getName();
             $userEmail = $currentUser->getEmail();
-            $systemFromAddress = $this->mailerFromAddress;
 
             // Render the email template
             $emailBody = $twig->render('emails/share_comic.html.twig', [
@@ -227,9 +255,10 @@ class ShareController extends AbstractController
                 'expiresAt' => $shareToken->getExpiresAt(),
             ]);
 
-            // Send the email
+            // Send the email from the configured application address, with the
+            // sharing user reachable via reply-to.
             $email = (new Email())
-                ->from($systemFromAddress)
+                ->from(new Address($this->mailerFromAddress, $this->mailerFromName))
                 ->replyTo($userEmail)
                 ->to($recipientEmail)
                 ->subject($userName . ' shared a comic with you!')
@@ -241,8 +270,9 @@ class ShareController extends AbstractController
                 'message' => 'Comic shared successfully',
                 'shareToken' => $shareToken->getToken(),
             ]);
-        } catch (\Exception $e) {
-            return new JsonResponse(['error' => 'Failed to share comic: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+        } catch (\Throwable $e) {
+            $this->logger->error('Failed to share comic.', ['comic_id' => $comicId, 'exception' => $e]);
+            return new JsonResponse(['error' => 'Failed to share comic.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -252,9 +282,8 @@ class ShareController extends AbstractController
         #[CurrentUser] ?User $currentUser,
         EntityManagerInterface $entityManager,
         ShareTokenRepository $shareTokenRepository,
-        // ComicRepository $comicRepository, // Not directly used, original comic from token
         TagRepository $tagRepository,
-        SluggerInterface $slugger,
+        ComicService $comicService,
         LoggerInterface $logger // For logging non-critical errors
     ): JsonResponse {
         if (!$currentUser) {
@@ -282,14 +311,31 @@ class ShareController extends AbstractController
             return new JsonResponse(['error' => 'Share link not intended for this account'], Response::HTTP_FORBIDDEN);
         }
 
+        $originalComic = $shareToken->getComic();
+        if (!$originalComic) { // Should not happen if DB integrity is maintained
+            return new JsonResponse(['error' => 'Original comic not found for this token'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        $sharerId = $shareToken->getSharedByUser()->getId();
+        $originalComicPath = $this->resolveUserFile($sharerId, (string) $originalComic->getFilePath());
+
+        if (!is_file($originalComicPath)) {
+            return new JsonResponse(['error' => 'The shared comic file is no longer available'], Response::HTTP_GONE);
+        }
+
+        // An accepted share is a full copy on disk, so it has to be charged
+        // against the recipient's quota just like an upload would be.
+        $incomingSize = (int) (filesize($originalComicPath) ?: 0);
+        if ($comicService->wouldExceedQuota($currentUser, $incomingSize)) {
+            return new JsonResponse(
+                ['error' => 'Accepting this comic would exceed your storage quota'],
+                Response::HTTP_REQUEST_ENTITY_TOO_LARGE
+            );
+        }
+
         $entityManager->beginTransaction();
 
         try {
-            $originalComic = $shareToken->getComic();
-            if (!$originalComic) { // Should not happen if DB integrity is maintained
-                 return new JsonResponse(['error' => 'Original comic not found for this token'], Response::HTTP_INTERNAL_SERVER_ERROR);
-            }
-
             $newComic = new Comic();
             $newComic->setTitle($originalComic->getTitle());
             $newComic->setDescription($originalComic->getDescription());
@@ -302,30 +348,15 @@ class ShareController extends AbstractController
             $newComic->setUpdatedAt(new \DateTimeImmutable());
 
             // Copy Comic File (CBZ)
-            $sharerId = $shareToken->getSharedByUser()->getId();
-            $originalComicRelativePath = $originalComic->getFilePath(); // e.g., "comic-file.cbz" or "subfolder/comic-file.cbz" if owner organises them
-            
-            // Prevent path traversal by removing any directory traversal sequences
-            $sanitizedPath = str_replace(['../', '..\\', './'], '', $originalComicRelativePath);
-            
-            // The full path should be $this->comicsDirectory . '/' . $sharerId . '/' . $originalComic->getFilePath()
-            $originalComicPath = $this->comicsDirectory . '/' . $sharerId . '/' . $sanitizedPath;
+            $recipientComicDir = $this->comicsDirectory . '/' . $currentUser->getId();
 
-
-            $recipientId = $currentUser->getId();
-            $recipientComicDir = $this->comicsDirectory . '/' . $recipientId;
-
-            if (!file_exists($recipientComicDir)) {
-                if (!mkdir($recipientComicDir, 0775, true)) {
-                    throw new \RuntimeException('Failed to create recipient comic directory.');
-                }
-                // Ensure proper permissions are set
-                chmod($recipientComicDir, 0775);
+            if (!is_dir($recipientComicDir) && !mkdir($recipientComicDir, 0775, true) && !is_dir($recipientComicDir)) {
+                throw new \RuntimeException('Failed to create recipient comic directory.');
             }
 
             // Get the file extension from the original comic
-            $extension = pathinfo($originalComicRelativePath, PATHINFO_EXTENSION);
-            
+            $extension = pathinfo((string) $originalComic->getFilePath(), PATHINFO_EXTENSION);
+
             // Use a UUID for shared comics to distinguish them from original uploads
             $uuid = bin2hex(random_bytes(16)); // Generate a UUID
             $newComicFilename = $uuid . '.' . $extension;
@@ -335,6 +366,8 @@ class ShareController extends AbstractController
                 throw new \RuntimeException('Failed to copy comic file.');
             }
             $newComic->setFilePath($newComicFilename); // Store relative path to recipient's comic dir
+            // Without this the copy is invisible to quota accounting, which sums fileSize.
+            $newComic->setFileSize((int) (filesize($newComicPath) ?: $incomingSize));
 
             // Persist newComic to get its ID for cover path
             $entityManager->persist($newComic);
@@ -344,74 +377,82 @@ class ShareController extends AbstractController
 
             // Copy Cover Image
             if ($originalComic->getCoverImagePath()) {
-                // originalCoverImagePath is relative to sharer's comic directory, e.g., "covers/comic_id/cover.jpg"
-                $originalCoverRelativePath = $originalComic->getCoverImagePath(); 
-                // Prevent path traversal by removing any directory traversal sequences
-                $sanitizedCoverPath = str_replace(['../', '..\\', './'], '', $originalCoverRelativePath);
-                $originalCoverPath = $this->comicsDirectory . '/' . $sharerId . '/' . $sanitizedCoverPath;
-
+                // Cover paths are relative to the sharer's comic directory, e.g. "covers/{comicId}/cover.jpg"
+                $originalCoverRelativePath = $originalComic->getCoverImagePath();
+                $originalCoverPath = $this->resolveUserFile($sharerId, $originalCoverRelativePath, true);
 
                 if (file_exists($originalCoverPath)) {
-                    $originalCoverFilenameWithoutExt = pathinfo($originalCoverRelativePath, PATHINFO_FILENAME);
                     $newCoverExtension = pathinfo($originalCoverRelativePath, PATHINFO_EXTENSION);
-
                     $newCoverDir = $recipientComicDir . '/covers/' . $newComicId;
-                    if (!file_exists($newCoverDir)) {
-                        if (!mkdir($newCoverDir, 0775, true)) {
-                            $logger->error("Failed to create cover directory for new comic ID {$newComicId}");
-                            // Continue without cover image rather than failing the entire operation
-                        } else {
-                            chmod($newCoverDir, 0775);
-                        }
-                    }
-                    
-                    if (file_exists($newCoverDir)) {
+
+                    if (is_dir($newCoverDir) || mkdir($newCoverDir, 0775, true) || is_dir($newCoverDir)) {
                         // Use the same UUID as the comic file for consistency
                         $newCoverFilename = $uuid . '.' . $newCoverExtension;
                         $newCoverPath = $newCoverDir . '/' . $newCoverFilename;
-                        
+
                         if (copy($originalCoverPath, $newCoverPath)) {
                             // Store the relative path from the user's comic directory
                             $newComic->setCoverImagePath('covers/' . $newComicId . '/' . $newCoverFilename);
                         } else {
+                            // Continue without a cover rather than failing the whole acceptance
                             $logger->error("Failed to copy cover image from {$originalCoverPath} to {$newCoverPath}");
-                            // Continue without cover image rather than failing the entire operation
                         }
+                    } else {
+                        $logger->error("Failed to create cover directory for new comic ID {$newComicId}");
                     }
                 }
             }
 
-            // Copy Tags
-            $originalTags = $originalComic->getTags();
-            foreach ($originalTags as $originalTag) {
+            // Copy Tags. Everything here stays inside the surrounding transaction:
+            // flushing inside a try/catch per tag would close the EntityManager on
+            // the first constraint violation and break every later operation.
+            // Recipient globals are reused only when the source tag is global, so
+            // a personal "Horror" never becomes the install-wide Horror tag (and
+            // its library-hiding behavior). Personal collisions with an existing
+            // global follow the migration policy: append " (personal)".
+            $globalTags = [];
+            $personalTags = [];
+            foreach ($tagRepository->findAvailableForUser($currentUser) as $tag) {
+                $tagKey = mb_strtolower($tag->getName());
+                if ($tag->isGlobal()) {
+                    $globalTags[$tagKey] ??= $tag;
+                } else {
+                    $personalTags[$tagKey] ??= $tag;
+                }
+            }
+
+            foreach ($originalComic->getTags() as $originalTag) {
                 $tagName = $originalTag->getName();
-                
-                try {
-                    /** @var TagRepository $tagRepository */
-                    $existingTag = $tagRepository->findAvailableByName($tagName, $currentUser);
-                    
-                    if (!$existingTag) {
-                        // Create a new tag for the user
+                $tagKey = mb_strtolower($tagName);
+
+                if ($originalTag->isGlobal()) {
+                    if (!isset($globalTags[$tagKey])) {
+                        // Global missing for the recipient — only ever create a
+                        // personal stand-in; global tags stay administrator-only.
                         $newTag = new Tag();
-                        $newTag->setName($tagName);
+                        $newTag->setName($this->personalTagNameAvoidingGlobals($tagName, $globalTags, $personalTags));
                         $newTag->setCreator($currentUser);
                         $entityManager->persist($newTag);
-                        $entityManager->flush(); // Flush immediately to catch any constraint violations
+                        $personalTags[mb_strtolower($newTag->getName())] = $newTag;
                         $newComic->addTag($newTag);
-                    } else {
-                        // Use the existing tag
-                        $newComic->addTag($existingTag);
+                        continue;
                     }
-                } catch (\Exception $e) {
-                    // Log the error but continue with the process
-                    $logger->warning(sprintf('Could not add tag "%s": %s', $tagName, $e->getMessage()));
-                    // If there was an error, try to find the tag again (it might have been created in a race condition)
-                    $existingTag = $tagRepository->findAvailableByName($tagName, $currentUser);
-                    
-                    if ($existingTag) {
-                        $newComic->addTag($existingTag);
-                    }
+                    $newComic->addTag($globalTags[$tagKey]);
+                    continue;
                 }
+
+                if (isset($personalTags[$tagKey])) {
+                    $newComic->addTag($personalTags[$tagKey]);
+                    continue;
+                }
+
+                $resolvedName = $this->personalTagNameAvoidingGlobals($tagName, $globalTags, $personalTags);
+                $newTag = new Tag();
+                $newTag->setName($resolvedName);
+                $newTag->setCreator($currentUser);
+                $entityManager->persist($newTag);
+                $personalTags[mb_strtolower($resolvedName)] = $newTag;
+                $newComic->addTag($newTag);
             }
 
             // Mark the share token as used
@@ -440,10 +481,43 @@ class ShareController extends AbstractController
                     'coverImagePath' => $newComic->getCoverImagePath(),
                 ]
             ]);
-        } catch (\Exception $e) {
-            $entityManager->rollback();
-            $logger->error('Error accepting shared comic: ' . $e->getMessage());
-            return new JsonResponse(['error' => 'Failed to accept shared comic: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+        } catch (\Throwable $e) {
+            if ($entityManager->getConnection()->isTransactionActive()) {
+                $entityManager->rollback();
+            }
+            $logger->error('Error accepting shared comic.', ['token' => $token, 'exception' => $e]);
+            return new JsonResponse(['error' => 'Failed to accept shared comic.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+    }
+
+    /**
+     * When a personal tag name collides with a recipient global, rename it the
+     * same way the global-tag migration does: append " (personal)".
+     *
+     * @param array<string, Tag> $globalTags
+     * @param array<string, Tag> $personalTags
+     */
+    private function personalTagNameAvoidingGlobals(string $name, array $globalTags, array $personalTags): string
+    {
+        $key = mb_strtolower($name);
+        if (!isset($globalTags[$key])) {
+            return $name;
+        }
+
+        $candidate = $name . ' (personal)';
+        $candidateKey = mb_strtolower($candidate);
+        if (!isset($globalTags[$candidateKey]) && !isset($personalTags[$candidateKey])) {
+            return $candidate;
+        }
+
+        $suffix = 2;
+        while (
+            isset($globalTags[mb_strtolower($name . ' (personal ' . $suffix . ')')])
+            || isset($personalTags[mb_strtolower($name . ' (personal ' . $suffix . ')')])
+        ) {
+            ++$suffix;
+        }
+
+        return $name . ' (personal ' . $suffix . ')';
     }
 }

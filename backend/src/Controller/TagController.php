@@ -20,29 +20,33 @@ class TagController extends AbstractController
     public function list(Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         // Get the current user
-        /** @var \App\Entity\User $user */
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
         $showAll = $request->query->getBoolean('all');
         $isAdminContext = $request->query->getBoolean('adminContext');
+        /** @var TagRepository $tagRepository */
         $tagRepository = $entityManager->getRepository(Tag::class);
 
         // Only show all tags if explicitly in admin context and user is an admin
-        if ($showAll && $isAdminContext && $this->isGranted('ROLE_ADMIN')) {
+        $isAdminListing = $showAll && $isAdminContext && $this->isGranted('ROLE_ADMIN');
+        if ($isAdminListing) {
             // Admin with all=true and in admin context: Get all tags
             $tags = $tagRepository->findAll();
         } else {
-            // Regular user, or admin in personal dashboard: Get only tags created by the user
+            // Regular user, or admin in personal dashboard: global tags plus their own
             $tags = $tagRepository->findAvailableForUser($user);
         }
 
-        // Transform tags to array
+        // Usage counts are only reported for tags the caller owns. Outside the
+        // admin table, how many comics across the whole install carry a global
+        // tag is not the caller's to see — and skipping it saves a count query
+        // per global tag on every dashboard load.
         $tagsArray = [];
         foreach ($tags as $tag) {
-            $tagsArray[] = $this->serialiseTag($tag);
+            $tagsArray[] = $this->serializeTag($tag, $isAdminListing || !$tag->isGlobal());
         }
 
         return $this->json(['tags' => $tagsArray]);
@@ -60,21 +64,16 @@ class TagController extends AbstractController
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        // Get data from request
-        $data = json_decode($request->getContent(), true);
-        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
+        $data = $this->decodePayload($request);
+        if ($data instanceof JsonResponse) {
+            return $data;
         }
 
-        // Validate tag name
-        if (!isset($data['name']) || empty(trim($data['name']))) {
-            return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
+        $tagName = $this->readTagName($data);
+        if ($tagName instanceof JsonResponse) {
+            return $tagName;
         }
 
-        $tagName = trim($data['name']);
-
-        /** @var TagRepository $tagRepository */
-        $tagRepository = $entityManager->getRepository(Tag::class);
         $isGlobal = ($data['isGlobal'] ?? false) === true;
         $hideFromLibrary = ($data['hideFromLibrary'] ?? false) === true;
         if (($isGlobal || $hideFromLibrary) && !$this->isGranted('ROLE_ADMIN')) {
@@ -84,22 +83,12 @@ class TagController extends AbstractController
             return $this->json(['message' => 'Only global tags can hide comics from the default library'], Response::HTTP_BAD_REQUEST);
         }
 
-        $existingTag = $isGlobal
-            ? $tagRepository->findGlobalByName($tagName)
-            : $tagRepository->findAvailableByName($tagName, $user);
-        if ($existingTag) {
-            return $this->json([
-                'message' => 'Tag already exists',
-                'tag' => [
-                    'id' => $existingTag->getId(),
-                    'name' => $existingTag->getName(),
-                    'isGlobal' => $existingTag->isGlobal(),
-                    'hideFromLibrary' => $existingTag->hidesFromLibrary(),
-                ]
-            ], Response::HTTP_CONFLICT);
+        $conflict = $this->conflictResponse($entityManager, $tagName, $isGlobal, $user, null, 'Tag already exists');
+        if ($conflict) {
+            return $conflict;
         }
 
-        // Create new tag
+        // Create new tag. Global tags belong to no one, so they get no creator.
         $tag = new Tag();
         $tag->setName($tagName);
         $tag->setIsGlobal($isGlobal);
@@ -108,14 +97,9 @@ class TagController extends AbstractController
             $tag->setCreator($user);
         }
 
-        // Validate tag
-        $violations = $validator->validate($tag);
-        if (count($violations) > 0) {
-            $errors = [];
-            foreach ($violations as $violation) {
-                $errors[] = $violation->getMessage();
-            }
-            return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+        $violations = $this->validationErrorResponse($validator, $tag);
+        if ($violations) {
+            return $violations;
         }
 
         // Save tag
@@ -124,8 +108,103 @@ class TagController extends AbstractController
 
         return $this->json([
             'message' => 'Tag created successfully',
-            'tag' => $this->serialiseTag($tag)
+            'tag' => $this->serializeTag($tag),
         ], Response::HTTP_CREATED);
+    }
+
+    /**
+     * Decode the JSON request body.
+     *
+     * @return array<string, mixed>|JsonResponse The payload, or the error response to return.
+     */
+    private function decodePayload(Request $request): array|JsonResponse
+    {
+        $data = json_decode($request->getContent(), true);
+        if (!is_array($data)) {
+            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Read and validate the tag name from a decoded request body.
+     *
+     * @param array<string, mixed> $data
+     * @return string|JsonResponse The trimmed name, or the error response to return.
+     */
+    private function readTagName(array $data): string|JsonResponse
+    {
+        // Only a string name is acceptable. Casting instead would turn numbers,
+        // booleans and arrays into nonsense tag names such as "1" or "Array".
+        if (!is_string($data['name'] ?? null)) {
+            return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $tagName = trim($data['name']);
+        if ($tagName === '') {
+            return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        return $tagName;
+    }
+
+    /**
+     * Tag names are unique within the scope the tag lives in: global tags across
+     * the whole install, personal tags across everything their owner can see —
+     * which includes global tags, so a personal tag can never shadow one.
+     *
+     * Returns the conflict response when a different tag already claims the
+     * name, otherwise null.
+     *
+     * @param User|null $creator Owner of a personal tag; unused for global tags.
+     */
+    private function conflictResponse(
+        EntityManagerInterface $entityManager,
+        string $tagName,
+        bool $isGlobal,
+        ?User $creator,
+        ?Tag $ignoredTag,
+        string $message
+    ): ?JsonResponse {
+        /** @var TagRepository $tagRepository */
+        $tagRepository = $entityManager->getRepository(Tag::class);
+
+        if ($isGlobal) {
+            // Globals must not share a name with another global or any personal
+            // tag; the availability lookup alone would miss personal collisions.
+            $existingTag = $tagRepository->findGlobalByName($tagName)
+                ?? $tagRepository->findPersonalByName($tagName);
+        } elseif ($creator) {
+            $existingTag = $tagRepository->findAvailableByName($tagName, $creator);
+        } else {
+            // An ownerless personal tag cannot collide with anything scoped.
+            $existingTag = null;
+        }
+
+        if (!$existingTag || ($ignoredTag && $existingTag->getId() === $ignoredTag->getId())) {
+            return null;
+        }
+
+        return $this->json([
+            'message' => $message,
+            'tag' => $this->serializeTagSummary($existingTag),
+        ], Response::HTTP_CONFLICT);
+    }
+
+    private function validationErrorResponse(ValidatorInterface $validator, Tag $tag): ?JsonResponse
+    {
+        $violations = $validator->validate($tag);
+        if (count($violations) === 0) {
+            return null;
+        }
+
+        $errors = [];
+        foreach ($violations as $violation) {
+            $errors[] = $violation->getMessage();
+        }
+
+        return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
     }
 
     #[Route('/{id}', name: 'update', methods: ['PUT', 'PATCH'])]
@@ -137,7 +216,7 @@ class TagController extends AbstractController
     ): JsonResponse {
         // Get the current user
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -156,53 +235,50 @@ class TagController extends AbstractController
             return $this->json(['message' => 'You are not authorized to update this tag'], Response::HTTP_FORBIDDEN);
         }
 
-        // Get data from request
-        $data = json_decode($request->getContent(), true);
-        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
+        $data = $this->decodePayload($request);
+        if ($data instanceof JsonResponse) {
+            return $data;
         }
 
-        // Validate tag name
-        if (!isset($data['name']) || empty(trim($data['name']))) {
-            return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
+        $tagName = $this->readTagName($data);
+        if ($tagName instanceof JsonResponse) {
+            return $tagName;
         }
 
-        $tagName = trim($data['name']);
+        // Hiding from the library is a property of global tags only. Checked
+        // before anything is mutated so a rejected request changes nothing.
+        $changesHideFromLibrary = array_key_exists('hideFromLibrary', $data);
+        if ($changesHideFromLibrary && (!$tag->isGlobal() || !$this->isGranted('ROLE_ADMIN'))) {
+            return $this->json(
+                ['message' => 'Only administrators can change this option, and only on global tags'],
+                Response::HTTP_FORBIDDEN
+            );
+        }
 
-        // Check if tag name already exists for this creator (excluding current tag)
-        /** @var TagRepository $tagRepository */
-        $tagRepository = $entityManager->getRepository(Tag::class);
-        $tagCreator = $tag->getCreator();
-        $existingTag = $tag->isGlobal()
-            ? $tagRepository->findGlobalByName($tagName)
-            : ($tagCreator ? $tagRepository->findAvailableByName($tagName, $tagCreator) : null);
-        if ($existingTag && $existingTag->getId() !== $tag->getId()) {
-            return $this->json([
-                'message' => 'Tag name already exists',
-                'tag' => [
-                    'id' => $existingTag->getId(),
-                    'name' => $existingTag->getName()
-                ]
-            ], Response::HTTP_CONFLICT);
+        // Uniqueness is scoped to the tag being edited, not to the caller: an
+        // admin renaming someone else's personal tag is checked against that
+        // owner's tags.
+        $conflict = $this->conflictResponse(
+            $entityManager,
+            $tagName,
+            $tag->isGlobal(),
+            $tag->getCreator(),
+            $tag,
+            'Tag name already exists'
+        );
+        if ($conflict) {
+            return $conflict;
         }
 
         // Update tag
         $tag->setName($tagName);
-        if (array_key_exists('hideFromLibrary', $data)) {
-            if (!$tag->isGlobal() || !$this->isGranted('ROLE_ADMIN')) {
-                return $this->json(['message' => 'Only administrators can change this option on global tags'], Response::HTTP_FORBIDDEN);
-            }
+        if ($changesHideFromLibrary) {
             $tag->setHideFromLibrary($data['hideFromLibrary'] === true);
         }
 
-        // Validate tag
-        $violations = $validator->validate($tag);
-        if (count($violations) > 0) {
-            $errors = [];
-            foreach ($violations as $violation) {
-                $errors[] = $violation->getMessage();
-            }
-            return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+        $violations = $this->validationErrorResponse($validator, $tag);
+        if ($violations) {
+            return $violations;
         }
 
         // Save changes
@@ -210,7 +286,7 @@ class TagController extends AbstractController
 
         return $this->json([
             'message' => 'Tag updated successfully',
-            'tag' => $this->serialiseTag($tag)
+            'tag' => $this->serializeTag($tag),
         ]);
     }
 
@@ -219,7 +295,7 @@ class TagController extends AbstractController
     {
         // Get the current user
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -256,7 +332,7 @@ class TagController extends AbstractController
     {
         // Get the current user
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -284,33 +360,53 @@ class TagController extends AbstractController
         // Transform tags to array
         $tagsArray = [];
         foreach ($tags as $tag) {
-            $tagsArray[] = [
-                'id' => $tag->getId(),
-                'name' => $tag->getName(),
-                'isGlobal' => $tag->isGlobal(),
-                'hideFromLibrary' => $tag->hidesFromLibrary(),
-            ];
+            $tagsArray[] = $this->serializeTagSummary($tag);
         }
 
         return $this->json(['tags' => $tagsArray]);
     }
 
-    private function serialiseTag(Tag $tag): array
+    /**
+     * The full tag record, as the tag management tables render it.
+     *
+     * @param bool $includeUsage Add the comic count. Costs a query per tag, and
+     *                           for a global tag it aggregates comics the caller
+     *                           does not own — so callers opt in deliberately.
+     * @return array<string, mixed>
+     */
+    private function serializeTag(Tag $tag, bool $includeUsage = true): array
     {
         $creator = $tag->getCreator();
 
-        return [
-            'id' => $tag->getId(),
-            'name' => $tag->getName(),
-            'createdAt' => $tag->getCreatedAt()->format('c'),
+        $data = $this->serializeTagSummary($tag) + [
+            'createdAt' => $tag->getCreatedAt()?->format('c'),
+            // Null for global tags: they belong to the install, not to a user.
             'creator' => $creator ? [
                 'id' => $creator->getId(),
                 'name' => $creator->getName() ?: $creator->getEmail(),
                 'email' => $creator->getEmail(),
             ] : null,
+        ];
+
+        if ($includeUsage) {
+            $data['comicCount'] = $tag->getComics()->count();
+        }
+
+        return $data;
+    }
+
+    /**
+     * Just enough to identify and badge a tag, for search results and conflicts.
+     *
+     * @return array{id: ?int, name: ?string, isGlobal: bool, hideFromLibrary: bool}
+     */
+    private function serializeTagSummary(Tag $tag): array
+    {
+        return [
+            'id' => $tag->getId(),
+            'name' => $tag->getName(),
             'isGlobal' => $tag->isGlobal(),
             'hideFromLibrary' => $tag->hidesFromLibrary(),
-            'comicCount' => $tag->getComics()->count(),
         ];
     }
 }

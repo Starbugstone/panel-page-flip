@@ -29,23 +29,20 @@ export default function ComicReader() {
   const currentPageRef = useRef(0); // Ref to track current page for async operations
   const loadQueueRef = useRef([]); // Queue of pages to load
   const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
+  const isMountedRef = useRef(true); // Progress saves outlive the component; used to suppress late toasts
+  const progressRevisionRef = useRef(0); // Orders progress saves that may reach the server out of order
   
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const CACHE_SIZE_FORWARD = 5;
   const CACHE_SIZE_BACKWARD = 5;
-  
-  // Debug function to log cache state - only used in debug panel
-  const logCacheState = useCallback(() => {
-    // Cache state info is displayed in the debug panel UI
-    // No console logging needed
-  }, []);
 
   const updateReadingProgress = useCallback(async (pageToSave) => {
     if (!comicId || !comic) return;
 
-    // Abort any in-progress update
+    // Supersede the previous save: only the latest page matters, so a rapid run
+    // of page turns collapses to one request rather than a queue of them.
     if (progressAbortController.current) {
       progressAbortController.current.abort();
     }
@@ -54,42 +51,62 @@ export default function ComicReader() {
     const controller = new AbortController();
     progressAbortController.current = controller;
 
+    // Aborting only stops the browser waiting for the reply; a superseded save
+    // may already be on its way to the server. The revision tells the server
+    // which save is newer, and page numbers cannot: reading backwards is normal.
+    const revision = ++progressRevisionRef.current;
+
     try {
-      // Check if component is still mounted before making the request
-      if (controller.signal.aborted) {
-        return;
+      // keepalive lets the browser finish this request even if the reader is
+      // being torn down (closing the tab, navigating away). Without it the
+      // final page of a reading session is silently lost.
+      const response = await api.post(
+        `/api/comics/${comicId}/progress`,
+        { currentPage: pageToSave, revision },
+        { signal: controller.signal, keepalive: true }
+      );
+
+      const storedRevision = response?.progress?.revision;
+      if (typeof storedRevision === 'number' && storedRevision > progressRevisionRef.current) {
+        progressRevisionRef.current = storedRevision;
       }
-      
-      await api.post(`/api/comics/${comicId}/progress`, { currentPage: pageToSave }, { signal: controller.signal });
-
-      // If this request was aborted, just return silently
-      if (controller.signal.aborted) return;
-
-      // Optional: toast({ title: "Progress Saved", description: `Page ${pageToSave} saved.` });
     } catch (error) {
-      // Don't show errors for aborted requests or network errors when component unmounts
+      // A superseded save is expected, not a failure
       if (error.name === 'AbortError' || controller.signal.aborted) return;
-      
+
       // Handle network errors more gracefully
       if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
         logger.warn("Network error when saving reading progress - will retry on next page change");
         return; // Don't show toast for network errors, as they're often transient
       }
-      
+
       logger.error("Failed to save reading progress:", error);
+
+      // The reader may already be gone by the time a save fails; a toast about
+      // it would surface on whatever page the user moved on to.
+      if (!isMountedRef.current) return;
+
       toast({
         title: "Error Saving Progress",
         description: error.message || "Could not save your reading progress. Please try again.",
         variant: "destructive",
       });
     } finally {
-      // Only update state if this controller is still the current one
+      // Only clear the ref if this controller is still the current one
       if (progressAbortController.current === controller) {
         progressAbortController.current = null;
       }
     }
   }, [comicId, comic, toast]);
 
+  // Track mount state so an in-flight progress save that resolves after the
+  // reader closes does not try to toast onto the next screen.
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const loadComic = async () => {
@@ -105,6 +122,11 @@ export default function ComicReader() {
           setComicPages(
             Array.from({ length: data.comic.pageCount }, (_, i) => `/api/comics/${comicId}/pages/${i + 1}`)
           );
+          // Continue the server's revision sequence, otherwise a reopened
+          // reader would start below the stored value and every save would
+          // look stale.
+          progressRevisionRef.current = data.comic.readingProgress?.revision || 0;
+
           if (data.comic.readingProgress && data.comic.readingProgress.currentPage) {
             setCurrentPage(data.comic.readingProgress.currentPage - 1);
           } else {
@@ -152,21 +174,21 @@ export default function ComicReader() {
            pageIndex <= Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
   }, [comicPages.length]);
 
-  // Function to convert an image to a data URL to avoid network requests
-  const imageToDataURL = (img) => {
-    // Create a canvas element
+  // Snapshot a loaded image into a detached, self-contained Image so that
+  // re-displaying a cached page never hits the network again.
+  const toCachedImage = (img) => {
     const canvas = document.createElement('canvas');
     canvas.width = img.width;
     canvas.height = img.height;
-    
-    // Draw the image on the canvas
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    
-    // Convert the canvas to a data URL
-    return canvas.toDataURL('image/jpeg');
+    canvas.getContext('2d').drawImage(img, 0, 0);
+
+    // JPEG keeps the bounded page cache compact. Lossless PNG snapshots can
+    // expand photographic comic pages enough to exhaust memory on mobile.
+    const cachedImg = new Image();
+    cachedImg.src = canvas.toDataURL('image/jpeg', 0.92);
+    return cachedImg;
   };
-  
+
   // Object to track in-progress loads to prevent duplicate requests
   const loadingPagesRef = useRef({});
   
@@ -201,26 +223,15 @@ export default function ComicReader() {
       img.onload = () => {
         // Only update cache if this page is still in the cache window
         if (isInCacheWindow(pageIndex)) {
+          let cached;
           try {
-            // Convert the image to a data URL to prevent network requests
-            const dataUrl = imageToDataURL(img);
-            
-            // Create a new image with the data URL
-            const cachedImg = new Image();
-            cachedImg.src = dataUrl;
-            
-            setImageCache(prev => ({
-              ...prev,
-              [pageIndex]: cachedImg
-            }));
+            cached = toCachedImage(img);
           } catch {
-            // Error creating data URL, fallback to using the original image
-            setImageCache(prev => ({
-              ...prev,
-              [pageIndex]: img
-            }));
-            // Fallback successful
+            // Canvas snapshot failed; fall back to the original image
+            cached = img;
           }
+
+          setImageCache(prev => ({ ...prev, [pageIndex]: cached }));
         }
         // Remove from loading tracker
         delete loadingPagesRef.current[pageIndex];
@@ -320,18 +331,21 @@ export default function ComicReader() {
   // Function to clean up the cache (remove pages outside the window)
   const cleanupCache = useCallback(() => {
     setImageCache(prev => {
-      const newCache = { ...prev };
       const startPage = Math.max(0, currentPageRef.current - CACHE_SIZE_BACKWARD);
       const endPage = Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
-      
-      // Remove pages outside the window
-      Object.keys(newCache).forEach(key => {
+
+      const stale = Object.keys(prev).filter(key => {
         const pageKey = parseInt(key, 10);
-        if (pageKey < startPage || pageKey > endPage) {
-          delete newCache[pageKey];
-        }
+        return pageKey < startPage || pageKey > endPage;
       });
-      
+
+      // Returning a new object when nothing was evicted would change the cache
+      // identity, re-run the effect that schedules this cleanup, and spin the
+      // component in a permanent 2-second loop. Keep the same reference instead.
+      if (stale.length === 0) return prev;
+
+      const newCache = { ...prev };
+      stale.forEach(key => delete newCache[key]);
       return newCache;
     });
   }, [comicPages.length]);
@@ -392,61 +406,55 @@ export default function ComicReader() {
     // Schedule cache cleanup after a delay
     const cleanupTimer = setTimeout(() => {
       cleanupCache();
-      logCacheState();
     }, 2000); // Delay cleanup to avoid unnecessary operations
-    
+
     return () => {
       clearTimeout(cleanupTimer);
     };
-  // Include loadPageIntoCache but not imageCache to prevent infinite loop
-  }, [currentPage, comicPages, imageCache, queuePagesToLoad, cleanupCache, logCacheState, loadPageIntoCache]);
+  }, [currentPage, comicPages, imageCache, queuePagesToLoad, cleanupCache, loadPageIntoCache]);
 
 
 
   // Effect to save reading progress when currentPage changes
   // We don't need to run this on every render, only when the page changes
   const lastSavedPage = useRef(null);
-  
+
   useEffect(() => {
     // Only update if the page has actually changed and we have all the required data
-    if (comic && comicId && typeof currentPage === 'number' && currentPage >= 0 && 
+    if (comic && comicId && typeof currentPage === 'number' && currentPage >= 0 &&
         comicPages.length > 0 && lastSavedPage.current !== currentPage) {
       // We add 1 because currentPage is 0-indexed, but backend expects 1-indexed.
       lastSavedPage.current = currentPage;
       updateReadingProgress(currentPage + 1);
     }
-    
-    // Cleanup function to abort any in-progress requests when component unmounts
-    // or when dependencies change
-    return () => {
-      if (progressAbortController.current) {
-        progressAbortController.current.abort();
-        progressAbortController.current = null;
-      }
-    };
+
+    // Deliberately no cleanup here. Aborting on unmount would cancel the save
+    // for the page the user just finished on, losing it; and aborting when
+    // currentPage changes is unnecessary because updateReadingProgress already
+    // supersedes its own previous request.
   }, [currentPage, comic, comicId, comicPages.length, updateReadingProgress]);
 
+  // Move by one page, priming the loading state from the cache so an already
+  // cached page renders without a skeleton flash.
+  const goToPage = useCallback((newPage) => {
+    if (newPage < 0 || newPage > comicPages.length - 1) return;
+
+    const cachedImage = imageCache[newPage];
+    const isCached = cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed';
+    setIsPageImageLoading(!isCached);
+    setImageLoadedSuccessfully(Boolean(isCached));
+
+    setCurrentPage(newPage);
+  }, [imageCache, comicPages.length]);
+
   const handlePreviousPage = useCallback(() => {
-    if (currentPage > 0) {
-      const newPage = currentPage - 1;
-      
-      // Check if the page is already cached - if so, update UI immediately
-      const cachedImage = imageCache[newPage];
-      if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
-        // Update UI state before changing page to ensure immediate display
-        setIsPageImageLoading(false);
-        setImageLoadedSuccessfully(true);
-      } else {
-        // Not in cache, will need to load
-        setIsPageImageLoading(true);
-        setImageLoadedSuccessfully(false);
-      }
-      
-      // Update page
-      setCurrentPage(newPage);
-    }
-  }, [currentPage, imageCache]);
-  
+    goToPage(currentPage - 1);
+  }, [goToPage, currentPage]);
+
+  const handleNextPage = useCallback(() => {
+    goToPage(currentPage + 1);
+  }, [goToPage, currentPage]);
+
   // Function to force reload the current page from the server
   const handleForceReload = useCallback(() => {
     if (comicPages.length === 0 || currentPage < 0 || currentPage >= comicPages.length) {
@@ -516,21 +524,11 @@ export default function ComicReader() {
               return;
             }
             
-            // Convert to data URL to prevent network requests
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-            const dataUrl = canvas.toDataURL('image/jpeg');
-            
+            const cachedImg = toCachedImage(img);
+
             // Free the blob URL
             URL.revokeObjectURL(blobUrl);
-            
-            // Create a new image with the data URL
-            const cachedImg = new Image();
-            cachedImg.src = dataUrl;
-            
+
             // Update cache with the new image
             setImageCache(prev => ({
               ...prev,
@@ -623,27 +621,6 @@ export default function ComicReader() {
       });
   }, [comicPages, currentPage, toast]);
   
-  const handleNextPage = useCallback(() => {
-    if (currentPage < comicPages.length - 1) {
-      const newPage = currentPage + 1;
-      
-      // Check if the page is already cached - if so, update UI immediately
-      const cachedImage = imageCache[newPage];
-      if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
-        // Update UI state before changing page to ensure immediate display
-        setIsPageImageLoading(false);
-        setImageLoadedSuccessfully(true);
-      } else {
-        // Not in cache, will need to load
-        setIsPageImageLoading(true);
-        setImageLoadedSuccessfully(false);
-      }
-      
-      // Update page
-      setCurrentPage(newPage);
-    }
-  }, [currentPage, imageCache, comicPages.length]);
-
   const handleScreenNavClick = (direction) => {
     if (direction === 'left') {
       handlePreviousPage();
@@ -652,6 +629,8 @@ export default function ComicReader() {
     }
   };
 
+  // One listener on window covers both normal and fullscreen mode, since the
+  // reader keeps focus in the document either way.
   useEffect(() => {
     const handleKeyPress = (event) => {
       switch (event.key) {
@@ -668,7 +647,7 @@ export default function ComicReader() {
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [currentPage, comicPages.length, handlePreviousPage, handleNextPage]);
+  }, [handlePreviousPage, handleNextPage]);
 
   // Handle fullscreen change events
   useEffect(() => {
@@ -688,33 +667,6 @@ export default function ComicReader() {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, [isZoomed]);
-  
-  // Ensure page navigation works in fullscreen mode
-  useEffect(() => {
-    const handleFullscreenKeyPress = (event) => {
-      if (isFullscreen) {
-        switch (event.key) {
-          case "ArrowLeft":
-            handlePreviousPage();
-            break;
-          case "ArrowRight":
-            handleNextPage();
-            break;
-          default:
-            break;
-        }
-      }
-    };
-
-    if (isFullscreen) {
-      window.addEventListener("keydown", handleFullscreenKeyPress);
-    }
-    
-    return () => {
-      // Always remove the event listener on cleanup, even if isFullscreen changed
-      window.removeEventListener("keydown", handleFullscreenKeyPress);
-    };
-  }, [isFullscreen, handlePreviousPage, handleNextPage]);
   
   // Handle zoom wheel events
   const handleWheel = useCallback((e) => {
@@ -918,10 +870,7 @@ export default function ComicReader() {
               variant="outline" 
               size="icon"
               className="opacity-80 hover:opacity-100 bg-card/80"
-              onClick={() => {
-                setShowDebug(!showDebug);
-                logCacheState();
-              }}
+              onClick={() => setShowDebug(!showDebug)}
               title="Debug info"
             >
               <Info className="h-4 w-4" />
@@ -935,7 +884,7 @@ export default function ComicReader() {
               <p>Total pages: {comicPages.length}</p>
               <p>Loading: {isPageImageLoading ? 'Yes' : 'No'}</p>
               <p>Cached pages: {Object.keys(imageCache).length}</p>
-              <p>Cache window: {Math.max(0, currentPage - CACHE_SIZE_BACKWARD) + 1} - {Math.min(comicPages.length, currentPage + CACHE_SIZE_FORWARD) + 1}</p>
+              <p>Cache window: {Math.max(0, currentPage - CACHE_SIZE_BACKWARD) + 1} - {Math.min(comicPages.length - 1, currentPage + CACHE_SIZE_FORWARD) + 1}</p>
               {isZoomed && (
                 <p>Zoom level: {Math.round(zoomLevel * 100)}%</p>
               )}

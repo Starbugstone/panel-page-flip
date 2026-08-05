@@ -83,7 +83,10 @@ final class PrivacyControllerTest extends AbstractApiTestCase
         self::assertNotNull($redactedAudit);
         self::assertNull($redactedAudit->getAdminUser());
         self::assertNull($redactedAudit->getTargetId());
-        self::assertSame(['email' => '[redacted]', 'name' => '[redacted]'], $redactedAudit->getPayload());
+        // assertEquals, not assertSame: MySQL normalises JSON object keys by
+        // length, so the payload comes back as name-then-email regardless of
+        // the order it was written in.
+        self::assertEquals(['email' => '[redacted]', 'name' => '[redacted]'], $redactedAudit->getPayload());
     }
 
     public function testLastAdministratorCannotDeleteOwnAccount(): void

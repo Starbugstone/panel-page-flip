@@ -205,40 +205,8 @@ class SessionManager {
     return await this.checkSession(true);
   }
 
-  /**
-   * Get CSRF token from cookies
-   * @returns {string} CSRF token
-   */
-  getCsrfToken() {
-    try {
-      // More robust cookie parsing
-      const cookies = document.cookie.split(';').reduce((acc, cookie) => {
-        if (!cookie.trim()) return acc;
-        
-        const parts = cookie.trim().split('=');
-        if (parts.length < 2) return acc;
-        
-        const key = parts[0].trim();
-        const value = parts.slice(1).join('='); // Handle values that might contain =
-        
-        acc[key] = decodeURIComponent(value);
-        return acc;
-      }, {});
-      
-      // Look for XSRF-TOKEN or CSRF-TOKEN
-      const token = cookies['XSRF-TOKEN'] || cookies['CSRF-TOKEN'] || '';
-      
-      if (!token) {
-        logger.warn('No CSRF token found in cookies');
-      }
-      
-      return token;
-    } catch (error) {
-      logger.error('Error extracting CSRF token:', error);
-      return '';
-    }
-  }
-  
+  // CSRF tokens are read by lib/csrf.js, which lib/api.js applies to every
+  // mutating request. Do not add a second implementation here.
 }
 
 // Create a singleton instance

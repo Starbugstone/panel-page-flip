@@ -267,11 +267,14 @@ function DropboxSyncPage() {
     }
   };
 
-  const handleImportSingle = async (fileName) => {
-    setImportingFiles(prev => new Set([...prev, fileName]));
-    
+  // Keyed on the path rather than the name: the same file name can appear in
+  // several Dropbox folders, and each is a separate row here.
+  const handleImportSingle = async (file) => {
+    const { name: fileName, path } = file;
+    setImportingFiles(prev => new Set([...prev, path]));
+
     try {
-      const data = await api.post('/api/dropbox/import', { fileName });
+      const data = await api.post('/api/dropbox/import', { path, fileName });
       toast({
         title: "Import Successful",
         description: `${data.comic?.title || fileName} has been imported successfully.`,
@@ -286,7 +289,7 @@ function DropboxSyncPage() {
     } finally {
       setImportingFiles(prev => {
         const newSet = new Set(prev);
-        newSet.delete(fileName);
+        newSet.delete(path);
         return newSet;
       });
     }
@@ -469,11 +472,11 @@ function DropboxSyncPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => handleImportSingle(file.name)}
-                              disabled={importingFiles.has(file.name)}
+                              onClick={() => handleImportSingle(file)}
+                              disabled={importingFiles.has(file.path)}
                               className="ml-3 text-blue-600 border-blue-600 hover:bg-blue-50"
                             >
-                              {importingFiles.has(file.name) ? (
+                              {importingFiles.has(file.path) ? (
                                 <>
                                   <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                                   Importing...

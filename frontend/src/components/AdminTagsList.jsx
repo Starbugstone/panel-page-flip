@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { fuzzyFilter } from "@/lib/fuzzy-search";
+import { formatDate } from "@/lib/format";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,15 +53,11 @@ export function AdminTagsList() {
     loadTags();
   }, [loadTags]);
 
-  const filteredTags = fuzzyFilter(tags, searchQuery, ["name", "creator.name", "creator.email"]);
-
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      dateStyle: 'medium',
-    }).format(date);
-  };
+  // Memoised because each call rebuilds the Fuse index over every tag.
+  const filteredTags = useMemo(
+    () => fuzzyFilter(tags, searchQuery, ["name", "creator.name", "creator.email"]),
+    [tags, searchQuery]
+  );
 
   const handleAddTag = async () => {
     if (!newTagName.trim()) {

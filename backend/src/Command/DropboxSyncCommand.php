@@ -3,18 +3,15 @@
 namespace App\Command;
 
 use App\Entity\User;
-use App\Entity\Comic;
-use App\Service\ComicService;
 use App\Service\DropboxClientFactory;
+use App\Service\DropboxImportService;
 use Doctrine\ORM\EntityManagerInterface;
-use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 /**
  * Syncs comics from Dropbox for all connected users.
@@ -25,7 +22,7 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
  * Usage Examples:
  * --------------
  *
- * 1. Sync all users (default: 3 files per user):
+ * 1. Sync all users (default limit from DROPBOX_SYNC_LIMIT):
  *    php bin/console app:dropbox-sync
  *
  * 2. Sync all users with custom limit:
@@ -40,12 +37,8 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
  * 5. Cron job example (run at midnight with 3 file limit):
  *    0 0 * * * cd /path/to/project && php bin/console app:dropbox-sync --limit=3
  *
- * The command will:
- * - Find all users with Dropbox tokens
- * - Check their Dropbox app folder for new CBZ files
- * - Download and import any new comics
- * - Create comics with "Dropbox" tag for easy identification
- * - Store files in user-specific dropbox subdirectories
+ * The listing, duplicate detection and import logic live in DropboxImportService,
+ * which this command shares with the /api/dropbox endpoints.
  */
 #[AsCommand(
     name: 'app:dropbox-sync',
@@ -53,31 +46,13 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 )]
 class DropboxSyncCommand extends Command
 {
-    private EntityManagerInterface $entityManager;
-    private ComicService $comicService;
-    private string $comicsDirectory;
-    private string $dropboxAppFolder;
-    private int $defaultSyncLimit;
-    private LoggerInterface $logger;
-    private DropboxClientFactory $dropboxClientFactory;
-
     public function __construct(
-        EntityManagerInterface $entityManager,
-        ComicService $comicService,
-        LoggerInterface $logger,
-        DropboxClientFactory $dropboxClientFactory,
-        string $comicsDirectory,
-        string $dropboxAppFolder,
-        int $defaultSyncLimit
+        private readonly EntityManagerInterface $entityManager,
+        private readonly DropboxClientFactory $dropboxClientFactory,
+        private readonly DropboxImportService $dropboxImport,
+        private readonly int $defaultSyncLimit
     ) {
         parent::__construct();
-        $this->entityManager = $entityManager;
-        $this->comicService = $comicService;
-        $this->logger = $logger;
-        $this->dropboxClientFactory = $dropboxClientFactory;
-        $this->comicsDirectory = $comicsDirectory;
-        $this->dropboxAppFolder = $dropboxAppFolder;
-        $this->defaultSyncLimit = $defaultSyncLimit;
     }
 
     protected function configure(): void
@@ -91,8 +66,7 @@ class DropboxSyncCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $userId = $input->getOption('user-id');
-        $dryRun = $input->getOption('dry-run');
+        $dryRun = (bool) $input->getOption('dry-run');
         $limit = $input->getOption('limit') ? (int) $input->getOption('limit') : $this->defaultSyncLimit;
 
         if ($dryRun) {
@@ -101,28 +75,12 @@ class DropboxSyncCommand extends Command
 
         $io->info(sprintf('Sync limit: %d files per user', $limit));
 
-        // Get users with Dropbox tokens
-        $userRepository = $this->entityManager->getRepository(User::class);
-        
-        if ($userId) {
-            $users = [$userRepository->find($userId)];
-            if (!$users[0]) {
-                $io->error("User with ID {$userId} not found");
-                return Command::FAILURE;
-            }
-            if (!$users[0]->getDropboxAccessToken()) {
-                $io->error("User with ID {$userId} does not have Dropbox connected");
-                return Command::FAILURE;
-            }
-        } else {
-            $qb = $userRepository->createQueryBuilder('u')
-                ->where('u.dropboxAccessToken IS NOT NULL')
-                ->andWhere('u.dropboxAccessToken != :empty')
-                ->setParameter('empty', '');
-            $users = $qb->getQuery()->getResult();
+        $users = $this->resolveUsers($input->getOption('user-id'), $io);
+        if ($users === null) {
+            return Command::FAILURE;
         }
 
-        if (empty($users)) {
+        if ($users === []) {
             $io->info('No users with Dropbox connections found');
             return Command::SUCCESS;
         }
@@ -134,7 +92,7 @@ class DropboxSyncCommand extends Command
 
         foreach ($users as $user) {
             $io->section(sprintf('Processing user: %s (ID: %d)', $user->getEmail(), $user->getId()));
-            
+
             try {
                 $result = $this->syncUserDropbox($user, $io, $dryRun, $limit);
                 if (!$dryRun) {
@@ -143,7 +101,7 @@ class DropboxSyncCommand extends Command
                 }
                 $totalNewFiles += $result['newFiles'];
                 $totalErrors += $result['errors'];
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 $io->error(sprintf('Failed to sync user %s: %s', $user->getEmail(), $e->getMessage()));
                 $totalErrors++;
             }
@@ -158,240 +116,97 @@ class DropboxSyncCommand extends Command
         return $totalErrors > 0 ? Command::FAILURE : Command::SUCCESS;
     }
 
-    private function syncUserDropbox(User $user, SymfonyStyle $io, bool $dryRun, int $limit = null): array
+    /**
+     * @return list<User>|null Null signals a fatal argument error already reported to the console.
+     */
+    private function resolveUsers(mixed $userId, SymfonyStyle $io): ?array
     {
-        $limit = $limit ?? $this->defaultSyncLimit;
-        $newFiles = 0;
-        $errors = 0;
+        $userRepository = $this->entityManager->getRepository(User::class);
 
+        if (!$userId) {
+            return $userRepository->createQueryBuilder('u')
+                ->where('u.dropboxAccessToken IS NOT NULL')
+                ->andWhere('u.dropboxAccessToken != :empty')
+                ->setParameter('empty', '')
+                ->getQuery()
+                ->getResult();
+        }
+
+        $user = $userRepository->find($userId);
+        if (!$user) {
+            $io->error("User with ID {$userId} not found");
+            return null;
+        }
+
+        if (!$user->getDropboxAccessToken()) {
+            $io->error("User with ID {$userId} does not have Dropbox connected");
+            return null;
+        }
+
+        return [$user];
+    }
+
+    /**
+     * @return array{newFiles: int, errors: int}
+     */
+    private function syncUserDropbox(User $user, SymfonyStyle $io, bool $dryRun, int $limit): array
+    {
         try {
             $client = $this->dropboxClientFactory->createForUser($user);
-            
-            // Get existing comics for this user
-            $existingComics = $this->entityManager->getRepository(Comic::class)->findBy(['owner' => $user]);
-            $existingFiles = array_map(function($comic) {
-                return basename($comic->getFilePath());
-            }, $existingComics);
 
-            // Get all files recursively with folder structure from the configured app folder
-            $allFiles = $this->getAllDropboxFiles($client, $this->dropboxAppFolder);
+            // The loop itself lives in the service, shared with the HTTP sync
+            // endpoint; this callback is all the console adds to it.
+            $result = $this->dropboxImport->syncUser(
+                $client,
+                $user,
+                $limit,
+                $dryRun,
+                fn (string $event, array $context) => $this->report($io, $dryRun, $event, $context)
+            );
 
-            if (empty($allFiles)) {
-                $io->text('No CBZ files found in Dropbox');
-                return ['newFiles' => 0, 'errors' => 0];
-            }
+            return ['newFiles' => $result['newFiles'], 'errors' => $result['failed']];
+        } catch (\Throwable $e) {
+            $io->error('Failed to connect to Dropbox: ' . $e->getMessage());
 
-            $io->text(sprintf('Found %d CBZ file(s) in Dropbox', count($allFiles)));
+            return ['newFiles' => 0, 'errors' => 1];
+        }
+    }
 
-            $userDirectory = $this->comicsDirectory . '/' . $user->getId();
-            $dropboxDirectory = $userDirectory . '/dropbox';
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function report(SymfonyStyle $io, bool $dryRun, string $event, array $context): void
+    {
+        $file = $context['file'] ?? null;
+        $tagsInfo = $file && $file['tags'] !== [] ? ' [Tags: ' . implode(', ', $file['tags']) . ']' : '';
 
-            if (!$dryRun) {
-                // Ensure directories exist
-                if (!file_exists($userDirectory)) {
-                    mkdir($userDirectory, 0777, true);
-                }
-                if (!file_exists($dropboxDirectory)) {
-                    mkdir($dropboxDirectory, 0777, true);
-                }
-            }
-
-            $processedCount = 0;
-            foreach ($allFiles as $fileInfo) {
-                $fileName = basename($fileInfo['path']);
-                
-                if (in_array($fileName, $existingFiles)) {
-                    $io->text("Skipping {$fileName} (already exists)");
-                    continue;
-                }
-
-                // Check if we've reached the limit for this user
-                if ($processedCount >= $limit) {
-                    $io->text(sprintf("Reached limit of %d files for this user. Skipping remaining files.", $limit));
-                    break;
-                }
-
-                $folderPath = dirname($fileInfo['path']);
-                $folderInfo = $folderPath !== '/' ? " (in {$folderPath})" : "";
-                $io->text("Processing {$fileName}{$folderInfo}...");
+        switch ($event) {
+            case 'listed':
+                $io->text($context['count'] === 0
+                    ? 'No CBZ files found in Dropbox'
+                    : sprintf('Found %d CBZ file(s) in Dropbox', $context['count']));
+                break;
+            case 'skipped':
+                $io->text("Skipping {$file['name']} (already imported)");
+                break;
+            case 'limitReached':
+                $io->text(sprintf('Reached limit of %d files for this user. Skipping remaining files.', $context['limit']));
+                break;
+            case 'importing':
+                $folderPath = dirname($file['path']);
+                $folderInfo = $folderPath !== '/' ? " (in {$folderPath})" : '';
+                $io->text("Processing {$file['name']}{$folderInfo}...");
 
                 if ($dryRun) {
-                    $tagsInfo = !empty($fileInfo['tags']) ? ' [Tags: ' . implode(', ', $fileInfo['tags']) . ']' : '';
-                    $io->text("  [DRY RUN] Would download and import {$fileName}{$tagsInfo}");
-                    $newFiles++;
-                    $processedCount++;
-                    continue;
+                    $io->text("  [DRY RUN] Would download and import {$file['name']}{$tagsInfo}");
                 }
-
-                try {
-                    // Download the file from Dropbox
-                    $fileContent = $client->download($fileInfo['path']);
-                    
-                    // Save to dropbox subdirectory
-                    $localPath = $dropboxDirectory . '/' . $fileName;
-                    file_put_contents($localPath, $fileContent);
-                    
-                    // Create a temporary UploadedFile object for the ComicService
-                    $tempFile = new UploadedFile(
-                        $localPath,
-                        $fileName,
-                        'application/zip',
-                        null,
-                        true // Test mode
-                    );
-                    
-                    // Extract title from filename
-                    $title = pathinfo($fileName, PATHINFO_FILENAME);
-                    $title = str_replace(['_', '-'], ' ', $title);
-                    $title = ucwords($title);
-                    
-                    // Create tags from folder structure + Dropbox tag
-                    $tags = array_merge(['Dropbox'], $fileInfo['tags']);
-                    
-                    // Create comic entry
-                    $comic = $this->comicService->uploadComic(
-                        $tempFile,
-                        $user,
-                        $title,
-                        null, // author
-                        null, // publisher
-                        'Synced from Dropbox', // description
-                        $tags
-                    );
-                    
-                    $tagsInfo = !empty($fileInfo['tags']) ? ' [Tags: ' . implode(', ', $tags) . ']' : '';
-                    $io->text("  ✓ Successfully imported {$fileName}{$tagsInfo}");
-                    $newFiles++;
-                    $processedCount++;
-                    
-                } catch (\Exception $e) {
-                    $io->error("  ✗ Failed to import {$fileName}: " . $e->getMessage());
-                    $errors++;
-                    $processedCount++; // Count failed attempts towards limit too
-                }
-            }
-
-        } catch (\Exception $e) {
-            $io->error('Failed to connect to Dropbox: ' . $e->getMessage());
-            $errors++;
+                break;
+            case 'imported':
+                $io->text("  ✓ Successfully imported {$file['name']}{$tagsInfo}");
+                break;
+            case 'failed':
+                $io->error("  ✗ Failed to import {$file['name']}: " . $context['exception']->getMessage());
+                break;
         }
-
-        return ['newFiles' => $newFiles, 'errors' => $errors];
-    }
-
-    private function formatFileSize(int $bytes): string
-    {
-        $units = ['B', 'KB', 'MB', 'GB'];
-        $bytes = max($bytes, 0);
-        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
-        $pow = min($pow, count($units) - 1);
-        
-        $bytes /= (1 << (10 * $pow));
-        
-        return round($bytes, 2) . ' ' . $units[$pow];
-    }
-
-    /**
-     * Recursively get all CBZ files from Dropbox with their folder structure
-     */
-    private function getAllDropboxFiles($client, string $path = '/'): array
-    {
-        $allFiles = [];
-        
-        try {
-            $response = $client->listFolder($path);
-            
-            foreach ($response['entries'] as $entry) {
-                if ($entry['.tag'] === 'file' && strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)) === 'cbz') {
-                    // Extract folder path and convert to tags
-                    $folderPath = trim(dirname($entry['path_display']), '/');
-                    $tags = $this->convertPathToTags($folderPath);
-
-                    $allFiles[] = [
-                        'path' => $entry['path_display'],
-                        'name' => $entry['name'],
-                        'size' => $entry['size'],
-                        'modified' => $entry['client_modified'],
-                        'tags' => $tags
-                    ];
-                } elseif ($entry['.tag'] === 'folder') {
-                    // Recursively get files from subfolders
-                    $subFiles = $this->getAllDropboxFiles($client, $entry['path_display']);
-                    $allFiles = array_merge($allFiles, $subFiles);
-                }
-            }
-        } catch (\Exception $e) {
-            // Handle pagination or other errors
-            $this->logger->warning('Error listing Dropbox folder during sync.', ['exception' => $e]);
-        }
-        
-        return $allFiles;
-    }
-
-    /**
-     * Convert folder path to tags
-     * Examples:
-     * - "/Applications/StarbugStoneComics/superHero" -> ["Super Hero"]
-     * - "/Applications/StarbugStoneComics/Manga/Anime" -> ["Manga", "Anime"]
-     * - "/Applications/StarbugStoneComics/sci-fi/space_opera" -> ["Sci Fi", "Space Opera"]
-     */
-    private function convertPathToTags(string $path): array
-    {
-        if (empty($path) || $path === '.') {
-            return [];
-        }
-        
-        // Remove the app folder prefix from the path to get only the user's folder structure
-        $appFolderPrefix = trim($this->dropboxAppFolder, '/') . '/';
-        $relativePath = ltrim($path, '/');
-        
-        if (str_starts_with($relativePath, $appFolderPrefix)) {
-            $relativePath = substr($relativePath, strlen($appFolderPrefix));
-        }
-        
-        if (empty($relativePath)) {
-            return [];
-        }
-        
-        $folders = explode('/', $relativePath);
-        $tags = [];
-        
-        foreach ($folders as $folder) {
-            if (!empty($folder)) {
-                // Convert camelCase and snake_case to readable format
-                $tag = $this->formatFolderName($folder);
-                if (!empty($tag)) {
-                    $tags[] = $tag;
-                }
-            }
-        }
-        
-        return $tags;
-    }
-
-    /**
-     * Format folder name to readable tag
-     * Examples:
-     * - "superHero" -> "Super Hero"
-     * - "sci-fi" -> "Sci Fi"
-     * - "space_opera" -> "Space Opera"
-     * - "MANGA" -> "Manga"
-     */
-    private function formatFolderName(string $folderName): string
-    {
-        // Replace underscores and hyphens with spaces
-        $formatted = str_replace(['_', '-'], ' ', $folderName);
-        
-        // Split camelCase
-        $formatted = preg_replace('/([a-z])([A-Z])/', '$1 $2', $formatted);
-        
-        // Clean up multiple spaces
-        $formatted = preg_replace('/\s+/', ' ', $formatted);
-        
-        // Trim and convert to title case
-        $formatted = trim($formatted);
-        $formatted = ucwords(strtolower($formatted));
-        
-        return $formatted;
     }
 }

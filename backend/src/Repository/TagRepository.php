@@ -72,6 +72,17 @@ class TagRepository extends ServiceEntityRepository
             ->getOneOrNullResult();
     }
 
+    public function findPersonalByName(string $name): ?Tag
+    {
+        return $this->createQueryBuilder('t')
+            ->where('t.isGlobal = false')
+            ->andWhere('LOWER(t.name) = LOWER(:name)')
+            ->setParameter('name', $name)
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
     /** @param list<string> $names */
     public function hasLibraryHidingGlobalTag(array $names): bool
     {

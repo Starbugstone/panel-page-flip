@@ -1,3 +1,5 @@
+export { formatFileSize } from "@/lib/format";
+
 export const CHUNK_SIZE_BYTES = 1024 * 1024;
 
 export function generateTitleFromFilename(filename) {
@@ -14,10 +16,4 @@ export function generateTitleFromFilename(filename) {
 
 export function isCbzFile(file) {
   return Boolean(file?.name?.toLowerCase().endsWith(".cbz"));
-}
-
-export function formatFileSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
