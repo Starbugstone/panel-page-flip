@@ -37,7 +37,7 @@ class CleanupExpiredSharesCommand extends Command
         private EntityManagerInterface $entityManager,
         private ShareTokenRepository $shareTokenRepository,
         private LoggerInterface $logger,
-        string $publicSharesDirectory = null
+        ?string $publicSharesDirectory = null
     ) {
         parent::__construct();
         // If not explicitly provided, use a default path

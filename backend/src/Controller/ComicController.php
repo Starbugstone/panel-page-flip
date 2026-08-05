@@ -7,23 +7,19 @@ use App\Entity\ComicReadingProgress;
 use App\Entity\Tag;
 use App\Entity\User;
 use App\Service\AdminAuditService;
+use App\Service\ComicSerializer;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicService;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\File\Exception\FileException;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
-use Symfony\Component\String\Slugger\SluggerInterface;
-use Symfony\Component\Validator\Validator\ValidatorInterface;
 use ZipArchive;
 
 #[Route('/api/comics', name: 'api_comics_')]
@@ -33,27 +29,29 @@ class ComicController extends AbstractController
     private const ASSEMBLED_UPLOAD_FILENAME = 'assembled.cbz';
 
     private string $tempUploadDir;
-    private RequestStack $requestStack;
-    private UrlGeneratorInterface $urlGenerator;
-    
+
     public function __construct(
-        private string $comicsDirectory,
-        RequestStack $requestStack,
-        UrlGeneratorInterface $urlGenerator,
+        private readonly string $comicsDirectory,
         private readonly LoggerInterface $logger,
         private readonly int $uploadMaxChunkBytes,
         private readonly int $uploadMaxTotalBytes,
         private readonly int $uploadMaxTotalChunks,
         private readonly int $uploadUserQuotaBytes,
-        private readonly ComicUploadFilenameValidator $uploadFilenameValidator
+        private readonly ComicUploadFilenameValidator $uploadFilenameValidator,
+        private readonly ComicSerializer $comicSerializer
     ) {
         $this->tempUploadDir = sys_get_temp_dir() . '/comic_uploads';
-        $this->requestStack = $requestStack;
-        $this->urlGenerator = $urlGenerator;
-        
-        // Ensure temp directory exists
-        if (!file_exists($this->tempUploadDir)) {
-            mkdir($this->tempUploadDir, 0775, true);
+    }
+
+    /**
+     * Chunk staging lives under the system temp dir; create it lazily so a
+     * filesystem write does not happen on every request that touches this
+     * controller.
+     */
+    private function ensureTempUploadDir(string $directory): void
+    {
+        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+            throw new \RuntimeException('Failed to create the upload staging directory.');
         }
     }
 
@@ -163,62 +161,9 @@ class ComicController extends AbstractController
         
         $comics = $qb->getQuery()->getResult();
 
-        // Transform comics to array
-        $comicsArray = [];
-        foreach ($comics as $comic) {
-            $fullCoverUrl = null;
-            if ($comic->getCoverImagePath()) {
-                try {
-                    $filename = basename($comic->getCoverImagePath());
-                    // Manually construct the URL path to avoid using internal Docker hostnames
-                    $fullCoverUrl = '/api/comics/cover/' . $comic->getOwner()->getId() . '/' . $comic->getId() . '/' . $filename;
-                } catch (\Exception $e) {
-                    $this->logger->debug('Could not generate cover URL.', ['comic_id' => $comic->getId()]);
-                    // $fullCoverUrl remains null
-                }
-            }
-
-            // Get reading progress if exists
-            // Ensure $user is available in this scope for reading progress.
-            // It should be, as it's defined at the beginning of the method.
-            $readingProgress = $entityManager->getRepository(ComicReadingProgress::class)
-                ->findOneBy(['comic' => $comic, 'user' => $user]);
-
-            $comicData = [
-                'id' => $comic->getId(),
-                'title' => $comic->getTitle(),
-                'author' => $comic->getAuthor(),
-                'publisher' => $comic->getPublisher(),
-                'description' => $comic->getDescription(),
-                'coverImagePath' => $fullCoverUrl,
-                'pageCount' => $comic->getPageCount(),
-                'uploadedAt' => $comic->getUploadedAt()->format('c'),
-                'tags' => array_map(function ($tag) {
-                    return [
-                        'id' => $tag->getId(),
-                        'name' => $tag->getName()
-                    ];
-                }, $comic->getTags()->toArray()),
-                'readingProgress' => $readingProgress ? [
-                    'currentPage' => $readingProgress->getCurrentPage(),
-                    'lastReadAt' => $readingProgress->getLastReadAt()->format('c'),
-                    'completed' => $readingProgress->isCompleted()
-                ] : null
-            ];
-
-            if ($adminContext) {
-                $owner = $comic->getOwner();
-                $comicData['owner'] = [
-                    'id' => $owner?->getId(),
-                    'email' => $owner?->getEmail(),
-                    'name' => $owner?->getName(),
-                ];
-            }
-
-            $comicsArray[] = $comicData;
-        }
-
-        return $this->json(['comics' => $comicsArray]);
+        return $this->json([
+            'comics' => $this->comicSerializer->serializeMany($comics, $user, $adminContext),
+        ]);
     }
 
     #[Route('', name: 'batch_update', methods: ['PATCH'])]
@@ -401,58 +346,12 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN); // Or HTTP_NOT_FOUND
         }
 
-        // Get reading progress if exists
-        $readingProgress = $entityManager->getRepository(ComicReadingProgress::class)
-            ->findOneBy(['comic' => $comic, 'user' => $user]);
-
-        // Transform comic to array
-        $fullCoverUrl = null;
-        if ($comic->getCoverImagePath()) {
-            try {
-                $filename = basename($comic->getCoverImagePath());
-                // Manually construct the URL path to avoid using internal Docker hostnames
-                $fullCoverUrl = '/api/comics/cover/' . $comic->getOwner()->getId() . '/' . $comic->getId() . '/' . $filename;
-            } catch (\Exception $e) {
-                $this->logger->debug('Could not generate cover URL.', ['comic_id' => $comic->getId()]);
-                // $fullCoverUrl remains null
-            }
-        }
-
-        $comicArray = [
-            'id' => $comic->getId(),
-            'title' => $comic->getTitle(),
-            'author' => $comic->getAuthor(),
-            'publisher' => $comic->getPublisher(),
-            'description' => $comic->getDescription(),
-            'coverImagePath' => $fullCoverUrl,
-            'pageCount' => $comic->getPageCount(),
-            'uploadedAt' => $comic->getUploadedAt()->format('c'),
-            'tags' => array_map(function ($tag) {
-                return [
-                    'id' => $tag->getId(),
-                    'name' => $tag->getName()
-                ];
-            }, $comic->getTags()->toArray()),
-            'readingProgress' => $readingProgress ? [
-                'currentPage' => $readingProgress->getCurrentPage(),
-                'lastReadAt' => $readingProgress->getLastReadAt()->format('c'),
-                'completed' => $readingProgress->isCompleted()
-            ] : null,
-            'owner' => [
-                'id' => $comic->getOwner()?->getId(),
-                'email' => $comic->getOwner()?->getEmail(),
-                'name' => $comic->getOwner()?->getName(),
-            ],
-        ];
-
-        return $this->json(['comic' => $comicArray]);
+        return $this->json(['comic' => $this->comicSerializer->serialize($comic, $user)]);
     }
 
     #[Route('', name: 'create', methods: ['POST'])]
     public function create(
-        Request $request, 
-        EntityManagerInterface $entityManager, 
-        ValidatorInterface $validator,
+        Request $request,
         ComicService $comicService
     ): JsonResponse {
         // Get the current user
@@ -510,10 +409,9 @@ class ComicController extends AbstractController
 
     #[Route('/{id}', name: 'update', methods: ['PUT', 'PATCH'])]
     public function update(
-        int $id, 
-        Request $request, 
+        int $id,
+        Request $request,
         EntityManagerInterface $entityManager,
-        ValidatorInterface $validator,
         AdminAuditService $auditService
     ): JsonResponse {
         // Get the current user
@@ -621,7 +519,7 @@ class ComicController extends AbstractController
 
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
     public function delete(
-        string $id, 
+        int $id,
         EntityManagerInterface $entityManager,
         ComicService $comicService
     ): JsonResponse {
@@ -733,10 +631,8 @@ class ComicController extends AbstractController
             
             // Create user-specific directory for chunks
             $userChunkDir = $this->tempUploadDir . '/' . $user->getId() . '/' . $fileId;
-            if (!file_exists($userChunkDir)) {
-                mkdir($userChunkDir, 0775, true);
-            }
-            
+            $this->ensureTempUploadDir($userChunkDir);
+
             // Save metadata
             file_put_contents(
                 $userChunkDir . '/metadata.json', 
@@ -776,14 +672,13 @@ class ComicController extends AbstractController
         try {
             $fileId = (string) $request->request->get('fileId');
             $this->assertSafeFileId($fileId);
-            $chunkIndex = (int)$request->request->get('chunkIndex');
-            $totalChunks = (int)$request->request->get('totalChunks');
+            $chunkIndex = (int) $request->request->get('chunkIndex');
             $chunk = $request->files->get('chunk');
-            
-            if (!$fileId || !isset($chunkIndex) || !$chunk) {
+
+            if (!$chunk) {
                 return $this->json(['message' => 'Missing required parameters'], Response::HTTP_BAD_REQUEST);
             }
-            
+
             // Check if chunk is valid
             if (!$chunk->isValid()) {
                 return $this->json(['message' => 'Invalid chunk: ' . $chunk->getErrorMessage()], Response::HTTP_BAD_REQUEST);
@@ -933,26 +828,31 @@ class ComicController extends AbstractController
                 true // Test mode to avoid moving the file
             );
             
-            // Extract metadata
-            $comicMetadata = $metadata['metadata'];
-            
+            // Extract metadata. Only the title is required; the rest are optional
+            // and may legitimately be absent from the init payload.
+            $comicMetadata = is_array($metadata['metadata'] ?? null) ? $metadata['metadata'] : [];
+            $title = trim((string) ($comicMetadata['title'] ?? ''));
+            if ($title === '') {
+                return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
+            }
+
             // Create comic in database
             $comic = $comicService->uploadComic(
                 $tempFile,
                 $user,
-                $comicMetadata['title'],
-                $comicMetadata['author'],
-                $comicMetadata['publisher'],
-                $comicMetadata['description'],
+                $title,
+                $comicMetadata['author'] ?? null,
+                $comicMetadata['publisher'] ?? null,
+                $comicMetadata['description'] ?? null,
                 $comicMetadata['tags'] ?? []
             );
-            
+
             // Clean up temp directory
             $this->cleanupTempDirectory($userChunkDir);
-            
+
             return $this->json([
                 'message' => 'Upload completed successfully',
-                'comic' => $comic->toArray()
+                'comic' => $this->comicSerializer->serialize($comic, $user, false),
             ]);
         } catch (BadRequestHttpException $e) {
             return $this->json(['message' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
@@ -1011,36 +911,32 @@ class ComicController extends AbstractController
         }
 
         // Always look for the comic in the user's directory first
-        $comicsDirectory = $this->getParameter('comics_directory');
         $owner = $comic->getOwner();
-        $userDirectory = $comicsDirectory . '/' . $owner->getId();
-        $filePath = $userDirectory . '/' . $comic->getFilePath();
-        
+        $relativePath = basename((string) $comic->getFilePath());
+        $userDirectory = $this->comicsDirectory . '/' . $owner->getId();
+        $filePath = $userDirectory . '/' . $relativePath;
+
         // Fallback to old path if file doesn't exist in user directory
         if (!file_exists($filePath)) {
-            $filePath = $comicsDirectory . '/' . $comic->getFilePath();
-            
+            $legacyPath = $this->comicsDirectory . '/' . $relativePath;
+
             // If still not found, return error
-            if (!file_exists($filePath)) {
+            if (!file_exists($legacyPath)) {
                 return $this->json(['message' => 'Comic file not found'], Response::HTTP_NOT_FOUND);
             }
-            
-            // If found in the old location, move it to the user's directory for future access
-            try {
-                // Create user directory if it doesn't exist
-                if (!file_exists($userDirectory)) {
-                    mkdir($userDirectory, 0777, true);
+
+            // If found in the old location, copy it into the user's directory for future access
+            if (@mkdir($userDirectory, 0775, true) || is_dir($userDirectory)) {
+                if (@copy($legacyPath, $filePath)) {
+                    $legacyPath = $filePath;
                 }
-                
-                // Copy the file to the user's directory
-                copy($filePath, $userDirectory . '/' . $comic->getFilePath());
-                
-                // Update the file path to use the user's directory
-                $filePath = $userDirectory . '/' . $comic->getFilePath();
-            } catch (\Exception $e) {
-                // If there's an error moving the file, just continue using the old path
-                // We'll log this in a production environment
             }
+
+            if (!is_file($filePath)) {
+                $this->logger->info('Serving comic page from the legacy storage location.', ['comic_id' => $comic->getId()]);
+            }
+
+            $filePath = $legacyPath;
         }
 
         // Open CBZ file

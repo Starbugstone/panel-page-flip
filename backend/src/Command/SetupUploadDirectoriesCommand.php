@@ -84,7 +84,7 @@ class SetupUploadDirectoriesCommand extends Command
     {
         if (!file_exists($directory)) {
             $io->note(sprintf('Creating directory: %s', $directory));
-            if (!mkdir($directory, 0777, true)) {
+            if (!mkdir($directory, 0775, true)) {
                 $io->error(sprintf('Failed to create directory: %s', $directory));
                 return;
             }
@@ -92,10 +92,11 @@ class SetupUploadDirectoriesCommand extends Command
             $io->note(sprintf('Directory already exists: %s', $directory));
         }
         
-        // Ensure directory is writable
+        // Ensure directory is writable by the owner and group (PHP-FPM and the
+        // web server share a group; world-writable uploads are not needed).
         if (!is_writable($directory)) {
             $io->note(sprintf('Setting permissions on directory: %s', $directory));
-            chmod($directory, 0777);
+            chmod($directory, 0775);
         }
     }
 }

@@ -3,8 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-
-const formatDate = (value) => value ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Never";
+import { formatDateTime } from "@/lib/format";
 
 export function AdminDropbox() {
   const { toast } = useToast();
@@ -62,7 +61,7 @@ export function AdminDropbox() {
             {users.length > 0 ? users.map((user) => (
               <TableRow key={user.id}>
                 <TableCell>{user.name || user.email}<div className="text-sm text-muted-foreground">{user.email}</div></TableCell>
-                <TableCell>{formatDate(user.lastSyncedAt)}</TableCell>
+                <TableCell>{formatDateTime(user.lastSyncedAt, "Never")}</TableCell>
                 <TableCell>{user.dropboxComicCount}</TableCell>
                 <TableCell className="text-right space-x-2">
                   <Button size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => runAction(user.id, "sync")}>Force sync</Button>

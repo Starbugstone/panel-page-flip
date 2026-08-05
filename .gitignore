@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .windsurf/*
+.claude/*
 
 # Local testing files
 passwords.txt

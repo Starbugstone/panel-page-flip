@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { getComicProgressState } from "@/lib/comic-progress";
+import { formatDate } from "@/lib/format";
 
 export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete }) {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
@@ -160,7 +161,7 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
                       <Progress value={progress.percent} className={cn("h-2", progress.progressClass)} />
                     </div>
                   </TableCell>
-                  <TableCell>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(comic.uploadedAt))}</TableCell>
+                  <TableCell>{formatDate(comic.uploadedAt)}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="icon" asChild>
                       <Link to={`/read/${comic.id}`} aria-label={`Read ${comic.title}`}><Eye className="h-4 w-4" /></Link>

@@ -21,6 +21,18 @@ framework:
         default_uri: '%env(APP_SCHEME)%://%env(APP_HOST)%:%env(APP_PORT)%'
         utf8: true
 
+    # Behind a reverse proxy or CDN, REMOTE_ADDR is the proxy rather than the
+    # visitor. Rate limiting keys on the client IP, so without this every
+    # request looks like it comes from one address and the login/register
+    # limiters become global instead of per-client.
+    #
+    # Set TRUSTED_PROXIES to the proxy addresses (e.g. "127.0.0.1,REMOTE_ADDR"
+    # or your CDN's ranges) in production. Left empty it changes nothing, which
+    # is correct for the Docker-only setup where Nginx passes the real
+    # REMOTE_ADDR straight through to PHP-FPM.
+    trusted_proxies: '%env(default::TRUSTED_PROXIES)%'
+    trusted_headers: ['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-port', 'x-forwarded-host']
+
 when@test:
     framework:
         test: true
