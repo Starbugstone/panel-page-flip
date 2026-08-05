@@ -262,4 +262,4 @@ Report security-sensitive issues privately to the repository owner rather than o
 
 ## License
 
-This project is proprietary and confidential. No permission is granted to use, copy, modify, or distribute it without authorization from the owner.
+This project is open source under the [MIT License](LICENSE).
