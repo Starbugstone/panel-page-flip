@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Entity\User;
+use App\Service\AccountDeletionService;
 use App\Service\AdminAuditService;
 use App\Service\PasswordValidator;
 use Doctrine\ORM\EntityManagerInterface;
@@ -282,8 +283,12 @@ class UserController extends AbstractController
     }
 
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
-    public function delete(int $id, EntityManagerInterface $entityManager, AdminAuditService $auditService): JsonResponse
-    {
+    public function delete(
+        int $id,
+        EntityManagerInterface $entityManager,
+        AdminAuditService $auditService,
+        AccountDeletionService $accountDeletion,
+    ): JsonResponse {
         // Get the current user and assert its type
         $user = $this->getUser();
         if (!$user instanceof User) {
@@ -306,13 +311,6 @@ class UserController extends AbstractController
             return $this->json(['message' => 'Cannot delete your own account'], Response::HTTP_FORBIDDEN);
         }
 
-        if (in_array('ROLE_ADMIN', $targetUser->getRoles(), true)) {
-            $remainingAdmins = $entityManager->getRepository(User::class)->countAdminsExcluding($targetUser);
-            if ($remainingAdmins === 0) {
-                return $this->json(['message' => 'There must be at least one admin'], Response::HTTP_CONFLICT);
-            }
-        }
-
         if (!$targetUser->getComics()->isEmpty()) {
             return $this->json([
                 'message' => 'This user still owns comics. Reassign or delete those comics explicitly before deleting the account.',
@@ -320,10 +318,17 @@ class UserController extends AbstractController
         }
 
         $auditService->log($user, 'user_delete', 'user', $targetUser->getId(), ['email' => $targetUser->getEmail()]);
-
-        // Delete user
-        $entityManager->remove($targetUser);
+        // Flush so AccountDeletionService can load and redact this audit row.
         $entityManager->flush();
+
+        try {
+            // Same erasure path as self-service deletion: shares, tags, audit
+            // redaction, and durable file purge. Comics remain an explicit
+            // admin precondition above so libraries are not deleted by surprise.
+            $accountDeletion->delete($targetUser);
+        } catch (\DomainException $exception) {
+            return $this->json(['message' => $exception->getMessage()], Response::HTTP_CONFLICT);
+        }
 
         return $this->json(['message' => 'User deleted successfully']);
     }

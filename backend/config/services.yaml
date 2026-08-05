@@ -96,6 +96,12 @@ services:
         arguments:
             $managedDirectory: '%comics_directory%'
             $quarantineDirectory: '%quarantine_directory%'
+
+    App\Service\PendingFileDeletionService:
+        arguments:
+            $allowedRoots:
+                - '%quarantine_directory%'
+                - '%public_shares_directory%'
             
     # Comic controller with comics directory configuration
     App\Controller\ComicController:

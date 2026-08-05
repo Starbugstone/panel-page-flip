@@ -30,12 +30,18 @@ final class CleanupPersonalDataCommand extends Command
             ['Expired email verification tokens' => $counts['verificationTokens']],
             ['Expired password reset tokens' => $counts['resetTokens']],
             ['Unverified accounts older than 30 days' => $counts['unverifiedAccounts']],
+            ['Pending personal-data files deleted' => $counts['filesDeleted']],
+            ['Pending personal-data files remaining' => $counts['filesRemaining']],
             ['Errors' => $counts['errors']],
         );
 
         if ($counts['errors'] > 0) {
             $io->warning('Cleanup completed with errors. Check the application log.');
             return Command::FAILURE;
+        }
+
+        if ($counts['filesRemaining'] > 0) {
+            $io->warning('Some personal-data files remain queued for a later retry.');
         }
 
         $io->success('Personal-data retention cleanup completed.');

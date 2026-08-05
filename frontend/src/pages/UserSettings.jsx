@@ -32,6 +32,14 @@ export default function UserSettings() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [deletingAccount, setDeletingAccount] = useState(false);
 
+  const setAccountDeletionDialogOpen = (open) => {
+    setDeleteDialogOpen(open);
+    if (!open) {
+      setDeleteConfirmation("");
+      setCurrentPassword("");
+    }
+  };
+
   const loadTags = useCallback(async () => {
     setLoading(true);
     try {
@@ -126,6 +134,8 @@ export default function UserSettings() {
       await logout();
       navigate("/", { replace: true });
     } catch (error) {
+      setDeleteConfirmation("");
+      setCurrentPassword("");
       toast({ title: "Could not delete your account", description: error.message, variant: "destructive" });
     } finally {
       setDeletingAccount(false);
@@ -186,7 +196,7 @@ export default function UserSettings() {
           <Button variant="outline" onClick={downloadPersonalData}>
             <Download className="mr-2 h-4 w-4" /> Download my data
           </Button>
-          <Button variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+          <Button variant="destructive" onClick={() => setAccountDeletionDialogOpen(true)}>
             <Trash2 className="mr-2 h-4 w-4" /> Delete my account
           </Button>
         </CardContent>
@@ -210,7 +220,7 @@ export default function UserSettings() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setAccountDeletionDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Permanently delete your account?</AlertDialogTitle>

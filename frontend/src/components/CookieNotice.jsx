@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-
-const STORAGE_KEY = "panel-page-flip:cookie-notice-dismissed";
+import { persistCookieNoticeDismissal, wasCookieNoticeDismissed } from "@/lib/cookie-notice-storage";
 
 export function CookieNotice() {
-  const [visible, setVisible] = useState(() => localStorage.getItem(STORAGE_KEY) !== "true");
+  const [visible, setVisible] = useState(() => !wasCookieNoticeDismissed());
 
   const dismiss = () => {
-    localStorage.setItem(STORAGE_KEY, "true");
+    persistCookieNoticeDismissal();
     setVisible(false);
   };
 

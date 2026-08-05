@@ -51,6 +51,7 @@ final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
         self::assertSame(1, $counts['verificationTokens']);
         self::assertSame(1, $counts['resetTokens']);
         self::assertSame(1, $counts['unverifiedAccounts']);
+        self::assertSame(0, $counts['filesRemaining']);
         self::assertSame(0, $counts['errors']);
 
         $entityManager->clear();

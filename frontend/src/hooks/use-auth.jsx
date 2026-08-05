@@ -70,12 +70,14 @@ export function AuthProvider({ children }) {
   ), []);
 
   const logout = useCallback(async () => {
+    sessionManager.stop();
+    setSessionExpired(false);
+    clearClientSession();
+
     try {
       await api.post("/api/logout_user", {}, { notifyUnauthorized: false });
     } catch (error) {
-      logger.warn("Logout request failed; clearing the local session:", error.message);
-    } finally {
-      clearClientSession();
+      logger.warn("Logout request failed after clearing the local session:", error.message);
     }
   }, [clearClientSession]);
 

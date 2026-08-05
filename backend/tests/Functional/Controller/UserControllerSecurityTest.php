@@ -3,6 +3,8 @@
 namespace App\Tests\Functional\Controller;
 
 use App\Entity\AdminAuditLog;
+use App\Entity\ShareToken;
+use App\Entity\User;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
@@ -118,6 +120,40 @@ class UserControllerSecurityTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(409);
         self::assertStringContainsString('still owns comics', $payload['message']);
         self::assertSame(1, ComicFactory::repository()->count());
+    }
+
+    public function testAdminDeleteErasesSharesAndRedactsAuditPayload(): void
+    {
+        $this->createAndLoginAdmin();
+        $target = UserFactory::createOne([
+            'email' => 'admin-delete-me@test.local',
+            'name' => 'Admin Delete Me',
+        ])->object();
+        $comicOwner = UserFactory::createOne()->object();
+        $comic = ComicFactory::new()->ownedBy($comicOwner)->create()->object();
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $share = (new ShareToken($comic, $comicOwner, $target->getEmail()))
+            ->setExpiresAt(new \DateTimeImmutable('+1 day'));
+        $entityManager->persist($share);
+        $entityManager->flush();
+        $targetId = $target->getId();
+        $shareId = $share->getId();
+
+        $payload = $this->deleteJson('/api/users/' . $targetId);
+
+        self::assertResponseIsSuccessful();
+        self::assertStringContainsString('deleted', $payload['message']);
+
+        $entityManager->clear();
+        self::assertNull($entityManager->find(User::class, $targetId));
+        self::assertNull($entityManager->find(ShareToken::class, $shareId));
+
+        $auditLogs = $entityManager->getRepository(AdminAuditLog::class)->findBy(['action' => 'user_delete']);
+        self::assertNotEmpty($auditLogs);
+        $latest = end($auditLogs);
+        self::assertNull($latest->getTargetId());
+        self::assertSame('[redacted]', $latest->getPayload()['email'] ?? null);
     }
 
     public function testAuditHistorySurvivesAdministratorDeletion(): void

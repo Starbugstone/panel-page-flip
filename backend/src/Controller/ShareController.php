@@ -138,15 +138,21 @@ class ShareController extends AbstractController
             return new JsonResponse(['error' => 'Share link expired'], Response::HTTP_GONE);
         }
         
-        if ($shareToken->getSharedWithEmail() !== $currentUser->getEmail()) {
+        if (strcasecmp((string) $shareToken->getSharedWithEmail(), (string) $currentUser->getEmail()) !== 0) {
             return new JsonResponse(['error' => 'Share link not intended for this account'], Response::HTTP_FORBIDDEN);
         }
         
         try {
-            // Mark the share as used
-            $shareToken->setIsUsed(true);
-            $entityManager->persist($shareToken);
-            
+            // Decline erases the invitation immediately so recipient PII does not
+            // linger until the share expires.
+            if ($shareToken->getPublicCoverPath()) {
+                $publicCoverPath = $this->publicSharesDirectory . '/' . basename($shareToken->getPublicCoverPath());
+                if (is_file($publicCoverPath)) {
+                    @unlink($publicCoverPath);
+                }
+            }
+
+            $entityManager->remove($shareToken);
             $entityManager->flush();
             
             return new JsonResponse(['message' => 'Share refused successfully'], Response::HTTP_OK);
@@ -307,7 +313,7 @@ class ShareController extends AbstractController
             return new JsonResponse(['error' => 'Share link expired'], Response::HTTP_GONE);
         }
 
-        if ($shareToken->getSharedWithEmail() !== $currentUser->getEmail()) {
+        if (strcasecmp((string) $shareToken->getSharedWithEmail(), (string) $currentUser->getEmail()) !== 0) {
             return new JsonResponse(['error' => 'Share link not intended for this account'], Response::HTTP_FORBIDDEN);
         }
 
