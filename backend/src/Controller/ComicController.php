@@ -7,6 +7,7 @@ use App\Entity\ComicReadingProgress;
 use App\Entity\Tag;
 use App\Entity\User;
 use App\Service\AdminAuditService;
+use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicService;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
@@ -29,6 +30,7 @@ use ZipArchive;
 class ComicController extends AbstractController
 {
     private const FILE_ID_REGEX = '/^[A-Za-z0-9\-]{8,64}$/';
+    private const ASSEMBLED_UPLOAD_FILENAME = 'assembled.cbz';
 
     private string $tempUploadDir;
     private RequestStack $requestStack;
@@ -42,7 +44,8 @@ class ComicController extends AbstractController
         private readonly int $uploadMaxChunkBytes,
         private readonly int $uploadMaxTotalBytes,
         private readonly int $uploadMaxTotalChunks,
-        private readonly int $uploadUserQuotaBytes
+        private readonly int $uploadUserQuotaBytes,
+        private readonly ComicUploadFilenameValidator $uploadFilenameValidator
     ) {
         $this->tempUploadDir = sys_get_temp_dir() . '/comic_uploads';
         $this->requestStack = $requestStack;
@@ -63,12 +66,7 @@ class ComicController extends AbstractController
 
     private function assertSafeFilename(string $filename): string
     {
-        $base = basename($filename);
-        if (!preg_match('/^[A-Za-z0-9._\- ]{1,200}\.cbz$/i', $base)) {
-            throw new BadRequestHttpException('Invalid filename.');
-        }
-
-        return $base;
+        return $this->uploadFilenameValidator->validate($filename);
     }
 
     // Removed getPublicBaseUrlForUploads() method as it's no longer needed.
@@ -906,7 +904,10 @@ class ComicController extends AbstractController
             }
             
             // Combine chunks into final file
-            $finalFilePath = $userChunkDir . '/' . $filename;
+            // The client filename is metadata only. Always assemble into a
+            // server-controlled path so valid punctuation and Unicode never
+            // influence filesystem path handling.
+            $finalFilePath = $userChunkDir . '/' . self::ASSEMBLED_UPLOAD_FILENAME;
             $finalFile = fopen($finalFilePath, 'wb');
             
             for ($i = 0; $i < $metadata['totalChunks']; $i++) {
