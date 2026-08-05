@@ -166,9 +166,10 @@ export default function ComicReader() {
     canvas.height = img.height;
     canvas.getContext('2d').drawImage(img, 0, 0);
 
-    // PNG keeps transparency and avoids re-compressing already-lossy pages.
+    // JPEG keeps the bounded page cache compact. Lossless PNG snapshots can
+    // expand photographic comic pages enough to exhaust memory on mobile.
     const cachedImg = new Image();
-    cachedImg.src = canvas.toDataURL('image/png');
+    cachedImg.src = canvas.toDataURL('image/jpeg', 0.92);
     return cachedImg;
   };
 

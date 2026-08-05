@@ -64,6 +64,8 @@ class ComicService
 
         $safeFilename = (string) $this->slugger->slug($originalFilename);
         $newFilename = $safeFilename . '-' . uniqid('', true) . '.cbz';
+        // TODO: Shard comic archives into nested directories before large
+        // libraries put enough files in one user directory to degrade OS/filesystem performance.
         $absolutePath = $userDirectory . '/' . $newFilename;
 
         try {
