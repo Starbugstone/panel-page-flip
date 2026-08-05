@@ -43,7 +43,9 @@ class DropboxImportService
         try {
             $response = $client->listFolder($path);
 
-            do {
+            // Dropbox pages large folders. Stopping at the first page would
+            // silently hide every file past the page size from the sync.
+            while (true) {
                 foreach ($response['entries'] ?? [] as $entry) {
                     $tag = $entry['.tag'] ?? null;
 
@@ -65,15 +67,18 @@ class DropboxImportService
                     ];
                 }
 
-                // Continue fetching if there are more results
-                if (($response['has_more'] ?? false) && isset($response['cursor'])) {
-                    $response = $client->listFolderContinue($response['cursor']);
-                } else {
+                if (empty($response['has_more']) || !isset($response['cursor'])) {
                     break;
                 }
-            } while (true);
+
+                $response = $client->listFolderContinue((string) $response['cursor']);
+            }
         } catch (\Throwable $e) {
+            // Callers already handle failures. Swallowing here would report a
+            // partial listing as a complete one, so re-import decisions and the
+            // "already synced" flags would be made against missing files.
             $this->logger->error('Error listing Dropbox folder.', ['path' => $path, 'exception' => $e]);
+
             throw $e;
         }
 
@@ -145,7 +150,7 @@ class DropboxImportService
         }
 
         try {
-            file_put_contents($stagedPath, $this->downloadFile($client, $fileInfo['path']));
+            $this->downloadFile($client, $fileInfo['path'], $stagedPath);
 
             $comic = $this->comicService->uploadComic(
                 new UploadedFile($stagedPath, $fileInfo['name'], 'application/zip', null, true),
@@ -169,22 +174,124 @@ class DropboxImportService
     }
 
     /**
+     * Import every not-yet-imported CBZ for a user, up to $limit attempts.
+     *
+     * The HTTP endpoint and the CLI command both drive this; they differ only in
+     * how they report progress, which is what $report is for. Successes and
+     * failures alike count towards the limit, so one repeatedly failing file
+     * cannot make a sync run through the whole Dropbox account.
+     *
+     * @param callable(string, array<string, mixed>):void|null $report Receives
+     *        'listed', 'skipped', 'importing', 'imported' and 'failed' events.
+     *
+     * @return array{newFiles: int, failed: int}
+     */
+    public function syncUser(
+        DropboxClient $client,
+        User $user,
+        int $limit,
+        bool $dryRun = false,
+        ?callable $report = null
+    ): array {
+        $notify = $report ?? static function (string $event, array $context): void {
+        };
+
+        $files = $this->listCbzFiles($client);
+        $notify('listed', ['count' => count($files)]);
+
+        $importedIndex = $this->getImportedIndex($user);
+        $newFiles = 0;
+        $failed = 0;
+        $processed = 0;
+
+        foreach ($files as $fileInfo) {
+            if ($this->isImported($fileInfo, $importedIndex)) {
+                $notify('skipped', ['file' => $fileInfo]);
+                continue;
+            }
+
+            if ($processed >= $limit) {
+                $notify('limitReached', ['limit' => $limit]);
+                break;
+            }
+
+            $processed++;
+            $notify('importing', ['file' => $fileInfo, 'dryRun' => $dryRun]);
+
+            if ($dryRun) {
+                $newFiles++;
+                continue;
+            }
+
+            try {
+                $this->import($client, $user, $fileInfo);
+                $importedIndex['paths'][mb_strtolower($fileInfo['path'])] = true;
+                $newFiles++;
+                $notify('imported', ['file' => $fileInfo]);
+            } catch (\Throwable $e) {
+                $this->logger->warning('Failed to import a Dropbox file during sync.', [
+                    'user_id' => $user->getId(),
+                    'path' => $fileInfo['path'],
+                    'exception' => $e,
+                ]);
+                $failed++;
+                $notify('failed', ['file' => $fileInfo, 'exception' => $e]);
+            }
+        }
+
+        return ['newFiles' => $newFiles, 'failed' => $failed];
+    }
+
+    /**
      * Dropbox serves large files better through a temporary link, so prefer that
      * and fall back to the API download endpoint.
      *
-     * @return string|resource
+     * The archive is streamed into the staged file: a comic can be hundreds of
+     * megabytes, and holding one in a PHP string exhausts the memory limit long
+     * before the filesystem runs out of room.
      */
-    private function downloadFile(DropboxClient $client, string $path)
+    private function downloadFile(DropboxClient $client, string $path, string $stagedPath): void
     {
-        try {
-            return $this->httpClient->request('GET', $client->getTemporaryLink($path))->getContent();
-        } catch (\Throwable $e) {
-            $this->logger->debug('Dropbox temporary link download failed, falling back to direct download.', [
-                'path' => $path,
-                'exception' => $e,
-            ]);
+        $staged = fopen($stagedPath, 'wb');
+        if ($staged === false) {
+            throw new \RuntimeException('Could not open the staged Dropbox download for writing.');
+        }
 
-            return $client->download($path);
+        try {
+            try {
+                $response = $this->httpClient->request('GET', $client->getTemporaryLink($path));
+                foreach ($this->httpClient->stream($response) as $chunk) {
+                    fwrite($staged, $chunk->getContent());
+                }
+
+                return;
+            } catch (\Throwable $e) {
+                $this->logger->debug('Dropbox temporary link download failed, falling back to direct download.', [
+                    'path' => $path,
+                    'exception' => $e,
+                ]);
+            }
+
+            // The failed attempt may have written part of the archive already,
+            // so start the fallback from an empty file rather than appending to
+            // a corrupt prefix.
+            if (!ftruncate($staged, 0) || fseek($staged, 0) !== 0) {
+                throw new \RuntimeException('Could not reset the staged Dropbox download before retrying.');
+            }
+
+            $source = $client->download($path);
+
+            try {
+                if (stream_copy_to_stream($source, $staged) === false) {
+                    throw new \RuntimeException('Failed to stream the Dropbox download to disk.');
+                }
+            } finally {
+                if (is_resource($source)) {
+                    fclose($source);
+                }
+            }
+        } finally {
+            fclose($staged);
         }
     }
 

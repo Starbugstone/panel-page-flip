@@ -30,6 +30,7 @@ export default function ComicReader() {
   const loadQueueRef = useRef([]); // Queue of pages to load
   const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
   const isMountedRef = useRef(true); // Progress saves outlive the component; used to suppress late toasts
+  const progressRevisionRef = useRef(0); // Orders progress saves that may reach the server out of order
   
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -50,15 +51,25 @@ export default function ComicReader() {
     const controller = new AbortController();
     progressAbortController.current = controller;
 
+    // Aborting only stops the browser waiting for the reply; a superseded save
+    // may already be on its way to the server. The revision tells the server
+    // which save is newer, and page numbers cannot: reading backwards is normal.
+    const revision = ++progressRevisionRef.current;
+
     try {
       // keepalive lets the browser finish this request even if the reader is
       // being torn down (closing the tab, navigating away). Without it the
       // final page of a reading session is silently lost.
-      await api.post(
+      const response = await api.post(
         `/api/comics/${comicId}/progress`,
-        { currentPage: pageToSave },
+        { currentPage: pageToSave, revision },
         { signal: controller.signal, keepalive: true }
       );
+
+      const storedRevision = response?.progress?.revision;
+      if (typeof storedRevision === 'number' && storedRevision > progressRevisionRef.current) {
+        progressRevisionRef.current = storedRevision;
+      }
     } catch (error) {
       // A superseded save is expected, not a failure
       if (error.name === 'AbortError' || controller.signal.aborted) return;
@@ -111,6 +122,11 @@ export default function ComicReader() {
           setComicPages(
             Array.from({ length: data.comic.pageCount }, (_, i) => `/api/comics/${comicId}/pages/${i + 1}`)
           );
+          // Continue the server's revision sequence, otherwise a reopened
+          // reader would start below the stored value and every save would
+          // look stale.
+          progressRevisionRef.current = data.comic.readingProgress?.revision || 0;
+
           if (data.comic.readingProgress && data.comic.readingProgress.currentPage) {
             setCurrentPage(data.comic.readingProgress.currentPage - 1);
           } else {

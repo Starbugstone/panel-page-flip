@@ -799,10 +799,14 @@ class ComicController extends AbstractController
             }
 
             // Extract metadata. Only the title is required; the rest are optional
-            // and may legitimately be absent from the init payload.
+            // and may legitimately be absent from the init payload. Validate before
+            // assembling so a rejected upload never leaves staged files behind: the
+            // title comes from the init payload, so retrying can never succeed.
             $comicMetadata = is_array($metadata['metadata'] ?? null) ? $metadata['metadata'] : [];
             $title = trim((string) ($comicMetadata['title'] ?? ''));
             if ($title === '') {
+                $this->cleanupTempDirectory($userChunkDir);
+
                 return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
             }
 
@@ -1024,6 +1028,18 @@ class ComicController extends AbstractController
         $currentPage = (int) $data['currentPage'];
         $completed = isset($data['completed']) ? (bool) $data['completed'] : false;
 
+        // Optional so older clients keep working; when present it orders saves
+        // that the reader fired in quick succession and that may arrive swapped.
+        // Revisions start at 1: 0 is the stored value for progress that predates
+        // this, so a save numbered 0 could never win the comparison below.
+        $revision = null;
+        if (isset($data['revision'])) {
+            if (!is_numeric($data['revision']) || $data['revision'] < 1) {
+                return $this->json(['message' => 'Invalid revision'], Response::HTTP_BAD_REQUEST);
+            }
+            $revision = (int) $data['revision'];
+        }
+
         if ($isAdminReadingAnotherUsersComic) {
             return $this->json([
                 'message' => 'Admin read-only progress ignored',
@@ -1031,19 +1047,21 @@ class ComicController extends AbstractController
                     'currentPage' => $currentPage,
                     'lastReadAt' => (new \DateTimeImmutable())->format('c'),
                     'completed' => $completed,
+                    'revision' => $revision ?? 0,
                 ],
             ]);
         }
 
         // Update reading progress
-        $progress = $this->updateReadingProgress($user, $comic, $currentPage, $entityManager, $completed);
+        $progress = $this->updateReadingProgress($user, $comic, $currentPage, $entityManager, $completed, $revision);
 
         return $this->json([
             'message' => 'Reading progress updated',
             'progress' => [
                 'currentPage' => $progress->getCurrentPage(),
                 'lastReadAt' => $progress->getLastReadAt()->format('c'),
-                'completed' => $progress->isCompleted()
+                'completed' => $progress->isCompleted(),
+                'revision' => $progress->getRevision(),
             ]
         ]);
     }
@@ -1054,15 +1072,49 @@ class ComicController extends AbstractController
      * Update reading progress for a user and comic
      */
     private function updateReadingProgress(
-        User $user, 
-        Comic $comic, 
-        int $currentPage, 
+        User $user,
+        Comic $comic,
+        int $currentPage,
         EntityManagerInterface $entityManager,
-        bool $completed = false
+        bool $completed = false,
+        ?int $revision = null
     ): ComicReadingProgress {
         // Get existing progress or create new one
         $progress = $entityManager->getRepository(ComicReadingProgress::class)
             ->findOneBy(['comic' => $comic, 'user' => $user]);
+
+        // Mark as completed if specified or if on the last page. Completion is
+        // never taken back here, only granted.
+        $isCompleted = $completed || ($comic->getPageCount() !== null && $currentPage >= $comic->getPageCount());
+
+        if ($progress && $revision !== null) {
+            // Conditional update so the comparison and the write are a single
+            // statement: a save that lost the race leaves the stored page alone.
+            $applied = (int) $entityManager->createQuery(
+                'UPDATE ' . ComicReadingProgress::class . ' p
+                 SET p.currentPage = :currentPage, p.completed = :completed, p.lastReadAt = :lastReadAt, p.revision = :revision
+                 WHERE p.id = :id AND p.revision < :revision'
+            )
+                ->setParameter('currentPage', $currentPage)
+                ->setParameter('completed', $isCompleted || $progress->isCompleted())
+                ->setParameter('lastReadAt', new \DateTimeImmutable())
+                ->setParameter('revision', $revision)
+                ->setParameter('id', $progress->getId())
+                ->execute();
+
+            // A DQL update bypasses the unit of work, so the managed entity is
+            // stale either way: refreshed, it reports whichever save won.
+            $entityManager->refresh($progress);
+
+            if ($applied === 0) {
+                $this->logger->debug('Ignored a superseded reading progress save.', [
+                    'comic_id' => $comic->getId(),
+                    'revision' => $revision,
+                ]);
+            }
+
+            return $progress;
+        }
 
         if (!$progress) {
             $progress = new ComicReadingProgress();
@@ -1073,9 +1125,11 @@ class ComicController extends AbstractController
 
         // Update progress
         $progress->setCurrentPage($currentPage);
-        
-        // Mark as completed if specified or if on the last page
-        if ($completed || ($comic->getPageCount() !== null && $currentPage >= $comic->getPageCount())) {
+        if ($revision !== null) {
+            $progress->setRevision($revision);
+        }
+
+        if ($isCompleted) {
             $progress->setCompleted(true);
         }
 

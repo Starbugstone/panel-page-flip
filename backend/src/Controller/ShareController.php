@@ -223,10 +223,14 @@ class ShareController extends AbstractController
                     $sharedCoverFilename = 'share_' . $shareToken->getToken() . '_' . basename($comic->getCoverImagePath());
                     $sharedCoverPath = $this->publicSharesDirectory . '/' . $sharedCoverFilename;
 
-                    // Copy the cover to the public shares directory
+                    // Copy the cover to the public shares directory. Only record the
+                    // public path once the copy succeeds, otherwise the share would
+                    // point at a file that was never written.
                     if (copy($coverPath, $sharedCoverPath)) {
-                        // Store the public path in the token
                         $shareToken->setPublicCoverPath('shared/' . $sharedCoverFilename);
+                    } else {
+                        // Share without a cover rather than failing the whole request
+                        $this->logger->error("Failed to copy cover image from {$coverPath} to {$sharedCoverPath}");
                     }
                 }
             }

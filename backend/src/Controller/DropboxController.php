@@ -213,9 +213,13 @@ class DropboxController extends AbstractController
         }
 
         $data = json_decode($request->getContent(), true);
+        $filePath = is_array($data) ? ($data['path'] ?? null) : null;
         $fileName = is_array($data) ? ($data['fileName'] ?? null) : null;
-        if (!is_string($fileName) || $fileName === '') {
-            return $this->json(['error' => 'fileName is required'], Response::HTTP_BAD_REQUEST);
+        $filePath = is_string($filePath) && $filePath !== '' ? $filePath : null;
+        $fileName = is_string($fileName) && $fileName !== '' ? $fileName : null;
+
+        if ($filePath === null && $fileName === null) {
+            return $this->json(['error' => 'path is required'], Response::HTTP_BAD_REQUEST);
         }
 
         try {
@@ -223,7 +227,10 @@ class DropboxController extends AbstractController
 
             $targetFile = null;
             foreach ($this->dropboxImport->listCbzFiles($client) as $fileInfo) {
-                if ($fileInfo['name'] === $fileName) {
+                // Match on the full path: the same file name can appear in
+                // several folders, and the folder is what the tags come from.
+                // The name is only a fallback for clients that predate this.
+                if ($filePath !== null ? $fileInfo['path'] === $filePath : $fileInfo['name'] === $fileName) {
                     $targetFile = $fileInfo;
                     break;
                 }
@@ -269,41 +276,18 @@ class DropboxController extends AbstractController
 
         try {
             $client = $this->dropboxClientFactory->createForUser($user);
-            $importedIndex = $this->dropboxImport->getImportedIndex($user);
 
-            $newFiles = 0;
-            $failed = 0;
-            foreach ($this->dropboxImport->listCbzFiles($client) as $fileInfo) {
-                if ($this->dropboxImport->isImported($fileInfo, $importedIndex)) {
-                    continue;
-                }
-
-                // Bound the work a single request can do, matching the CLI sync.
-                if ($newFiles + $failed >= $this->dropboxSyncLimit) {
-                    break;
-                }
-
-                try {
-                    $this->dropboxImport->import($client, $user, $fileInfo);
-                    $importedIndex['paths'][mb_strtolower($fileInfo['path'])] = true;
-                    $newFiles++;
-                } catch (\Throwable $e) {
-                    $this->logger->warning('Failed to import a Dropbox file during sync.', [
-                        'user_id' => $user->getId(),
-                        'path' => $fileInfo['path'],
-                        'exception' => $e,
-                    ]);
-                    $failed++;
-                }
-            }
+            // The limit bounds the work a single request can do; the CLI sync
+            // runs the same loop with its own limit.
+            $result = $this->dropboxImport->syncUser($client, $user, $this->dropboxSyncLimit);
 
             $user->setDropboxLastSyncedAt(new \DateTimeImmutable());
             $entityManager->flush();
 
             return $this->json([
                 'message' => 'Sync completed successfully',
-                'newFiles' => $newFiles,
-                'failedFiles' => $failed,
+                'newFiles' => $result['newFiles'],
+                'failedFiles' => $result['failed'],
             ]);
         } catch (\Throwable $e) {
             $this->logger->error('Dropbox sync failed.', ['user_id' => $user->getId(), 'exception' => $e]);

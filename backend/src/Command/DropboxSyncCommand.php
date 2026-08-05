@@ -151,62 +151,62 @@ class DropboxSyncCommand extends Command
      */
     private function syncUserDropbox(User $user, SymfonyStyle $io, bool $dryRun, int $limit): array
     {
-        $newFiles = 0;
-        $errors = 0;
-
         try {
             $client = $this->dropboxClientFactory->createForUser($user);
-            $files = $this->dropboxImport->listCbzFiles($client);
 
-            if ($files === []) {
-                $io->text('No CBZ files found in Dropbox');
-                return ['newFiles' => 0, 'errors' => 0];
-            }
+            // The loop itself lives in the service, shared with the HTTP sync
+            // endpoint; this callback is all the console adds to it.
+            $result = $this->dropboxImport->syncUser(
+                $client,
+                $user,
+                $limit,
+                $dryRun,
+                fn (string $event, array $context) => $this->report($io, $dryRun, $event, $context)
+            );
 
-            $io->text(sprintf('Found %d CBZ file(s) in Dropbox', count($files)));
-            $importedIndex = $this->dropboxImport->getImportedIndex($user);
-
-            $processedCount = 0;
-            foreach ($files as $fileInfo) {
-                if ($this->dropboxImport->isImported($fileInfo, $importedIndex)) {
-                    $io->text("Skipping {$fileInfo['name']} (already imported)");
-                    continue;
-                }
-
-                if ($processedCount >= $limit) {
-                    $io->text(sprintf('Reached limit of %d files for this user. Skipping remaining files.', $limit));
-                    break;
-                }
-
-                $folderPath = dirname($fileInfo['path']);
-                $folderInfo = $folderPath !== '/' ? " (in {$folderPath})" : '';
-                $tagsInfo = $fileInfo['tags'] !== [] ? ' [Tags: ' . implode(', ', $fileInfo['tags']) . ']' : '';
-                $io->text("Processing {$fileInfo['name']}{$folderInfo}...");
-
-                if ($dryRun) {
-                    $io->text("  [DRY RUN] Would download and import {$fileInfo['name']}{$tagsInfo}");
-                    $newFiles++;
-                    $processedCount++;
-                    continue;
-                }
-
-                try {
-                    $this->dropboxImport->import($client, $user, $fileInfo);
-                    $importedIndex['paths'][mb_strtolower($fileInfo['path'])] = true;
-                    $io->text("  ✓ Successfully imported {$fileInfo['name']}{$tagsInfo}");
-                    $newFiles++;
-                } catch (\Throwable $e) {
-                    $io->error("  ✗ Failed to import {$fileInfo['name']}: " . $e->getMessage());
-                    $errors++;
-                }
-
-                $processedCount++; // Failed attempts count towards the limit too.
-            }
+            return ['newFiles' => $result['newFiles'], 'errors' => $result['failed']];
         } catch (\Throwable $e) {
             $io->error('Failed to connect to Dropbox: ' . $e->getMessage());
-            $errors++;
-        }
 
-        return ['newFiles' => $newFiles, 'errors' => $errors];
+            return ['newFiles' => 0, 'errors' => 1];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function report(SymfonyStyle $io, bool $dryRun, string $event, array $context): void
+    {
+        $file = $context['file'] ?? null;
+        $tagsInfo = $file && $file['tags'] !== [] ? ' [Tags: ' . implode(', ', $file['tags']) . ']' : '';
+
+        switch ($event) {
+            case 'listed':
+                $io->text($context['count'] === 0
+                    ? 'No CBZ files found in Dropbox'
+                    : sprintf('Found %d CBZ file(s) in Dropbox', $context['count']));
+                break;
+            case 'skipped':
+                $io->text("Skipping {$file['name']} (already imported)");
+                break;
+            case 'limitReached':
+                $io->text(sprintf('Reached limit of %d files for this user. Skipping remaining files.', $context['limit']));
+                break;
+            case 'importing':
+                $folderPath = dirname($file['path']);
+                $folderInfo = $folderPath !== '/' ? " (in {$folderPath})" : '';
+                $io->text("Processing {$file['name']}{$folderInfo}...");
+
+                if ($dryRun) {
+                    $io->text("  [DRY RUN] Would download and import {$file['name']}{$tagsInfo}");
+                }
+                break;
+            case 'imported':
+                $io->text("  ✓ Successfully imported {$file['name']}{$tagsInfo}");
+                break;
+            case 'failed':
+                $io->error("  ✗ Failed to import {$file['name']}: " . $context['exception']->getMessage());
+                break;
+        }
     }
 }

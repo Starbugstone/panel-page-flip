@@ -74,7 +74,7 @@ class TagController extends AbstractController
         }
 
         // Check if this user already has the tag
-        $conflict = $this->findConflictingTag($entityManager, $tagName, $user, null);
+        $conflict = $this->conflictResponse($entityManager, $tagName, $user, null, 'Tag already exists');
         if ($conflict) {
             return $conflict;
         }
@@ -84,7 +84,7 @@ class TagController extends AbstractController
         $tag->setName($tagName);
         $tag->setCreator($user);
 
-        $violations = $this->validateTag($validator, $tag);
+        $violations = $this->validationErrorResponse($validator, $tag);
         if ($violations) {
             return $violations;
         }
@@ -111,7 +111,9 @@ class TagController extends AbstractController
             return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
         }
 
-        if (!is_array($data) || !isset($data['name']) || !is_string($data['name'])) {
+        // Only a string name is acceptable. Casting instead would turn numbers,
+        // booleans and arrays into nonsense tag names such as "1" or "Array".
+        if (!is_array($data) || !is_string($data['name'] ?? null)) {
             return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -127,11 +129,12 @@ class TagController extends AbstractController
      * A tag name must be unique per creator. Returns the conflict response when
      * a different tag already claims the name, otherwise null.
      */
-    private function findConflictingTag(
+    private function conflictResponse(
         EntityManagerInterface $entityManager,
         string $tagName,
         UserInterface $creator,
-        ?Tag $ignoredTag
+        ?Tag $ignoredTag,
+        string $message
     ): ?JsonResponse {
         $existingTag = $entityManager->getRepository(Tag::class)->findOneBy([
             'name' => $tagName,
@@ -143,12 +146,12 @@ class TagController extends AbstractController
         }
 
         return $this->json([
-            'message' => $ignoredTag ? 'Tag name already exists' : 'Tag already exists',
+            'message' => $message,
             'tag' => $this->serializeTag($existingTag),
         ], Response::HTTP_CONFLICT);
     }
 
-    private function validateTag(ValidatorInterface $validator, Tag $tag): ?JsonResponse
+    private function validationErrorResponse(ValidatorInterface $validator, Tag $tag): ?JsonResponse
     {
         $violations = $validator->validate($tag);
         if (count($violations) === 0) {
@@ -201,7 +204,7 @@ class TagController extends AbstractController
         }
 
         // Check if tag name already exists for this creator (excluding current tag)
-        $conflict = $this->findConflictingTag($entityManager, $tagName, $tag->getCreator(), $tag);
+        $conflict = $this->conflictResponse($entityManager, $tagName, $tag->getCreator(), $tag, 'Tag name already exists');
         if ($conflict) {
             return $conflict;
         }
@@ -209,7 +212,7 @@ class TagController extends AbstractController
         // Update tag
         $tag->setName($tagName);
 
-        $violations = $this->validateTag($validator, $tag);
+        $violations = $this->validationErrorResponse($validator, $tag);
         if ($violations) {
             return $violations;
         }
