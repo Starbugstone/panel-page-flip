@@ -7,6 +7,7 @@ use App\Entity\ShareToken;
 use App\Entity\User;
 use App\Repository\ShareTokenRepository;
 use App\Service\ComicService;
+use App\Service\PendingFileDeletionService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -33,6 +34,7 @@ class ShareController extends AbstractController
         private readonly string $mailerFromAddress,
         private readonly string $mailerFromName,
         private readonly LoggerInterface $logger,
+        private readonly PendingFileDeletionService $pendingFileDeletion,
         ?string $publicSharesDirectory = null
     ) {
         // If not explicitly provided, use a subdirectory of the comics directory
@@ -142,21 +144,28 @@ class ShareController extends AbstractController
             return new JsonResponse(['error' => 'Share link not intended for this account'], Response::HTTP_FORBIDDEN);
         }
         
+        $pendingFileDeletions = [];
+
         try {
             // Decline erases the invitation immediately so recipient PII does not
-            // linger until the share expires.
+            // linger until the share expires. The cover unlink goes through the
+            // durable queue so a failed delete is retried instead of orphaning
+            // the file silently.
             if ($shareToken->getPublicCoverPath()) {
                 $publicCoverPath = $this->publicSharesDirectory . '/' . basename($shareToken->getPublicCoverPath());
-                if (is_file($publicCoverPath)) {
-                    @unlink($publicCoverPath);
-                }
+                $pendingFileDeletions = $this->pendingFileDeletion->queue([$publicCoverPath]);
             }
 
             $entityManager->remove($shareToken);
             $entityManager->flush();
-            
+
+            if ($pendingFileDeletions !== []) {
+                $this->pendingFileDeletion->purge($pendingFileDeletions);
+            }
+
             return new JsonResponse(['message' => 'Share refused successfully'], Response::HTTP_OK);
         } catch (\Exception $e) {
+            $this->pendingFileDeletion->cancel($pendingFileDeletions);
             $logger->error('Error refusing share: ' . $e->getMessage());
             return new JsonResponse(['error' => 'An error occurred while refusing the share'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }

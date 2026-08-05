@@ -156,6 +156,29 @@ class UserControllerSecurityTest extends AbstractApiTestCase
         self::assertSame('[redacted]', $latest->getPayload()['email'] ?? null);
     }
 
+    public function testAdminCanDeleteAnotherAdminWhenMoreThanOneRemains(): void
+    {
+        // Regression coverage for the admin-lock/last-admin-count branch that
+        // AccountDeletionService now runs for admin targets: no prior test
+        // deleted an actual ROLE_ADMIN user through this endpoint, so that
+        // branch (added alongside routing admin delete through the shared
+        // erasure path) was never exercised outside of self-service deletion.
+        $this->createAndLoginAdmin();
+        $targetAdmin = UserFactory::new()->admin()->create([
+            'email' => 'second-admin@test.local',
+        ])->object();
+        $targetId = $targetAdmin->getId();
+
+        $payload = $this->deleteJson('/api/users/' . $targetId);
+
+        self::assertResponseIsSuccessful();
+        self::assertStringContainsString('deleted', $payload['message']);
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->clear();
+        self::assertNull($entityManager->find(User::class, $targetId));
+    }
+
     public function testAuditHistorySurvivesAdministratorDeletion(): void
     {
         $this->createAndLoginAdmin();
