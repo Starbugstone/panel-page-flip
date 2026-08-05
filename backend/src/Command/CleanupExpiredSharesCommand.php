@@ -37,7 +37,7 @@ class CleanupExpiredSharesCommand extends Command
         private EntityManagerInterface $entityManager,
         private ShareTokenRepository $shareTokenRepository,
         private LoggerInterface $logger,
-        string $publicSharesDirectory = null
+        ?string $publicSharesDirectory = null
     ) {
         parent::__construct();
         // If not explicitly provided, use a default path
@@ -85,9 +85,9 @@ class CleanupExpiredSharesCommand extends Command
                     }
                 }
 
-                // Mark the token as used so it won't be processed again
-                $token->setIsUsed(true);
-                $this->entityManager->persist($token);
+                // Expired invitations no longer serve a purpose and may contain
+                // a non-user recipient's email address.
+                $this->entityManager->remove($token);
             } catch (\Exception $e) {
                 $this->logger->error(sprintf('Error cleaning up token %s: %s', $token->getToken(), $e->getMessage()));
                 $errors++;

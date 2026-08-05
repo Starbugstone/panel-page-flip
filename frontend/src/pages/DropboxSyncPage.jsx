@@ -1,4 +1,5 @@
 import { useCallback, useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast.js';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
@@ -336,6 +337,12 @@ function DropboxSyncPage() {
             <h1 className="text-3xl font-bold mb-2">Dropbox Sync</h1>
             <p className="text-muted-foreground">
               Sync your comic collection with Dropbox for easy access across devices.
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Connecting authorizes Panel Page Flip to read file names and import CBZ
+              files from its Dropbox app folder. Tokens are encrypted locally and can
+              be disconnected at any time.{" "}
+              <Link className="underline" to="/privacy">Privacy information</Link>
             </p>
           </div>
           <OrganizationGuide />

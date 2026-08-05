@@ -52,6 +52,7 @@ class ApiCsrfTest extends AbstractApiTestCase
             'email' => 'csrf-registration@test.local',
             'password' => 'Valid!Password123',
             'name' => 'CSRF Test',
+            'agreeTerms' => true,
         ], JSON_THROW_ON_ERROR));
 
         self::assertResponseStatusCodeSame(201);

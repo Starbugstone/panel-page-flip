@@ -60,7 +60,11 @@ class RegistrationController extends AbstractController
                 new Assert\Type('string')
             ],
             'plainPassword' => new Assert\Optional(new Assert\Type('string')),
-            'name' => new Assert\Optional(new Assert\Type('string'))
+            'name' => new Assert\Optional(new Assert\Type('string')),
+            'agreeTerms' => new Assert\Required([
+                new Assert\NotNull(['message' => 'Terms acceptance is required']),
+                new Assert\IsTrue(['message' => 'You must agree to the Terms of Service']),
+            ]),
         ]);
 
         $violations = $validator->validate($data, $constraints);

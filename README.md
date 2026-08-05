@@ -101,11 +101,30 @@ Important configuration variables:
 - `FRONTEND_URL` — base URL used in email and share links
 - `CORS_ALLOW_ORIGIN` — allowed browser origins
 - `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
+- `PRIVACY_OPERATOR`, `PRIVACY_EMAIL` — public data-controller name and privacy contact
 - `MAX_CONCURRENT_UPLOADS` — frontend upload concurrency returned by the application config endpoint
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REDIRECT_URI` — optional Dropbox OAuth settings
 - `DROPBOX_APP_FOLDER`, `DROPBOX_SYNC_LIMIT`, `DROPBOX_RATE_LIMIT` — optional Dropbox import settings
 
 Never commit `.env.local`, `.env.prod.local`, `scripts/.env.deploy`, credentials, or production keys.
+Before making the site public, set `PRIVACY_OPERATOR` to the operator's real
+legal identity and verify that `PRIVACY_EMAIL` is a monitored address. The
+generic development default is not a substitute for identifying the controller.
+
+### Privacy retention
+
+Run both cleanup commands at least daily in production:
+
+```bash
+docker compose exec php php bin/console app:cleanup-personal-data
+docker compose exec php php bin/console app:cleanup-expired-shares
+```
+
+The personal-data cleanup removes administrator audit records after 12 months,
+unverified non-admin accounts after 30 days, and expired email-verification and
+password-reset tokens. The share cleanup permanently removes expired invitations
+and their public cover copies. Configure the web server separately to rotate and
+delete access logs after the shortest period needed for security operations.
 
 ## Common commands
 

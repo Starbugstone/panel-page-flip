@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Edit, Plus, Tags, Trash2 } from "lucide-react";
+import { Download, Edit, Plus, ShieldAlert, Tags, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { useToast } from "@/hooks/use-toast";
@@ -12,9 +13,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function UserSettings() {
   const { toast } = useToast();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const { fetchTags } = useTags();
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +27,10 @@ export default function UserSettings() {
   const [tagName, setTagName] = useState("");
   const [tagToDelete, setTagToDelete] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const loadTags = useCallback(async () => {
     setLoading(true);
@@ -92,6 +100,38 @@ export default function UserSettings() {
     }
   };
 
+  const downloadPersonalData = async () => {
+    try {
+      const blob = await api.blob("/api/privacy/export");
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `panel-page-flip-data-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: "Data export downloaded" });
+    } catch (error) {
+      toast({ title: "Could not export your data", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const deleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      await api.delete("/api/privacy/account", {
+        body: { confirmation: deleteConfirmation, currentPassword },
+      });
+      await logout();
+      navigate("/", { replace: true });
+    } catch (error) {
+      toast({ title: "Could not delete your account", description: error.message, variant: "destructive" });
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   return (
     <div className="container mx-auto max-w-5xl px-4 py-8">
       <div className="mb-6">
@@ -137,6 +177,21 @@ export default function UserSettings() {
         </CardContent>
       </Card>
 
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Privacy and account data</CardTitle>
+          <CardDescription>Download a machine-readable copy of your account data or permanently delete your account.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 sm:flex-row">
+          <Button variant="outline" onClick={downloadPersonalData}>
+            <Download className="mr-2 h-4 w-4" /> Download my data
+          </Button>
+          <Button variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+            <Trash2 className="mr-2 h-4 w-4" /> Delete my account
+          </Button>
+        </CardContent>
+      </Card>
+
       <Dialog open={dialogMode !== null} onOpenChange={(open) => !open && closeDialog()}>
         <DialogContent>
           <DialogHeader><DialogTitle>{dialogMode === "create" ? "Create personal tag" : "Rename personal tag"}</DialogTitle></DialogHeader>
@@ -152,6 +207,51 @@ export default function UserSettings() {
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle>Delete “{tagToDelete?.name}”?</AlertDialogTitle><AlertDialogDescription>This permanently removes the personal tag from {tagToDelete?.comicCount || 0} comic(s).</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={deleteTag}>Delete</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently delete your account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes your comics, reading history, personal tags, share invitations,
+              Dropbox connection, and account. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="delete-current-password">Current password</Label>
+              <Input
+                id="delete-current-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="delete-confirmation">Type DELETE to confirm</Label>
+              <Input
+                id="delete-confirmation"
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAccount}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteConfirmation !== "DELETE" || currentPassword === "" || deletingAccount}
+              onClick={(event) => {
+                event.preventDefault();
+                deleteAccount();
+              }}
+            >
+              {deletingAccount ? "Deleting…" : "Delete account permanently"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

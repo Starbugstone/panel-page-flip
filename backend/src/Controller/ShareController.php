@@ -29,11 +29,18 @@ class ShareController extends AbstractController
     private string $comicsDirectory;
     private string $frontendUrl;
     private string $publicSharesDirectory;
+    private string $mailerFromAddress;
 
-    public function __construct(string $comicsDirectory, string $frontendUrl, string $publicSharesDirectory = null)
+    public function __construct(
+        string $comicsDirectory,
+        string $frontendUrl,
+        string $mailerFromAddress,
+        ?string $publicSharesDirectory = null,
+    )
     {
         $this->comicsDirectory = $comicsDirectory;
         $this->frontendUrl = $frontendUrl;
+        $this->mailerFromAddress = $mailerFromAddress;
         // If not explicitly provided, use a subdirectory of the comics directory
         $this->publicSharesDirectory = $publicSharesDirectory ?? $comicsDirectory . '/public_shares';
         
@@ -209,13 +216,14 @@ class ShareController extends AbstractController
             // Get the user's name and email for the email template
             $userName = $currentUser->getName();
             $userEmail = $currentUser->getEmail();
-            $systemFromAddress = 'noreply@comicreader.example.com'; // Use a system email as the sender
+            $systemFromAddress = $this->mailerFromAddress;
 
             // Render the email template
             $emailBody = $twig->render('emails/share_comic.html.twig', [
                 'comic' => $comic,
                 'userName' => $userName,
                 'shareLink' => $shareLink,
+                'privacyUrl' => $this->frontendUrl . '/privacy',
                 'expiresAt' => $shareToken->getExpiresAt(),
             ]);
 

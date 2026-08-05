@@ -32,9 +32,9 @@ class FrontendController extends AbstractController
         $status = $isKnownRoute ? Response::HTTP_OK : Response::HTTP_NOT_FOUND;
         $headers = ['Content-Type' => 'text/html'];
 
-        // Only the public landing page belongs in search results. Authenticated,
+        // Public informational pages belong in search results. Authenticated,
         // tokenized, and error pages remain usable SPA routes without being indexed.
-        if ($reactRouting !== '') {
+        if (!in_array($reactRouting, ['', 'privacy', 'terms', 'cookies'], true)) {
             $headers['X-Robots-Tag'] = 'noindex, follow';
         }
 
@@ -48,11 +48,15 @@ class FrontendController extends AbstractController
             'login',
             'forgot-password',
             'email-verification',
+            'privacy',
+            'terms',
+            'cookies',
             'dashboard',
             'upload',
             'upload/bulk',
             'admin',
             'dropbox-sync',
+            'settings',
         ], true)) {
             return true;
         }

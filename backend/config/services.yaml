@@ -5,9 +5,13 @@
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
 parameters:
     comics_directory: '%kernel.project_dir%/public/uploads/comics'
+    public_shares_directory: '%kernel.project_dir%/public/shared'
     quarantine_directory: '%kernel.project_dir%/var/quarantine/comics'
     mailer_from_address: '%env(MAILER_FROM_ADDRESS)%'
     mailer_from_name: '%env(MAILER_FROM_NAME)%'
+    privacy_operator_default: 'Panel Page Flip site operator'
+    privacy_operator: '%env(default:privacy_operator_default:PRIVACY_OPERATOR)%'
+    privacy_email: '%env(default:mailer_from_address:PRIVACY_EMAIL)%'
     max_concurrent_uploads: '%env(int:default:max_concurrent_uploads_default:MAX_CONCURRENT_UPLOADS)%'
     max_concurrent_uploads_default: 3
     upload_max_chunk_bytes: 2097152
@@ -107,6 +111,12 @@ services:
         arguments:
             $comicsDirectory: '%comics_directory%'
             $frontendUrl: '%frontend_url%'
+            $mailerFromAddress: '%mailer_from_address%'
+            $publicSharesDirectory: '%public_shares_directory%'
+
+    App\Command\CleanupExpiredSharesCommand:
+        arguments:
+            $publicSharesDirectory: '%public_shares_directory%'
 
     App\Controller\DropboxController:
         arguments:
