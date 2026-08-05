@@ -3,6 +3,7 @@ import { useAuth } from './use-auth';
 import { useToast } from './use-toast';
 import { api } from '@/lib/api';
 import { logger } from '@/lib/logger';
+import { fuzzyFilter } from '@/lib/fuzzy-search';
 
 // Create the context
 const TagContext = createContext(undefined);
@@ -13,6 +14,7 @@ export function TagProvider({ children }) {
   const [lastFetched, setLastFetched] = useState(null);
   const tagsRef = useRef([]);
   const lastFetchedRef = useRef(null);
+  const lastFetchedAdminContextRef = useRef(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -26,7 +28,13 @@ export function TagProvider({ children }) {
     // If we have tags and they were fetched recently (within 5 minutes), use cached version
     // unless force refresh is requested
     const CACHE_TIME = 5 * 60 * 1000; // 5 minutes in milliseconds
-    if (!force && tagsRef.current.length > 0 && lastFetchedRef.current && (Date.now() - lastFetchedRef.current) < CACHE_TIME) {
+    if (
+      !force
+      && tagsRef.current.length > 0
+      && lastFetchedRef.current
+      && lastFetchedAdminContextRef.current === isAdminContext
+      && (Date.now() - lastFetchedRef.current) < CACHE_TIME
+    ) {
       return tagsRef.current;
     }
 
@@ -43,6 +51,7 @@ export function TagProvider({ children }) {
       const fetchedAt = Date.now();
       tagsRef.current = fetchedTags;
       lastFetchedRef.current = fetchedAt;
+      lastFetchedAdminContextRef.current = isAdminContext;
       setTags(fetchedTags);
       setLastFetched(fetchedAt);
       return fetchedTags;
@@ -69,14 +78,15 @@ export function TagProvider({ children }) {
     }
 
     // Try to search locally first for immediate feedback
-    const lowercaseQuery = query.toLowerCase().trim();
-    const localResults = tagsRef.current
-      .filter(tag => tag.name.toLowerCase().includes(lowercaseQuery))
-      .map(tag => ({ id: tag.id, name: tag.name }));
+    const localResults = fuzzyFilter(tagsRef.current, query, ['name']);
     
     // If we have local results and they were fetched recently, use them
     const CACHE_TIME = 5 * 60 * 1000; // 5 minutes
-    if (localResults.length > 0 && lastFetchedRef.current && (Date.now() - lastFetchedRef.current) < CACHE_TIME) {
+    if (
+      lastFetchedRef.current
+      && lastFetchedAdminContextRef.current === isAdminContext
+      && (Date.now() - lastFetchedRef.current) < CACHE_TIME
+    ) {
       return localResults;
     }
 
@@ -120,6 +130,7 @@ export function TagProvider({ children }) {
     } else {
       tagsRef.current = [];
       lastFetchedRef.current = null;
+      lastFetchedAdminContextRef.current = null;
       setTags([]);
       setLastFetched(null);
     }

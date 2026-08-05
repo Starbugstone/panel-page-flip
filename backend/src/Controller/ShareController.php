@@ -7,6 +7,7 @@ use App\Entity\ShareToken;
 use App\Entity\User;
 use App\Repository\ShareTokenRepository;
 use App\Service\ComicService;
+use App\Service\PendingFileDeletionService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -33,6 +34,7 @@ class ShareController extends AbstractController
         private readonly string $mailerFromAddress,
         private readonly string $mailerFromName,
         private readonly LoggerInterface $logger,
+        private readonly PendingFileDeletionService $pendingFileDeletion,
         ?string $publicSharesDirectory = null
     ) {
         // If not explicitly provided, use a subdirectory of the comics directory
@@ -138,19 +140,32 @@ class ShareController extends AbstractController
             return new JsonResponse(['error' => 'Share link expired'], Response::HTTP_GONE);
         }
         
-        if ($shareToken->getSharedWithEmail() !== $currentUser->getEmail()) {
+        if (strcasecmp((string) $shareToken->getSharedWithEmail(), (string) $currentUser->getEmail()) !== 0) {
             return new JsonResponse(['error' => 'Share link not intended for this account'], Response::HTTP_FORBIDDEN);
         }
         
+        $pendingFileDeletions = [];
+
         try {
-            // Mark the share as used
-            $shareToken->setIsUsed(true);
-            $entityManager->persist($shareToken);
-            
+            // Decline erases the invitation immediately so recipient PII does not
+            // linger until the share expires. The cover unlink goes through the
+            // durable queue so a failed delete is retried instead of orphaning
+            // the file silently.
+            if ($shareToken->getPublicCoverPath()) {
+                $publicCoverPath = $this->publicSharesDirectory . '/' . basename($shareToken->getPublicCoverPath());
+                $pendingFileDeletions = $this->pendingFileDeletion->queue([$publicCoverPath]);
+            }
+
+            $entityManager->remove($shareToken);
             $entityManager->flush();
-            
+
+            if ($pendingFileDeletions !== []) {
+                $this->pendingFileDeletion->purge($pendingFileDeletions);
+            }
+
             return new JsonResponse(['message' => 'Share refused successfully'], Response::HTTP_OK);
         } catch (\Exception $e) {
+            $this->pendingFileDeletion->cancel($pendingFileDeletions);
             $logger->error('Error refusing share: ' . $e->getMessage());
             return new JsonResponse(['error' => 'An error occurred while refusing the share'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
@@ -251,6 +266,7 @@ class ShareController extends AbstractController
                 'comic' => $comic,
                 'userName' => $userName,
                 'shareLink' => $shareLink,
+                'privacyUrl' => $this->frontendUrl . '/privacy',
                 'expiresAt' => $shareToken->getExpiresAt(),
             ]);
 
@@ -306,7 +322,7 @@ class ShareController extends AbstractController
             return new JsonResponse(['error' => 'Share link expired'], Response::HTTP_GONE);
         }
 
-        if ($shareToken->getSharedWithEmail() !== $currentUser->getEmail()) {
+        if (strcasecmp((string) $shareToken->getSharedWithEmail(), (string) $currentUser->getEmail()) !== 0) {
             return new JsonResponse(['error' => 'Share link not intended for this account'], Response::HTTP_FORBIDDEN);
         }
 
@@ -405,24 +421,53 @@ class ShareController extends AbstractController
             // Copy Tags. Everything here stays inside the surrounding transaction:
             // flushing inside a try/catch per tag would close the EntityManager on
             // the first constraint violation and break every later operation.
-            $existingTags = [];
-            foreach ($tagRepository->findBy(['creator' => $currentUser]) as $tag) {
-                $existingTags[mb_strtolower($tag->getName())] = $tag;
+            // Recipient globals are reused only when the source tag is global, so
+            // a personal "Horror" never becomes the install-wide Horror tag (and
+            // its library-hiding behavior). Personal collisions with an existing
+            // global follow the migration policy: append " (personal)".
+            $globalTags = [];
+            $personalTags = [];
+            foreach ($tagRepository->findAvailableForUser($currentUser) as $tag) {
+                $tagKey = mb_strtolower($tag->getName());
+                if ($tag->isGlobal()) {
+                    $globalTags[$tagKey] ??= $tag;
+                } else {
+                    $personalTags[$tagKey] ??= $tag;
+                }
             }
 
             foreach ($originalComic->getTags() as $originalTag) {
                 $tagName = $originalTag->getName();
                 $tagKey = mb_strtolower($tagName);
 
-                if (!isset($existingTags[$tagKey])) {
-                    $newTag = new Tag();
-                    $newTag->setName($tagName);
-                    $newTag->setCreator($currentUser);
-                    $entityManager->persist($newTag);
-                    $existingTags[$tagKey] = $newTag;
+                if ($originalTag->isGlobal()) {
+                    if (!isset($globalTags[$tagKey])) {
+                        // Global missing for the recipient — only ever create a
+                        // personal stand-in; global tags stay administrator-only.
+                        $newTag = new Tag();
+                        $newTag->setName($this->personalTagNameAvoidingGlobals($tagName, $globalTags, $personalTags));
+                        $newTag->setCreator($currentUser);
+                        $entityManager->persist($newTag);
+                        $personalTags[mb_strtolower($newTag->getName())] = $newTag;
+                        $newComic->addTag($newTag);
+                        continue;
+                    }
+                    $newComic->addTag($globalTags[$tagKey]);
+                    continue;
                 }
 
-                $newComic->addTag($existingTags[$tagKey]);
+                if (isset($personalTags[$tagKey])) {
+                    $newComic->addTag($personalTags[$tagKey]);
+                    continue;
+                }
+
+                $resolvedName = $this->personalTagNameAvoidingGlobals($tagName, $globalTags, $personalTags);
+                $newTag = new Tag();
+                $newTag->setName($resolvedName);
+                $newTag->setCreator($currentUser);
+                $entityManager->persist($newTag);
+                $personalTags[mb_strtolower($resolvedName)] = $newTag;
+                $newComic->addTag($newTag);
             }
 
             // Mark the share token as used
@@ -458,5 +503,36 @@ class ShareController extends AbstractController
             $logger->error('Error accepting shared comic.', ['token' => $token, 'exception' => $e]);
             return new JsonResponse(['error' => 'Failed to accept shared comic.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+    }
+
+    /**
+     * When a personal tag name collides with a recipient global, rename it the
+     * same way the global-tag migration does: append " (personal)".
+     *
+     * @param array<string, Tag> $globalTags
+     * @param array<string, Tag> $personalTags
+     */
+    private function personalTagNameAvoidingGlobals(string $name, array $globalTags, array $personalTags): string
+    {
+        $key = mb_strtolower($name);
+        if (!isset($globalTags[$key])) {
+            return $name;
+        }
+
+        $candidate = $name . ' (personal)';
+        $candidateKey = mb_strtolower($candidate);
+        if (!isset($globalTags[$candidateKey]) && !isset($personalTags[$candidateKey])) {
+            return $candidate;
+        }
+
+        $suffix = 2;
+        while (
+            isset($globalTags[mb_strtolower($name . ' (personal ' . $suffix . ')')])
+            || isset($personalTags[mb_strtolower($name . ' (personal ' . $suffix . ')')])
+        ) {
+            ++$suffix;
+        }
+
+        return $name . ' (personal ' . $suffix . ')';
     }
 }

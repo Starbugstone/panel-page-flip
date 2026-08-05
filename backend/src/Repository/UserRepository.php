@@ -4,6 +4,7 @@ namespace App\Repository;
 
 use App\Entity\User;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
+use Doctrine\DBAL\LockMode;
 use Doctrine\Persistence\ManagerRegistry;
 use Symfony\Component\Security\Core\Exception\UnsupportedUserException;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
@@ -48,5 +49,16 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             ->setParameter('adminRole', '%ROLE_ADMIN%')
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    public function lockAdministrators(): void
+    {
+        $this->createQueryBuilder('u')
+            ->where('u.roles LIKE :adminRole')
+            ->setParameter('adminRole', '%ROLE_ADMIN%')
+            ->orderBy('u.id', 'ASC')
+            ->getQuery()
+            ->setLockMode(LockMode::PESSIMISTIC_WRITE)
+            ->getResult();
     }
 }

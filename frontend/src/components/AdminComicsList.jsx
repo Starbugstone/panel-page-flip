@@ -1,16 +1,17 @@
 
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { TagBadge } from "@/components/TagBadge";
 import { Search, Tag as TagIcon, Trash, Edit, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { ComicEditDialog } from "@/components/ComicEditDialog";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
-import { formatDate, matchesQuery } from "@/lib/format";
+import { fuzzyFilter } from "@/lib/fuzzy-search";
+import { formatDate } from "@/lib/format";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,17 +53,19 @@ export function AdminComicsList() {
     loadComics();
   }, [loadComics]);
   
-  // author, publisher and owner fields are all nullable in the API, so every
-  // comparison has to tolerate a missing value.
-  const query = searchQuery.toLowerCase();
-  const filteredComics = comics.filter(comic =>
-    matchesQuery(comic.title, query) ||
-    matchesQuery(comic.author, query) ||
-    matchesQuery(comic.owner?.email, query) ||
-    matchesQuery(comic.owner?.name, query) ||
-    (comic.tags || []).some(tag =>
-      matchesQuery(typeof tag === "string" ? tag : tag?.name, query)
-    )
+  // Fuzzy matching tolerates the nullable author/publisher/owner fields on its
+  // own. Memoised because each call rebuilds the Fuse index over every comic.
+  const filteredComics = useMemo(
+    () => fuzzyFilter(comics, searchQuery, [
+      "title",
+      "author",
+      "publisher",
+      "description",
+      "owner.name",
+      "owner.email",
+      "tags.name",
+    ]),
+    [comics, searchQuery]
   );
 
   const handleDeleteComic = async (comicId) => {
@@ -89,11 +92,9 @@ export function AdminComicsList() {
 
   const handleSaveComic = async (payload) => {
     const data = await api.patch(`/api/comics/${payload.id}`, payload);
-    setComics((currentComics) => currentComics.map((comic) => (
-      comic.id === payload.id
-        ? { ...comic, ...payload, tags: payload.tags.map((name, index) => ({ id: `${name}-${index}`, name })) }
-        : comic
-    )));
+    // Patch response only returns id/title; reload so TagBadge gets full tag
+    // metadata (id, isGlobal, hideFromLibrary) instead of rebuilt name stubs.
+    await loadComics();
     toast({ title: "Comic updated" });
     return data.comic || payload;
   };
@@ -153,10 +154,10 @@ export function AdminComicsList() {
                     <TableCell>
                       <div className="flex flex-wrap gap-1 max-w-[200px]">
                         {comic.tags && comic.tags.map((tag, index) => (
-                          <Badge key={tag.id || index} variant="outline" className="flex items-center gap-1">
+                          <TagBadge key={tag.id || index} tag={tag} className="flex items-center gap-1">
                             <TagIcon size={12} />
                             {typeof tag === 'string' ? tag : tag.name} {/* Display tag name if it's an object */}
-                          </Badge>
+                          </TagBadge>
                         ))}
                       </div>
                     </TableCell>

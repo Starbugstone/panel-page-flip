@@ -11,7 +11,6 @@ export function AuthProvider({ children }) {
   const [sessionExpired, setSessionExpired] = useState(false);
 
   const clearClientSession = useCallback(() => {
-    localStorage.removeItem("user");
     setUser(null);
   }, []);
 
@@ -19,7 +18,6 @@ export function AuthProvider({ children }) {
     try {
       const data = await api.get("/api/me", { notifyUnauthorized: false });
       setUser(data.user);
-      localStorage.setItem("user", JSON.stringify(data.user));
       return true;
     } catch (error) {
       logger.warn("Authentication check failed:", error.message);
@@ -31,14 +29,6 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let active = true;
     const validateSession = async () => {
-      const storedUser = localStorage.getItem("user");
-      if (storedUser) {
-        try {
-          JSON.parse(storedUser);
-        } catch {
-          localStorage.removeItem("user");
-        }
-      }
       await checkAuth();
       if (active) setLoading(false);
     };
@@ -58,7 +48,6 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     try {
       const data = await api.post("/api/login", { email, password }, { notifyUnauthorized: false });
-      localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
       setSessionExpired(false);
       return data;
@@ -72,17 +61,23 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const register = useCallback((email, password, name = "") => (
-    api.post("/api/register", { email, password, plainPassword: password, name }, { notifyUnauthorized: false })
+  const register = useCallback((email, password, name = "", agreeTerms = false) => (
+    api.post(
+      "/api/register",
+      { email, password, plainPassword: password, name, agreeTerms },
+      { notifyUnauthorized: false },
+    )
   ), []);
 
   const logout = useCallback(async () => {
+    sessionManager.stop();
+    setSessionExpired(false);
+    clearClientSession();
+
     try {
       await api.post("/api/logout_user", {}, { notifyUnauthorized: false });
     } catch (error) {
-      logger.warn("Logout request failed; clearing the local session:", error.message);
-    } finally {
-      clearClientSession();
+      logger.warn("Logout request failed after clearing the local session:", error.message);
     }
   }, [clearClientSession]);
 

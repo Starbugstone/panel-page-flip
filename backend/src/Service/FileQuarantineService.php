@@ -48,6 +48,19 @@ class FileQuarantineService
         }
     }
 
+    /** @param list<array{originalPath: string, quarantinePath: string}> $records */
+    public function purge(array $records): void
+    {
+        foreach ($records as $record) {
+            if (is_file($record['quarantinePath']) && !@unlink($record['quarantinePath'])) {
+                throw new \RuntimeException(sprintf(
+                    'Unable to permanently remove quarantined file "%s".',
+                    $record['quarantinePath'],
+                ));
+            }
+        }
+    }
+
     /** @return array{originalPath: string, quarantinePath: string} */
     private function moveToQuarantine(string $path): array
     {

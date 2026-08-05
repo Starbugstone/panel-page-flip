@@ -86,8 +86,15 @@ class ComicSerializer
             'fileSize' => $comic->getFileSize(),
             'uploadedAt' => $comic->getUploadedAt()?->format('c'),
             'updatedAt' => $comic->getUpdatedAt()?->format('c'),
+            // isGlobal/hideFromLibrary let the client badge a tag and know why a
+            // comic is missing from the default library view.
             'tags' => array_map(
-                static fn ($tag) => ['id' => $tag->getId(), 'name' => $tag->getName()],
+                static fn ($tag) => [
+                    'id' => $tag->getId(),
+                    'name' => $tag->getName(),
+                    'isGlobal' => $tag->isGlobal(),
+                    'hideFromLibrary' => $tag->hidesFromLibrary(),
+                ],
                 $comic->getTags()->toArray()
             ),
             'readingProgress' => $progress ? [

@@ -8,7 +8,8 @@ export function setCookie(name, value, days = 365) {
   const date = new Date();
   date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
   const expires = `expires=${date.toUTCString()}`;
-  document.cookie = `${name}=${value};${expires};path=/`;
+  const secure = window.location.protocol === "https:" ? ";Secure" : "";
+  document.cookie = `${name}=${encodeURIComponent(value)};${expires};path=/;SameSite=Lax${secure}`;
 }
 
 /**
@@ -26,7 +27,7 @@ export function getCookie(name) {
       cookie = cookie.substring(1);
     }
     if (cookie.indexOf(nameEQ) === 0) {
-      return cookie.substring(nameEQ.length);
+      return decodeURIComponent(cookie.substring(nameEQ.length));
     }
   }
   return null;

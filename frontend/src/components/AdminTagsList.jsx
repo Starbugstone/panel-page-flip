@@ -1,13 +1,17 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Search, Plus, Trash, Edit } from "lucide-react";
+import { Search, Plus, Trash, Edit, Globe2, EyeOff } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { TagBadge, HIDDEN_TAG_EXPLANATION } from "@/components/TagBadge";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
-import { formatDate, matchesQuery } from "@/lib/format";
+import { fuzzyFilter } from "@/lib/fuzzy-search";
+import { formatDate } from "@/lib/format";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +33,7 @@ export function AdminTagsList() {
   const [currentTag, setCurrentTag] = useState(null);
   const [tagToDelete, setTagToDelete] = useState(null);
   const [newTagName, setNewTagName] = useState("");
+  const [hideFromLibrary, setHideFromLibrary] = useState(false);
 
   const loadTags = useCallback(async () => {
     setIsLoading(true);
@@ -48,11 +53,10 @@ export function AdminTagsList() {
     loadTags();
   }, [loadTags]);
 
-  const query = searchQuery.toLowerCase();
-  const filteredTags = tags.filter(tag =>
-    matchesQuery(tag.name, query) ||
-    matchesQuery(tag.creator?.name, query) ||
-    matchesQuery(tag.creator?.email, query)
+  // Memoised because each call rebuilds the Fuse index over every tag.
+  const filteredTags = useMemo(
+    () => fuzzyFilter(tags, searchQuery, ["name", "creator.name", "creator.email"]),
+    [tags, searchQuery]
   );
 
   const handleAddTag = async () => {
@@ -60,16 +64,21 @@ export function AdminTagsList() {
       toast({ title: "Error", description: "Tag name cannot be empty", variant: "destructive" });
       return;
     }
-    const tagExists = tags.some(tag => tag.name.toLowerCase() === newTagName.trim().toLowerCase());
+    const tagExists = tags.some(tag => tag.isGlobal && tag.name.toLowerCase() === newTagName.trim().toLowerCase());
     if (tagExists) {
       toast({ title: "Error", description: "A tag with this name already exists", variant: "destructive" });
       return;
     }
 
     try {
-      const createdTag = await api.post("/api/tags", { name: newTagName.trim() });
+      const createdTag = await api.post("/api/tags", {
+        name: newTagName.trim(),
+        isGlobal: true,
+        hideFromLibrary,
+      });
       setTags([...tags, createdTag.tag || createdTag]);
       setNewTagName("");
+      setHideFromLibrary(false);
       setIsAddDialogOpen(false);
       toast({ title: "Success", description: "Tag created successfully" });
     } catch (error) {
@@ -81,6 +90,7 @@ export function AdminTagsList() {
   const handleOpenEditDialog = (tag) => {
     setCurrentTag(tag);
     setNewTagName(tag.name);
+    setHideFromLibrary(tag.hideFromLibrary === true);
     setIsEditDialogOpen(true);
   };
 
@@ -91,6 +101,7 @@ export function AdminTagsList() {
     }
     const tagExists = tags.some(tag =>
       tag.id !== currentTag.id &&
+      tag.isGlobal === currentTag.isGlobal &&
       tag.name.toLowerCase() === newTagName.trim().toLowerCase()
     );
     if (tagExists) {
@@ -99,10 +110,14 @@ export function AdminTagsList() {
     }
 
     try {
-      const updatedTagData = await api.put(`/api/tags/${currentTag.id}`, { name: newTagName.trim() });
+      const updatedTagData = await api.put(`/api/tags/${currentTag.id}`, {
+        name: newTagName.trim(),
+        ...(currentTag.isGlobal ? { hideFromLibrary } : {}),
+      });
       const finalUpdatedTag = updatedTagData.tag || updatedTagData;
       setTags(tags.map(tag => (tag.id === currentTag.id ? finalUpdatedTag : tag)));
       setNewTagName("");
+      setHideFromLibrary(false);
       setIsEditDialogOpen(false);
       setCurrentTag(null);
       toast({ title: "Success", description: "Tag updated successfully" });
@@ -118,11 +133,6 @@ export function AdminTagsList() {
         toast({ title: "Error", description: "Tag not found.", variant: "destructive" });
         return;
     }
-    if (tagToDelete.comicCount > 0) {
-      toast({ title: "Cannot Delete", description: `This tag is used by ${tagToDelete.comicCount} comics`, variant: "destructive" });
-      return;
-    }
-
     try {
       await api.delete(`/api/tags/${tagId}`);
       setTags((currentTags) => currentTags.filter((tag) => tag.id !== tagId));
@@ -154,6 +164,9 @@ export function AdminTagsList() {
           </Button>
         </div>
       </div>
+      <p className="text-sm text-muted-foreground">
+        Tags added here are global and available to every user. The hide option can be changed independently for any global tag.
+      </p>
 
       {isLoading ? (
         <div className="flex justify-center p-8">
@@ -165,6 +178,8 @@ export function AdminTagsList() {
             <TableHeader>
               <TableRow>
                 <TableHead>Tag Name</TableHead>
+                <TableHead>Scope</TableHead>
+                <TableHead>Default library</TableHead>
                 <TableHead>Comics Using</TableHead>
                 <TableHead>Created By</TableHead>
                 <TableHead>Created Date</TableHead>
@@ -176,10 +191,12 @@ export function AdminTagsList() {
                 filteredTags.map((tag) => (
                   <TableRow key={tag.id}>
                     <TableCell>
-                      <span className="font-medium">{tag.name}</span>
+                      <TagBadge tag={tag} className="font-medium" />
                     </TableCell>
+                    <TableCell>{tag.isGlobal ? <span className="inline-flex items-center gap-1"><Globe2 className="h-4 w-4" /> Global</span> : "Personal"}</TableCell>
+                    <TableCell>{tag.hideFromLibrary ? <span className="inline-flex items-center gap-1 text-pink-700 dark:text-pink-300"><EyeOff className="h-4 w-4" /> Hidden</span> : "Visible"}</TableCell>
                     <TableCell>{tag.comicCount}</TableCell>
-                    <TableCell>{tag.creator?.name || tag.creator?.email || 'N/A'}</TableCell>
+                    <TableCell>{tag.creator?.name || tag.creator?.email || 'System'}</TableCell>
                     <TableCell>{formatDate(tag.createdAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
@@ -190,7 +207,6 @@ export function AdminTagsList() {
                           variant="ghost"
                           size="sm"
                           onClick={() => setTagToDelete(tag)}
-                          disabled={tag.comicCount > 0}
                         >
                           <Trash className="h-4 w-4" />
                         </Button>
@@ -200,7 +216,7 @@ export function AdminTagsList() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
+                  <TableCell colSpan={7} className="text-center py-8">
                     {searchQuery ? "No tags found matching your search" : "No tags available"}
                   </TableCell>
                 </TableRow>
@@ -208,7 +224,7 @@ export function AdminTagsList() {
             </TableBody>
             <TableFooter>
               <TableRow>
-                <TableCell colSpan={5} className="text-right">
+                <TableCell colSpan={7} className="text-right">
                   Total Tags: {filteredTags.length}
                 </TableCell>
               </TableRow>
@@ -223,16 +239,23 @@ export function AdminTagsList() {
           <DialogHeader>
             <DialogTitle>Add New Tag</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
+          <div className="space-y-4 py-4">
             <Input
               placeholder="Tag name"
               value={newTagName}
               onChange={(e) => setNewTagName(e.target.value)}
               autoFocus
             />
+            <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+              <div className="space-y-1">
+                <Label htmlFor="add-hide-from-library">Hide comics from the default library</Label>
+                <p className="text-xs text-muted-foreground">{HIDDEN_TAG_EXPLANATION}</p>
+              </div>
+              <Switch id="add-hide-from-library" checked={hideFromLibrary} onCheckedChange={setHideFromLibrary} />
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setIsAddDialogOpen(false); setNewTagName(""); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setIsAddDialogOpen(false); setNewTagName(""); setHideFromLibrary(false); }}>Cancel</Button>
             <Button onClick={handleAddTag}>Add Tag</Button>
           </DialogFooter>
         </DialogContent>
@@ -242,24 +265,34 @@ export function AdminTagsList() {
       <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => {
         setIsEditDialogOpen(isOpen);
         if (!isOpen) {
-            setCurrentTag(null);
-            setNewTagName("");
+          setCurrentTag(null);
+          setNewTagName("");
+          setHideFromLibrary(false);
         }
       }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Tag</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
+          <div className="space-y-4 py-4">
             <Input
               placeholder="Tag name"
               value={newTagName}
               onChange={(e) => setNewTagName(e.target.value)}
               autoFocus
             />
+            {currentTag?.isGlobal && (
+              <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label htmlFor="edit-hide-from-library">Hide comics from the default library</Label>
+                  <p className="text-xs text-muted-foreground">{HIDDEN_TAG_EXPLANATION}</p>
+                </div>
+                <Switch id="edit-hide-from-library" checked={hideFromLibrary} onCheckedChange={setHideFromLibrary} />
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setIsEditDialogOpen(false); setCurrentTag(null); setNewTagName(""); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setIsEditDialogOpen(false); setCurrentTag(null); setNewTagName(""); setHideFromLibrary(false); }}>Cancel</Button>
             <Button onClick={handleEditTag}>Update Tag</Button>
           </DialogFooter>
         </DialogContent>
@@ -270,7 +303,7 @@ export function AdminTagsList() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete tag?</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete {tagToDelete?.name}. This cannot be undone.
+              Delete {tagToDelete?.name}. It will also be removed from {tagToDelete?.comicCount || 0} comic(s). This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

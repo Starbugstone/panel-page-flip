@@ -1,11 +1,13 @@
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { TagBadge } from "@/components/TagBadge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Search, X, Tag as TagIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { fuzzyFilter } from "@/lib/fuzzy-search";
 
 export function SearchBar({ onSearch, isSearching = false }) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -14,8 +16,17 @@ export function SearchBar({ onSearch, isSearching = false }) {
   const [isLoadingTags, setIsLoadingTags] = useState(true);
   const [tagFetchError, setTagFetchError] = useState(null);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
+  const [tagQuery, setTagQuery] = useState("");
   const [retryCount, setRetryCount] = useState(0);
   const MAX_RETRIES = 3;
+  const filteredTags = useMemo(() => {
+    return fuzzyFilter(availableTags, tagQuery, ["name"])
+      .sort((a, b) => {
+        const aSelected = selectedTags.some((tag) => tag.id === a.id);
+        const bSelected = selectedTags.some((tag) => tag.id === b.id);
+        return Number(bSelected) - Number(aSelected) || a.name.localeCompare(b.name);
+      });
+  }, [availableTags, selectedTags, tagQuery]);
 
   useEffect(() => {
     const fetchTags = async () => {
@@ -71,7 +82,7 @@ export function SearchBar({ onSearch, isSearching = false }) {
   };
   
   return (
-    <div className="w-full max-w-3xl">
+    <div className={`w-full max-w-3xl ${showTagDropdown ? "relative z-[70]" : ""}`}>
       <form onSubmit={handleSearch} className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-2.5 h-5 w-5 text-muted-foreground" />
@@ -93,7 +104,7 @@ export function SearchBar({ onSearch, isSearching = false }) {
           )}
         </div>
         
-        <div className="relative">
+        <div className="relative z-[70]">
           <Button 
             type="button" 
             variant="outline" 
@@ -118,9 +129,24 @@ export function SearchBar({ onSearch, isSearching = false }) {
           </Button>
           
           {showTagDropdown && (
-            <div className="absolute right-0 z-10 mt-2 w-64 rounded-md border bg-card shadow-lg">
-              <div className="p-3 max-h-60 overflow-y-auto">
-                <p className="text-sm font-medium mb-2">Filter by tags:</p>
+            <div className="absolute right-0 z-[80] mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border bg-card shadow-xl">
+              <div className="border-b p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium">Filter by tags</p>
+                  <span className="text-xs text-muted-foreground">{selectedTags.length} selected</span>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={tagQuery}
+                    onChange={(event) => setTagQuery(event.target.value)}
+                    placeholder="Search your tags…"
+                    className="h-9 pl-8"
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="max-h-72 overflow-y-auto p-2">
                 {isLoadingTags && <p className="text-sm text-muted-foreground">Loading tags...</p>}
                 {tagFetchError && (
                   <div className="text-sm text-destructive">
@@ -136,17 +162,26 @@ export function SearchBar({ onSearch, isSearching = false }) {
                   </div>
                 )}
                 {!isLoadingTags && !tagFetchError && (
-                  <div className="flex flex-wrap gap-2">
-                    {availableTags.map((tag) => (
-                      <Badge 
-                        key={tag.id} 
-                        variant={selectedTags.find(t => t.id === tag.id) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => toggleTag(tag)}
-                      >
-                        {tag.name}
-                      </Badge>
-                    ))}
+                  <div className="space-y-1">
+                    {filteredTags.map((tag) => {
+                      const selected = selectedTags.some((item) => item.id === tag.id);
+                      return (
+                        <label
+                          key={tag.id}
+                          className="flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent"
+                        >
+                          <Checkbox
+                            checked={selected}
+                            onCheckedChange={() => toggleTag(tag)}
+                          />
+                          <TagBadge tag={tag} />
+                          {tag.isGlobal && <span className="ml-auto text-xs text-muted-foreground">Global</span>}
+                        </label>
+                      );
+                    })}
+                    {filteredTags.length === 0 && (
+                      <p className="px-2 py-6 text-center text-sm text-muted-foreground">No tags match “{tagQuery}”.</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -156,6 +191,7 @@ export function SearchBar({ onSearch, isSearching = false }) {
                   variant="ghost" 
                   size="sm" 
                   onClick={() => setSelectedTags([])}
+                  disabled={selectedTags.length === 0}
                 >
                   Clear
                 </Button>
@@ -164,6 +200,7 @@ export function SearchBar({ onSearch, isSearching = false }) {
                   size="sm" 
                   onClick={() => {
                     setShowTagDropdown(false);
+                    setTagQuery("");
                     // Trigger search when applying tag selection
                     onSearch({
                       query: searchQuery,
@@ -194,9 +231,9 @@ export function SearchBar({ onSearch, isSearching = false }) {
       </form>
       
       {selectedTags.length > 0 && (
-        <div className="flex flex-wrap gap-2 mt-2">
+        <div className="mt-2 flex max-w-full gap-2 overflow-x-auto pb-1">
           {selectedTags.map((tag) => (
-            <Badge key={tag.id} className="flex items-center gap-1">
+            <TagBadge key={tag.id} tag={tag} className="flex shrink-0 items-center gap-1">
               <TagIcon className="h-3 w-3" />
               {tag.name}
               <button 
@@ -206,7 +243,7 @@ export function SearchBar({ onSearch, isSearching = false }) {
               >
                 <X className="h-3 w-3" />
               </button>
-            </Badge>
+            </TagBadge>
           ))}
         </div>
       )}

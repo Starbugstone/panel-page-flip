@@ -54,14 +54,19 @@ export default function Landing() {
       <footer className="bg-background py-6 px-4 border-t">
         <div className="max-w-5xl mx-auto flex flex-col items-center justify-between gap-2 text-center text-sm text-muted-foreground sm:flex-row sm:text-left">
           <p>© {new Date().getFullYear()} Comic Reader App. All rights reserved.</p>
-          <a
-            href="https://github.com/Starbugstone/panel-page-flip/issues"
-            target="_blank"
-            rel="noreferrer"
-            className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
-          >
-            Report a bug
-          </a>
+          <nav className="flex flex-wrap justify-center gap-4">
+            <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/privacy">Privacy</Link>
+            <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/terms">Terms</Link>
+            <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/cookies">Cookies</Link>
+            <a
+              href="https://github.com/Starbugstone/panel-page-flip/issues"
+              target="_blank"
+              rel="noreferrer"
+              className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            >
+              Report a bug
+            </a>
+          </nav>
         </div>
       </footer>
     </div>

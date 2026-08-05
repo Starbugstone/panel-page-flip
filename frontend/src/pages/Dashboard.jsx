@@ -1,5 +1,5 @@
 
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { ComicCard } from "@/components/ComicCard.jsx";
 import { ComicTableView } from "@/components/ComicTableView.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
@@ -13,6 +13,7 @@ import { ShareComicModal } from "@/components/ShareComicModal.jsx";
 import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { fuzzyFilter } from "@/lib/fuzzy-search";
 import { getComicProgressState } from "@/lib/comic-progress";
 
 export default function Dashboard() {
@@ -27,26 +28,32 @@ export default function Dashboard() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const { toast } = useToast();
+  const lastComicsUrl = useRef('/api/comics');
+  const lastSearchQuery = useRef('');
 
   // State for ShareComicModal
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareModalComicId, setShareModalComicId] = useState(null);
   const [shareModalComicTitle, setShareModalComicTitle] = useState(null);
 
-  const processComicsResponse = useCallback((data) => {
+  const processComicsResponse = useCallback((data, fuzzyQuery = '') => {
     const processedComics = data.comics.map(comic => ({
       ...comic,
+      tagDetails: comic.tags || [],
+      hiddenTagNames: (comic.tags || []).filter(tag => tag.hideFromLibrary).map(tag => tag.name),
       tags: comic.tags ? comic.tags.map(tag => tag.name) : [],
       lastReadPage: comic.readingProgress ? comic.readingProgress.currentPage : undefined,
     }));
-    setComics(processedComics);
+    setComics(fuzzyFilter(processedComics, fuzzyQuery, ["title", "author", "publisher", "description", "tags"]));
     // setSearchResults(processedComics); // comics state is now the single source of truth for display
     setError(null);
   }, []);
 
-  const fetchComicsFromApi = useCallback(async (url) => {
+  const fetchComicsFromApi = useCallback(async (url, fuzzyQuery = '') => {
+    lastComicsUrl.current = url;
+    lastSearchQuery.current = fuzzyQuery;
     // If this is a search operation, use the isSearching state instead of full isLoading
-    if (url.includes('search=') || url.includes('tags=')) {
+    if (fuzzyQuery || url.includes('tags=')) {
       setIsSearching(true);
     } else {
       setIsLoading(true);
@@ -54,7 +61,7 @@ export default function Dashboard() {
     setError(null);
     try {
       const data = await api.get(url);
-      processComicsResponse(data);
+      processComicsResponse(data, fuzzyQuery);
     } catch (err) {
       logger.error("Failed to load comics:", err);
       const message = err.status === 429
@@ -77,9 +84,6 @@ export default function Dashboard() {
   const fetchFilteredComics = async (searchQuery, tagNamesArray) => {
     let url = '/api/comics';
     const queryParams = new URLSearchParams();
-    if (searchQuery) {
-      queryParams.append('search', searchQuery);
-    }
     if (tagNamesArray && tagNamesArray.length > 0) {
       queryParams.append('tags', tagNamesArray.join(','));
     }
@@ -90,7 +94,7 @@ export default function Dashboard() {
     }
     
     setIsSearchActive(!!searchQuery || (tagNamesArray && tagNamesArray.length > 0));
-    await fetchComicsFromApi(url);
+    await fetchComicsFromApi(url, searchQuery);
   };
   
   useEffect(() => {
@@ -169,11 +173,7 @@ export default function Dashboard() {
         }],
       });
       
-      // Update local state
-      const updatedComics = comics.map(c => 
-        c.id === updatedComic.id ? { ...c, ...updatedComic } : c
-      );
-      setComics(updatedComics);
+      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
       
       return true;
     } catch (error) {
@@ -204,11 +204,7 @@ export default function Dashboard() {
       await api.patch("/api/comics", {
         updates: comicIds.map((id) => ({ id, changes: { addTags: [tag] } })),
       });
-      setComics((currentComics) => currentComics.map((comic) => (
-        comicIds.includes(comic.id) && !comic.tags.includes(tag)
-          ? { ...comic, tags: [...comic.tags, tag] }
-          : comic
-      )));
+      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
       toast({ title: "Tag added", description: `Added “${tag}” to ${comicIds.length} comic(s).` });
     } catch (error) {
       logger.error("Error adding a tag to selected comics:", error);
