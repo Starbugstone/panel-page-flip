@@ -4,15 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-
-const formatBytes = (bytes = 0) => {
-  if (!bytes) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
-};
-
-const formatDate = (value) => value ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "N/A";
+import { formatDateTime, formatFileSize } from "@/lib/format";
 
 export function AdminOverview() {
   const { toast } = useToast();
@@ -51,7 +43,7 @@ export function AdminOverview() {
         <Card><CardHeader><CardTitle>Total users</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{stats?.totalUsers ?? 0}</CardContent></Card>
         <Card><CardHeader><CardTitle>Verified users</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{stats?.verifiedUsers ?? 0}</CardContent></Card>
         <Card><CardHeader><CardTitle>Total comics</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{stats?.totalComics ?? 0}</CardContent></Card>
-        <Card><CardHeader><CardTitle>Storage used</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{formatBytes(stats?.storageUsed)}</CardContent></Card>
+        <Card><CardHeader><CardTitle>Storage used</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{formatFileSize(stats?.storageUsed)}</CardContent></Card>
       </div>
 
       <Card>
@@ -64,7 +56,7 @@ export function AdminOverview() {
                 <TableRow key={user.id}>
                   <TableCell>{user.name || user.email}<div className="text-sm text-muted-foreground">{user.email}</div></TableCell>
                   <TableCell>{user.isEmailVerified ? "Yes" : "No"}</TableCell>
-                  <TableCell>{formatDate(user.createdAt)}</TableCell>
+                  <TableCell>{formatDateTime(user.createdAt)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

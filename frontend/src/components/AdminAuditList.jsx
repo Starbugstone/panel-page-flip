@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-
-const formatDate = (value) => value ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "N/A";
+import { formatDateTime } from "@/lib/format";
 
 export function AdminAuditList() {
   const { toast } = useToast();
@@ -38,7 +37,7 @@ export function AdminAuditList() {
           <TableBody>
             {logs.length > 0 ? logs.map((log) => (
               <TableRow key={log.id}>
-                <TableCell>{formatDate(log.createdAt)}</TableCell>
+                <TableCell>{formatDateTime(log.createdAt)}</TableCell>
                 <TableCell>{log.admin?.name || log.admin?.email}</TableCell>
                 <TableCell>{log.action}</TableCell>
                 <TableCell>{log.targetType} {log.targetId || ""}</TableCell>

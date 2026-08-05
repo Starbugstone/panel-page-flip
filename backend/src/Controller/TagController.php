@@ -9,6 +9,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 #[Route('/api/tags', name: 'api_tags_')]
@@ -67,32 +68,15 @@ class TagController extends AbstractController
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        // Get data from request
-        $data = json_decode($request->getContent(), true);
-        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
+        $tagName = $this->readTagName($request);
+        if ($tagName instanceof JsonResponse) {
+            return $tagName;
         }
-
-        // Validate tag name
-        if (!isset($data['name']) || empty(trim($data['name']))) {
-            return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
-        }
-
-        $tagName = trim($data['name']);
 
         // Check if this user already has the tag
-        $existingTag = $entityManager->getRepository(Tag::class)->findOneBy([
-            'name' => $tagName,
-            'creator' => $user,
-        ]);
-        if ($existingTag) {
-            return $this->json([
-                'message' => 'Tag already exists',
-                'tag' => [
-                    'id' => $existingTag->getId(),
-                    'name' => $existingTag->getName()
-                ]
-            ], Response::HTTP_CONFLICT);
+        $conflict = $this->conflictResponse($entityManager, $tagName, $user, null, 'Tag already exists');
+        if ($conflict) {
+            return $conflict;
         }
 
         // Create new tag
@@ -100,14 +84,9 @@ class TagController extends AbstractController
         $tag->setName($tagName);
         $tag->setCreator($user);
 
-        // Validate tag
-        $violations = $validator->validate($tag);
-        if (count($violations) > 0) {
-            $errors = [];
-            foreach ($violations as $violation) {
-                $errors[] = $violation->getMessage();
-            }
-            return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+        $violations = $this->validationErrorResponse($validator, $tag);
+        if ($violations) {
+            return $violations;
         }
 
         // Save tag
@@ -116,11 +95,83 @@ class TagController extends AbstractController
 
         return $this->json([
             'message' => 'Tag created successfully',
-            'tag' => [
-                'id' => $tag->getId(),
-                'name' => $tag->getName()
-            ]
+            'tag' => $this->serializeTag($tag),
         ], Response::HTTP_CREATED);
+    }
+
+    /**
+     * Read and validate the tag name from the request body.
+     *
+     * @return string|JsonResponse The trimmed name, or the error response to return.
+     */
+    private function readTagName(Request $request): string|JsonResponse
+    {
+        $data = json_decode($request->getContent(), true);
+        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
+            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
+        }
+
+        // Only a string name is acceptable. Casting instead would turn numbers,
+        // booleans and arrays into nonsense tag names such as "1" or "Array".
+        if (!is_array($data) || !is_string($data['name'] ?? null)) {
+            return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $tagName = trim($data['name']);
+        if ($tagName === '') {
+            return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        return $tagName;
+    }
+
+    /**
+     * A tag name must be unique per creator. Returns the conflict response when
+     * a different tag already claims the name, otherwise null.
+     */
+    private function conflictResponse(
+        EntityManagerInterface $entityManager,
+        string $tagName,
+        UserInterface $creator,
+        ?Tag $ignoredTag,
+        string $message
+    ): ?JsonResponse {
+        $existingTag = $entityManager->getRepository(Tag::class)->findOneBy([
+            'name' => $tagName,
+            'creator' => $creator,
+        ]);
+
+        if (!$existingTag || ($ignoredTag && $existingTag->getId() === $ignoredTag->getId())) {
+            return null;
+        }
+
+        return $this->json([
+            'message' => $message,
+            'tag' => $this->serializeTag($existingTag),
+        ], Response::HTTP_CONFLICT);
+    }
+
+    private function validationErrorResponse(ValidatorInterface $validator, Tag $tag): ?JsonResponse
+    {
+        $violations = $validator->validate($tag);
+        if (count($violations) === 0) {
+            return null;
+        }
+
+        $errors = [];
+        foreach ($violations as $violation) {
+            $errors[] = $violation->getMessage();
+        }
+
+        return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+    }
+
+    /**
+     * @return array{id: ?int, name: ?string}
+     */
+    private function serializeTag(Tag $tag): array
+    {
+        return ['id' => $tag->getId(), 'name' => $tag->getName()];
     }
 
     #[Route('/{id}', name: 'update', methods: ['PUT', 'PATCH'])]
@@ -147,45 +198,23 @@ class TagController extends AbstractController
             return $this->json(['message' => 'You are not authorized to update this tag'], Response::HTTP_FORBIDDEN);
         }
 
-        // Get data from request
-        $data = json_decode($request->getContent(), true);
-        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
+        $tagName = $this->readTagName($request);
+        if ($tagName instanceof JsonResponse) {
+            return $tagName;
         }
-
-        // Validate tag name
-        if (!isset($data['name']) || empty(trim($data['name']))) {
-            return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
-        }
-
-        $tagName = trim($data['name']);
 
         // Check if tag name already exists for this creator (excluding current tag)
-        $existingTag = $entityManager->getRepository(Tag::class)->findOneBy([
-            'name' => $tagName,
-            'creator' => $tag->getCreator(),
-        ]);
-        if ($existingTag && $existingTag->getId() !== $tag->getId()) {
-            return $this->json([
-                'message' => 'Tag name already exists',
-                'tag' => [
-                    'id' => $existingTag->getId(),
-                    'name' => $existingTag->getName()
-                ]
-            ], Response::HTTP_CONFLICT);
+        $conflict = $this->conflictResponse($entityManager, $tagName, $tag->getCreator(), $tag, 'Tag name already exists');
+        if ($conflict) {
+            return $conflict;
         }
 
         // Update tag
         $tag->setName($tagName);
 
-        // Validate tag
-        $violations = $validator->validate($tag);
-        if (count($violations) > 0) {
-            $errors = [];
-            foreach ($violations as $violation) {
-                $errors[] = $violation->getMessage();
-            }
-            return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+        $violations = $this->validationErrorResponse($validator, $tag);
+        if ($violations) {
+            return $violations;
         }
 
         // Save changes
@@ -193,10 +222,7 @@ class TagController extends AbstractController
 
         return $this->json([
             'message' => 'Tag updated successfully',
-            'tag' => [
-                'id' => $tag->getId(),
-                'name' => $tag->getName()
-            ]
+            'tag' => $this->serializeTag($tag),
         ]);
     }
 

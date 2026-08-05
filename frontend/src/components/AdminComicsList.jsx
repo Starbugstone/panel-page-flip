@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ComicEditDialog } from "@/components/ComicEditDialog";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { formatDate, matchesQuery } from "@/lib/format";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,24 +52,19 @@ export function AdminComicsList() {
     loadComics();
   }, [loadComics]);
   
-  const filteredComics = comics.filter(comic => 
-    comic.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    comic.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (comic.owner && comic.owner.email && comic.owner.email.toLowerCase().includes(searchQuery.toLowerCase())) || // Adjusted for potential API structure
-    (comic.owner && comic.owner.username && comic.owner.username.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (comic.tags && comic.tags.some(tag => 
-      typeof tag === 'string' ? tag.toLowerCase().includes(searchQuery.toLowerCase()) : 
-      (tag.name && tag.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    ))
+  // author, publisher and owner fields are all nullable in the API, so every
+  // comparison has to tolerate a missing value.
+  const query = searchQuery.toLowerCase();
+  const filteredComics = comics.filter(comic =>
+    matchesQuery(comic.title, query) ||
+    matchesQuery(comic.author, query) ||
+    matchesQuery(comic.owner?.email, query) ||
+    matchesQuery(comic.owner?.name, query) ||
+    (comic.tags || []).some(tag =>
+      matchesQuery(typeof tag === "string" ? tag : tag?.name, query)
+    )
   );
-  
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      dateStyle: 'medium',
-    }).format(date);
-  };
-  
+
   const handleDeleteComic = async (comicId) => {
     try {
       await api.delete(`/api/comics/${comicId}`);

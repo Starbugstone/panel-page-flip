@@ -54,7 +54,7 @@ class ComicService
             throw new \RuntimeException('Uploaded file is too large.');
         }
 
-        if ($this->getUserStorageBytes($user) + $incomingSize > $this->uploadUserQuotaBytes) {
+        if ($this->wouldExceedQuota($user, $incomingSize)) {
             throw new \RuntimeException('User storage quota exceeded.');
         }
 
@@ -64,6 +64,8 @@ class ComicService
 
         $safeFilename = (string) $this->slugger->slug($originalFilename);
         $newFilename = $safeFilename . '-' . uniqid('', true) . '.cbz';
+        // TODO: Shard comic archives into nested directories before large
+        // libraries put enough files in one user directory to degrade OS/filesystem performance.
         $absolutePath = $userDirectory . '/' . $newFilename;
 
         try {
@@ -273,7 +275,16 @@ class ComicService
         }
     }
 
-    private function getUserStorageBytes(User $user): int
+    /**
+     * Whether storing an extra $additionalBytes for this user would push them
+     * past their quota. Every path that adds a comic must consult this.
+     */
+    public function wouldExceedQuota(User $user, int $additionalBytes): bool
+    {
+        return $this->getUserStorageBytes($user) + $additionalBytes > $this->uploadUserQuotaBytes;
+    }
+
+    public function getUserStorageBytes(User $user): int
     {
         return (int) $this->entityManager->createQueryBuilder()
             ->select('COALESCE(SUM(c.fileSize), 0)')

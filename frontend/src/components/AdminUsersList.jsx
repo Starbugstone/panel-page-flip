@@ -36,6 +36,7 @@ import { useAuth } from "@/hooks/use-auth"; // Import useAuth hook
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { validatePassword } from "@/lib/password-policy";
+import { formatDateTime, matchesQuery } from "@/lib/format";
 
 export function AdminUsersList({ showOnlyUnverified = false }) {
   const { toast } = useToast();
@@ -81,21 +82,11 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
     loadUsers();
   }, [loadUsers]);
   
-  const filteredUsers = users.filter(user => {
-    const query = searchQuery.toLowerCase();
-    const nameMatch = user.name && typeof user.name === 'string' && user.name.toLowerCase().includes(query);
-    const emailMatch = user.email && typeof user.email === 'string' && user.email.toLowerCase().includes(query);
-    return nameMatch || emailMatch;
-  });
-  
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      dateStyle: 'medium',
-      timeStyle: 'short'
-    }).format(date);
-  };
-  
+  const query = searchQuery.toLowerCase();
+  const filteredUsers = users.filter(user =>
+    matchesQuery(user.name, query) || matchesQuery(user.email, query)
+  );
+
   const handleDeleteUser = async (userId) => {
     try {
       await api.delete(`/api/users/${userId}`);
@@ -316,8 +307,8 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                         <Badge variant="destructive">Pending</Badge>
                       )}
                     </TableCell>
-                    <TableCell>{formatDate(user.createdAt)}</TableCell>
-                    <TableCell>{user.lastLoginAt ? formatDate(user.lastLoginAt) : "Never"}</TableCell>
+                    <TableCell>{formatDateTime(user.createdAt)}</TableCell>
+                    <TableCell>{formatDateTime(user.lastLoginAt, "Never")}</TableCell>
                     <TableCell>{user.comicCount}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">

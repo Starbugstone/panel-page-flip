@@ -3,9 +3,8 @@
 namespace App\Controller;
 
 use App\Entity\User;
-use App\Entity\Comic;
-use App\Service\ComicService;
 use App\Service\DropboxClientFactory;
+use App\Service\DropboxImportService;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -14,48 +13,29 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Session\SessionInterface;
-use Symfony\Component\Routing\Annotation\Route;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\CurrentUser;
-use Symfony\Component\HttpFoundation\File\UploadedFile;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[Route('/api/dropbox')]
 class DropboxController extends AbstractController
 {
-    private string $dropboxAppKey;
-    private string $dropboxAppSecret;
-    private string $dropboxRedirectUri;
     private SessionInterface $session;
-    private HttpClientInterface $httpClient;
-    private LoggerInterface $logger;
-    private string $frontendBaseUrl;
-    private string $comicsDirectory;
-    private string $dropboxAppFolder;
-    private DropboxClientFactory $dropboxClientFactory;
 
     public function __construct(
-        string $dropboxAppKey,
-        string $dropboxAppSecret,
-        string $dropboxRedirectUri,
+        private readonly string $dropboxAppKey,
+        private readonly string $dropboxAppSecret,
+        private readonly string $dropboxRedirectUri,
         RequestStack $requestStack,
-        HttpClientInterface $httpClient,
-        LoggerInterface $logger,
-        string $frontendBaseUrl,
-        string $comicsDirectory,
-        string $dropboxAppFolder,
-        DropboxClientFactory $dropboxClientFactory
+        private readonly HttpClientInterface $httpClient,
+        private readonly LoggerInterface $logger,
+        private readonly string $frontendBaseUrl,
+        private readonly DropboxClientFactory $dropboxClientFactory,
+        private readonly DropboxImportService $dropboxImport,
+        private readonly int $dropboxSyncLimit
     ) {
-        $this->dropboxAppKey = $dropboxAppKey;
-        $this->dropboxAppSecret = $dropboxAppSecret;
-        $this->dropboxRedirectUri = $dropboxRedirectUri;
         $this->session = $requestStack->getSession();
-        $this->httpClient = $httpClient;
-        $this->logger = $logger;
-        $this->frontendBaseUrl = $frontendBaseUrl;
-        $this->comicsDirectory = $comicsDirectory;
-        $this->dropboxAppFolder = $dropboxAppFolder;
-        $this->dropboxClientFactory = $dropboxClientFactory;
     }
 
     #[Route('/connect', name: 'dropbox_connect', methods: ['GET'])]
@@ -65,24 +45,21 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        // 1. Generate a secure random state for CSRF protection
-        $state = bin2hex(random_bytes(16)); // 16 bytes = 32 hex characters
+        // Random state, echoed back by Dropbox, to protect the callback from CSRF.
+        $state = bin2hex(random_bytes(16));
         $this->session->set('dropbox_oauth2_state', $state);
         $this->logger->debug('Dropbox OAuth state created.', ['session_id' => hash('sha256', $this->session->getId())]);
 
-        // 2. Manually construct the Dropbox authorization URL
         $authUrlParams = http_build_query([
             'client_id' => $this->dropboxAppKey,
             'redirect_uri' => $this->dropboxRedirectUri,
             'response_type' => 'code',
             'token_access_type' => 'offline', // To get a refresh token
             'state' => $state,
-            'scope' => 'files.content.read files.content.write account_info.read', // Required scopes for file operations
+            'scope' => 'files.content.read files.content.write account_info.read',
         ]);
 
-        $authUrl = 'https://www.dropbox.com/oauth2/authorize?' . $authUrlParams;
-
-        return new RedirectResponse($authUrl);
+        return new RedirectResponse('https://www.dropbox.com/oauth2/authorize?' . $authUrlParams);
     }
 
     #[Route('/callback', name: 'dropbox_callback', methods: ['GET'])]
@@ -95,89 +72,51 @@ class DropboxController extends AbstractController
         $code = $request->query->get('code');
         $returnedState = $request->query->get('state');
         $savedState = $this->session->get('dropbox_oauth2_state');
+        $this->session->remove('dropbox_oauth2_state');
 
-        if (empty($returnedState) || $returnedState !== $savedState) {
-            $this->session->remove('dropbox_oauth2_state');
+        if (empty($returnedState) || !is_string($savedState) || !hash_equals($savedState, $returnedState)) {
             $this->logger->warning('Dropbox OAuth state mismatch.', ['user_id' => $user->getId()]);
             return $this->json(['error' => 'Invalid OAuth state. CSRF attack suspected or session expired.'], Response::HTTP_UNAUTHORIZED);
         }
-        $this->session->remove('dropbox_oauth2_state'); // State is valid, remove it
 
         if (!$code) {
             return $this->json(['error' => 'Dropbox authorization denied or failed. No code received.'], Response::HTTP_BAD_REQUEST);
         }
 
         try {
-            // --- Manual Token Exchange using Symfony HttpClient ---
-            $tokenUrl = 'https://api.dropboxapi.com/oauth2/token';
-            $requestBody = [
-                'grant_type' => 'authorization_code',
-                'code' => $code,
-                'redirect_uri' => $this->dropboxRedirectUri,
-                'client_id' => $this->dropboxAppKey,
-                'client_secret' => $this->dropboxAppSecret,
-            ];
+            $response = $this->httpClient->request('POST', 'https://api.dropboxapi.com/oauth2/token', [
+                'body' => [
+                    'grant_type' => 'authorization_code',
+                    'code' => $code,
+                    'redirect_uri' => $this->dropboxRedirectUri,
+                    'client_id' => $this->dropboxAppKey,
+                    'client_secret' => $this->dropboxAppSecret,
+                ],
+            ]);
 
-            try {
-                $response = $this->httpClient->request('POST', $tokenUrl, [
-                    'body' => $requestBody,
-                ]);
-
-                $statusCode = $response->getStatusCode();
-
-                if ($statusCode === 200) {
-                    $tokenData = $response->toArray(); // Decodes JSON response
-
-                    $accessToken = $tokenData['access_token'] ?? null;
-                    $refreshToken = $tokenData['refresh_token'] ?? null;
-                    // Potentially also: $tokenData['uid'], $tokenData['account_id'], $tokenData['expires_in']
-
-                    if (!$accessToken) {
-                        // Log error: Dropbox response did not contain an access token despite 200 OK.
-                        // $this->get('logger')->error('Dropbox OAuth: No access token in 200 OK response.', ['response_data' => $tokenData]);
-                        return $this->json(['error' => 'Dropbox connection succeeded but no access token was found in the response.'], Response::HTTP_INTERNAL_SERVER_ERROR);
-                    }
-
-                    $user->setDropboxAccessToken($accessToken);
-                    $user->setDropboxRefreshToken($refreshToken);
-                    $entityManager->persist($user);
-                    $entityManager->flush();
-
-                    // Redirect to the frontend Dropbox sync page with a success indicator
-                    $frontendSuccessUrl = rtrim($this->frontendBaseUrl, '/') . '/dropbox-sync?status=connected';
-                    return new RedirectResponse($frontendSuccessUrl);
-
-                } else {
-                    $this->logger->warning('Dropbox OAuth token exchange failed.', ['status_code' => $statusCode]);
-                    return $this->json(['error' => 'Failed to obtain Dropbox token.'], Response::HTTP_BAD_GATEWAY);
-                }
-
-            } catch (\Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface $e) {
-                // Log error: $this->get('logger')->error('Dropbox OAuth Transport Exception: ' . $e->getMessage());
-                return $this->json(['error' => 'Network error while connecting to Dropbox: ' . $e->getMessage()], Response::HTTP_SERVICE_UNAVAILABLE);
-            } catch (\Throwable $e) { // Catch any other generic error during the process
-                // Log error: $this->get('logger')->error('Dropbox OAuth Generic Exception: ' . $e->getMessage());
-                return $this->json(['error' => 'An unexpected error occurred during Dropbox connection: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+            if ($response->getStatusCode() !== 200) {
+                $this->logger->warning('Dropbox OAuth token exchange failed.', ['status_code' => $response->getStatusCode()]);
+                return $this->json(['error' => 'Failed to obtain Dropbox token.'], Response::HTTP_BAD_GATEWAY);
             }
 
-            $refreshToken = $tokenData['refresh_token'] ?? null; 
-            // $userId = $tokenData['uid']; // Dropbox user ID
-            // $accountId = $tokenData['account_id'];
+            $tokenData = $response->toArray();
+            $accessToken = $tokenData['access_token'] ?? null;
+            if (!$accessToken) {
+                $this->logger->error('Dropbox OAuth succeeded but returned no access token.');
+                return $this->json(['error' => 'Dropbox connection succeeded but no access token was found in the response.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+            }
 
             $user->setDropboxAccessToken($accessToken);
-            $user->setDropboxRefreshToken($refreshToken);
-            $entityManager->persist($user);
+            $user->setDropboxRefreshToken($tokenData['refresh_token'] ?? null);
             $entityManager->flush();
 
-            // Redirect to a frontend page indicating success
-            // This URL should be configurable or a known route in your frontend app
-            $frontendSuccessUrl = $this->getParameter('app.frontend_url') . '/dropbox-success'; // Example
-            // return new RedirectResponse($frontendSuccessUrl);
-            return $this->json(['message' => 'Dropbox connected successfully!']);
-
-        } catch (\Exception $e) {
-            // Log error: $this->get('logger')->error('Dropbox OAuth Error: ' . $e->getMessage());
-            return $this->json(['error' => 'Failed to connect Dropbox: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+            return new RedirectResponse(rtrim($this->frontendBaseUrl, '/') . '/dropbox-sync?status=connected');
+        } catch (TransportExceptionInterface $e) {
+            $this->logger->warning('Network error during Dropbox token exchange.', ['exception' => $e]);
+            return $this->json(['error' => 'Network error while connecting to Dropbox.'], Response::HTTP_SERVICE_UNAVAILABLE);
+        } catch (\Throwable $e) {
+            $this->logger->error('Dropbox connection failed.', ['user_id' => $user->getId(), 'exception' => $e]);
+            return $this->json(['error' => 'Failed to connect Dropbox.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -194,13 +133,15 @@ class DropboxController extends AbstractController
 
         if ($connected) {
             try {
-                $client = $this->dropboxClientFactory->createForUser($user);
-                $account = $client->getAccountInfo();
+                $account = $this->dropboxClientFactory->createForUser($user)->getAccountInfo();
                 $dropboxUser = $account['name']['display_name'] ?? $account['email'] ?? 'Unknown';
-                
                 $lastSync = $user->getDropboxLastSyncedAt()?->format('c');
-            } catch (\Exception $e) {
-                // Token might be expired or invalid
+            } catch (\Throwable $e) {
+                // Token expired or revoked: report as disconnected so the UI offers to reconnect.
+                $this->logger->info('Dropbox status check failed, treating account as disconnected.', [
+                    'user_id' => $user->getId(),
+                    'exception' => $e,
+                ]);
                 $connected = false;
             }
         }
@@ -208,7 +149,7 @@ class DropboxController extends AbstractController
         return $this->json([
             'connected' => $connected,
             'user' => $dropboxUser,
-            'lastSync' => $lastSync
+            'lastSync' => $lastSync,
         ]);
     }
 
@@ -221,14 +162,13 @@ class DropboxController extends AbstractController
 
         $user->setDropboxAccessToken(null);
         $user->setDropboxRefreshToken(null);
-        $entityManager->persist($user);
         $entityManager->flush();
 
         return $this->json(['message' => 'Dropbox disconnected successfully']);
     }
 
     #[Route('/files', name: 'dropbox_files', methods: ['GET'])]
-    public function files(#[CurrentUser] ?User $user, EntityManagerInterface $entityManager): Response
+    public function files(#[CurrentUser] ?User $user): Response
     {
         if (!$user) {
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
@@ -240,46 +180,29 @@ class DropboxController extends AbstractController
 
         try {
             $client = $this->dropboxClientFactory->createForUser($user);
-            
-            // Get existing comics for this user to check what's already synced
-            $existingComics = $entityManager->getRepository(Comic::class)->findBy(['owner' => $user]);
-            
-            // Create a more robust way to check if files are synced
-            // We'll check both filename and title similarity
-            $existingFiles = array_map(function($comic) {
-                return basename($comic->getFilePath());
-            }, $existingComics);
-            
-            $existingTitles = array_map(function($comic) {
-                return $comic->getTitle();
-            }, $existingComics);
+            $importedIndex = $this->dropboxImport->getImportedIndex($user);
 
-            // Get all files recursively with folder structure from the configured app folder
-            $allFiles = $this->getAllDropboxFiles($client, $this->dropboxAppFolder);
             $files = [];
-
-            foreach ($allFiles as $fileInfo) {
-                // Check if file is synced using multiple methods
-                $isSynced = $this->isDropboxFileSynced($fileInfo['name'], $existingFiles, $existingTitles);
-                
+            foreach ($this->dropboxImport->listCbzFiles($client) as $fileInfo) {
                 $files[] = [
                     'name' => $fileInfo['name'],
                     'path' => $fileInfo['path'],
-                    'size' => $this->formatFileSize($fileInfo['size']),
+                    'size' => $this->dropboxImport->formatFileSize($fileInfo['size']),
                     'modified' => $fileInfo['modified'],
                     'tags' => $fileInfo['tags'],
-                    'synced' => $isSynced
+                    'synced' => $this->dropboxImport->isImported($fileInfo, $importedIndex),
                 ];
             }
 
             return $this->json(['files' => $files]);
-        } catch (\Exception $e) {
-            return $this->json(['error' => 'Failed to fetch Dropbox files: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+        } catch (\Throwable $e) {
+            $this->logger->error('Failed to list Dropbox files.', ['user_id' => $user->getId(), 'exception' => $e]);
+            return $this->json(['error' => 'Failed to fetch Dropbox files.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
     #[Route('/import', name: 'dropbox_import_single', methods: ['POST'])]
-    public function importSingle(Request $request, #[CurrentUser] ?User $user, EntityManagerInterface $entityManager, ComicService $comicService): Response
+    public function importSingle(Request $request, #[CurrentUser] ?User $user, EntityManagerInterface $entityManager): Response
     {
         if (!$user) {
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
@@ -290,32 +213,24 @@ class DropboxController extends AbstractController
         }
 
         $data = json_decode($request->getContent(), true);
-        $fileName = $data['fileName'] ?? null;
+        $filePath = is_array($data) ? ($data['path'] ?? null) : null;
+        $fileName = is_array($data) ? ($data['fileName'] ?? null) : null;
+        $filePath = is_string($filePath) && $filePath !== '' ? $filePath : null;
+        $fileName = is_string($fileName) && $fileName !== '' ? $fileName : null;
 
-        if (!$fileName) {
-            return $this->json(['error' => 'fileName is required'], Response::HTTP_BAD_REQUEST);
+        if ($filePath === null && $fileName === null) {
+            return $this->json(['error' => 'path is required'], Response::HTTP_BAD_REQUEST);
         }
 
         try {
             $client = $this->dropboxClientFactory->createForUser($user);
-            
-            // Get existing comics for this user
-            $existingComics = $entityManager->getRepository(Comic::class)->findBy(['owner' => $user]);
-            $existingFiles = array_map(function($comic) {
-                return basename($comic->getFilePath());
-            }, $existingComics);
 
-            // Check if file is already imported
-            if (in_array($fileName, $existingFiles)) {
-                return $this->json(['error' => 'Comic is already imported'], Response::HTTP_BAD_REQUEST);
-            }
-
-            // Find the specific file in Dropbox
-            $allFiles = $this->getAllDropboxFiles($client, $this->dropboxAppFolder);
             $targetFile = null;
-            
-            foreach ($allFiles as $fileInfo) {
-                if (basename($fileInfo['path']) === $fileName) {
+            foreach ($this->dropboxImport->listCbzFiles($client) as $fileInfo) {
+                // Match on the full path: the same file name can appear in
+                // several folders, and the folder is what the tags come from.
+                // The name is only a fallback for clients that predate this.
+                if ($filePath !== null ? $fileInfo['path'] === $filePath : $fileInfo['name'] === $fileName) {
                     $targetFile = $fileInfo;
                     break;
                 }
@@ -325,65 +240,11 @@ class DropboxController extends AbstractController
                 return $this->json(['error' => 'File not found in Dropbox'], Response::HTTP_NOT_FOUND);
             }
 
-            $userDirectory = $this->comicsDirectory . '/' . $user->getId();
-            
-            // Ensure user directory exists
-            if (!file_exists($userDirectory)) {
-                mkdir($userDirectory, 0777, true);
+            if ($this->dropboxImport->isImported($targetFile, $this->dropboxImport->getImportedIndex($user))) {
+                return $this->json(['error' => 'Comic is already imported'], Response::HTTP_BAD_REQUEST);
             }
 
-            // Create dropbox subdirectory
-            $dropboxDirectory = $userDirectory . '/dropbox';
-            if (!file_exists($dropboxDirectory)) {
-                mkdir($dropboxDirectory, 0777, true);
-            }
-
-            $originalPath = $targetFile['path'];
-            
-            try {
-                // Get temporary link first
-                $tempLink = $client->getTemporaryLink($originalPath);
-                
-                // Download using regular HTTP client
-                $httpClient = \Symfony\Component\HttpClient\HttpClient::create();
-                $response = $httpClient->request('GET', $tempLink);
-                $fileContent = $response->getContent();
-            } catch (\Exception $e) {
-                // Fallback to original direct download attempt
-                $fileContent = $client->download($originalPath);
-            }
-            
-            // Save to dropbox subdirectory
-            $localPath = $dropboxDirectory . '/' . $fileName;
-            file_put_contents($localPath, $fileContent);
-            
-            // Create a temporary UploadedFile object for the ComicService
-            $tempFile = new UploadedFile(
-                $localPath,
-                $fileName,
-                'application/zip',
-                null,
-                true // Test mode
-            );
-            
-            // Extract title from filename
-            $title = pathinfo($fileName, PATHINFO_FILENAME);
-            $title = str_replace(['_', '-'], ' ', $title);
-            $title = ucwords($title);
-            
-            // Create tags from folder structure + Dropbox tag
-            $tags = array_merge(['Dropbox'], $targetFile['tags']);
-            
-            // Create comic entry
-            $comic = $comicService->uploadComic(
-                $tempFile,
-                $user,
-                $title,
-                null, // author
-                null, // publisher
-                'Synced from Dropbox', // description
-                $tags
-            );
+            $comic = $this->dropboxImport->import($client, $user, $targetFile);
 
             $user->setDropboxLastSyncedAt(new \DateTimeImmutable());
             $entityManager->flush();
@@ -393,19 +254,17 @@ class DropboxController extends AbstractController
                 'comic' => [
                     'id' => $comic->getId(),
                     'title' => $comic->getTitle(),
-                    'tags' => $tags
-                ]
+                    'tags' => array_merge([DropboxImportService::IMPORT_TAG], $targetFile['tags']),
+                ],
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->logger->error('Dropbox import failed.', ['user_id' => $user->getId(), 'exception' => $e]);
-            return $this->json([
-                'error' => 'Import failed.'
-            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+            return $this->json(['error' => 'Import failed.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
     #[Route('/sync', name: 'dropbox_sync', methods: ['POST'])]
-    public function sync(#[CurrentUser] ?User $user, EntityManagerInterface $entityManager, ComicService $comicService): Response
+    public function sync(#[CurrentUser] ?User $user, EntityManagerInterface $entityManager): Response
     {
         if (!$user) {
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
@@ -417,250 +276,22 @@ class DropboxController extends AbstractController
 
         try {
             $client = $this->dropboxClientFactory->createForUser($user);
-            
-            // Get existing comics for this user
-            $existingComics = $entityManager->getRepository(Comic::class)->findBy(['owner' => $user]);
-            $existingFiles = array_map(function($comic) {
-                return basename($comic->getFilePath());
-            }, $existingComics);
 
-            $newFiles = 0;
-            $userDirectory = $this->comicsDirectory . '/' . $user->getId();
-            
-            // Ensure user directory exists
-            if (!file_exists($userDirectory)) {
-                mkdir($userDirectory, 0777, true);
-            }
-
-            // Create dropbox subdirectory
-            $dropboxDirectory = $userDirectory . '/dropbox';
-            if (!file_exists($dropboxDirectory)) {
-                mkdir($dropboxDirectory, 0777, true);
-            }
-
-            // Get all files and folders recursively from the configured app folder
-            $allFiles = $this->getAllDropboxFiles($client, $this->dropboxAppFolder);
-            
-            foreach ($allFiles as $fileInfo) {
-                $fileName = basename($fileInfo['path']);
-                
-                if (!in_array($fileName, $existingFiles)) {
-                    // Download the file from Dropbox
-                    $fileContent = $client->download($fileInfo['path']);
-                    
-                    // Save to dropbox subdirectory
-                    $localPath = $dropboxDirectory . '/' . $fileName;
-                    file_put_contents($localPath, $fileContent);
-                    
-                    // Create a temporary UploadedFile object for the ComicService
-                    $tempFile = new UploadedFile(
-                        $localPath,
-                        $fileName,
-                        'application/zip',
-                        null,
-                        true // Test mode
-                    );
-                    
-                    // Extract title from filename
-                    $title = pathinfo($fileName, PATHINFO_FILENAME);
-                    $title = str_replace(['_', '-'], ' ', $title);
-                    $title = ucwords($title);
-                    
-                    // Create tags from folder structure + Dropbox tag
-                    $tags = array_merge(['Dropbox'], $fileInfo['tags']);
-                    
-                    // Create comic entry
-                    $comic = $comicService->uploadComic(
-                        $tempFile,
-                        $user,
-                        $title,
-                        null, // author
-                        null, // publisher
-                        'Synced from Dropbox', // description
-                        $tags
-                    );
-                    
-                    $newFiles++;
-                }
-            }
+            // The limit bounds the work a single request can do; the CLI sync
+            // runs the same loop with its own limit.
+            $result = $this->dropboxImport->syncUser($client, $user, $this->dropboxSyncLimit);
 
             $user->setDropboxLastSyncedAt(new \DateTimeImmutable());
             $entityManager->flush();
 
             return $this->json([
                 'message' => 'Sync completed successfully',
-                'newFiles' => $newFiles
+                'newFiles' => $result['newFiles'],
+                'failedFiles' => $result['failed'],
             ]);
-        } catch (\Exception $e) {
-            return $this->json(['error' => 'Sync failed: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+        } catch (\Throwable $e) {
+            $this->logger->error('Dropbox sync failed.', ['user_id' => $user->getId(), 'exception' => $e]);
+            return $this->json(['error' => 'Sync failed.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
-    }
-
-    private function formatFileSize(int $bytes): string
-    {
-        $units = ['B', 'KB', 'MB', 'GB'];
-        $bytes = max($bytes, 0);
-        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
-        $pow = min($pow, count($units) - 1);
-        
-        $bytes /= (1 << (10 * $pow));
-        
-        return round($bytes, 2) . ' ' . $units[$pow];
-    }
-
-    /**
-     * Recursively get all CBZ files from Dropbox with their folder structure
-     */
-    private function getAllDropboxFiles($client, string $path = '/'): array
-    {
-        $allFiles = [];
-        
-        try {
-            $response = $client->listFolder($path);
-            
-            foreach ($response['entries'] as $entry) {
-                if ($entry['.tag'] === 'file' && strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)) === 'cbz') {
-                    // Extract folder path and convert to tags
-                    $folderPath = trim(dirname($entry['path_display']), '/');
-                    $tags = $this->convertPathToTags($folderPath);
-                    
-                    $allFiles[] = [
-                        'path' => $entry['path_display'],
-                        'path_lower' => $entry['path_lower'] ?? $entry['path_display'],
-                        'name' => $entry['name'],
-                        'size' => $entry['size'],
-                        'modified' => $entry['client_modified'],
-                        'tags' => $tags
-                    ];
-                } elseif ($entry['.tag'] === 'folder') {
-                    // Recursively get files from subfolders
-                    $subFiles = $this->getAllDropboxFiles($client, $entry['path_display']);
-                    $allFiles = array_merge($allFiles, $subFiles);
-                }
-            }
-        } catch (\Exception $e) {
-            // Handle pagination or other errors
-            $this->logger->warning('Error listing Dropbox folder.', ['exception' => $e]);
-        }
-        
-        return $allFiles;
-    }
-
-    /**
-     * Convert folder path to tags
-     * Examples:
-     * - "/Applications/StarbugStoneComics/superHero" -> ["Super Hero"]
-     * - "/Applications/StarbugStoneComics/Manga/Anime" -> ["Manga", "Anime"]
-     * - "/Applications/StarbugStoneComics/sci-fi/space_opera" -> ["Sci Fi", "Space Opera"]
-     */
-    private function convertPathToTags(string $path): array
-    {
-        if (empty($path) || $path === '.') {
-            return [];
-        }
-        
-        // Remove the app folder prefix from the path to get only the user's folder structure
-        $appFolderPrefix = trim($this->dropboxAppFolder, '/') . '/';
-        $relativePath = ltrim($path, '/');
-        
-        if (str_starts_with($relativePath, $appFolderPrefix)) {
-            $relativePath = substr($relativePath, strlen($appFolderPrefix));
-        }
-        
-        if (empty($relativePath)) {
-            return [];
-        }
-        
-        $folders = explode('/', $relativePath);
-        $tags = [];
-        
-        foreach ($folders as $folder) {
-            if (!empty($folder)) {
-                // Convert camelCase and snake_case to readable format
-                $tag = $this->formatFolderName($folder);
-                if (!empty($tag)) {
-                    $tags[] = $tag;
-                }
-            }
-        }
-        
-        return $tags;
-    }
-
-    /**
-     * Format folder name to readable tag
-     * Examples:
-     * - "superHero" -> "Super Hero"
-     * - "sci-fi" -> "Sci Fi"
-     * - "space_opera" -> "Space Opera"
-     * - "MANGA" -> "Manga"
-     */
-    private function formatFolderName(string $folderName): string
-    {
-        // Replace underscores and hyphens with spaces
-        $formatted = str_replace(['_', '-'], ' ', $folderName);
-        
-        // Split camelCase
-        $formatted = preg_replace('/([a-z])([A-Z])/', '$1 $2', $formatted);
-        
-        // Clean up multiple spaces
-        $formatted = preg_replace('/\s+/', ' ', $formatted);
-        
-        // Trim and convert to title case
-        $formatted = trim($formatted);
-        $formatted = ucwords(strtolower($formatted));
-        
-        return $formatted;
-    }
-
-    /**
-     * Check if a Dropbox file has already been synced/imported
-     * Uses multiple methods: exact filename match and title similarity
-     */
-    private function isDropboxFileSynced(string $dropboxFileName, array $existingFiles, array $existingTitles): bool
-    {
-        // Method 1: Exact filename match (for backwards compatibility)
-        if (in_array($dropboxFileName, $existingFiles)) {
-            return true;
-        }
-        
-        // Method 2: Check if a comic with similar title exists
-        // Extract title from Dropbox filename (remove extension and clean up)
-        $dropboxTitle = pathinfo($dropboxFileName, PATHINFO_FILENAME);
-        $dropboxTitle = str_replace(['_', '-'], ' ', $dropboxTitle);
-        $dropboxTitle = ucwords(strtolower($dropboxTitle));
-        
-        // Normalize titles for comparison
-        $normalizedDropboxTitle = $this->normalizeTitle($dropboxTitle);
-        
-        foreach ($existingTitles as $existingTitle) {
-            $normalizedExistingTitle = $this->normalizeTitle($existingTitle);
-            
-            // Check for high similarity (allowing for minor differences)
-            $similarity = 0;
-            similar_text($normalizedDropboxTitle, $normalizedExistingTitle, $similarity);
-            
-            if ($similarity > 85) { // 85% similarity threshold
-                return true;
-            }
-        }
-        
-        return false;
-    }
-
-    /**
-     * Normalize title for comparison by removing special characters and extra spaces
-     */
-    private function normalizeTitle(string $title): string
-    {
-        // Convert to lowercase
-        $normalized = strtolower($title);
-        
-        // Remove special characters and extra spaces
-        $normalized = preg_replace('/[^a-z0-9\s]/', '', $normalized);
-        $normalized = preg_replace('/\s+/', ' ', $normalized);
-        $normalized = trim($normalized);
-        
-        return $normalized;
     }
 }

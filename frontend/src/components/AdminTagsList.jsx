@@ -7,6 +7,7 @@ import { Search, Plus, Trash, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { formatDate, matchesQuery } from "@/lib/format";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,19 +48,12 @@ export function AdminTagsList() {
     loadTags();
   }, [loadTags]);
 
+  const query = searchQuery.toLowerCase();
   const filteredTags = tags.filter(tag =>
-    tag.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (tag.creator && (tag.creator.name || tag.creator.email) &&
-     (tag.creator.name || tag.creator.email).toLowerCase().includes(searchQuery.toLowerCase()))
+    matchesQuery(tag.name, query) ||
+    matchesQuery(tag.creator?.name, query) ||
+    matchesQuery(tag.creator?.email, query)
   );
-
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      dateStyle: 'medium',
-    }).format(date);
-  };
 
   const handleAddTag = async () => {
     if (!newTagName.trim()) {

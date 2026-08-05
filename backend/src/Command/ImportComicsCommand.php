@@ -142,7 +142,7 @@ class ImportComicsCommand extends Command
                 // Create user directory if it doesn't exist
                 $userDirectory = $comicsDirectory . '/' . $user->getId();
                 if (!is_dir($userDirectory)) {
-                    mkdir($userDirectory, 0777, true);
+                    mkdir($userDirectory, 0775, true);
                 }
                 
                 // Copy file to user's comics directory
@@ -243,7 +243,7 @@ class ImportComicsCommand extends Command
 
         // Create covers directory if it doesn't exist
         if (!file_exists($coverPath)) {
-            mkdir($coverPath, 0777, true);
+            mkdir($coverPath, 0775, true);
         }
 
         // Extract cover image
