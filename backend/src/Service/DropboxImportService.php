@@ -43,28 +43,38 @@ class DropboxImportService
         try {
             $response = $client->listFolder($path);
 
-            foreach ($response['entries'] ?? [] as $entry) {
-                $tag = $entry['.tag'] ?? null;
+            do {
+                foreach ($response['entries'] ?? [] as $entry) {
+                    $tag = $entry['.tag'] ?? null;
 
-                if ($tag === 'folder') {
-                    array_push($files, ...$this->listCbzFiles($client, $entry['path_display']));
-                    continue;
+                    if ($tag === 'folder') {
+                        array_push($files, ...$this->listCbzFiles($client, $entry['path_display']));
+                        continue;
+                    }
+
+                    if ($tag !== 'file' || strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)) !== 'cbz') {
+                        continue;
+                    }
+
+                    $files[] = [
+                        'path' => $entry['path_display'],
+                        'name' => $entry['name'],
+                        'size' => (int) ($entry['size'] ?? 0),
+                        'modified' => $entry['client_modified'] ?? null,
+                        'tags' => $this->convertPathToTags(trim(dirname($entry['path_display']), '/')),
+                    ];
                 }
 
-                if ($tag !== 'file' || strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)) !== 'cbz') {
-                    continue;
+                // Continue fetching if there are more results
+                if (($response['has_more'] ?? false) && isset($response['cursor'])) {
+                    $response = $client->listFolderContinue($response['cursor']);
+                } else {
+                    break;
                 }
-
-                $files[] = [
-                    'path' => $entry['path_display'],
-                    'name' => $entry['name'],
-                    'size' => (int) ($entry['size'] ?? 0),
-                    'modified' => $entry['client_modified'] ?? null,
-                    'tags' => $this->convertPathToTags(trim(dirname($entry['path_display']), '/')),
-                ];
-            }
+            } while (true);
         } catch (\Throwable $e) {
-            $this->logger->warning('Error listing Dropbox folder.', ['path' => $path, 'exception' => $e]);
+            $this->logger->error('Error listing Dropbox folder.', ['path' => $path, 'exception' => $e]);
+            throw $e;
         }
 
         return $files;

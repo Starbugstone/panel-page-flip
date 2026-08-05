@@ -797,7 +797,15 @@ class ComicController extends AbstractController
             if ($currentUsage + $totalSize > $this->uploadUserQuotaBytes) {
                 return $this->json(['message' => 'User storage quota exceeded'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
             }
-            
+
+            // Extract metadata. Only the title is required; the rest are optional
+            // and may legitimately be absent from the init payload.
+            $comicMetadata = is_array($metadata['metadata'] ?? null) ? $metadata['metadata'] : [];
+            $title = trim((string) ($comicMetadata['title'] ?? ''));
+            if ($title === '') {
+                return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
+            }
+
             // Combine chunks into final file
             // The client filename is metadata only. Always assemble into a
             // server-controlled path so valid punctuation and Unicode never
@@ -827,14 +835,6 @@ class ComicController extends AbstractController
                 null,
                 true // Test mode to avoid moving the file
             );
-            
-            // Extract metadata. Only the title is required; the rest are optional
-            // and may legitimately be absent from the init payload.
-            $comicMetadata = is_array($metadata['metadata'] ?? null) ? $metadata['metadata'] : [];
-            $title = trim((string) ($comicMetadata['title'] ?? ''));
-            if ($title === '') {
-                return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
-            }
 
             // Create comic in database
             $comic = $comicService->uploadComic(
@@ -855,9 +855,17 @@ class ComicController extends AbstractController
                 'comic' => $this->comicSerializer->serialize($comic, $user, false),
             ]);
         } catch (BadRequestHttpException $e) {
+            // Clean up if assembly has already occurred
+            if (isset($userChunkDir) && file_exists($userChunkDir)) {
+                $this->cleanupTempDirectory($userChunkDir);
+            }
             return $this->json(['message' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
         } catch (\Exception $e) {
             $this->logger->warning('Error completing upload.', ['user_id' => $user->getId(), 'exception' => $e]);
+            // Clean up if assembly has already occurred
+            if (isset($userChunkDir) && file_exists($userChunkDir)) {
+                $this->cleanupTempDirectory($userChunkDir);
+            }
             return $this->json(['message' => 'Failed to complete upload'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }

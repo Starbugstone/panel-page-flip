@@ -224,10 +224,10 @@ class ShareController extends AbstractController
                     $sharedCoverPath = $this->publicSharesDirectory . '/' . $sharedCoverFilename;
 
                     // Copy the cover to the public shares directory
-                    copy($coverPath, $sharedCoverPath);
-
-                    // Store the public path in the token
-                    $shareToken->setPublicCoverPath('shared/' . $sharedCoverFilename);
+                    if (copy($coverPath, $sharedCoverPath)) {
+                        // Store the public path in the token
+                        $shareToken->setPublicCoverPath('shared/' . $sharedCoverFilename);
+                    }
                 }
             }
 

@@ -51,7 +51,8 @@ export function AdminTagsList() {
   const query = searchQuery.toLowerCase();
   const filteredTags = tags.filter(tag =>
     matchesQuery(tag.name, query) ||
-    matchesQuery(tag.creator?.name || tag.creator?.email, query)
+    matchesQuery(tag.creator?.name, query) ||
+    matchesQuery(tag.creator?.email, query)
   );
 
   const handleAddTag = async () => {

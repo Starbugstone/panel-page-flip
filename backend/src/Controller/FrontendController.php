@@ -14,9 +14,8 @@ class FrontendController extends AbstractController
     /**
      * Serves the React application for any non-API routes
      * This allows React Router to handle client-side routing
-     * 
-     * @Route("/{reactRouting}", requirements={"reactRouting"="^(?!api|_wdt|_profiler).+"}, defaults={"reactRouting"=""}, name="frontend_index")
      */
+    #[Route('/{reactRouting}', requirements: ['reactRouting' => '^(?!api|_wdt|_profiler).+'], defaults: ['reactRouting' => ''], name: 'frontend_index')]
     public function index(string $reactRouting = ''): Response
     {
         // Return the index.html file that loads the React app

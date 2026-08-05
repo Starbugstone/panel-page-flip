@@ -111,7 +111,11 @@ class TagController extends AbstractController
             return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
         }
 
-        $tagName = is_array($data) ? trim((string) ($data['name'] ?? '')) : '';
+        if (!is_array($data) || !isset($data['name']) || !is_string($data['name'])) {
+            return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $tagName = trim($data['name']);
         if ($tagName === '') {
             return $this->json(['message' => 'Tag name is required'], Response::HTTP_BAD_REQUEST);
         }
