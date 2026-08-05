@@ -57,7 +57,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
       <div className="container flex h-16 items-center justify-between px-4 md:px-6">
         <Link to="/" className="flex items-center gap-2">
           <BookOpen className="h-6 w-6 text-comic-purple" />
-          <span className="hidden font-comic text-2xl sm:inline">ComicReader</span>
+          <span className="hidden font-comic text-2xl sm:inline">Panel Page Flip</span>
         </Link>
         <nav className="flex items-center gap-2 sm:gap-4">
           {isLoggedIn ? (

@@ -13,6 +13,16 @@ DirectoryIndex index.php
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # Keep one canonical production origin. The host checks ensure local and
+    # staging installations are unaffected by these redirects.
+    RewriteCond %{HTTP_HOST} ^www\.comics\.starbugstone\.com$ [NC]
+    RewriteRule ^ https://comics.starbugstone.com%{REQUEST_URI} [R=301,L,NE]
+
+    RewriteCond %{HTTP_HOST} ^comics\.starbugstone\.com$ [NC]
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+    RewriteRule ^ https://comics.starbugstone.com%{REQUEST_URI} [R=301,L,NE]
+
     # Determine the RewriteBase automatically and set it as environment
     # variable. If you are using Apache aliases to do mass virtual hosting or
     # installing the project in a subdirectory, the base path will be prepended

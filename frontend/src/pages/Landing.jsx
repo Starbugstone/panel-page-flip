@@ -11,10 +11,10 @@ export default function Landing() {
             <BookOpen className="h-16 w-16 text-comic-purple" />
           </div>
           <h1 className="font-comic text-4xl md:text-6xl mb-6 tracking-tight">
-            Your Personal Comic Book Reader
+            Panel Page Flip: Your Personal Comic Book Reader
           </h1>
           <p className="text-xl md:text-2xl mb-8 text-muted-foreground max-w-3xl mx-auto">
-            Enjoy your favorite comics anytime, anywhere. Pick up right where you left off.
+            Upload, organize, and enjoy your CBZ comics anywhere. Pick up right where you left off.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link to="/login">
