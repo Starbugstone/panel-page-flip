@@ -92,11 +92,9 @@ export function AdminComicsList() {
 
   const handleSaveComic = async (payload) => {
     const data = await api.patch(`/api/comics/${payload.id}`, payload);
-    setComics((currentComics) => currentComics.map((comic) => (
-      comic.id === payload.id
-        ? { ...comic, ...payload, tags: payload.tags.map((name, index) => ({ id: `${name}-${index}`, name })) }
-        : comic
-    )));
+    // Patch response only returns id/title; reload so TagBadge gets full tag
+    // metadata (id, isGlobal, hideFromLibrary) instead of rebuilt name stubs.
+    await loadComics();
     toast({ title: "Comic updated" });
     return data.comic || payload;
   };

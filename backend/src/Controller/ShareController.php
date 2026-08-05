@@ -405,29 +405,53 @@ class ShareController extends AbstractController
             // Copy Tags. Everything here stays inside the surrounding transaction:
             // flushing inside a try/catch per tag would close the EntityManager on
             // the first constraint violation and break every later operation.
-            // Global tags come first from the repository, and `??=` keeps them
-            // ahead of a personal tag of the same name: a shared comic tagged
-            // "Horror" reuses the global tag rather than cloning it privately.
-            $existingTags = [];
+            // Recipient globals are reused only when the source tag is global, so
+            // a personal "Horror" never becomes the install-wide Horror tag (and
+            // its library-hiding behavior). Personal collisions with an existing
+            // global follow the migration policy: append " (personal)".
+            $globalTags = [];
+            $personalTags = [];
             foreach ($tagRepository->findAvailableForUser($currentUser) as $tag) {
-                $existingTags[mb_strtolower($tag->getName())] ??= $tag;
+                $tagKey = mb_strtolower($tag->getName());
+                if ($tag->isGlobal()) {
+                    $globalTags[$tagKey] ??= $tag;
+                } else {
+                    $personalTags[$tagKey] ??= $tag;
+                }
             }
 
             foreach ($originalComic->getTags() as $originalTag) {
                 $tagName = $originalTag->getName();
                 $tagKey = mb_strtolower($tagName);
 
-                if (!isset($existingTags[$tagKey])) {
-                    // Only ever created as a personal tag; global tags stay an
-                    // administrator-only concept.
-                    $newTag = new Tag();
-                    $newTag->setName($tagName);
-                    $newTag->setCreator($currentUser);
-                    $entityManager->persist($newTag);
-                    $existingTags[$tagKey] = $newTag;
+                if ($originalTag->isGlobal()) {
+                    if (!isset($globalTags[$tagKey])) {
+                        // Global missing for the recipient — only ever create a
+                        // personal stand-in; global tags stay administrator-only.
+                        $newTag = new Tag();
+                        $newTag->setName($this->personalTagNameAvoidingGlobals($tagName, $globalTags, $personalTags));
+                        $newTag->setCreator($currentUser);
+                        $entityManager->persist($newTag);
+                        $personalTags[mb_strtolower($newTag->getName())] = $newTag;
+                        $newComic->addTag($newTag);
+                        continue;
+                    }
+                    $newComic->addTag($globalTags[$tagKey]);
+                    continue;
                 }
 
-                $newComic->addTag($existingTags[$tagKey]);
+                if (isset($personalTags[$tagKey])) {
+                    $newComic->addTag($personalTags[$tagKey]);
+                    continue;
+                }
+
+                $resolvedName = $this->personalTagNameAvoidingGlobals($tagName, $globalTags, $personalTags);
+                $newTag = new Tag();
+                $newTag->setName($resolvedName);
+                $newTag->setCreator($currentUser);
+                $entityManager->persist($newTag);
+                $personalTags[mb_strtolower($resolvedName)] = $newTag;
+                $newComic->addTag($newTag);
             }
 
             // Mark the share token as used
@@ -463,5 +487,36 @@ class ShareController extends AbstractController
             $logger->error('Error accepting shared comic.', ['token' => $token, 'exception' => $e]);
             return new JsonResponse(['error' => 'Failed to accept shared comic.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+    }
+
+    /**
+     * When a personal tag name collides with a recipient global, rename it the
+     * same way the global-tag migration does: append " (personal)".
+     *
+     * @param array<string, Tag> $globalTags
+     * @param array<string, Tag> $personalTags
+     */
+    private function personalTagNameAvoidingGlobals(string $name, array $globalTags, array $personalTags): string
+    {
+        $key = mb_strtolower($name);
+        if (!isset($globalTags[$key])) {
+            return $name;
+        }
+
+        $candidate = $name . ' (personal)';
+        $candidateKey = mb_strtolower($candidate);
+        if (!isset($globalTags[$candidateKey]) && !isset($personalTags[$candidateKey])) {
+            return $candidate;
+        }
+
+        $suffix = 2;
+        while (
+            isset($globalTags[mb_strtolower($name . ' (personal ' . $suffix . ')')])
+            || isset($personalTags[mb_strtolower($name . ' (personal ' . $suffix . ')')])
+        ) {
+            ++$suffix;
+        }
+
+        return $name . ' (personal ' . $suffix . ')';
     }
 }

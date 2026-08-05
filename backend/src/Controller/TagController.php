@@ -171,7 +171,10 @@ class TagController extends AbstractController
         $tagRepository = $entityManager->getRepository(Tag::class);
 
         if ($isGlobal) {
-            $existingTag = $tagRepository->findGlobalByName($tagName);
+            // Globals must not share a name with another global or any personal
+            // tag; the availability lookup alone would miss personal collisions.
+            $existingTag = $tagRepository->findGlobalByName($tagName)
+                ?? $tagRepository->findPersonalByName($tagName);
         } elseif ($creator) {
             $existingTag = $tagRepository->findAvailableByName($tagName, $creator);
         } else {

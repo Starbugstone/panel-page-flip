@@ -38,7 +38,15 @@ final class GlobalTagVisibilityTest extends AbstractApiTestCase
         $hiddenFilter = $this->getJson('/api/comics?tags=Hidden');
         self::assertResponseIsSuccessful();
         self::assertSame(['Private'], array_column($hiddenFilter['comics'], 'title'));
-        self::assertTrue($hiddenFilter['comics'][0]['tags'][1]['hideFromLibrary']);
+        $hiddenTag = null;
+        foreach ($hiddenFilter['comics'][0]['tags'] as $tag) {
+            if (($tag['name'] ?? null) === 'Hidden') {
+                $hiddenTag = $tag;
+                break;
+            }
+        }
+        self::assertNotNull($hiddenTag);
+        self::assertTrue($hiddenTag['hideFromLibrary']);
     }
 
     public function testGlobalTagsAreAvailableToEveryUserButOnlyAdminsCanCreateThem(): void

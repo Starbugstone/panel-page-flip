@@ -166,16 +166,17 @@ export function SearchBar({ onSearch, isSearching = false }) {
                     {filteredTags.map((tag) => {
                       const selected = selectedTags.some((item) => item.id === tag.id);
                       return (
-                        <button
+                        <label
                           key={tag.id}
-                          type="button"
-                          className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent"
-                          onClick={() => toggleTag(tag)}
+                          className="flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent"
                         >
-                          <Checkbox checked={selected} tabIndex={-1} aria-hidden="true" />
+                          <Checkbox
+                            checked={selected}
+                            onCheckedChange={() => toggleTag(tag)}
+                          />
                           <TagBadge tag={tag} />
                           {tag.isGlobal && <span className="ml-auto text-xs text-muted-foreground">Global</span>}
-                        </button>
+                        </label>
                       );
                     })}
                     {filteredTags.length === 0 && (

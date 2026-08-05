@@ -78,7 +78,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
                 <span className="hidden md:inline">Dropbox Sync</span>
                 <Cloud className="inline md:hidden h-5 w-5" />
               </Link>
-              <Link to="/settings" className={`${location.pathname === "/settings" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+              <Link to="/settings" aria-label="Settings" className={`${location.pathname === "/settings" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden lg:inline">Settings</span>
                 <SlidersHorizontal className="inline lg:hidden h-5 w-5" />
               </Link>
