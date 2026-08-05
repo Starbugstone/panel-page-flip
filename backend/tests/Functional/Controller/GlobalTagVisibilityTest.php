@@ -7,6 +7,7 @@ use App\Entity\Tag;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 
 final class GlobalTagVisibilityTest extends AbstractApiTestCase
@@ -65,6 +66,40 @@ final class GlobalTagVisibilityTest extends AbstractApiTestCase
 
         $this->postJson('/api/tags', ['name' => 'Restricted', 'isGlobal' => true]);
         self::assertResponseStatusCodeSame(403);
+    }
+
+    /**
+     * The application already rejects a duplicate global name, so this covers
+     * the database backstop underneath it: UNIQUE (name, creator_id) cannot
+     * catch this case because both rows have a NULL creator_id, and the
+     * generated global_name_key column is what closes that hole. It is only
+     * reachable by writing past the controller.
+     */
+    public function testDatabaseRejectsTwoGlobalTagsSharingANameRegardlessOfCase(): void
+    {
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->persist((new Tag())->setName('Marvel')->setIsGlobal(true));
+        $entityManager->flush();
+
+        $entityManager->persist((new Tag())->setName('marvel')->setIsGlobal(true));
+
+        $this->expectException(UniqueConstraintViolationException::class);
+        $entityManager->flush();
+    }
+
+    public function testTwoPersonalTagsMayShareTheSameNameAcrossDifferentCreators(): void
+    {
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $first = UserFactory::new()->create()->object();
+        $second = UserFactory::new()->create()->object();
+
+        // global_name_key stays NULL for personal tags, so the unique index
+        // must not treat these as a collision.
+        $entityManager->persist((new Tag())->setName('Favourites')->setCreator($first));
+        $entityManager->persist((new Tag())->setName('Favourites')->setCreator($second));
+        $entityManager->flush();
+
+        self::assertCount(2, $entityManager->getRepository(Tag::class)->findBy(['name' => 'Favourites']));
     }
 
     public function testDeletingPersonalTagAlsoDetachesItFromComics(): void
