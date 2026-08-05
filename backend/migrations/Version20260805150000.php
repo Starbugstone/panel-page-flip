@@ -28,7 +28,21 @@ final class Version20260805150000 extends AbstractMigration
             self::RESERVED_GLOBAL_NAMES
         ));
         $this->addSql(
-            "UPDATE tag SET name = CONCAT(name, ' (personal)') WHERE is_global = 0 AND LOWER(name) IN ($reservedList)"
+            "UPDATE tag reserved_tag
+             LEFT JOIN tag conflicting_tag
+               ON conflicting_tag.creator_id = reserved_tag.creator_id
+              AND conflicting_tag.id != reserved_tag.id
+              AND LOWER(conflicting_tag.name) = LOWER(CONCAT(reserved_tag.name, ' (personal)'))
+             SET reserved_tag.name = CASE
+                 WHEN conflicting_tag.id IS NULL THEN CONCAT(reserved_tag.name, ' (personal)')
+                 ELSE CONCAT(
+                     LEFT(reserved_tag.name, 20),
+                     ' (personal ',
+                     LEFT(SHA2(CONCAT(reserved_tag.id, ':', reserved_tag.creator_id), 256), 16),
+                     ')'
+                 )
+             END
+             WHERE reserved_tag.is_global = 0 AND LOWER(reserved_tag.name) IN ($reservedList)"
         );
 
         foreach (['Marvel', 'DC', 'Manga'] as $name) {
@@ -51,13 +65,11 @@ final class Version20260805150000 extends AbstractMigration
 
     public function down(Schema $schema): void
     {
-        $this->addSql("DELETE FROM tag WHERE is_global = 1 AND name IN ('Marvel', 'DC', 'Manga', 'Hidden') AND NOT EXISTS (SELECT 1 FROM comic_tag WHERE comic_tag.tag_id = tag.id)");
-
-        // Retained globals (in-use defaults and any admin-created tags) still have
-        // NULL creator_id; assign a real user before restoring NOT NULL.
-        $this->addSql(
-            'UPDATE tag SET creator_id = (SELECT id FROM (SELECT id FROM user ORDER BY id ASC LIMIT 1) AS first_user) WHERE creator_id IS NULL'
-        );
+        // The previous schema cannot represent shared, ownerless tags. Remove
+        // their associations and definitions instead of assigning every global
+        // tag to an arbitrary user during rollback.
+        $this->addSql('DELETE comic_tag FROM comic_tag INNER JOIN tag ON tag.id = comic_tag.tag_id WHERE tag.is_global = 1');
+        $this->addSql('DELETE FROM tag WHERE is_global = 1');
 
         $this->addSql('ALTER TABLE tag DROP INDEX unique_global_tag_name, DROP global_name_key');
         $this->addSql('ALTER TABLE tag CHANGE creator_id creator_id INT NOT NULL, DROP is_global, DROP hide_from_library');

@@ -11,6 +11,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 #[ORM\Entity(repositoryClass: TagRepository::class)]
 #[ORM\HasLifecycleCallbacks]
 #[ORM\UniqueConstraint(name: "unique_tag_per_creator", columns: ["name", "creator_id"])]
+#[ORM\UniqueConstraint(name: "unique_global_tag_name", columns: ["global_name_key"])]
 class Tag
 {
     #[ORM\Id]
@@ -38,6 +39,26 @@ class Tag
 
     #[ORM\Column]
     private ?\DateTimeImmutable $createdAt = null;
+
+    /**
+     * Written by MySQL, never by PHP. UNIQUE (name, creator_id) treats every
+     * NULL creator_id as distinct, so it cannot stop two globals sharing a
+     * name; this generated column carries the lowercased name for globals only
+     * and NULL otherwise, which the unique index above can enforce.
+     *
+     * Mapped purely so the schema tool knows it exists — without it the column
+     * lives only in the migration, which means schema:validate reports drift
+     * and the test database (built from mapping) never gets the constraint.
+     */
+    #[ORM\Column(
+        length: 50,
+        nullable: true,
+        insertable: false,
+        updatable: false,
+        generated: 'ALWAYS',
+        columnDefinition: "VARCHAR(50) GENERATED ALWAYS AS (CASE WHEN is_global = 1 THEN LOWER(name) ELSE NULL END) STORED",
+    )]
+    private ?string $globalNameKey = null;
 
     public function __construct()
     {

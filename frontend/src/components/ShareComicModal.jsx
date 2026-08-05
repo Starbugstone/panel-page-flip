@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -93,8 +94,10 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, apiBaseU
         <DialogHeader>
           <DialogTitle>Share '{comicTitle}'</DialogTitle>
           <DialogDescription>
-            Enter the email address of the person you want to share this comic with. 
-            They will receive an invitation to view it.
+            We will email the recipient an invitation on your behalf. The message
+            includes your name and the comic title; your email is used as the reply-to
+            address. The recipient must explicitly accept it into their library.{" "}
+            <Link className="underline" to="/privacy">Privacy information</Link>
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">

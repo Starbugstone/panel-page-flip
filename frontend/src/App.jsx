@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider.jsx";
 import { Header } from "@/components/Header.jsx";
+import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
 import { TagProvider } from "./hooks/use-tags.jsx";
 
@@ -24,6 +25,9 @@ const AcceptSharePage = lazy(() => import("./pages/AcceptSharePage.jsx"));
 const EmailVerification = lazy(() => import("./pages/EmailVerification.jsx"));
 const DropboxSyncPage = lazy(() => import("./pages/DropboxSyncPage.jsx"));
 const UserSettings = lazy(() => import("./pages/UserSettings.jsx"));
+const PrivacyPolicy = lazy(() => import("./pages/LegalPages.jsx").then((module) => ({ default: module.PrivacyPolicy })));
+const TermsOfService = lazy(() => import("./pages/LegalPages.jsx").then((module) => ({ default: module.TermsOfService })));
+const CookieNoticePage = lazy(() => import("./pages/LegalPages.jsx").then((module) => ({ default: module.CookieNoticePage })));
 
 const queryClient = new QueryClient();
 const PageLoading = () => <div className="flex h-screen items-center justify-center">Loading...</div>;
@@ -81,18 +85,22 @@ const AppRoutes = () => {
             <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ForgotPassword />} />
             <Route path="/reset-password/:token" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ResetPassword />} />
             <Route path="/email-verification" element={<EmailVerification />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
+            <Route path="/cookies" element={<CookieNoticePage />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/upload" element={<ProtectedRoute><UploadComic /></ProtectedRoute>} />
             <Route path="/upload/bulk" element={<ProtectedRoute><BulkUploadComic /></ProtectedRoute>} />
             <Route path="/read/:comicId" element={<ProtectedRoute><ComicReader /></ProtectedRoute>} />
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-            <Route path="/share/accept/:token" element={<ProtectedRoute><AcceptSharePage /></ProtectedRoute>} />
+            <Route path="/share/accept/:token" element={<AcceptSharePage />} />
             <Route path="/dropbox-sync" element={<ProtectedRoute><DropboxSyncPage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
         </main>
+        <CookieNotice />
       </div>
     </BrowserRouter>
   );

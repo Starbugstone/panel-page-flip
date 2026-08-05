@@ -312,13 +312,21 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                     <TableCell>{user.comicCount}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleEditUser(user)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Edit ${user.name || user.email}`}
+                          title="Edit user"
+                          onClick={() => handleEditUser(user)}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
                         {!user.roles.includes("ROLE_ADMIN") && (
                           <Button
                             variant="ghost"
                             size="sm"
+                            aria-label={`Promote ${user.name || user.email} to administrator`}
+                            title="Promote to administrator"
                             onClick={() => setConfirmAction({
                               title: "Promote user?",
                               description: `Promote ${user.name || user.email} to administrator.`,
@@ -341,6 +349,8 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`Delete ${user.name || user.email}`}
+                          title="Delete user"
                           onClick={() => setConfirmAction({
                             title: "Delete user?",
                             description: `Delete ${user.name || user.email}. This cannot be undone.`,

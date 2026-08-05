@@ -33,41 +33,47 @@ export default function AcceptSharePage() {
     }
 
     if (token && auth.isAuthenticated) {
-      const acceptShare = async () => {
-        setIsLoading(true);
-        setError(null);
-        setSuccessMessage(null);
-        setAcceptedComicTitle(null);
-        setAcceptedComicId(null);
-
-        try {
-          const data = await api.post(`/api/share/accept/${token}`, {});
-          
-          // Store the comic details for display and navigation
-          setAcceptedComicTitle(data.comic?.title || "the comic");
-          setAcceptedComicId(data.comic?.id);
-          setSuccessMessage("Comic successfully added to your library!");
-          
-          // Show a toast notification that will persist even after navigation
-          toast({
-            title: "Comic Added to Library",
-            description: `${data.title || "Comic"} has been added to your collection.`,
-            duration: 5000
-          });
-
-        } catch (err) {
-          setError(err.message || "An unexpected error occurred while accepting the share.");
-        } finally {
-          setIsLoading(false);
-        }
-      };
-
-      acceptShare();
+      // The recipient must make an explicit choice; visiting the link does not
+      // copy anything into their library.
+      setIsLoading(false);
     } else if (!token) {
-        setError("No share token provided.");
-        setIsLoading(false);
+      setError("No share token provided.");
+      setIsLoading(false);
     }
-  }, [auth.isAuthenticated, auth.loading, toast, token]);
+  }, [auth.isAuthenticated, auth.loading, token]);
+
+  const acceptShare = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.post(`/api/share/accept/${token}`, {});
+      setAcceptedComicTitle(data.comic?.title || "the comic");
+      setAcceptedComicId(data.comic?.id);
+      setSuccessMessage("Comic successfully added to your library!");
+      toast({
+        title: "Comic Added to Library",
+        description: `${data.comic?.title || "Comic"} has been added to your collection.`,
+        duration: 5000,
+      });
+    } catch (err) {
+      setError(err.message || "An unexpected error occurred while accepting the share.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const refuseShare = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.post(`/api/share/refuse/${token}`, {});
+      toast({ title: "Invitation declined" });
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setError(err.message || "The invitation could not be declined.");
+      setIsLoading(false);
+    }
+  };
 
   const renderContent = () => {
     if (auth.loading || isLoading) {
@@ -101,7 +107,7 @@ export default function AcceptSharePage() {
       return (
         <Alert variant="destructive" className="max-w-md text-center">
           <AlertCircle className="h-5 w-5" />
-          <AlertTitle>Error Accepting Share</AlertTitle>
+          <AlertTitle>Share invitation error</AlertTitle>
           <AlertDescription className="mb-4">{error}</AlertDescription>
           <Button onClick={() => navigate("/dashboard")} variant="outline" className="mt-4">
             Go to Dashboard
@@ -137,7 +143,20 @@ export default function AcceptSharePage() {
       );
     }
 
-    return null; // Should not be reached if logic is correct
+    return (
+      <Alert variant="default" className="max-w-md">
+        <BookOpen className="h-5 w-5" />
+        <AlertTitle>Comic invitation</AlertTitle>
+        <AlertDescription>
+          Accepting this invitation copies the shared comic into your library and
+          records your reading progress. Nothing is added until you choose Accept.
+        </AlertDescription>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <Button onClick={acceptShare}>Accept into my library</Button>
+          <Button variant="outline" onClick={refuseShare}>Decline invitation</Button>
+        </div>
+      </Alert>
+    );
   };
 
   return (

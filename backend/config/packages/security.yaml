@@ -54,6 +54,7 @@ security:
         - { path: ^/api/reset-password, roles: PUBLIC_ACCESS }
         - { path: ^/api/email-verification/verify, roles: PUBLIC_ACCESS }
         - { path: ^/api/email-verification/resend$, roles: PUBLIC_ACCESS }
+        - { path: ^/api/legal-config$, roles: PUBLIC_ACCESS }
         
         # Admin routes (all methods)
         - { path: ^/api/users(/[0-9]+)?$, roles: ROLE_ADMIN }

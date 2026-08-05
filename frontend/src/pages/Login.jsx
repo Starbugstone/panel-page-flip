@@ -4,6 +4,7 @@ import { BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Label } from "@/components/ui/label.jsx";
+import { Checkbox } from "@/components/ui/checkbox.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { useToast } from "@/hooks/use-toast.js";
 import { useAuth } from "@/hooks/use-auth.jsx";
@@ -19,11 +20,16 @@ export default function Login() {
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerName, setRegisterName] = useState("");
+  const [agreeTerms, setAgreeTerms] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
   
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const defaultTab = searchParams.get("signup") ? "signup" : "login";
+  const requestedRedirect = searchParams.get("redirect");
+  const redirectPath = requestedRedirect?.startsWith("/") && !requestedRedirect.startsWith("//")
+    ? requestedRedirect
+    : "/dashboard";
   const { toast } = useToast();
   const { login, register } = useAuth();
   const registerPasswordErrors = validatePassword(registerPassword);
@@ -39,7 +45,7 @@ export default function Login() {
         title: "Success",
         description: "You have successfully logged in!",
       });
-      navigate("/dashboard");
+      navigate(redirectPath);
     } catch (error) {
       // Check if the error is due to email verification
       if (error.cause?.requiresVerification) {
@@ -67,7 +73,11 @@ export default function Login() {
         throw new Error(`Password must include: ${registerPasswordErrors.join(", ")}.`);
       }
 
-      await register(registerEmail, registerPassword, registerName);
+      if (!agreeTerms) {
+        throw new Error("You must agree to the Terms of Service and acknowledge the Privacy Policy.");
+      }
+
+      await register(registerEmail, registerPassword, registerName, agreeTerms);
       
       toast({
         title: "Success",
@@ -78,9 +88,10 @@ export default function Login() {
       setRegisterEmail("");
       setRegisterPassword("");
       setRegisterName("");
+      setAgreeTerms(false);
       
       // Switch to login tab
-      navigate("/login");
+      navigate(redirectPath === "/dashboard" ? "/login" : `/login?redirect=${encodeURIComponent(redirectPath)}`);
     } catch (error) {
       toast({
         title: "Registration Failed",
@@ -184,16 +195,27 @@ export default function Login() {
                     required 
                   />
                 </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="signup-terms"
+                    checked={agreeTerms}
+                    onCheckedChange={(checked) => setAgreeTerms(checked === true)}
+                    required
+                  />
+                  <Label htmlFor="signup-terms" className="text-xs font-normal leading-5 text-muted-foreground">
+                    I agree to the{" "}
+                    <Link className="underline hover:text-foreground" to="/terms">Terms of Service</Link>
+                    {" "}and acknowledge the{" "}
+                    <Link className="underline hover:text-foreground" to="/privacy">Privacy Policy</Link>.
+                  </Label>
+                </div>
                 <Button 
                   type="submit" 
                   className="w-full bg-comic-purple hover:bg-comic-purple-dark"
-                  disabled={registerLoading}
+                  disabled={registerLoading || !agreeTerms}
                 >
                   {registerLoading ? "Creating account..." : "Create account"}
                 </Button>
-                <p className="text-xs text-center text-muted-foreground">
-                  By signing up, you agree to our Terms of Service and Privacy Policy.
-                </p>
               </form>
             </TabsContent>
           </Tabs>

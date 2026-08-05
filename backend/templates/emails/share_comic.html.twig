@@ -77,10 +77,16 @@
             <p>
                 This invitation link will expire on <span class="highlight">{{ expiresAt|date("F j, Y") }}</span>.
             </p>
+            <p>
+                You received this email because {{ userName|e }} entered your address
+                to share this comic. If you do not know the sender or do not want the
+                invitation, you can ignore this email; no account will be created for you.
+            </p>
             <p>Happy reading!</p>
         </div>
         <div class="footer">
             <p>&copy; {{ "now"|date("Y") }} Comic Share Platform. All rights reserved.</p>
+            <p><a href="{{ privacyUrl|e('html_attr') }}">Privacy information</a></p>
         </div>
     </div>
 </body>

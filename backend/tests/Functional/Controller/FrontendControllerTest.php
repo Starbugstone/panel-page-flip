@@ -37,8 +37,12 @@ class FrontendControllerTest extends WebTestCase
     public function knownRouteProvider(): iterable
     {
         yield 'public landing page' => ['/', true];
+        yield 'privacy policy' => ['/privacy', true];
+        yield 'terms of service' => ['/terms', true];
+        yield 'cookie notice' => ['/cookies', true];
         yield 'login' => ['/login', false];
         yield 'dashboard' => ['/dashboard', false];
+        yield 'settings' => ['/settings', false];
         yield 'comic reader' => ['/read/123', false];
         yield 'password-reset token' => ['/reset-password/example-token', false];
         yield 'share token' => ['/share/accept/example-token', false];
