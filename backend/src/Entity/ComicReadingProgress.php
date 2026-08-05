@@ -32,6 +32,15 @@ class ComicReadingProgress
     #[ORM\Column]
     private ?bool $completed = null;
 
+    /**
+     * Counter supplied by the reader with each save. Saves for this comic can
+     * reach the server out of order, so an older one must not overwrite a newer
+     * page. The page number itself cannot serve as the counter because reading
+     * backwards is legitimate.
+     */
+    #[ORM\Column(options: ['default' => 0])]
+    private int $revision = 0;
+
     public function __construct()
     {
         $this->currentPage = 1;
@@ -106,6 +115,18 @@ class ComicReadingProgress
     public function setCompleted(bool $completed): static
     {
         $this->completed = $completed;
+
+        return $this;
+    }
+
+    public function getRevision(): int
+    {
+        return $this->revision;
+    }
+
+    public function setRevision(int $revision): static
+    {
+        $this->revision = $revision;
 
         return $this;
     }

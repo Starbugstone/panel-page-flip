@@ -14,6 +14,7 @@ import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { fuzzyFilter } from "@/lib/fuzzy-search";
+import { getComicProgressState } from "@/lib/comic-progress";
 
 export default function Dashboard() {
   const [comics, setComics] = useState([]);
@@ -232,10 +233,20 @@ export default function Dashboard() {
     }
   };
 
-  // Filters now operate on the 'comics' state directly
-  const inProgressComics = comics.filter(comic => comic.lastReadPage !== undefined && comic.lastReadPage > 0);
-  const unreadComics = comics.filter(comic => comic.lastReadPage === undefined || comic.lastReadPage === 0);
+  // Filters now operate on the 'comics' state directly. A finished comic is no
+  // longer "currently reading", so it is classified by its progress state
+  // rather than by page number alone.
+  const isCompleted = (comic) => getComicProgressState(comic).label === "Fully read";
+  const inProgressComics = comics.filter(comic => comic.lastReadPage > 0 && !isCompleted(comic));
+  const unreadComics = comics.filter(comic => !comic.lastReadPage);
   const dropboxComics = comics.filter(comic => comic.tags && comic.tags.includes('Dropbox'));
+
+  const comicTabs = [
+    { value: "all", label: "All Comics", items: comics, alwaysShown: true },
+    { value: "dropbox", label: "Dropbox", items: dropboxComics },
+    { value: "reading", label: "Currently Reading", items: inProgressComics },
+    { value: "unread", label: "Not Started", items: unreadComics },
+  ];
 
   // Handlers for ShareComicModal
   const handleOpenShareModal = (comicId, comicTitle) => {
@@ -336,91 +347,41 @@ export default function Dashboard() {
       ) : (
         <Tabs defaultValue="all" className="space-y-6">
           <TabsList>
-            <TabsTrigger value="all">All Comics ({comics.length})</TabsTrigger>
-            {dropboxComics.length > 0 && (
-              <TabsTrigger value="dropbox">
-                Dropbox ({dropboxComics.length})
-              </TabsTrigger>
-            )}
-            {inProgressComics.length > 0 && (
-              <TabsTrigger value="reading">
-                Currently Reading ({inProgressComics.length})
-              </TabsTrigger>
-            )}
-            {unreadComics.length > 0 && (
-              <TabsTrigger value="unread">
-                Not Started ({unreadComics.length})
-              </TabsTrigger>
-            )}
+            {comicTabs.map(({ value, label, items, alwaysShown }) => (
+              (alwaysShown || items.length > 0) && (
+                <TabsTrigger key={value} value={value}>
+                  {label} ({items.length})
+                </TabsTrigger>
+              )
+            ))}
           </TabsList>
 
-          <TabsContent value="all">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {comics.map((comic) => (
-                <ComicCard 
-                  key={comic.id} 
-                  comic={comic} 
-                  onResetProgress={resetReadingProgress}
-                  onEditComic={handleEditComic}
-                  onDeleteComic={deleteComic}
-                  onShareClick={handleOpenShareModal} // Added onShareClick prop
-                />
-              ))}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="dropbox">
-            <div className="mb-4 p-4 bg-muted rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                Comics synced from your Dropbox account. 
-                <Link to="/dropbox-sync" className="text-primary hover:underline ml-1">
-                  Manage Dropbox sync →
-                </Link>
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {dropboxComics.map((comic) => (
-                <ComicCard 
-                  key={comic.id} 
-                  comic={comic} 
-                  onResetProgress={resetReadingProgress}
-                  onEditComic={handleEditComic}
-                  onDeleteComic={deleteComic}
-                  onShareClick={handleOpenShareModal}
-                />
-              ))}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="reading">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {inProgressComics.map((comic) => (
-                <ComicCard 
-                  key={comic.id} 
-                  comic={comic} 
-                  onResetProgress={resetReadingProgress}
-                  onEditComic={handleEditComic}
-                  onDeleteComic={deleteComic}
-                  onShareClick={handleOpenShareModal} // Added onShareClick prop
-                />
-              ))}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="unread">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {unreadComics.map((comic) => (
-                <ComicCard 
-                  key={comic.id} 
-                  comic={comic} 
-                  onResetProgress={resetReadingProgress}
-                  onEditComic={handleEditComic}
-                  onDeleteComic={deleteComic}
-                  onShareClick={handleOpenShareModal} // Added onShareClick prop
-                />
-              ))}
-            </div>
-          </TabsContent>
+          {comicTabs.map(({ value, items }) => (
+            <TabsContent key={value} value={value}>
+              {value === "dropbox" && (
+                <div className="mb-4 p-4 bg-muted rounded-lg">
+                  <p className="text-sm text-muted-foreground">
+                    Comics synced from your Dropbox account.
+                    <Link to="/dropbox-sync" className="text-primary hover:underline ml-1">
+                      Manage Dropbox sync →
+                    </Link>
+                  </p>
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                {items.map((comic) => (
+                  <ComicCard
+                    key={comic.id}
+                    comic={comic}
+                    onResetProgress={resetReadingProgress}
+                    onEditComic={handleEditComic}
+                    onDeleteComic={deleteComic}
+                    onShareClick={handleOpenShareModal}
+                  />
+                ))}
+              </div>
+            </TabsContent>
+          ))}
         </Tabs>
       )}
       

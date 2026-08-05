@@ -1,5 +1,5 @@
 
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { ComicEditDialog } from "@/components/ComicEditDialog";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { fuzzyFilter } from "@/lib/fuzzy-search";
+import { formatDate } from "@/lib/format";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,23 +53,21 @@ export function AdminComicsList() {
     loadComics();
   }, [loadComics]);
   
-  const filteredComics = fuzzyFilter(comics, searchQuery, [
-    "title",
-    "author",
-    "publisher",
-    "description",
-    "owner.name",
-    "owner.email",
-    "tags.name",
-  ]);
-  
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      dateStyle: 'medium',
-    }).format(date);
-  };
-  
+  // Fuzzy matching tolerates the nullable author/publisher/owner fields on its
+  // own. Memoised because each call rebuilds the Fuse index over every comic.
+  const filteredComics = useMemo(
+    () => fuzzyFilter(comics, searchQuery, [
+      "title",
+      "author",
+      "publisher",
+      "description",
+      "owner.name",
+      "owner.email",
+      "tags.name",
+    ]),
+    [comics, searchQuery]
+  );
+
   const handleDeleteComic = async (comicId) => {
     try {
       await api.delete(`/api/comics/${comicId}`);
