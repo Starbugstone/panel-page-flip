@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Search, X, Tag as TagIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { fuzzyFilter } from "@/lib/fuzzy-search";
 
 export function SearchBar({ onSearch, isSearching = false }) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -19,9 +20,7 @@ export function SearchBar({ onSearch, isSearching = false }) {
   const [retryCount, setRetryCount] = useState(0);
   const MAX_RETRIES = 3;
   const filteredTags = useMemo(() => {
-    const query = tagQuery.trim().toLowerCase();
-    return availableTags
-      .filter((tag) => !query || tag.name.toLowerCase().includes(query))
+    return fuzzyFilter(availableTags, tagQuery, ["name"])
       .sort((a, b) => {
         const aSelected = selectedTags.some((tag) => tag.id === a.id);
         const bSelected = selectedTags.some((tag) => tag.id === b.id);

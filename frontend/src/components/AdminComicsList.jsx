@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ComicEditDialog } from "@/components/ComicEditDialog";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { fuzzyFilter } from "@/lib/fuzzy-search";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,16 +52,15 @@ export function AdminComicsList() {
     loadComics();
   }, [loadComics]);
   
-  const filteredComics = comics.filter(comic => 
-    comic.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    comic.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (comic.owner && comic.owner.email && comic.owner.email.toLowerCase().includes(searchQuery.toLowerCase())) || // Adjusted for potential API structure
-    (comic.owner && comic.owner.username && comic.owner.username.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (comic.tags && comic.tags.some(tag => 
-      typeof tag === 'string' ? tag.toLowerCase().includes(searchQuery.toLowerCase()) : 
-      (tag.name && tag.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    ))
-  );
+  const filteredComics = fuzzyFilter(comics, searchQuery, [
+    "title",
+    "author",
+    "publisher",
+    "description",
+    "owner.name",
+    "owner.email",
+    "tags.name",
+  ]);
   
   const formatDate = (dateString) => {
     const date = new Date(dateString);

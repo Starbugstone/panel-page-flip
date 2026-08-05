@@ -10,6 +10,7 @@ import { TagBadge, HIDDEN_TAG_EXPLANATION } from "@/components/TagBadge";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { fuzzyFilter } from "@/lib/fuzzy-search";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,11 +52,7 @@ export function AdminTagsList() {
     loadTags();
   }, [loadTags]);
 
-  const filteredTags = tags.filter(tag =>
-    tag.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (tag.creator && (tag.creator.name || tag.creator.email) &&
-     (tag.creator.name || tag.creator.email).toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filteredTags = fuzzyFilter(tags, searchQuery, ["name", "creator.name", "creator.email"]);
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';

@@ -3,6 +3,7 @@ import { useAuth } from './use-auth';
 import { useToast } from './use-toast';
 import { api } from '@/lib/api';
 import { logger } from '@/lib/logger';
+import { fuzzyFilter } from '@/lib/fuzzy-search';
 
 // Create the context
 const TagContext = createContext(undefined);
@@ -69,14 +70,11 @@ export function TagProvider({ children }) {
     }
 
     // Try to search locally first for immediate feedback
-    const lowercaseQuery = query.toLowerCase().trim();
-    const localResults = tagsRef.current
-      .filter(tag => tag.name.toLowerCase().includes(lowercaseQuery))
-      .map(tag => ({ ...tag }));
+    const localResults = fuzzyFilter(tagsRef.current, query, ['name']);
     
     // If we have local results and they were fetched recently, use them
     const CACHE_TIME = 5 * 60 * 1000; // 5 minutes
-    if (localResults.length > 0 && lastFetchedRef.current && (Date.now() - lastFetchedRef.current) < CACHE_TIME) {
+    if (lastFetchedRef.current && (Date.now() - lastFetchedRef.current) < CACHE_TIME) {
       return localResults;
     }
 
