@@ -3,17 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CBZ Comic Reader</title>
-    <meta name="description" content="A web application for reading CBZ comic books." />
-    <meta name="author" content="CBZ Reader" />
+    <title>Panel Page Flip – Personal CBZ Comic Reader</title>
+    <meta name="description" content="Panel Page Flip is a self-hosted personal comic library for uploading and reading CBZ comics on desktop, tablet, and mobile while keeping your reading progress in sync." />
+    <meta name="author" content="Panel Page Flip" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://comics.starbugstone.com/" />
 
-    <meta property="og:title" content="CBZ Comic Reader" />
-    <meta property="og:description" content="A web application for reading CBZ comic books." />
+    <meta property="og:title" content="Panel Page Flip – Personal CBZ Comic Reader" />
+    <meta property="og:description" content="Upload, organize, and read your personal CBZ comic library anywhere, with reading progress saved automatically." />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://comics.starbugstone.com/" />
+    <meta property="og:site_name" content="Panel Page Flip" />
 
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="CBZ Comic Reader" />
-    <meta name="twitter:description" content="A web application for reading CBZ comic books." />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Panel Page Flip – Personal CBZ Comic Reader" />
+    <meta name="twitter:description" content="Upload, organize, and read your personal CBZ comic library anywhere, with reading progress saved automatically." />
     
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
@@ -25,7 +29,29 @@
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Crawlable first render. React replaces this markup when the app starts. -->
+      <main>
+        <section>
+          <h1>Panel Page Flip: Your Personal Comic Book Reader</h1>
+          <p>
+            Upload, organize, and read your personal CBZ comic collection from a desktop,
+            tablet, or phone. Panel Page Flip remembers your reading position so you can
+            continue each comic where you left off.
+          </p>
+          <p><a href="/login">Log in or create an account</a></p>
+        </section>
+        <section>
+          <h2>A self-hosted CBZ reader built for your library</h2>
+          <h3>Easy reading</h3>
+          <p>Enjoy a distraction-free comic reading experience optimized for every screen size.</p>
+          <h3>Reading progress</h3>
+          <p>Your position is saved automatically across reading sessions.</p>
+          <h3>CBZ library support</h3>
+          <p>Keep your comic collection organized and read it in the popular CBZ format.</p>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
