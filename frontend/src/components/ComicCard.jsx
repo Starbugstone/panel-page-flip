@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TagBadge } from "@/components/TagBadge";
 import { BookOpen, RotateCcw, Tag as TagIcon, Edit, Trash2, MoreVertical, Share2Icon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useState } from "react";
@@ -100,10 +101,10 @@ export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic, 
             {comic.tags && comic.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
                 {comic.tags.slice(0, 3).map((tag, index) => (
-                  <Badge key={index} variant="outline" className="text-xs flex items-center gap-1">
+                  <TagBadge key={index} tag={tag} hideFromLibrary={comic.hiddenTagNames?.includes(tag)} className="text-xs flex items-center gap-1">
                     <TagIcon size={10} />
                     {tag}
-                  </Badge>
+                  </TagBadge>
                 ))}
                 {comic.tags.length > 3 && (
                   <Badge variant="outline" className="text-xs">

@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { getComicProgressState } from "@/lib/comic-progress";
+import { TagBadge } from "@/components/TagBadge";
 
 export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete }) {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
@@ -147,7 +148,7 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
                   <TableCell>{comic.author || "—"}</TableCell>
                   <TableCell>
                     <div className="flex max-w-52 flex-wrap gap-1">
-                      {(comic.tags || []).slice(0, 3).map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}
+                      {(comic.tags || []).slice(0, 3).map((tag) => <TagBadge key={tag} tag={tag} hideFromLibrary={comic.hiddenTagNames?.includes(tag)} />)}
                       {(comic.tags || []).length > 3 && <Badge variant="outline">+{comic.tags.length - 3}</Badge>}
                     </div>
                   </TableCell>

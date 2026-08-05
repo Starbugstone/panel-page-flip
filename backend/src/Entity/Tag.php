@@ -27,8 +27,14 @@ class Tag
     private Collection $comics;
 
     #[ORM\ManyToOne(inversedBy: 'createdTags')]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(nullable: true)]
     private ?User $creator = null;
+
+    #[ORM\Column(options: ['default' => false])]
+    private bool $isGlobal = false;
+
+    #[ORM\Column(options: ['default' => false])]
+    private bool $hideFromLibrary = false;
 
     #[ORM\Column]
     private ?\DateTimeImmutable $createdAt = null;
@@ -90,6 +96,32 @@ class Tag
     public function setCreator(?User $creator): static
     {
         $this->creator = $creator;
+        return $this;
+    }
+
+    public function isGlobal(): bool
+    {
+        return $this->isGlobal;
+    }
+
+    public function setIsGlobal(bool $isGlobal): static
+    {
+        $this->isGlobal = $isGlobal;
+        if ($isGlobal) {
+            $this->creator = null;
+        }
+
+        return $this;
+    }
+
+    public function hidesFromLibrary(): bool
+    {
+        return $this->hideFromLibrary;
+    }
+
+    public function setHideFromLibrary(bool $hideFromLibrary): static
+    {
+        $this->hideFromLibrary = $hideFromLibrary;
         return $this;
     }
 

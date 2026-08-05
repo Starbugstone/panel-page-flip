@@ -379,11 +379,8 @@ class ShareController extends AbstractController
                 $tagName = $originalTag->getName();
                 
                 try {
-                    // Check if the user already has this tag
-                    $existingTag = $tagRepository->findOneBy([
-                        'name' => $tagName,
-                        'creator' => $currentUser
-                    ]);
+                    /** @var TagRepository $tagRepository */
+                    $existingTag = $tagRepository->findAvailableByName($tagName, $currentUser);
                     
                     if (!$existingTag) {
                         // Create a new tag for the user
@@ -401,10 +398,7 @@ class ShareController extends AbstractController
                     // Log the error but continue with the process
                     $logger->warning(sprintf('Could not add tag "%s": %s', $tagName, $e->getMessage()));
                     // If there was an error, try to find the tag again (it might have been created in a race condition)
-                    $existingTag = $tagRepository->findOneBy([
-                        'name' => $tagName,
-                        'creator' => $currentUser
-                    ]);
+                    $existingTag = $tagRepository->findAvailableByName($tagName, $currentUser);
                     
                     if ($existingTag) {
                         $newComic->addTag($existingTag);

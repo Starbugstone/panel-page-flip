@@ -4,11 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { X, Tag as TagIcon, Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { useTags } from "@/hooks/use-tags.jsx";
 import { cn } from "@/lib/utils.js";
+import { TagBadge } from "@/components/TagBadge";
 
 export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
   const [title, setTitle] = useState("");
@@ -24,7 +24,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
   const suggestionsRef = useRef(null);
   const tagInputRef = useRef(null);
   const { toast } = useToast();
-  const { searchTags, addTagToCache, isAdminContext } = useTags();
+  const { tags: availableTags, searchTags, addTagToCache, isAdminContext } = useTags();
   const adminContext = isAdminContext();
 
   useEffect(() => {
@@ -238,7 +238,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
             <Label>Tags</Label>
             <div className="flex flex-wrap gap-2 mb-2">
               {tags.map((tag, index) => (
-                <Badge key={index} variant="secondary" className="flex items-center gap-1">
+                <TagBadge key={index} tag={availableTags.find((item) => item.name === tag) || tag} className="flex items-center gap-1">
                   <TagIcon size={12} />
                   {tag}
                   <Button
@@ -250,7 +250,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
                   >
                     <X size={12} />
                   </Button>
-                </Badge>
+                </TagBadge>
               ))}
             </div>
             <div className="flex gap-2 relative">

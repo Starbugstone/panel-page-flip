@@ -1,5 +1,5 @@
 
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { ComicCard } from "@/components/ComicCard.jsx";
 import { ComicTableView } from "@/components/ComicTableView.jsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
@@ -26,6 +26,7 @@ export default function Dashboard() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const { toast } = useToast();
+  const lastComicsUrl = useRef('/api/comics');
 
   // State for ShareComicModal
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -35,6 +36,8 @@ export default function Dashboard() {
   const processComicsResponse = useCallback((data) => {
     const processedComics = data.comics.map(comic => ({
       ...comic,
+      tagDetails: comic.tags || [],
+      hiddenTagNames: (comic.tags || []).filter(tag => tag.hideFromLibrary).map(tag => tag.name),
       tags: comic.tags ? comic.tags.map(tag => tag.name) : [],
       lastReadPage: comic.readingProgress ? comic.readingProgress.currentPage : undefined,
     }));
@@ -44,6 +47,7 @@ export default function Dashboard() {
   }, []);
 
   const fetchComicsFromApi = useCallback(async (url) => {
+    lastComicsUrl.current = url;
     // If this is a search operation, use the isSearching state instead of full isLoading
     if (url.includes('search=') || url.includes('tags=')) {
       setIsSearching(true);
@@ -168,11 +172,7 @@ export default function Dashboard() {
         }],
       });
       
-      // Update local state
-      const updatedComics = comics.map(c => 
-        c.id === updatedComic.id ? { ...c, ...updatedComic } : c
-      );
-      setComics(updatedComics);
+      await fetchComicsFromApi(lastComicsUrl.current);
       
       return true;
     } catch (error) {
@@ -203,11 +203,7 @@ export default function Dashboard() {
       await api.patch("/api/comics", {
         updates: comicIds.map((id) => ({ id, changes: { addTags: [tag] } })),
       });
-      setComics((currentComics) => currentComics.map((comic) => (
-        comicIds.includes(comic.id) && !comic.tags.includes(tag)
-          ? { ...comic, tags: [...comic.tags, tag] }
-          : comic
-      )));
+      await fetchComicsFromApi(lastComicsUrl.current);
       toast({ title: "Tag added", description: `Added “${tag}” to ${comicIds.length} comic(s).` });
     } catch (error) {
       logger.error("Error adding a tag to selected comics:", error);

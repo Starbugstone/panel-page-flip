@@ -3,6 +3,8 @@
 namespace App\Controller;
 
 use App\Entity\Tag;
+use App\Entity\User;
+use App\Repository\TagRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -34,22 +36,13 @@ class TagController extends AbstractController
             $tags = $tagRepository->findAll();
         } else {
             // Regular user, or admin in personal dashboard: Get only tags created by the user
-            $tags = $tagRepository->findBy(['creator' => $user]);
+            $tags = $tagRepository->findAvailableForUser($user);
         }
 
         // Transform tags to array
         $tagsArray = [];
         foreach ($tags as $tag) {
-            $tagsArray[] = [
-                'id' => $tag->getId(),
-                'name' => $tag->getName(),
-                'createdAt' => $tag->getCreatedAt()->format('c'),
-                'creator' => [
-                    'id' => $tag->getCreator()->getId(),
-                    'name' => $tag->getCreator()->getName() ?: $tag->getCreator()->getEmail(),
-                ],
-                'comicCount' => $tag->getComics()->count()
-            ];
+            $tagsArray[] = $this->serialiseTag($tag);
         }
 
         return $this->json(['tags' => $tagsArray]);
@@ -63,7 +56,7 @@ class TagController extends AbstractController
     ): JsonResponse {
         // Get the current user
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -80,17 +73,28 @@ class TagController extends AbstractController
 
         $tagName = trim($data['name']);
 
-        // Check if this user already has the tag
-        $existingTag = $entityManager->getRepository(Tag::class)->findOneBy([
-            'name' => $tagName,
-            'creator' => $user,
-        ]);
+        /** @var TagRepository $tagRepository */
+        $tagRepository = $entityManager->getRepository(Tag::class);
+        $isGlobal = ($data['isGlobal'] ?? false) === true;
+        $hideFromLibrary = ($data['hideFromLibrary'] ?? false) === true;
+        if (($isGlobal || $hideFromLibrary) && !$this->isGranted('ROLE_ADMIN')) {
+            return $this->json(['message' => 'Only administrators can manage global tag behavior'], Response::HTTP_FORBIDDEN);
+        }
+        if ($hideFromLibrary && !$isGlobal) {
+            return $this->json(['message' => 'Only global tags can hide comics from the default library'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $existingTag = $isGlobal
+            ? $tagRepository->findGlobalByName($tagName)
+            : $tagRepository->findAvailableByName($tagName, $user);
         if ($existingTag) {
             return $this->json([
                 'message' => 'Tag already exists',
                 'tag' => [
                     'id' => $existingTag->getId(),
-                    'name' => $existingTag->getName()
+                    'name' => $existingTag->getName(),
+                    'isGlobal' => $existingTag->isGlobal(),
+                    'hideFromLibrary' => $existingTag->hidesFromLibrary(),
                 ]
             ], Response::HTTP_CONFLICT);
         }
@@ -98,7 +102,11 @@ class TagController extends AbstractController
         // Create new tag
         $tag = new Tag();
         $tag->setName($tagName);
-        $tag->setCreator($user);
+        $tag->setIsGlobal($isGlobal);
+        $tag->setHideFromLibrary($hideFromLibrary);
+        if (!$isGlobal) {
+            $tag->setCreator($user);
+        }
 
         // Validate tag
         $violations = $validator->validate($tag);
@@ -116,10 +124,7 @@ class TagController extends AbstractController
 
         return $this->json([
             'message' => 'Tag created successfully',
-            'tag' => [
-                'id' => $tag->getId(),
-                'name' => $tag->getName()
-            ]
+            'tag' => $this->serialiseTag($tag)
         ], Response::HTTP_CREATED);
     }
 
@@ -142,8 +147,12 @@ class TagController extends AbstractController
             return $this->json(['message' => 'Tag not found'], Response::HTTP_NOT_FOUND);
         }
 
+        if ($tag->isGlobal() && !$this->isGranted('ROLE_ADMIN')) {
+            return $this->json(['message' => 'Only administrators can update global tags'], Response::HTTP_FORBIDDEN);
+        }
+
         // Check if user is the creator of the tag
-        if ($tag->getCreator()->getId() !== $user->getId() && !in_array('ROLE_ADMIN', $user->getRoles())) {
+        if ($tag->getCreator()?->getId() !== $user->getId() && !in_array('ROLE_ADMIN', $user->getRoles())) {
             return $this->json(['message' => 'You are not authorized to update this tag'], Response::HTTP_FORBIDDEN);
         }
 
@@ -161,10 +170,12 @@ class TagController extends AbstractController
         $tagName = trim($data['name']);
 
         // Check if tag name already exists for this creator (excluding current tag)
-        $existingTag = $entityManager->getRepository(Tag::class)->findOneBy([
-            'name' => $tagName,
-            'creator' => $tag->getCreator(),
-        ]);
+        /** @var TagRepository $tagRepository */
+        $tagRepository = $entityManager->getRepository(Tag::class);
+        $tagCreator = $tag->getCreator();
+        $existingTag = $tag->isGlobal()
+            ? $tagRepository->findGlobalByName($tagName)
+            : ($tagCreator ? $tagRepository->findAvailableByName($tagName, $tagCreator) : null);
         if ($existingTag && $existingTag->getId() !== $tag->getId()) {
             return $this->json([
                 'message' => 'Tag name already exists',
@@ -177,6 +188,12 @@ class TagController extends AbstractController
 
         // Update tag
         $tag->setName($tagName);
+        if (array_key_exists('hideFromLibrary', $data)) {
+            if (!$tag->isGlobal() || !$this->isGranted('ROLE_ADMIN')) {
+                return $this->json(['message' => 'Only administrators can change this option on global tags'], Response::HTTP_FORBIDDEN);
+            }
+            $tag->setHideFromLibrary($data['hideFromLibrary'] === true);
+        }
 
         // Validate tag
         $violations = $validator->validate($tag);
@@ -193,10 +210,7 @@ class TagController extends AbstractController
 
         return $this->json([
             'message' => 'Tag updated successfully',
-            'tag' => [
-                'id' => $tag->getId(),
-                'name' => $tag->getName()
-            ]
+            'tag' => $this->serialiseTag($tag)
         ]);
     }
 
@@ -215,17 +229,19 @@ class TagController extends AbstractController
             return $this->json(['message' => 'Tag not found'], Response::HTTP_NOT_FOUND);
         }
 
+        if ($tag->isGlobal() && !$this->isGranted('ROLE_ADMIN')) {
+            return $this->json(['message' => 'Only administrators can delete global tags'], Response::HTTP_FORBIDDEN);
+        }
+
         // Check if user is the creator of the tag or an admin
-        if ($tag->getCreator()->getId() !== $user->getId() && !in_array('ROLE_ADMIN', $user->getRoles())) {
+        if ($tag->getCreator()?->getId() !== $user->getId() && !in_array('ROLE_ADMIN', $user->getRoles())) {
             return $this->json(['message' => 'You are not authorized to delete this tag'], Response::HTTP_FORBIDDEN);
         }
 
-        // Check if tag is used by any comics
-        if ($tag->getComics()->count() > 0) {
-            return $this->json([
-                'message' => 'Cannot delete tag that is used by comics',
-                'comicCount' => $tag->getComics()->count()
-            ], Response::HTTP_CONFLICT);
+        // Explicitly detach the tag so deleting an in-use tag is predictable on
+        // every supported database, regardless of join-table cascade settings.
+        foreach ($tag->getComics()->toArray() as $comic) {
+            $comic->removeTag($tag);
         }
 
         // Delete tag
@@ -261,7 +277,7 @@ class TagController extends AbstractController
         if (!($isAdminContext && $this->isGranted('ROLE_ADMIN'))) {
             // Regular user or admin in personal dashboard: show only user's tags
             $tags = array_filter($tags, function($tag) use ($user) {
-                return $tag->getCreator()->getId() === $user->getId();
+                return $tag->isGlobal() || $tag->getCreator()?->getId() === $user->getId();
             });
         }
 
@@ -270,10 +286,31 @@ class TagController extends AbstractController
         foreach ($tags as $tag) {
             $tagsArray[] = [
                 'id' => $tag->getId(),
-                'name' => $tag->getName()
+                'name' => $tag->getName(),
+                'isGlobal' => $tag->isGlobal(),
+                'hideFromLibrary' => $tag->hidesFromLibrary(),
             ];
         }
 
         return $this->json(['tags' => $tagsArray]);
+    }
+
+    private function serialiseTag(Tag $tag): array
+    {
+        $creator = $tag->getCreator();
+
+        return [
+            'id' => $tag->getId(),
+            'name' => $tag->getName(),
+            'createdAt' => $tag->getCreatedAt()->format('c'),
+            'creator' => $creator ? [
+                'id' => $creator->getId(),
+                'name' => $creator->getName() ?: $creator->getEmail(),
+                'email' => $creator->getEmail(),
+            ] : null,
+            'isGlobal' => $tag->isGlobal(),
+            'hideFromLibrary' => $tag->hidesFromLibrary(),
+            'comicCount' => $tag->getComics()->count(),
+        ];
     }
 }

@@ -3,7 +3,7 @@ import { useCallback, useState, useEffect } from "react";
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { TagBadge } from "@/components/TagBadge";
 import { Search, Tag as TagIcon, Trash, Edit, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
@@ -157,10 +157,10 @@ export function AdminComicsList() {
                     <TableCell>
                       <div className="flex flex-wrap gap-1 max-w-[200px]">
                         {comic.tags && comic.tags.map((tag, index) => (
-                          <Badge key={tag.id || index} variant="outline" className="flex items-center gap-1">
+                          <TagBadge key={tag.id || index} tag={tag} className="flex items-center gap-1">
                             <TagIcon size={12} />
                             {typeof tag === 'string' ? tag : tag.name} {/* Display tag name if it's an object */}
-                          </Badge>
+                          </TagBadge>
                         ))}
                       </div>
                     </TableCell>

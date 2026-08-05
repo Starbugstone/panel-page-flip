@@ -8,6 +8,7 @@ import { useTags } from "@/hooks/use-tags.jsx";
 import { useToast } from "@/hooks/use-toast";
 import { generateTitleFromFilename, isCbzFile } from "@/lib/comic-upload";
 import { cn } from "@/lib/utils.js";
+import { TagBadge } from "@/components/TagBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,7 @@ export default function UploadComicForm() {
   const { toast } = useToast();
   const { refreshSession } = useAuth();
   const { config } = useConfig();
-  const { searchTags, addTagToCache, isAdminContext } = useTags();
+  const { tags: availableTags, searchTags, addTagToCache, isAdminContext } = useTags();
   const adminContext = isAdminContext();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
   const { start, cancel, status, progress } = useChunkedUpload({ concurrentChunks });
@@ -63,7 +64,7 @@ export default function UploadComicForm() {
     const timeout = setTimeout(async () => {
       setLoadingSuggestions(true);
       const results = await searchTags(tagInput.trim(), adminContext);
-      setSuggestions(results.map((tag) => tag.name));
+      setSuggestions(results);
       setShowSuggestions(true);
       setLoadingSuggestions(false);
     }, 300);
@@ -194,8 +195,8 @@ export default function UploadComicForm() {
                 {showSuggestions && suggestions.length > 0 && (
                   <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-md border bg-background shadow-lg">
                     {suggestions.map((suggestion) => (
-                      <button key={suggestion} type="button" className="block w-full px-3 py-2 text-left text-sm hover:bg-accent" disabled={tags.includes(suggestion)} onClick={() => addTag(suggestion)}>
-                        {suggestion}
+                      <button key={suggestion.id} type="button" className="block w-full px-3 py-2 text-left text-sm hover:bg-accent" disabled={tags.includes(suggestion.name)} onClick={() => addTag(suggestion.name)}>
+                        {suggestion.name}
                       </button>
                     ))}
                   </div>
@@ -205,10 +206,10 @@ export default function UploadComicForm() {
             </div>
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (
-                <span key={tag} className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-sm">
+                <TagBadge key={tag} tag={availableTags.find((item) => item.name === tag) || tag} className="flex items-center gap-1 rounded-md px-2 py-1 text-sm">
                   {tag}
                   {!uploading && <button type="button" onClick={() => setTags((current) => current.filter((item) => item !== tag))} aria-label={`Remove ${tag}`}><X size={12} /></button>}
-                </span>
+                </TagBadge>
               ))}
             </div>
           </div>

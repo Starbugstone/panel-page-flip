@@ -6,6 +6,7 @@ use App\Entity\Comic;
 use App\Entity\ComicReadingProgress;
 use App\Entity\Tag;
 use App\Entity\User;
+use App\Repository\TagRepository;
 use App\Service\AdminAuditService;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicService;
@@ -113,6 +114,9 @@ class ComicController extends AbstractController
         // Get search parameters
         $search = $request->query->get('search');
         $tagsParam = $request->query->get('tags');
+        $tagNames = $tagsParam
+            ? array_values(array_unique(array_filter(array_map('trim', explode(',', $tagsParam)))))
+            : [];
         
         // Apply rate limiting only when search or tags parameters are present
         if ($search || $tagsParam) {
@@ -135,6 +139,19 @@ class ComicController extends AbstractController
             // For non-admins or admins outside admin context, only show their own comics
             $qb->andWhere('c.owner = :owner')
                 ->setParameter('owner', $user);
+
+            /** @var TagRepository $tagRepository */
+            $tagRepository = $entityManager->getRepository(Tag::class);
+            if (!$tagRepository->hasLibraryHidingGlobalTag($tagNames)) {
+                $hiddenTagSubquery = $entityManager->createQueryBuilder()
+                    ->select('1')
+                    ->from(Tag::class, 'libraryHidingTag')
+                    ->join('libraryHidingTag.comics', 'hiddenComic')
+                    ->where('hiddenComic = c')
+                    ->andWhere('libraryHidingTag.hideFromLibrary = true')
+                    ->getDQL();
+                $qb->andWhere($qb->expr()->not($qb->expr()->exists($hiddenTagSubquery)));
+            }
         }
 
         // Search Filter
@@ -149,16 +166,13 @@ class ComicController extends AbstractController
         }
 
         // Tags Filter - More efficient approach using JOIN, GROUP BY, and HAVING
-        if ($tagsParam) {
-            $tagNames = array_filter(array_map('trim', explode(',', $tagsParam)));
-            if (!empty($tagNames)) {
-                $qb->join('c.tags', 't')
-                   ->andWhere('LOWER(t.name) IN (:tagNames)')
-                   ->setParameter('tagNames', array_map('strtolower', $tagNames))
-                   ->groupBy('c.id')
-                   ->having('COUNT(DISTINCT t.id) = :tagCount')
-                   ->setParameter('tagCount', count($tagNames));
-            }
+        if ($tagNames !== []) {
+            $qb->join('c.tags', 't')
+                ->andWhere('LOWER(t.name) IN (:tagNames)')
+                ->setParameter('tagNames', array_map('strtolower', $tagNames))
+                ->groupBy('c.id')
+                ->having('COUNT(DISTINCT t.id) = :tagCount')
+                ->setParameter('tagCount', count($tagNames));
         }
         
         $comics = $qb->getQuery()->getResult();
@@ -196,7 +210,9 @@ class ComicController extends AbstractController
                 'tags' => array_map(function ($tag) {
                     return [
                         'id' => $tag->getId(),
-                        'name' => $tag->getName()
+                        'name' => $tag->getName(),
+                        'isGlobal' => $tag->isGlobal(),
+                        'hideFromLibrary' => $tag->hidesFromLibrary(),
                     ];
                 }, $comic->getTags()->toArray()),
                 'readingProgress' => $readingProgress ? [
@@ -259,7 +275,9 @@ class ComicController extends AbstractController
                 return $tagsByName[$tagKey];
             }
 
-            $tag = $entityManager->getRepository(Tag::class)->findOneBy(['name' => $tagName, 'creator' => $user]);
+            /** @var TagRepository $tagRepository */
+            $tagRepository = $entityManager->getRepository(Tag::class);
+            $tag = $tagRepository->findAvailableByName($tagName, $user);
             if (!$tag) {
                 $tag = (new Tag())->setName($tagName)->setCreator($user);
                 $entityManager->persist($tag);
@@ -430,7 +448,9 @@ class ComicController extends AbstractController
             'tags' => array_map(function ($tag) {
                 return [
                     'id' => $tag->getId(),
-                    'name' => $tag->getName()
+                    'name' => $tag->getName(),
+                    'isGlobal' => $tag->isGlobal(),
+                    'hideFromLibrary' => $tag->hidesFromLibrary(),
                 ];
             }, $comic->getTags()->toArray()),
             'readingProgress' => $readingProgress ? [
@@ -579,10 +599,9 @@ class ComicController extends AbstractController
                 $tagName = trim($tagName);
 
                 // Check if tag exists for the comic owner
-                $tag = $entityManager->getRepository(Tag::class)->findOneBy([
-                    'name' => $tagName,
-                    'creator' => $tagOwner,
-                ]);
+                /** @var TagRepository $tagRepository */
+                $tagRepository = $entityManager->getRepository(Tag::class);
+                $tag = $tagRepository->findAvailableByName($tagName, $tagOwner);
                 if (!$tag) {
                     // Create new tag
                     $tag = new Tag();

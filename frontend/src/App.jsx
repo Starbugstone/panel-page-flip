@@ -23,6 +23,7 @@ const NotFound = lazy(() => import("./pages/NotFound.jsx"));
 const AcceptSharePage = lazy(() => import("./pages/AcceptSharePage.jsx"));
 const EmailVerification = lazy(() => import("./pages/EmailVerification.jsx"));
 const DropboxSyncPage = lazy(() => import("./pages/DropboxSyncPage.jsx"));
+const UserSettings = lazy(() => import("./pages/UserSettings.jsx"));
 
 const queryClient = new QueryClient();
 const PageLoading = () => <div className="flex h-screen items-center justify-center">Loading...</div>;
@@ -87,6 +88,7 @@ const AppRoutes = () => {
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
             <Route path="/share/accept/:token" element={<ProtectedRoute><AcceptSharePage /></ProtectedRoute>} />
             <Route path="/dropbox-sync" element={<ProtectedRoute><DropboxSyncPage /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

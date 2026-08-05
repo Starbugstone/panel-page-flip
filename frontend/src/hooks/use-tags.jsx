@@ -72,7 +72,7 @@ export function TagProvider({ children }) {
     const lowercaseQuery = query.toLowerCase().trim();
     const localResults = tagsRef.current
       .filter(tag => tag.name.toLowerCase().includes(lowercaseQuery))
-      .map(tag => ({ id: tag.id, name: tag.name }));
+      .map(tag => ({ ...tag }));
     
     // If we have local results and they were fetched recently, use them
     const CACHE_TIME = 5 * 60 * 1000; // 5 minutes

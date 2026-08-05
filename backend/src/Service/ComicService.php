@@ -5,6 +5,7 @@ namespace App\Service;
 use App\Entity\Comic;
 use App\Entity\Tag;
 use App\Entity\User;
+use App\Repository\TagRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
@@ -103,10 +104,9 @@ class ComicService
         }
 
         foreach ($this->normaliseTagNames($tags) as $tagName) {
-            $tag = $this->entityManager->getRepository(Tag::class)->findOneBy([
-                'name' => $tagName,
-                'creator' => $user,
-            ]);
+            /** @var TagRepository $tagRepository */
+            $tagRepository = $this->entityManager->getRepository(Tag::class);
+            $tag = $tagRepository->findAvailableByName($tagName, $user);
 
             if (!$tag) {
                 $tag = new Tag();
