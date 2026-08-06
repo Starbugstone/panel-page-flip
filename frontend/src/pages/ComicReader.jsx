@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { toggleFullscreen } from "@/lib/fullscreen";
 
 export default function ComicReader() {
   const { comicId } = useParams();
@@ -798,13 +799,7 @@ export default function ComicReader() {
               variant="outline" 
               size="icon"
               className="opacity-80 hover:opacity-100 bg-card/80"
-              onClick={() => {
-                if (isFullscreen) {
-                  document.exitFullscreen();
-                } else if (imageContainerRef.current) {
-                  imageContainerRef.current.requestFullscreen();
-                }
-              }}
+              onClick={() => toggleFullscreen(document)}
               title="Toggle fullscreen"
             >
               <Maximize className="h-4 w-4" />
