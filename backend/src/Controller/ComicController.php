@@ -19,6 +19,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpKernel\EventListener\AbstractSessionListener;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\Routing\Attribute\Route;
 use ZipArchive;
@@ -28,6 +29,30 @@ class ComicController extends AbstractController
 {
     private const FILE_ID_REGEX = '/^[A-Za-z0-9\-]{8,64}$/';
     private const ASSEMBLED_UPLOAD_FILENAME = 'assembled.cbz';
+
+    /**
+     * A stored cover filename carries a uniqid suffix, so its URL changes
+     * whenever the cover is regenerated. The bytes behind a given cover URL can
+     * therefore never change and the browser may keep them indefinitely.
+     */
+    private const COVER_CACHE_SECONDS = 31_536_000;
+
+    /**
+     * The placeholder is served from the cover URL of a comic whose file is
+     * missing, so that URL is not versioned and must stay revalidatable. A short
+     * lifetime plus a conditional request keeps repeat views cheap without
+     * pinning a "missing cover" answer in the cache for a year.
+     */
+    private const COVER_PLACEHOLDER_CACHE_SECONDS = 300;
+
+    /**
+     * A page URL carries no version, and nothing in the app replaces a comic's
+     * archive in place, so the bytes behind one are stable in practice. A day is
+     * long enough to cover a reading session and a return to it, short enough
+     * that an archive swapped by hand is not served stale for a week. The ETag
+     * makes the revalidation after that a cheap 304.
+     */
+    private const PAGE_CACHE_SECONDS = 86_400;
 
     private string $tempUploadDir;
 
@@ -915,7 +940,7 @@ class ComicController extends AbstractController
     }
     
     #[Route('/{id}/pages/{page}', name: 'get_page', methods: ['GET'])]
-    public function getPage(int $id, int $page, EntityManagerInterface $entityManager): Response
+    public function getPage(int $id, int $page, Request $request, EntityManagerInterface $entityManager): Response
     {
         // Get the current user
         $user = $this->getUser();
@@ -966,6 +991,24 @@ class ComicController extends AbstractController
             $filePath = $legacyPath;
         }
 
+        // Validators taken from the archive rather than the extracted page, so a
+        // revalidation can be answered without opening the CBZ at all. Reading a
+        // comic is the app's hot path and every page used to be re-downloaded.
+        $response = new Response();
+        $response->setPrivate();
+        $response->setMaxAge(self::PAGE_CACHE_SECONDS);
+        $response->headers->set(AbstractSessionListener::NO_AUTO_CACHE_CONTROL_HEADER, 'true');
+
+        $modifiedAt = @filemtime($filePath);
+        if ($modifiedAt !== false) {
+            $response->setLastModified(new \DateTimeImmutable('@' . $modifiedAt));
+            $response->setEtag(hash('sha256', $filePath . '|' . $modifiedAt . '|' . @filesize($filePath) . '|' . $page));
+
+            if ($response->isNotModified($request)) {
+                return $response;
+            }
+        }
+
         // Open CBZ file
         $zip = new ZipArchive();
         if ($zip->open($filePath) !== true) {
@@ -999,8 +1042,9 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Failed to extract page image'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
-        // Return image
-        $response = new Response($pageImage);
+        // Return image, keeping the caching policy set up before the archive was
+        // opened.
+        $response->setContent($pageImage);
         $extension = strtolower(pathinfo($imageFiles[$page - 1], PATHINFO_EXTENSION));
         $mimeType = $this->getMimeTypeForExtension($extension);
         $response->headers->set('Content-Type', $mimeType);
@@ -1277,9 +1321,53 @@ class ComicController extends AbstractController
         return array_values($normalised);
     }
 
+    /**
+     * Serve an image the browser is allowed to keep.
+     *
+     * Covers are private: they are reachable only through this authenticated
+     * endpoint, so the policy stops at the user's own browser and never lets a
+     * shared proxy hand one user's cover to another.
+     *
+     * Within that one browser the entry is still keyed by the session cookie,
+     * so an admin who signs out and another account signs in cannot be served
+     * the previous account's cover from cache. The session cookie is the only
+     * credential this endpoint authenticates with, so it is the whole of Vary.
+     */
+    private function cacheableImageResponse(
+        string $absolutePath,
+        Request $request,
+        int $maxAge,
+        bool $immutable
+    ): BinaryFileResponse {
+        $response = new BinaryFileResponse($absolutePath);
+        $response->setAutoLastModified();
+        $response->setAutoEtag();
+        $response->setPrivate();
+        $response->setMaxAge($maxAge);
+        $response->setVary('Cookie');
+        if ($immutable) {
+            $response->setImmutable();
+        }
+
+        // Symfony disables caching on every response whose request touched the
+        // session, which is every authenticated request. Opting out is what
+        // lets the policy above reach the browser at all.
+        $response->headers->set(AbstractSessionListener::NO_AUTO_CACHE_CONTROL_HEADER, 'true');
+
+        // Turns a revalidation into an empty 304 instead of resending the file.
+        $response->isNotModified($request);
+
+        return $response;
+    }
+
     #[Route('/cover/{userId}/{comicId}/{filename}', name: 'cover_image', methods: ['GET'])]
-    public function getCoverImage(int $userId, int $comicId, string $filename, EntityManagerInterface $entityManager): Response
-    {
+    public function getCoverImage(
+        int $userId,
+        int $comicId,
+        string $filename,
+        Request $request,
+        EntityManagerInterface $entityManager
+    ): Response {
         /** @var \App\Entity\User|null $currentUser */
         $currentUser = $this->getUser();
         if (!$currentUser) {
@@ -1321,15 +1409,20 @@ class ComicController extends AbstractController
             $this->logger->warning('Cover file not found or unreadable.', ['comic_id' => $comicId, 'user_id' => $userId]);
             $placeholderPath = $this->getParameter('kernel.project_dir') . '/public/comic.png';
             if (is_readable($placeholderPath)) {
-                return new BinaryFileResponse($placeholderPath);
+                return $this->cacheableImageResponse(
+                    $placeholderPath,
+                    $request,
+                    self::COVER_PLACEHOLDER_CACHE_SECONDS,
+                    false
+                );
             }
 
             return $this->json(['message' => 'Cover image file not found on server.'], Response::HTTP_NOT_FOUND);
         }
 
-        // Use BinaryFileResponse to serve the image
-        // This handles Content-Type, Content-Length, and other necessary headers.
-        // It also supports range requests if the client asks for partial content.
-        return new BinaryFileResponse($absolutePath);
+        // BinaryFileResponse handles Content-Type, Content-Length and range
+        // requests; the helper adds the caching policy on top so returning to
+        // the library re-displays covers from the browser cache.
+        return $this->cacheableImageResponse($absolutePath, $request, self::COVER_CACHE_SECONDS, true);
     }
 }

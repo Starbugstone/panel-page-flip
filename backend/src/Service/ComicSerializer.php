@@ -6,6 +6,7 @@ use App\Entity\Comic;
 use App\Entity\ComicReadingProgress;
 use App\Entity\User;
 use App\Repository\ComicReadingProgressRepository;
+use App\Repository\ComicRepository;
 
 /**
  * Single source of truth for the shape of a comic in API responses.
@@ -17,7 +18,8 @@ use App\Repository\ComicReadingProgressRepository;
 class ComicSerializer
 {
     public function __construct(
-        private readonly ComicReadingProgressRepository $progressRepository
+        private readonly ComicReadingProgressRepository $progressRepository,
+        private readonly ComicRepository $comicRepository
     ) {
     }
 
@@ -27,6 +29,10 @@ class ComicSerializer
      */
     public function serializeMany(array $comics, User $viewer, bool $includeOwner = false): array
     {
+        // Both calls are batched on purpose: a library page reads every comic's
+        // tags, owner and progress, and doing that per comic is what makes the
+        // list endpoint slow enough to be visible.
+        $this->comicRepository->preloadAssociations($comics);
         $progressByComicId = $this->progressRepository->findByUserIndexedByComic($viewer, $comics);
 
         $serialized = [];

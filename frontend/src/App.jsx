@@ -10,6 +10,7 @@ import { Header } from "@/components/Header.jsx";
 import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
 import { TagProvider } from "./hooks/use-tags.jsx";
+import { ComicLibraryProvider } from "./hooks/use-comic-library.jsx";
 
 const Landing = lazy(() => import("./pages/Landing.jsx"));
 const Login = lazy(() => import("./pages/Login.jsx"));
@@ -112,12 +113,16 @@ const App = () => {
       <ThemeProvider defaultTheme="light">
         <AuthProvider>
           <TagProvider>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              <SessionMonitor />
-              <AppRoutes />
-            </TooltipProvider>
+            {/* Outside the router so the library survives navigating into a
+                comic and back, instead of being refetched from empty. */}
+            <ComicLibraryProvider>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <SessionMonitor />
+                <AppRoutes />
+              </TooltipProvider>
+            </ComicLibraryProvider>
           </TagProvider>
         </AuthProvider>
       </ThemeProvider>

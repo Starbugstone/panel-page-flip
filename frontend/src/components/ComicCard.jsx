@@ -9,11 +9,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast.js";
+import { cn } from "@/lib/utils";
 
-export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic, onShareClick }) {
+export function ComicCard({ comic, coverPriority = false, onResetProgress, onEditComic, onDeleteComic, onShareClick }) {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isOrphaned, setIsOrphaned] = useState(false);
+  // A cover served from the browser cache decodes in the same frame, so this
+  // only ever fades in a genuine first load rather than every revisit. A comic
+  // with no cover has nothing to wait for.
+  const [coverLoaded, setCoverLoaded] = useState(!comic.coverImagePath);
   const { toast } = useToast();
 
   const handleResetClick = (e) => {
@@ -75,10 +80,22 @@ export function ComicCard({ comic, onResetProgress, onEditComic, onDeleteComic, 
         <Link to={`/read/${comic.id}`} className="block group">
         <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg border-2 hover:border-comic-purple">
           <div className="relative pt-[140%] bg-muted overflow-hidden">
-            <img 
-              src={comic.coverImagePath} 
-              alt={comic.title} 
-              className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-105"
+            <img
+              src={comic.coverImagePath}
+              alt={comic.title}
+              decoding="async"
+              loading={coverPriority ? "eager" : "lazy"}
+              fetchpriority={coverPriority ? "high" : "auto"}
+              onLoad={() => setCoverLoaded(true)}
+              // A cover that fails still has to reveal its alt text.
+              onError={() => setCoverLoaded(true)}
+              // One transition property covering both: separate transition-*
+              // classes would be merged down to whichever came last.
+              className={cn(
+                "absolute inset-0 w-full h-full object-cover",
+                "transition-[transform,opacity] duration-150 group-hover:scale-105",
+                coverLoaded ? "opacity-100" : "opacity-0"
+              )}
             />
             {comic.lastReadPage !== undefined && (
               <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-white p-2 text-xs flex justify-between items-center">

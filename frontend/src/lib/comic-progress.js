@@ -1,3 +1,21 @@
+/**
+ * Turn what someone typed into a jump-to-page box into a page index.
+ *
+ * Returns a zero-based index, or null when the value is not a page at all —
+ * including the half-finished states a controlled input goes through while
+ * being typed into, which must leave the reader where it is.
+ */
+export function parsePageNumber(rawValue, pageCount) {
+  if (!Number.isInteger(pageCount) || pageCount < 1) return null;
+
+  const parsed = Number.parseInt(String(rawValue).trim(), 10);
+  if (Number.isNaN(parsed)) return null;
+
+  // Clamping rather than rejecting: asking for page 500 of 40 plainly means the
+  // end, and refusing to move would just look broken.
+  return Math.min(Math.max(parsed, 1), pageCount) - 1;
+}
+
 export function getComicProgressState(comic) {
   const currentPage = comic.readingProgress?.currentPage ?? comic.lastReadPage ?? 0;
   const pageCount = comic.pageCount ?? 0;

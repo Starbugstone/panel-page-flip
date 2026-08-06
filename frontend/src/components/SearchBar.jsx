@@ -1,5 +1,5 @@
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { TagBadge } from "@/components/TagBadge";
@@ -8,9 +8,12 @@ import { Search, X, Tag as TagIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { fuzzyFilter } from "@/lib/fuzzy-search";
+import { isTypingTarget } from "@/lib/keyboard";
 
 export function SearchBar({ onSearch, isSearching = false }) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchInputRef = useRef(null);
   const [selectedTags, setSelectedTags] = useState([]);
   const [availableTags, setAvailableTags] = useState([]);
   const [isLoadingTags, setIsLoadingTags] = useState(true);
@@ -57,7 +60,34 @@ export function SearchBar({ onSearch, isSearching = false }) {
 
     fetchTags();
   }, [retryCount]);
-  
+
+  // "/" jumps to the search box, Ctrl/Cmd+K too.
+  useEffect(() => {
+    const handleShortcut = (event) => {
+      if (typeof event.key !== "string") return;
+
+      const isSlash = event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey;
+      const isCommandK = event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey);
+      if (!isSlash && !isCommandK) return;
+
+      // A dialog traps focus deliberately; pulling it out to a box behind the
+      // dialog would be worse than ignoring the shortcut.
+      if (event.target?.closest?.('[role="dialog"]')) return;
+
+      // "/" is a character someone may be trying to type. The explicit chord is
+      // never ambiguous, so it keeps working from inside a field.
+      if (isSlash && isTypingTarget(event.target)) return;
+
+      event.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
+
+
   const handleSearch = (e) => {
     e.preventDefault();
     onSearch({
@@ -86,13 +116,27 @@ export function SearchBar({ onSearch, isSearching = false }) {
       <form onSubmit={handleSearch} className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-2.5 h-5 w-5 text-muted-foreground" />
-          <Input 
+          <Input
+            ref={searchInputRef}
             type="search"
             placeholder="Search comics by title, author..."
-            className="pl-10 pr-10"
+            // Chrome and Edge draw their own clear cross inside a search field
+            // on hover and focus, which lands next to the button below and
+            // reads as two crosses. Ours is the one to keep: the native cross
+            // only empties the text, leaving the selected tags filtering.
+            className="pl-10 pr-10 [&::-webkit-search-cancel-button]:hidden"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => setIsSearchFocused(false)}
+            aria-keyshortcuts="/"
           />
+          {/* Only shown when the clear button is not, so the two never collide */}
+          {!isSearchFocused && !searchQuery && selectedTags.length === 0 && (
+            <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground sm:inline-block">
+              /
+            </kbd>
+          )}
           {(searchQuery || selectedTags.length > 0) && (
             <button 
               type="button" 

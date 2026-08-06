@@ -1,12 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button.jsx";
 import { ArrowLeft, ArrowRight, Info, Maximize, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
+import { Progress } from "@/components/ui/progress.jsx";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { isTypingTarget } from "@/lib/keyboard";
+import { parsePageNumber } from "@/lib/comic-progress";
 import { toggleFullscreen } from "@/lib/fullscreen";
+import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 
 export default function ComicReader() {
   const { comicId } = useParams();
@@ -23,10 +27,10 @@ export default function ComicReader() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
   const imageContainerRef = useRef(null);
+  const pageInputRef = useRef(null);
   
   // Refs for async operations
   const progressAbortController = useRef(null);
-  const reloadAbortController = useRef(null); // For aborting force reload operations
   const currentPageRef = useRef(0); // Ref to track current page for async operations
   const loadQueueRef = useRef([]); // Queue of pages to load
   const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
@@ -35,6 +39,7 @@ export default function ComicReader() {
   
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { updateComicProgress } = useComicLibrary();
 
   const CACHE_SIZE_FORWARD = 5;
   const CACHE_SIZE_BACKWARD = 5;
@@ -71,6 +76,12 @@ export default function ComicReader() {
       if (typeof storedRevision === 'number' && storedRevision > progressRevisionRef.current) {
         progressRevisionRef.current = storedRevision;
       }
+
+      // Keep the library card in step with what was just stored, so going back
+      // shows the new page straight away instead of after another /api/comics.
+      if (response?.progress) {
+        updateComicProgress(comicId, response.progress);
+      }
     } catch (error) {
       // A superseded save is expected, not a failure
       if (error.name === 'AbortError' || controller.signal.aborted) return;
@@ -98,7 +109,7 @@ export default function ComicReader() {
         progressAbortController.current = null;
       }
     }
-  }, [comicId, comic, toast]);
+  }, [comicId, comic, toast, updateComicProgress]);
 
   // Track mount state so an in-flight progress save that resolves after the
   // reader closes does not try to toast onto the next screen.
@@ -175,21 +186,6 @@ export default function ComicReader() {
            pageIndex <= Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
   }, [comicPages.length]);
 
-  // Snapshot a loaded image into a detached, self-contained Image so that
-  // re-displaying a cached page never hits the network again.
-  const toCachedImage = (img) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width;
-    canvas.height = img.height;
-    canvas.getContext('2d').drawImage(img, 0, 0);
-
-    // JPEG keeps the bounded page cache compact. Lossless PNG snapshots can
-    // expand photographic comic pages enough to exhaust memory on mobile.
-    const cachedImg = new Image();
-    cachedImg.src = canvas.toDataURL('image/jpeg', 0.92);
-    return cachedImg;
-  };
-
   // Object to track in-progress loads to prevent duplicate requests
   const loadingPagesRef = useRef({});
   
@@ -215,24 +211,16 @@ export default function ComicReader() {
     
     // Create a new promise for this load
     const loadPromise = new Promise((resolve, reject) => {
-      // Create a new image object with a unique timestamp to prevent browser caching
+      // The plain page URL, deliberately: the endpoint is cacheable, so asking
+      // for it again is answered by the browser without touching the network.
+      // A cache-busting parameter here would make every page a fresh download.
       const img = new Image();
-      const url = `${comicPages[pageIndex]}?_t=${Date.now()}`;
-      
-      img.crossOrigin = 'Anonymous'; // Enable CORS for the canvas operations
-      
+      const url = comicPages[pageIndex];
+
       img.onload = () => {
         // Only update cache if this page is still in the cache window
         if (isInCacheWindow(pageIndex)) {
-          let cached;
-          try {
-            cached = toCachedImage(img);
-          } catch {
-            // Canvas snapshot failed; fall back to the original image
-            cached = img;
-          }
-
-          setImageCache(prev => ({ ...prev, [pageIndex]: cached }));
+          setImageCache(prev => ({ ...prev, [pageIndex]: img }));
         }
         // Remove from loading tracker
         delete loadingPagesRef.current[pageIndex];
@@ -250,7 +238,6 @@ export default function ComicReader() {
         reject();
       };
       
-      // Set the source with the timestamp to prevent caching
       img.src = url;
     });
     
@@ -456,172 +443,109 @@ export default function ComicReader() {
     goToPage(currentPage + 1);
   }, [goToPage, currentPage]);
 
-  // Function to force reload the current page from the server
+  // The jump-to-page box holds raw text, not a page number: it has to survive
+  // the empty and half-typed states an input passes through. It is reconciled
+  // with the reader whenever the page changes by any other means.
+  const [pageInput, setPageInput] = useState("1");
+
+  useEffect(() => {
+    setPageInput(String(currentPage + 1));
+  }, [currentPage]);
+
+  const commitPageInput = useCallback(() => {
+    const requestedPage = parsePageNumber(pageInput, comicPages.length);
+
+    if (requestedPage === null) {
+      setPageInput(String(currentPageRef.current + 1));
+      return;
+    }
+
+    // Echo the clamped value back, so typing 500 in a 40-page comic settles on
+    // 40 rather than leaving a number that does not match the page shown.
+    setPageInput(String(requestedPage + 1));
+    if (requestedPage !== currentPageRef.current) {
+      goToPage(requestedPage);
+    }
+  }, [pageInput, comicPages.length, goToPage]);
+
+  // Force a page to come from the server again, bypassing the browser cache.
+  // A unique URL is what does the bypassing: the page endpoint is cacheable, so
+  // re-requesting the plain URL would simply be answered locally.
   const handleForceReload = useCallback(() => {
     if (comicPages.length === 0 || currentPage < 0 || currentPage >= comicPages.length) {
       return;
     }
-    
-    // If there's already a reload in progress, abort it
-    if (reloadAbortController.current) {
-      reloadAbortController.current.abort();
-      reloadAbortController.current = null;
-    }
-    
-    // Create a new abort controller for this reload
-    reloadAbortController.current = new AbortController();
-    const signal = reloadAbortController.current.signal;
-    
-    // Store the current page to ensure we stay on it
+
     const pageToReload = currentPage;
-    
-    // Show toast to indicate reload is happening
+
     toast({
       title: "Reloading page",
       description: `Forcing reload of page ${pageToReload + 1}`,
     });
-    
-    // Clear the current page from cache
+
     setImageCache(prevCache => {
       const newCache = { ...prevCache };
-      delete newCache[pageToReload]; // Remove from cache to force reload
+      delete newCache[pageToReload];
       return newCache;
     });
-    
-    // Set loading states
     setIsPageImageLoading(true);
     setImageLoadedSuccessfully(false);
-    
-    // Use fetch with AbortController instead of Image directly
-    const url = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
-    
-    api.blob(url, { signal })
-      .then(blob => {
-        // Check if the operation was aborted
-        if (signal.aborted) return;
-        
-        // Create a URL for the blob
-        const blobUrl = URL.createObjectURL(blob);
-        
-        // Create an image from the blob URL
-        const img = new Image();
-        
-        img.onload = () => {
-          try {
-            // Check if the operation was aborted
-            if (signal.aborted) {
-              URL.revokeObjectURL(blobUrl);
-              return;
-            }
-            
-            // Make sure we're still on the same page
-            if (currentPage !== pageToReload) {
-              // If page has changed, just update the cache but don't change UI
-              setImageCache(prev => ({
-                ...prev,
-                [pageToReload]: img
-              }));
-              URL.revokeObjectURL(blobUrl);
-              return;
-            }
-            
-            const cachedImg = toCachedImage(img);
 
-            // Free the blob URL
-            URL.revokeObjectURL(blobUrl);
+    const img = new Image();
+    let settleForcedLoad = () => {};
+    let failForcedLoad = () => {};
 
-            // Update cache with the new image
-            setImageCache(prev => ({
-              ...prev,
-              [pageToReload]: cachedImg
-            }));
-            
-            // Update UI state only if we're still on the same page
-            setIsPageImageLoading(false);
-            setImageLoadedSuccessfully(true);
-            
-            // Success toast
-            toast({
-              title: "Page reloaded",
-              description: `Successfully reloaded page ${pageToReload + 1}`,
-              variant: "success",
-            });
-            
-            // Clear the abort controller reference
-            reloadAbortController.current = null;
-          } catch (error) {
-            // Check if the operation was aborted
-            if (signal.aborted) return;
-            
-            logger.error("Error reloading page:", error);
-            
-            // Only show error if we're still on the same page
-            if (currentPage === pageToReload) {
-              toast({
-                title: "Error reloading",
-                description: "There was a problem reloading the page. Please try again.",
-                variant: "destructive",
-              });
-              setIsPageImageLoading(false);
-              setImageLoadedSuccessfully(false);
-            }
-            
-            // Clear the abort controller reference
-            reloadAbortController.current = null;
-          }
-        };
-        
-        img.onerror = () => {
-          // Check if the operation was aborted
-          if (signal.aborted) {
-            URL.revokeObjectURL(blobUrl);
-            return;
-          }
-          
-          logger.error("Failed to reload image");
-          URL.revokeObjectURL(blobUrl);
-          
-          // Only show error if we're still on the same page
-          if (currentPage === pageToReload) {
-            toast({
-              title: "Reload failed",
-              description: "Could not reload the page. Please try again later.",
-              variant: "destructive",
-            });
-            setIsPageImageLoading(false);
-            setImageLoadedSuccessfully(false);
-          }
-          
-          // Clear the abort controller reference
-          reloadAbortController.current = null;
-        };
-        
-        // Set the source to start loading
-        img.src = blobUrl;
-      })
-      .catch(error => {
-        // Check if the operation was aborted
-        if (signal.aborted) return;
-        
-        // Handle fetch errors
-        logger.error("Fetch error:", error);
-        
-        // Only show error if we're still on the same page
-        if (currentPage === pageToReload) {
-          toast({
-            title: "Reload failed",
-            description: "Could not reload the page from server. Please try again later.",
-            variant: "destructive",
-          });
-          setIsPageImageLoading(false);
-          setImageLoadedSuccessfully(false);
-        }
-        
-        // Clear the abort controller reference
-        reloadAbortController.current = null;
+    img.onload = () => {
+      delete loadingPagesRef.current[pageToReload];
+      setImageCache(prev => ({ ...prev, [pageToReload]: img }));
+      settleForcedLoad(img);
+
+      // The reader may have moved on while this was loading; the cache above is
+      // still worth keeping, but the loading state belongs to another page now.
+      if (currentPageRef.current !== pageToReload) return;
+
+      setIsPageImageLoading(false);
+      setImageLoadedSuccessfully(true);
+      toast({
+        title: "Page reloaded",
+        description: `Successfully reloaded page ${pageToReload + 1}`,
+        variant: "success",
       });
+    };
+
+    img.onerror = () => {
+      logger.error("Failed to reload image");
+      delete loadingPagesRef.current[pageToReload];
+      failForcedLoad();
+      if (currentPageRef.current !== pageToReload) return;
+
+      setIsPageImageLoading(false);
+      setImageLoadedSuccessfully(false);
+      toast({
+        title: "Reload failed",
+        description: "Could not reload the page. Please try again later.",
+        variant: "destructive",
+      });
+    };
+
+    // Dropping the page from the cache above leaves the loading effect wanting
+    // it back, and it would ask for the plain URL - the browser-cached copy
+    // this reload exists to get past. Publishing the forced load through the
+    // tracker every other loader already consults hands that effect this
+    // request instead: no second download, and no stale image that can land
+    // last and take the cache entry back.
+    const forcedLoad = new Promise((resolve, reject) => {
+      settleForcedLoad = resolve;
+      failForcedLoad = reject;
+    });
+    // A caller is not guaranteed; without this a failed reload would surface as
+    // an unhandled rejection on top of the toast that already reports it.
+    forcedLoad.catch(() => {});
+    loadingPagesRef.current[pageToReload] = forcedLoad;
+
+    img.src = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
   }, [comicPages, currentPage, toast]);
-  
+
   const handleScreenNavClick = (direction) => {
     if (direction === 'left') {
       handlePreviousPage();
@@ -634,12 +558,24 @@ export default function ComicReader() {
   // reader keeps focus in the document either way.
   useEffect(() => {
     const handleKeyPress = (event) => {
+      // Arrow keys belong to the jump-to-page box while it has focus; turning
+      // the page under someone editing a page number would be maddening.
+      if (isTypingTarget(event.target)) return;
+
       switch (event.key) {
         case "ArrowLeft":
           handlePreviousPage();
           break;
         case "ArrowRight":
           handleNextPage();
+          break;
+        case "Home":
+          event.preventDefault();
+          goToPage(0);
+          break;
+        case "End":
+          event.preventDefault();
+          goToPage(comicPages.length - 1);
           break;
         default:
           break;
@@ -648,7 +584,7 @@ export default function ComicReader() {
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [handlePreviousPage, handleNextPage]);
+  }, [handlePreviousPage, handleNextPage, goToPage, comicPages.length]);
 
   // Handle fullscreen change events
   useEffect(() => {
@@ -719,14 +655,14 @@ export default function ComicReader() {
       {/* Navigation areas for clicking left/right sides of screen */}
       <div 
         className={`page-navigation left-0 ${isFullscreen ? 'z-[55]' : ''}`}
-        style={{ bottom: '60px' }} // Leave space for controls to prevent overlap
+        style={{ bottom: '88px' }} // Leave space for controls to prevent overlap
         onClick={() => handleScreenNavClick('left')}
         aria-label="Previous page"
       ></div>
       
       <div 
         className={`page-navigation right-0 ${isFullscreen ? 'z-[55]' : ''}`}
-        style={{ bottom: '60px' }} // Leave space for controls to prevent overlap
+        style={{ bottom: '88px' }} // Leave space for controls to prevent overlap
         onClick={() => handleScreenNavClick('right')}
         aria-label="Next page"
       ></div>
@@ -892,8 +828,10 @@ export default function ComicReader() {
                     .map(pageNum => (
                       <li key={pageNum} className={pageNum === currentPage ? 'font-bold' : ''}>
                         Page {pageNum + 1}: {' '}
-                        {imageCache[pageNum] === 'loading' ? '🔄 Loading' : 
-                         imageCache[pageNum] === 'failed' ? '❌ Failed' : '✅ Loaded'}
+                        {/* Escape sequences, not literals: these icons went through a bad
+                            re-encoding once and came back as mojibake. */}
+                        {imageCache[pageNum] === 'loading' ? '\u{1F504} Loading' :
+                         imageCache[pageNum] === 'failed' ? '\u274C Failed' : '\u2705 Loaded'}
                         {pageNum === currentPage ? ' (current)' : ''}
                       </li>
                     ))
@@ -918,47 +856,80 @@ export default function ComicReader() {
       
       {/* Reader controls - different styling in fullscreen mode */}
       <div className={isFullscreen ? "reader-controls-fullscreen" : "reader-controls"}>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={handlePreviousPage}
-            disabled={currentPage === 0}
-            className={isFullscreen ? "" : "bg-card"}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" /> Previous
-          </Button>
-          
-          {/* Force reload button */}
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={handleForceReload}
-            title="Force reload current page"
-            className={isFullscreen ? "" : "bg-card"}
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <div className="text-sm">
-            Page {currentPage + 1} of {comicPages.length}
+        {/* How far through the comic this page is, at a glance */}
+        {comicPages.length > 0 && (
+          <Progress
+            value={((currentPage + 1) / comicPages.length) * 100}
+            aria-label={`Page ${currentPage + 1} of ${comicPages.length}`}
+            className="h-1 w-full rounded-none bg-muted/60"
+          />
+        )}
+
+        <div className="flex w-full items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handlePreviousPage}
+              disabled={currentPage === 0}
+              className={isFullscreen ? "" : "bg-card"}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" /> Previous
+            </Button>
+
+            {/* Force reload button */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleForceReload}
+              title="Force reload current page"
+              className={isFullscreen ? "" : "bg-card"}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
           </div>
-          {isZoomed && (
-            <div className="text-xs bg-primary/20 px-2 py-1 rounded">
-              {Math.round(zoomLevel * 100)}% zoom
-            </div>
-          )}
+
+          <div className="flex items-center gap-2">
+            <form
+              className="flex items-center gap-1.5 text-sm"
+              onSubmit={(event) => {
+                event.preventDefault();
+                commitPageInput();
+                pageInputRef.current?.blur();
+              }}
+            >
+              <label htmlFor="reader-page-input" className="sr-only">Go to page</label>
+              <input
+                id="reader-page-input"
+                ref={pageInputRef}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={comicPages.length || 1}
+                value={pageInput}
+                onChange={(event) => setPageInput(event.target.value)}
+                onBlur={commitPageInput}
+                disabled={comicPages.length === 0}
+                title="Go to page"
+                className="h-8 w-16 rounded-md border border-input bg-background px-2 text-center text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+              />
+              <span className="whitespace-nowrap">of {comicPages.length}</span>
+            </form>
+            {isZoomed && (
+              <div className="text-xs bg-primary/20 px-2 py-1 rounded">
+                {Math.round(zoomLevel * 100)}% zoom
+              </div>
+            )}
+          </div>
+
+          <Button
+            variant="outline"
+            onClick={handleNextPage}
+            disabled={currentPage === comicPages.length - 1}
+            className={isFullscreen ? "" : "bg-card"}
+          >
+            Next <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
         </div>
-        
-        <Button
-          variant="outline"
-          onClick={handleNextPage}
-          disabled={currentPage === comicPages.length - 1}
-          className={isFullscreen ? "" : "bg-card"}
-        >
-          Next <ArrowRight className="ml-2 h-4 w-4" />
-        </Button>
       </div>
     </div>
   );
