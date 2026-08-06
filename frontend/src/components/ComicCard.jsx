@@ -68,12 +68,6 @@ export function ComicCard({ comic, coverPriority = false, onResetProgress, onEdi
     }
   };
 
-  const handleEditClick = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onEditComic(comic);
-  };
-  
   return (
     <>
       <div className="relative">
@@ -146,29 +140,26 @@ export function ComicCard({ comic, coverPriority = false, onResetProgress, onEdi
                 <MoreVertical size={16} />
               </Button>
             </DropdownMenuTrigger>
+            {/* onSelect, not onClick: Radix closes the menu from its own click
+                handler, and preventDefault() on the click event suppressed it —
+                which is how the menu ended up sitting over the dialog it had
+                just opened. The menu is outside the card's Link, so there is no
+                navigation left to cancel. */}
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleEditClick}>
+              <DropdownMenuItem onSelect={() => onEditComic(comic)}>
                 <Edit className="mr-2 h-4 w-4" />
                 Edit Details
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsDeleteDialogOpen(true);
-              }}>
+              <DropdownMenuItem onSelect={() => setIsDeleteDialogOpen(true)}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete Comic
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onShareClick(comic.id, comic.title);
-              }}>
+              <DropdownMenuItem onSelect={() => onShareClick(comic.id, comic.title)}>
                 <Share2Icon className="mr-2 h-4 w-4" />
                 Share Comic
               </DropdownMenuItem>
               {comic.lastReadPage !== undefined && (
-                <DropdownMenuItem onClick={handleResetClick}>
+                <DropdownMenuItem onSelect={() => setIsResetDialogOpen(true)}>
                   <RotateCcw className="mr-2 h-4 w-4" />
                   Reset Progress
                 </DropdownMenuItem>

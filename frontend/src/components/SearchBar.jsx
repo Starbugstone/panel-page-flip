@@ -112,7 +112,7 @@ export function SearchBar({ onSearch, isSearching = false }) {
   };
   
   return (
-    <div className={`w-full max-w-3xl ${showTagDropdown ? "relative z-[70]" : ""}`}>
+    <div className={`w-full max-w-3xl ${showTagDropdown ? "relative z-30" : ""}`}>
       <form onSubmit={handleSearch} className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-2.5 h-5 w-5 text-muted-foreground" />
@@ -148,7 +148,10 @@ export function SearchBar({ onSearch, isSearching = false }) {
           )}
         </div>
         
-        <div className="relative z-[70]">
+        {/* Only raised while its panel is open. A permanently stacked button
+            here is what used to float this control over the Edit and Share
+            dialogs; see lib/overlay-layers.js for the full scale. */}
+        <div className={showTagDropdown ? "relative z-30" : "relative"}>
           <Button 
             type="button" 
             variant="outline" 
@@ -173,7 +176,7 @@ export function SearchBar({ onSearch, isSearching = false }) {
           </Button>
           
           {showTagDropdown && (
-            <div className="absolute right-0 z-[80] mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border bg-card shadow-xl">
+            <div className="absolute right-0 z-40 mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border bg-card shadow-xl">
               <div className="border-b p-3">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="text-sm font-medium">Filter by tags</p>
