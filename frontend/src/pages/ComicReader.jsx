@@ -492,9 +492,13 @@ export default function ComicReader() {
     setImageLoadedSuccessfully(false);
 
     const img = new Image();
+    let settleForcedLoad = () => {};
+    let failForcedLoad = () => {};
 
     img.onload = () => {
+      delete loadingPagesRef.current[pageToReload];
       setImageCache(prev => ({ ...prev, [pageToReload]: img }));
+      settleForcedLoad(img);
 
       // The reader may have moved on while this was loading; the cache above is
       // still worth keeping, but the loading state belongs to another page now.
@@ -511,6 +515,8 @@ export default function ComicReader() {
 
     img.onerror = () => {
       logger.error("Failed to reload image");
+      delete loadingPagesRef.current[pageToReload];
+      failForcedLoad();
       if (currentPageRef.current !== pageToReload) return;
 
       setIsPageImageLoading(false);
@@ -521,6 +527,21 @@ export default function ComicReader() {
         variant: "destructive",
       });
     };
+
+    // Dropping the page from the cache above leaves the loading effect wanting
+    // it back, and it would ask for the plain URL - the browser-cached copy
+    // this reload exists to get past. Publishing the forced load through the
+    // tracker every other loader already consults hands that effect this
+    // request instead: no second download, and no stale image that can land
+    // last and take the cache entry back.
+    const forcedLoad = new Promise((resolve, reject) => {
+      settleForcedLoad = resolve;
+      failForcedLoad = reject;
+    });
+    // A caller is not guaranteed; without this a failed reload would surface as
+    // an unhandled rejection on top of the toast that already reports it.
+    forcedLoad.catch(() => {});
+    loadingPagesRef.current[pageToReload] = forcedLoad;
 
     img.src = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
   }, [comicPages, currentPage, toast]);
@@ -807,8 +828,10 @@ export default function ComicReader() {
                     .map(pageNum => (
                       <li key={pageNum} className={pageNum === currentPage ? 'font-bold' : ''}>
                         Page {pageNum + 1}: {' '}
-                        {imageCache[pageNum] === 'loading' ? 'ðŸ”„ Loading' : 
-                         imageCache[pageNum] === 'failed' ? 'âŒ Failed' : 'âœ… Loaded'}
+                        {/* Escape sequences, not literals: these icons went through a bad
+                            re-encoding once and came back as mojibake. */}
+                        {imageCache[pageNum] === 'loading' ? '\u{1F504} Loading' :
+                         imageCache[pageNum] === 'failed' ? '\u274C Failed' : '\u2705 Loaded'}
                         {pageNum === currentPage ? ' (current)' : ''}
                       </li>
                     ))
