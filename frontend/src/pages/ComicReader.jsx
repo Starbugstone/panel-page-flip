@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { isTypingTarget } from "@/lib/keyboard";
 import { parsePageNumber } from "@/lib/comic-progress";
+import { toggleFullscreen } from "@/lib/fullscreen";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 
 export default function ComicReader() {
@@ -713,13 +714,7 @@ export default function ComicReader() {
               variant="outline" 
               size="icon"
               className="opacity-80 hover:opacity-100 bg-card/80"
-              onClick={() => {
-                if (isFullscreen) {
-                  document.exitFullscreen();
-                } else if (imageContainerRef.current) {
-                  imageContainerRef.current.requestFullscreen();
-                }
-              }}
+              onClick={() => toggleFullscreen(document)}
               title="Toggle fullscreen"
             >
               <Maximize className="h-4 w-4" />
