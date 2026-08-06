@@ -39,6 +39,11 @@ export function ComicLibraryProvider({ children }) {
   // They differ while a load is in flight.
   const activeKeyRef = useRef(null);
   const displayedKeyRef = useRef(null);
+  // Two loads can share a key — the dashboard asks for '/api/comics' again after
+  // an upload or a delete — so the key alone cannot tell a stale response from
+  // the current one. Every load also takes a number, and only the latest number
+  // is allowed to write.
+  const requestIdRef = useRef(0);
 
   const storeComics = useCallback((nextComics) => {
     comicsRef.current = nextComics;
@@ -46,6 +51,7 @@ export function ComicLibraryProvider({ children }) {
   }, []);
 
   const resetLibrary = useCallback(() => {
+    requestIdRef.current += 1;
     activeKeyRef.current = null;
     displayedKeyRef.current = null;
     storeComics([]);
@@ -69,6 +75,9 @@ export function ComicLibraryProvider({ children }) {
     // Claim the request before awaiting so a response that has been superseded
     // by a newer one can be recognised and dropped.
     activeKeyRef.current = key;
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    const isCurrent = () => activeKeyRef.current === key && requestIdRef.current === requestId;
 
     if (showsThisList) {
       setIsRefreshing(true);
@@ -79,7 +88,7 @@ export function ComicLibraryProvider({ children }) {
 
     try {
       const data = await api.get(url);
-      if (activeKeyRef.current !== key) {
+      if (!isCurrent()) {
         return comicsRef.current;
       }
 
@@ -88,7 +97,7 @@ export function ComicLibraryProvider({ children }) {
       storeComics(fetched);
       return fetched;
     } catch (err) {
-      if (activeKeyRef.current !== key) {
+      if (!isCurrent()) {
         return comicsRef.current;
       }
 
@@ -112,7 +121,7 @@ export function ComicLibraryProvider({ children }) {
 
       return comicsRef.current;
     } finally {
-      if (activeKeyRef.current === key) {
+      if (isCurrent()) {
         setIsLoading(false);
         setIsRefreshing(false);
       }

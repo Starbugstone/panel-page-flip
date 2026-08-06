@@ -1327,6 +1327,11 @@ class ComicController extends AbstractController
      * Covers are private: they are reachable only through this authenticated
      * endpoint, so the policy stops at the user's own browser and never lets a
      * shared proxy hand one user's cover to another.
+     *
+     * Within that one browser the entry is still keyed by the session cookie,
+     * so an admin who signs out and another account signs in cannot be served
+     * the previous account's cover from cache. The session cookie is the only
+     * credential this endpoint authenticates with, so it is the whole of Vary.
      */
     private function cacheableImageResponse(
         string $absolutePath,
@@ -1339,6 +1344,7 @@ class ComicController extends AbstractController
         $response->setAutoEtag();
         $response->setPrivate();
         $response->setMaxAge($maxAge);
+        $response->setVary('Cookie');
         if ($immutable) {
             $response->setImmutable();
         }

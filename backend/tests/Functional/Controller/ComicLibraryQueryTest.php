@@ -62,6 +62,35 @@ final class ComicLibraryQueryTest extends AbstractApiTestCase
     }
 
     /**
+     * The admin view is the only one that serialises an owner, so it is the only
+     * place the owner preload can be shown to work. Comics are spread one per
+     * owner and the library then grown, so an un-batched owner lookup shows up
+     * as queries that scale with the number of owners on screen.
+     */
+    public function testTheAdminLibraryDoesNotQueryPerOwner(): void
+    {
+        $this->seedLibraryAcrossNewOwners(2);
+        $this->loginAs(UserFactory::new()->admin()->create()->object());
+
+        $this->getJson('/api/comics?adminContext=true');
+        self::assertResponseIsSuccessful();
+        $fewOwnersQueries = $this->executedQueryCount();
+
+        $this->seedLibraryAcrossNewOwners(4);
+        $payload = $this->getJson('/api/comics?adminContext=true');
+        self::assertResponseIsSuccessful();
+        $manyOwnersQueries = $this->executedQueryCount();
+
+        self::assertCount(6, $payload['comics']);
+        self::assertNotNull($payload['comics'][0]['owner']['email']);
+        self::assertSame(
+            $fewOwnersQueries,
+            $manyOwnersQueries,
+            'Listing the admin library runs one query per owner; Comic::owner is no longer preloaded.'
+        );
+    }
+
+    /**
      * Doctrine's debug data holder records every statement the profiler would
      * display, and is reset for each request the test client sends. Reading it
      * straight after a request therefore counts that request alone.
@@ -71,6 +100,13 @@ final class ComicLibraryQueryTest extends AbstractApiTestCase
         $holder = self::getContainer()->get('doctrine.debug_data_holder');
 
         return array_sum(array_map('count', $holder->getData()));
+    }
+
+    private function seedLibraryAcrossNewOwners(int $ownerCount): void
+    {
+        for ($index = 0; $index < $ownerCount; $index++) {
+            $this->seedLibrary(UserFactory::createOne()->object(), 1);
+        }
     }
 
     private function seedLibrary(User $user, int $comicCount): void

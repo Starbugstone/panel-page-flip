@@ -74,6 +74,26 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
         self::assertNotNull($headers->get('last-modified'));
     }
 
+    public function testCachedCoversAreKeyedByTheSessionCookie(): void
+    {
+        [$owner, $url] = $this->createComicWithCoverFile();
+        $this->loginAs($owner);
+
+        $this->browser()->request('GET', $url);
+
+        self::assertResponseIsSuccessful();
+        self::assertStringContainsString('Cookie', (string) $this->browser()->getResponse()->headers->get('vary'));
+
+        // The same URL under a different account. An admin is the only other
+        // account allowed to read it, and a cache entry that ignored the cookie
+        // would be the one holding the previous session's copy.
+        $this->loginAs(UserFactory::new()->admin()->create()->object());
+        $this->browser()->request('GET', $url);
+
+        self::assertResponseIsSuccessful();
+        self::assertStringContainsString('Cookie', (string) $this->browser()->getResponse()->headers->get('vary'));
+    }
+
     public function testMatchingEtagReturnsNotModified(): void
     {
         [$owner, $url] = $this->createComicWithCoverFile();

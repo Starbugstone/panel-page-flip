@@ -43,6 +43,9 @@ export default function Dashboard() {
   const { toast } = useToast();
   const lastComicsUrl = useRef('/api/comics');
   const lastSearchQuery = useRef('');
+  // Searches can overlap. Only the last one started is allowed to take the
+  // overlay down, so a quick first result cannot uncover a search still running.
+  const searchRequestId = useRef(0);
 
   // State for ShareComicModal
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -55,13 +58,18 @@ export default function Dashboard() {
     // A search keeps its own overlay over the results it is replacing; the store
     // decides between the skeleton and a quiet refresh for everything else.
     const isSearchRequest = Boolean(fuzzyQuery) || url.includes('tags=');
+    const requestId = searchRequestId.current + 1;
+    searchRequestId.current = requestId;
     if (isSearchRequest) {
       setIsSearching(true);
     }
     try {
       await loadLibrary({ url, fuzzyQuery });
     } finally {
-      if (isSearchRequest) {
+      // Any latest request may take the overlay down, not just a search: a plain
+      // reload started after a search is the one whose result is on screen, and
+      // leaving the flag to the search alone would strand the overlay.
+      if (searchRequestId.current === requestId) {
         setIsSearching(false);
       }
     }
