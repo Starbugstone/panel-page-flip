@@ -13,16 +13,29 @@ import { ShareComicModal } from "@/components/ShareComicModal.jsx";
 import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
-import { fuzzyFilter } from "@/lib/fuzzy-search";
 import { getComicProgressState } from "@/lib/comic-progress";
+import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
+
+// Covers above the fold are worth fetching eagerly; the rest can wait until
+// they are scrolled towards.
+const EAGER_COVER_COUNT = 8;
 
 export default function Dashboard() {
-  const [comics, setComics] = useState([]);
-  // searchResults will now always mirror comics state, simplifying logic.
-  // const [searchResults, setSearchResults] = useState([]); 
-  const [isLoading, setIsLoading] = useState(true);
+  // The library lives in a store, so returning from a comic re-renders the
+  // cards that are already loaded instead of clearing them and starting over.
+  const {
+    comics,
+    isLoading,
+    isRefreshing,
+    hasLoaded,
+    error,
+    loadLibrary,
+    updateComicProgress,
+    removeComicsFromLibrary,
+  } = useComicLibrary();
+  // Before the first load settles there is nothing to show but the skeleton.
+  const showSkeleton = isLoading || !hasLoaded;
   const [isSearching, setIsSearching] = useState(false); // Specific state for search operations
-  const [error, setError] = useState(null); // Added error state
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [editingComic, setEditingComic] = useState(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -36,49 +49,27 @@ export default function Dashboard() {
   const [shareModalComicId, setShareModalComicId] = useState(null);
   const [shareModalComicTitle, setShareModalComicTitle] = useState(null);
 
-  const processComicsResponse = useCallback((data, fuzzyQuery = '') => {
-    const processedComics = data.comics.map(comic => ({
-      ...comic,
-      tagDetails: comic.tags || [],
-      hiddenTagNames: (comic.tags || []).filter(tag => tag.hideFromLibrary).map(tag => tag.name),
-      tags: comic.tags ? comic.tags.map(tag => tag.name) : [],
-      lastReadPage: comic.readingProgress ? comic.readingProgress.currentPage : undefined,
-    }));
-    setComics(fuzzyFilter(processedComics, fuzzyQuery, ["title", "author", "publisher", "description", "tags"]));
-    // setSearchResults(processedComics); // comics state is now the single source of truth for display
-    setError(null);
-  }, []);
-
-  const fetchComicsFromApi = useCallback(async (url, fuzzyQuery = '') => {
+  const fetchComicsFromApi = useCallback(async (url, fuzzyQuery = '', { force = false } = {}) => {
     lastComicsUrl.current = url;
     lastSearchQuery.current = fuzzyQuery;
-    // If this is a search operation, use the isSearching state instead of full isLoading
-    if (fuzzyQuery || url.includes('tags=')) {
+    // Searches show their own overlay; the store decides between the skeleton
+    // and a quiet background refresh for everything else.
+    const isSearchRequest = Boolean(fuzzyQuery) || url.includes('tags=');
+    if (isSearchRequest) {
       setIsSearching(true);
-    } else {
-      setIsLoading(true);
     }
-    setError(null);
     try {
-      const data = await api.get(url);
-      processComicsResponse(data, fuzzyQuery);
-    } catch (err) {
-      logger.error("Failed to load comics:", err);
-      const message = err.status === 429
-        ? `Search rate limit exceeded. Please wait ${err.data?.retryAfter || 60} seconds before trying again.`
-        : err.message || "Could not load comics.";
-      toast({ title: err.status === 429 ? "Rate limit exceeded" : "Error", description: message, variant: "destructive" });
-      setError(message);
-      setComics([]);
+      await loadLibrary({ url, fuzzyQuery, force });
     } finally {
-      setIsLoading(false);
-      setIsSearching(false);
+      if (isSearchRequest) {
+        setIsSearching(false);
+      }
     }
-  }, [processComicsResponse, toast]);
+  }, [loadLibrary]);
 
-  const loadComics = useCallback(async () => {
+  const loadComics = useCallback(async ({ force = false } = {}) => {
     setIsSearchActive(false); // Reset search active state
-    await fetchComicsFromApi('/api/comics');
+    await fetchComicsFromApi('/api/comics', '', { force });
   }, [fetchComicsFromApi]);
 
   const fetchFilteredComics = async (searchQuery, tagNamesArray) => {
@@ -87,16 +78,18 @@ export default function Dashboard() {
     if (tagNamesArray && tagNamesArray.length > 0) {
       queryParams.append('tags', tagNamesArray.join(','));
     }
-    
+
     const queryString = queryParams.toString();
     if (queryString) {
       url += `?${queryString}`;
     }
-    
+
     setIsSearchActive(!!searchQuery || (tagNamesArray && tagNamesArray.length > 0));
-    await fetchComicsFromApi(url, searchQuery);
+    // A search always asks the server, so results never lag behind a filter the
+    // user just changed.
+    await fetchComicsFromApi(url, searchQuery, { force: true });
   };
-  
+
   useEffect(() => {
     loadComics();
   }, [loadComics]);
@@ -139,13 +132,9 @@ export default function Dashboard() {
   const resetReadingProgress = async (comicId) => {
     try {
       await api.post(`/api/comics/${comicId}/reading-progress/reset`, {});
-      
-      // Update local state
-      const updatedComics = comics.map(c => 
-        c.id === comicId ? { ...c, lastReadPage: undefined, readingProgress: null } : c
-      );
-      setComics(updatedComics);
-      
+
+      updateComicProgress(comicId, null);
+
       return true;
     } catch (error) {
       logger.error("Error resetting reading progress:", error);
@@ -173,23 +162,21 @@ export default function Dashboard() {
         }],
       });
       
-      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
-      
+      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current, { force: true });
+
       return true;
     } catch (error) {
       logger.error("Error updating comic:", error);
       throw error;
     }
   };
-  
+
   const deleteComic = async (comicId, { confirmOrphaned = false } = {}) => {
     try {
       await api.delete("/api/comics", { body: { comicIds: [comicId], confirmOrphaned } });
-      
-      // Update local state
-      const updatedComics = comics.filter(c => c.id !== comicId);
-      setComics(updatedComics);
-      
+
+      removeComicsFromLibrary([comicId]);
+
       return true;
     } catch (error) {
       if (error.data?.code !== "orphaned_comics_confirmation_required") {
@@ -204,7 +191,7 @@ export default function Dashboard() {
       await api.patch("/api/comics", {
         updates: comicIds.map((id) => ({ id, changes: { addTags: [tag] } })),
       });
-      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
+      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current, { force: true });
       toast({ title: "Tag added", description: `Added “${tag}” to ${comicIds.length} comic(s).` });
     } catch (error) {
       logger.error("Error adding a tag to selected comics:", error);
@@ -216,7 +203,7 @@ export default function Dashboard() {
   const deleteSelectedComics = async (comicIds, { confirmOrphaned = false } = {}) => {
     try {
       const result = await api.delete("/api/comics", { body: { comicIds, confirmOrphaned } });
-      setComics((currentComics) => currentComics.filter((comic) => !comicIds.includes(comic.id)));
+      removeComicsFromLibrary(comicIds);
       const orphanCount = result.orphanedComicIds?.length || 0;
       toast({
         title: "Comics deleted",
@@ -265,7 +252,14 @@ export default function Dashboard() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-        <h1 className="text-3xl font-comic">My Comic Library</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-comic">My Comic Library</h1>
+          {/* A background refresh keeps the cards it already has; this is the
+              only sign that fresher data is on its way. */}
+          {isRefreshing && (
+            <span className="text-sm text-muted-foreground" role="status">Refreshing…</span>
+          )}
+        </div>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <div className="flex rounded-md border p-1" aria-label="Library view">
             <Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}>
@@ -292,7 +286,7 @@ export default function Dashboard() {
       <PendingSharesAlert />
 
       {/* Loading overlay for search operations */}
-      {isSearching && !isLoading && (
+      {isSearching && !showSkeleton && (
         <div className="fixed inset-0 bg-background/50 backdrop-blur-sm z-50 flex items-center justify-center pointer-events-none">
           <div className="bg-card p-6 rounded-lg shadow-lg flex items-center space-x-4 border">
             <svg className="animate-spin h-8 w-8 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -304,7 +298,7 @@ export default function Dashboard() {
         </div>
       )}
       
-      {isLoading ? (
+      {showSkeleton ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {[...Array(6)].map((_, i) => (
             <div key={i} className="comic-card animate-pulse">
@@ -319,7 +313,7 @@ export default function Dashboard() {
       ) : error ? (
         <div className="text-center py-12">
           <p className="text-xl text-destructive mb-4">{error}</p>
-          <Button onClick={loadComics}>Try Again</Button>
+          <Button onClick={() => loadComics({ force: true })}>Try Again</Button>
         </div>
       ) : comics.length === 0 ? (
         <div className="text-center py-12">
@@ -369,10 +363,11 @@ export default function Dashboard() {
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                {items.map((comic) => (
+                {items.map((comic, index) => (
                   <ComicCard
                     key={comic.id}
                     comic={comic}
+                    coverPriority={index < EAGER_COVER_COUNT}
                     onResetProgress={resetReadingProgress}
                     onEditComic={handleEditComic}
                     onDeleteComic={deleteComic}

@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 
 export default function ComicReader() {
   const { comicId } = useParams();
@@ -34,6 +35,7 @@ export default function ComicReader() {
   
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { updateComicProgress } = useComicLibrary();
 
   const CACHE_SIZE_FORWARD = 5;
   const CACHE_SIZE_BACKWARD = 5;
@@ -70,6 +72,12 @@ export default function ComicReader() {
       if (typeof storedRevision === 'number' && storedRevision > progressRevisionRef.current) {
         progressRevisionRef.current = storedRevision;
       }
+
+      // Keep the library card in step with what was just stored, so going back
+      // shows the new page straight away instead of after another /api/comics.
+      if (response?.progress) {
+        updateComicProgress(comicId, response.progress);
+      }
     } catch (error) {
       // A superseded save is expected, not a failure
       if (error.name === 'AbortError' || controller.signal.aborted) return;
@@ -97,7 +105,7 @@ export default function ComicReader() {
         progressAbortController.current = null;
       }
     }
-  }, [comicId, comic, toast]);
+  }, [comicId, comic, toast, updateComicProgress]);
 
   // Track mount state so an in-flight progress save that resolves after the
   // reader closes does not try to toast onto the next screen.
