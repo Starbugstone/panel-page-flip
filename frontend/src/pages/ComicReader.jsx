@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button.jsx";
 import { ArrowLeft, ArrowRight, Info, Maximize, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
@@ -26,7 +26,6 @@ export default function ComicReader() {
   
   // Refs for async operations
   const progressAbortController = useRef(null);
-  const reloadAbortController = useRef(null); // For aborting force reload operations
   const currentPageRef = useRef(0); // Ref to track current page for async operations
   const loadQueueRef = useRef([]); // Queue of pages to load
   const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
@@ -182,21 +181,6 @@ export default function ComicReader() {
            pageIndex <= Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
   }, [comicPages.length]);
 
-  // Snapshot a loaded image into a detached, self-contained Image so that
-  // re-displaying a cached page never hits the network again.
-  const toCachedImage = (img) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width;
-    canvas.height = img.height;
-    canvas.getContext('2d').drawImage(img, 0, 0);
-
-    // JPEG keeps the bounded page cache compact. Lossless PNG snapshots can
-    // expand photographic comic pages enough to exhaust memory on mobile.
-    const cachedImg = new Image();
-    cachedImg.src = canvas.toDataURL('image/jpeg', 0.92);
-    return cachedImg;
-  };
-
   // Object to track in-progress loads to prevent duplicate requests
   const loadingPagesRef = useRef({});
   
@@ -222,24 +206,16 @@ export default function ComicReader() {
     
     // Create a new promise for this load
     const loadPromise = new Promise((resolve, reject) => {
-      // Create a new image object with a unique timestamp to prevent browser caching
+      // The plain page URL, deliberately: the endpoint is cacheable, so asking
+      // for it again is answered by the browser without touching the network.
+      // A cache-busting parameter here would make every page a fresh download.
       const img = new Image();
-      const url = `${comicPages[pageIndex]}?_t=${Date.now()}`;
-      
-      img.crossOrigin = 'Anonymous'; // Enable CORS for the canvas operations
-      
+      const url = comicPages[pageIndex];
+
       img.onload = () => {
         // Only update cache if this page is still in the cache window
         if (isInCacheWindow(pageIndex)) {
-          let cached;
-          try {
-            cached = toCachedImage(img);
-          } catch {
-            // Canvas snapshot failed; fall back to the original image
-            cached = img;
-          }
-
-          setImageCache(prev => ({ ...prev, [pageIndex]: cached }));
+          setImageCache(prev => ({ ...prev, [pageIndex]: img }));
         }
         // Remove from loading tracker
         delete loadingPagesRef.current[pageIndex];
@@ -257,7 +233,6 @@ export default function ComicReader() {
         reject();
       };
       
-      // Set the source with the timestamp to prevent caching
       img.src = url;
     });
     
@@ -463,172 +438,63 @@ export default function ComicReader() {
     goToPage(currentPage + 1);
   }, [goToPage, currentPage]);
 
-  // Function to force reload the current page from the server
+  // Force a page to come from the server again, bypassing the browser cache.
+  // A unique URL is what does the bypassing: the page endpoint is cacheable, so
+  // re-requesting the plain URL would simply be answered locally.
   const handleForceReload = useCallback(() => {
     if (comicPages.length === 0 || currentPage < 0 || currentPage >= comicPages.length) {
       return;
     }
-    
-    // If there's already a reload in progress, abort it
-    if (reloadAbortController.current) {
-      reloadAbortController.current.abort();
-      reloadAbortController.current = null;
-    }
-    
-    // Create a new abort controller for this reload
-    reloadAbortController.current = new AbortController();
-    const signal = reloadAbortController.current.signal;
-    
-    // Store the current page to ensure we stay on it
+
     const pageToReload = currentPage;
-    
-    // Show toast to indicate reload is happening
+
     toast({
       title: "Reloading page",
       description: `Forcing reload of page ${pageToReload + 1}`,
     });
-    
-    // Clear the current page from cache
+
     setImageCache(prevCache => {
       const newCache = { ...prevCache };
-      delete newCache[pageToReload]; // Remove from cache to force reload
+      delete newCache[pageToReload];
       return newCache;
     });
-    
-    // Set loading states
     setIsPageImageLoading(true);
     setImageLoadedSuccessfully(false);
-    
-    // Use fetch with AbortController instead of Image directly
-    const url = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
-    
-    api.blob(url, { signal })
-      .then(blob => {
-        // Check if the operation was aborted
-        if (signal.aborted) return;
-        
-        // Create a URL for the blob
-        const blobUrl = URL.createObjectURL(blob);
-        
-        // Create an image from the blob URL
-        const img = new Image();
-        
-        img.onload = () => {
-          try {
-            // Check if the operation was aborted
-            if (signal.aborted) {
-              URL.revokeObjectURL(blobUrl);
-              return;
-            }
-            
-            // Make sure we're still on the same page
-            if (currentPage !== pageToReload) {
-              // If page has changed, just update the cache but don't change UI
-              setImageCache(prev => ({
-                ...prev,
-                [pageToReload]: img
-              }));
-              URL.revokeObjectURL(blobUrl);
-              return;
-            }
-            
-            const cachedImg = toCachedImage(img);
 
-            // Free the blob URL
-            URL.revokeObjectURL(blobUrl);
+    const img = new Image();
 
-            // Update cache with the new image
-            setImageCache(prev => ({
-              ...prev,
-              [pageToReload]: cachedImg
-            }));
-            
-            // Update UI state only if we're still on the same page
-            setIsPageImageLoading(false);
-            setImageLoadedSuccessfully(true);
-            
-            // Success toast
-            toast({
-              title: "Page reloaded",
-              description: `Successfully reloaded page ${pageToReload + 1}`,
-              variant: "success",
-            });
-            
-            // Clear the abort controller reference
-            reloadAbortController.current = null;
-          } catch (error) {
-            // Check if the operation was aborted
-            if (signal.aborted) return;
-            
-            logger.error("Error reloading page:", error);
-            
-            // Only show error if we're still on the same page
-            if (currentPage === pageToReload) {
-              toast({
-                title: "Error reloading",
-                description: "There was a problem reloading the page. Please try again.",
-                variant: "destructive",
-              });
-              setIsPageImageLoading(false);
-              setImageLoadedSuccessfully(false);
-            }
-            
-            // Clear the abort controller reference
-            reloadAbortController.current = null;
-          }
-        };
-        
-        img.onerror = () => {
-          // Check if the operation was aborted
-          if (signal.aborted) {
-            URL.revokeObjectURL(blobUrl);
-            return;
-          }
-          
-          logger.error("Failed to reload image");
-          URL.revokeObjectURL(blobUrl);
-          
-          // Only show error if we're still on the same page
-          if (currentPage === pageToReload) {
-            toast({
-              title: "Reload failed",
-              description: "Could not reload the page. Please try again later.",
-              variant: "destructive",
-            });
-            setIsPageImageLoading(false);
-            setImageLoadedSuccessfully(false);
-          }
-          
-          // Clear the abort controller reference
-          reloadAbortController.current = null;
-        };
-        
-        // Set the source to start loading
-        img.src = blobUrl;
-      })
-      .catch(error => {
-        // Check if the operation was aborted
-        if (signal.aborted) return;
-        
-        // Handle fetch errors
-        logger.error("Fetch error:", error);
-        
-        // Only show error if we're still on the same page
-        if (currentPage === pageToReload) {
-          toast({
-            title: "Reload failed",
-            description: "Could not reload the page from server. Please try again later.",
-            variant: "destructive",
-          });
-          setIsPageImageLoading(false);
-          setImageLoadedSuccessfully(false);
-        }
-        
-        // Clear the abort controller reference
-        reloadAbortController.current = null;
+    img.onload = () => {
+      setImageCache(prev => ({ ...prev, [pageToReload]: img }));
+
+      // The reader may have moved on while this was loading; the cache above is
+      // still worth keeping, but the loading state belongs to another page now.
+      if (currentPageRef.current !== pageToReload) return;
+
+      setIsPageImageLoading(false);
+      setImageLoadedSuccessfully(true);
+      toast({
+        title: "Page reloaded",
+        description: `Successfully reloaded page ${pageToReload + 1}`,
+        variant: "success",
       });
+    };
+
+    img.onerror = () => {
+      logger.error("Failed to reload image");
+      if (currentPageRef.current !== pageToReload) return;
+
+      setIsPageImageLoading(false);
+      setImageLoadedSuccessfully(false);
+      toast({
+        title: "Reload failed",
+        description: "Could not reload the page. Please try again later.",
+        variant: "destructive",
+      });
+    };
+
+    img.src = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
   }, [comicPages, currentPage, toast]);
-  
+
   const handleScreenNavClick = (direction) => {
     if (direction === 'left') {
       handlePreviousPage();
@@ -905,8 +771,8 @@ export default function ComicReader() {
                     .map(pageNum => (
                       <li key={pageNum} className={pageNum === currentPage ? 'font-bold' : ''}>
                         Page {pageNum + 1}: {' '}
-                        {imageCache[pageNum] === 'loading' ? '🔄 Loading' : 
-                         imageCache[pageNum] === 'failed' ? '❌ Failed' : '✅ Loaded'}
+                        {imageCache[pageNum] === 'loading' ? 'ðŸ”„ Loading' : 
+                         imageCache[pageNum] === 'failed' ? 'âŒ Failed' : 'âœ… Loaded'}
                         {pageNum === currentPage ? ' (current)' : ''}
                       </li>
                     ))

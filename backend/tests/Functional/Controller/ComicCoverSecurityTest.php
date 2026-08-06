@@ -9,7 +9,7 @@ use App\Tests\Functional\AbstractApiTestCase;
 final class ComicCoverSecurityTest extends AbstractApiTestCase
 {
     /** @var list<string> */
-    private array $temporaryCoverDirectories = [];
+    private array $temporaryCoverFiles = [];
 
     public function testOwnerReceivesPlaceholderWhenStoredCoverIsMissing(): void
     {
@@ -170,31 +170,22 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
         file_put_contents($directory . '/' . $filename, base64_decode(
             'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
         ));
-        $this->temporaryCoverDirectories[] = self::getContainer()->getParameter('comics_directory')
-            . '/' . $owner->getId();
+        // Track the file, never its directory: cleanup must not be able to reach
+        // anything this test did not put there.
+        $this->temporaryCoverFiles[] = $directory . '/' . $filename;
 
         return [$owner, sprintf('/api/comics/cover/%d/%d/%s', $owner->getId(), $comic->getId(), $filename)];
     }
 
     protected function tearDown(): void
     {
-        foreach ($this->temporaryCoverDirectories as $directory) {
-            $this->removeDirectory($directory);
+        foreach ($this->temporaryCoverFiles as $path) {
+            if (is_file($path)) {
+                unlink($path);
+            }
         }
-        $this->temporaryCoverDirectories = [];
+        $this->temporaryCoverFiles = [];
 
         parent::tearDown();
-    }
-
-    private function removeDirectory(string $directory): void
-    {
-        if (!is_dir($directory)) {
-            return;
-        }
-
-        foreach (glob($directory . '/*') ?: [] as $path) {
-            is_dir($path) ? $this->removeDirectory($path) : unlink($path);
-        }
-        rmdir($directory);
     }
 }

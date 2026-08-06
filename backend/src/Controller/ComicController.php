@@ -45,6 +45,15 @@ class ComicController extends AbstractController
      */
     private const COVER_PLACEHOLDER_CACHE_SECONDS = 300;
 
+    /**
+     * A page URL carries no version, and nothing in the app replaces a comic's
+     * archive in place, so the bytes behind one are stable in practice. A day is
+     * long enough to cover a reading session and a return to it, short enough
+     * that an archive swapped by hand is not served stale for a week. The ETag
+     * makes the revalidation after that a cheap 304.
+     */
+    private const PAGE_CACHE_SECONDS = 86_400;
+
     private string $tempUploadDir;
 
     public function __construct(
@@ -931,7 +940,7 @@ class ComicController extends AbstractController
     }
     
     #[Route('/{id}/pages/{page}', name: 'get_page', methods: ['GET'])]
-    public function getPage(int $id, int $page, EntityManagerInterface $entityManager): Response
+    public function getPage(int $id, int $page, Request $request, EntityManagerInterface $entityManager): Response
     {
         // Get the current user
         $user = $this->getUser();
@@ -982,6 +991,24 @@ class ComicController extends AbstractController
             $filePath = $legacyPath;
         }
 
+        // Validators taken from the archive rather than the extracted page, so a
+        // revalidation can be answered without opening the CBZ at all. Reading a
+        // comic is the app's hot path and every page used to be re-downloaded.
+        $response = new Response();
+        $response->setPrivate();
+        $response->setMaxAge(self::PAGE_CACHE_SECONDS);
+        $response->headers->set(AbstractSessionListener::NO_AUTO_CACHE_CONTROL_HEADER, 'true');
+
+        $modifiedAt = @filemtime($filePath);
+        if ($modifiedAt !== false) {
+            $response->setLastModified(new \DateTimeImmutable('@' . $modifiedAt));
+            $response->setEtag(hash('sha256', $filePath . '|' . $modifiedAt . '|' . @filesize($filePath) . '|' . $page));
+
+            if ($response->isNotModified($request)) {
+                return $response;
+            }
+        }
+
         // Open CBZ file
         $zip = new ZipArchive();
         if ($zip->open($filePath) !== true) {
@@ -1015,8 +1042,9 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Failed to extract page image'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
-        // Return image
-        $response = new Response($pageImage);
+        // Return image, keeping the caching policy set up before the archive was
+        // opened.
+        $response->setContent($pageImage);
         $extension = strtolower(pathinfo($imageFiles[$page - 1], PATHINFO_EXTENSION));
         $mimeType = $this->getMimeTypeForExtension($extension);
         $response->headers->set('Content-Type', $mimeType);
