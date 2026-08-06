@@ -695,3 +695,49 @@ mv release-LASTGOOD release
 
 Good deploys, friend. Keep `release/` directories around until the next deploy
 succeeds — they're cheap insurance.
+
+---
+
+## 11. Real-world notes from production deploys
+
+Lessons learned the hard way, added 2026-08-06 after a panel-page-flip prod
+deploy that exposed some silent-failure modes.
+
+### Backup BEFORE pulling new code
+
+The skill `panel-page-flip-deploy` (used on SSH/o2switch deploys) orders
+backup → pull → composer → migrate → cache for a reason: backup captures
+the **true pre-deploy state** (old code + old uploads + old env), so a
+rollback is meaningful. If you pull first, the `cp -a ~/sites/comics
+~/backup/...` snapshot includes the new code already, so a rollback
+restores "new code + old uploads + old env" — not the actual pre-deploy
+state. Don't reorder steps because the user phrases them casually
+("pull, save, then deploy") — follow the runbook literally.
+
+### SSH o2switch reality vs this FTP guide
+
+This doc describes the FTP/docker build flow that works on **any**
+hosting. For the actual `yourdomain.com` prod (o2switch shared
+hosting with SSH access), the deploy is done over SSH using the
+`panel-page-flip-deploy` skill, not this FTP flow. The FTP flow is still
+useful as a fallback if SSH breaks; the SSH flow is faster, cleaner, and
+keeps secrets on the server. See `SSH-deploy.md` §13 for the SSH/o2switch
+deltas and the live runbook.
+
+### `chown user:nobody` silently breaks if the user isn't in that group
+
+On shared hosts (cPanel/LiteSpeed), webroot files should be owned by
+`user:nobody`. If the SSH user isn't in the `nobody` group, `chown`
+fails with "Operation not permitted" but doesn't error loud enough to notice.
+ Combined with `chmod o-rwx`, you end up with files that nobody ("other")
+can't read → 403 on every route, no entry in `var/log/dev.log`, only
+LiteSpeed's `error_log` shows the requests. Verify with `groups` first;
+fallback is `chmod -R u+rwX,g+rX,o+rX backend/public`.
+
+### `_post-deploy.php` was removed in 2026-07
+
+PR #51 changed the login endpoint from `/api/login_check` (GET only) to
+`POST /api/login`. The `_post-deploy.php` runner still references the old
+pattern in some error messages. If you see "login endpoint moved" type
+errors from the runner, it's a runner bug, not a server bug — your prod
+is fine.

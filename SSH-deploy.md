@@ -861,3 +861,50 @@ git revert HEAD && git push && ./scripts/deploy-ssh.sh
 
 Pair this with `deploy.md` (FTP flow) — the two paths are complementary, and
 the same `scripts/.env.deploy` powers both.
+
+---
+
+## 13. Real-world notes for shared hosting (o2switch, cPanel/LiteSpeed)
+
+This guide assumes a server where you have full control (sudo, dedicated
+deploy user, `/var/www/comics` path, `www-data` web group, PHP-FPM to
+reload). On a **shared host** like o2switch (CageFS + cPanel + LiteSpeed),
+several of those assumptions don't hold. The companion skill
+`panel-page-flip-deploy` captures the working procedure; the bullets below
+are the deltas:
+
+- **Project path is `~/sites/comics/`, not `/var/www/comics/`.** Same layout
+  (`backend/`, `frontend/`, `scripts/`), just under the user's home.
+- **Web group is `nobody`, not `www-data`.** cPanel/LiteSpeed serves as the
+  `nobody` user. File ownership on prod should be `<o2switch-user>:nobody` for
+  `backend/var/` and `backend/public/`.
+- **No `sudo`, no `apt`, no PHP-FPM reload.** LiteSpeed's OPcache
+  auto-revalidates, so you don't need to reload anything after a deploy.
+  Just clear Symfony's cache (`php bin/console cache:clear && cache:warmup`).
+- **No Node on `$PATH` by default.** o2switch ships node under
+  `/opt/alt/alt-nodejs22/root/usr/bin/`; you must build the React app
+  locally (`mode A` in the skill) and rsync `frontend/dist/`. Server-side
+  builds work but need a `.bashrc` export and eat CPU/RAM.
+- **`pfl_rsync.py` (the skill's SFTP helper) opens its own SSH connection**
+  via paramiko, so it works without `ssh-agent` (which hangs in non-TTY).
+  Accepts both bare paths and `user@host:path` URIs.
+- **The `_post-deploy.php` endpoint should NOT be installed.** Use SSH
+  exclusively; the HTTP runner is one more attack surface for no benefit.
+- **The CHANGELOG of deploy issues to remember:**
+  - **Backup BEFORE pull.** The skill runbook orders backup → pull →
+    composer → migrate for a reason: backup captures the pre-deploy state
+    (old code + old uploads + old env), so rollback is meaningful. If you
+    pull first, the backup includes the new code already, defeating the
+    purpose. Don't reorder steps because the user phrases them casually.
+  - **`chown <o2switch-user>:nobody` is silently broken if you're not in the
+    `nobody` group.** Verify with `groups` first. If `nobody` isn't there,
+    `chown` fails with "Operation not permitted", and combined with the
+    runbook's `chmod o-rwx` you get 403 on every route with no log entry.
+    Fallback: `chmod -R u+rwX,g+rX,o+rX backend/public` (open webroot
+    perms). On o2switch, `<o2switch-user>` IS in `nobody`, so this is paranoia
+    but worth checking the first time on a new host.
+
+The `panel-page-flip-deploy` skill at
+`~/.openclaw/workspace/skills/panel-page-flip-deploy/SKILL.md` is the
+authoritative runbook for o2switch deploys; this section just bridges the
+generic SSH-deploy story to that reality.
