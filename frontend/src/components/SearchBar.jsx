@@ -120,7 +120,11 @@ export function SearchBar({ onSearch, isSearching = false }) {
             ref={searchInputRef}
             type="search"
             placeholder="Search comics by title, author..."
-            className="pl-10 pr-10"
+            // Chrome and Edge draw their own clear cross inside a search field
+            // on hover and focus, which lands next to the button below and
+            // reads as two crosses. Ours is the one to keep: the native cross
+            // only empties the text, leaving the selected tags filtering.
+            className="pl-10 pr-10 [&::-webkit-search-cancel-button]:hidden"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onFocus={() => setIsSearchFocused(true)}
