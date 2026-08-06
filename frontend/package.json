@@ -8,6 +8,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "audit:production": "node scripts/audit-production.mjs",
+    "build:tools": "node scripts/build-conversion-tools.mjs",
+    "check:tools": "node scripts/build-conversion-tools.mjs --check",
     "lint": "eslint .",
     "test": "vitest run",
     "preview": "vite preview"
