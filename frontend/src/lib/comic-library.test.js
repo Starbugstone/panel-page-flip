@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyProgressUpdate,
+  createMutationLog,
   libraryRequestKey,
   normaliseComic,
   normaliseComics,
@@ -72,6 +73,91 @@ describe("applyProgressUpdate", () => {
 
   it("returns the same list when the comic is not in it, so nothing re-renders", () => {
     expect(applyProgressUpdate(comics, 99, { currentPage: 1 })).toBe(comics);
+  });
+});
+
+describe("createMutationLog", () => {
+  // What the server would answer for a library it believes still has both.
+  const serverAnswer = () => [
+    { id: 1, title: "Conan", readingProgress: { currentPage: 2 }, lastReadPage: 2 },
+    { id: 2, title: "Vampirella", readingProgress: null },
+  ];
+
+  const remove = (ids) => (comics) => removeComics(comics, ids);
+  const setPage = (id, page) => (comics) => applyProgressUpdate(comics, id, { currentPage: page });
+
+  it("replays a deletion that happened while the fetch was out", () => {
+    const log = createMutationLog();
+
+    const mark = log.beginLoad();
+    log.record(remove([2]));
+    const rebased = log.rebase(serverAnswer(), mark);
+    log.endLoad();
+
+    expect(rebased.map((comic) => comic.id)).toEqual([1]);
+  });
+
+  it("replays a reading position saved while the fetch was out", () => {
+    const log = createMutationLog();
+
+    const mark = log.beginLoad();
+    log.record(setPage(1, 40));
+    const rebased = log.rebase(serverAnswer(), mark);
+    log.endLoad();
+
+    expect(rebased[0].lastReadPage).toBe(40);
+  });
+
+  it("leaves a fetch alone when the change came after it landed", () => {
+    const log = createMutationLog();
+
+    const mark = log.beginLoad();
+    const rebased = log.rebase(serverAnswer(), mark);
+    log.endLoad();
+    // Past endLoad nothing is in flight, so this change has no response left to
+    // correct; the store applies it directly.
+    log.record(remove([2]));
+
+    expect(rebased.map((comic) => comic.id)).toEqual([1, 2]);
+    expect(log.rebase(serverAnswer(), 0).map((comic) => comic.id)).toEqual([1, 2]);
+  });
+
+  it("does not replay a change that predates the load", () => {
+    const log = createMutationLog();
+
+    const first = log.beginLoad();
+    log.record(remove([2]));
+    // A second load starts after the deletion, so the server already knows.
+    const second = log.beginLoad();
+
+    expect(log.rebase(serverAnswer(), second).map((comic) => comic.id)).toEqual([1, 2]);
+    expect(log.rebase(serverAnswer(), first).map((comic) => comic.id)).toEqual([1]);
+  });
+
+  it("keeps the log until the last overlapping load has finished", () => {
+    const log = createMutationLog();
+
+    const first = log.beginLoad();
+    log.beginLoad();
+    log.record(remove([2]));
+    log.endLoad();
+
+    expect(log.rebase(serverAnswer(), first).map((comic) => comic.id)).toEqual([1]);
+
+    // Nothing is in flight now, so the log starts over rather than growing for
+    // the rest of the session.
+    log.endLoad();
+    expect(log.rebase(serverAnswer(), 0).map((comic) => comic.id)).toEqual([1, 2]);
+  });
+
+  it("forgets everything when the library is reset on logout", () => {
+    const log = createMutationLog();
+
+    const mark = log.beginLoad();
+    log.record(remove([2]));
+    log.reset();
+
+    expect(log.rebase(serverAnswer(), mark).map((comic) => comic.id)).toEqual([1, 2]);
   });
 });
 

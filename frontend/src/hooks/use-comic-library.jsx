@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import { fuzzyFilter } from '@/lib/fuzzy-search';
 import {
   applyProgressUpdate,
+  createMutationLog,
   libraryRequestKey,
   normaliseComics,
   removeComics,
@@ -44,6 +45,12 @@ export function ComicLibraryProvider({ children }) {
   // the current one. Every load also takes a number, and only the latest number
   // is allowed to write.
   const requestIdRef = useRef(0);
+  // Deletions and saved reading positions that happened while a fetch was out.
+  // The response predates them, so they are replayed over it.
+  const mutationLogRef = useRef(null);
+  if (mutationLogRef.current === null) {
+    mutationLogRef.current = createMutationLog();
+  }
 
   const storeComics = useCallback((nextComics) => {
     comicsRef.current = nextComics;
@@ -52,6 +59,7 @@ export function ComicLibraryProvider({ children }) {
 
   const resetLibrary = useCallback(() => {
     requestIdRef.current += 1;
+    mutationLogRef.current.reset();
     activeKeyRef.current = null;
     displayedKeyRef.current = null;
     storeComics([]);
@@ -78,6 +86,7 @@ export function ComicLibraryProvider({ children }) {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const isCurrent = () => activeKeyRef.current === key && requestIdRef.current === requestId;
+    const mutationMark = mutationLogRef.current.beginLoad();
 
     if (showsThisList) {
       setIsRefreshing(true);
@@ -92,7 +101,13 @@ export function ComicLibraryProvider({ children }) {
         return comicsRef.current;
       }
 
-      const fetched = fuzzyFilter(normaliseComics(data.comics), fuzzyQuery, FUZZY_FIELDS);
+      // Over the response, not under it: a comic deleted while this was in
+      // flight must not come back, and a page saved in the reader must not be
+      // rewound to whatever the server knew when it answered.
+      const fetched = mutationLogRef.current.rebase(
+        fuzzyFilter(normaliseComics(data.comics), fuzzyQuery, FUZZY_FIELDS),
+        mutationMark
+      );
       displayedKeyRef.current = key;
       storeComics(fetched);
       return fetched;
@@ -121,6 +136,7 @@ export function ComicLibraryProvider({ children }) {
 
       return comicsRef.current;
     } finally {
+      mutationLogRef.current.endLoad();
       if (isCurrent()) {
         setIsLoading(false);
         setIsRefreshing(false);
@@ -133,14 +149,20 @@ export function ComicLibraryProvider({ children }) {
    * library shows the new page immediately instead of after a round trip.
    */
   const updateComicProgress = useCallback((comicId, progress) => {
-    const next = applyProgressUpdate(comicsRef.current, comicId, progress);
+    const mutate = (comics) => applyProgressUpdate(comics, comicId, progress);
+    mutationLogRef.current.record(mutate);
+
+    const next = mutate(comicsRef.current);
     if (next !== comicsRef.current) {
       storeComics(next);
     }
   }, [storeComics]);
 
   const removeComicsFromLibrary = useCallback((comicIds) => {
-    const next = removeComics(comicsRef.current, comicIds);
+    const mutate = (comics) => removeComics(comics, comicIds);
+    mutationLogRef.current.record(mutate);
+
+    const next = mutate(comicsRef.current);
     if (next !== comicsRef.current) {
       storeComics(next);
     }

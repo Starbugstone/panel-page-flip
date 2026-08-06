@@ -67,6 +67,49 @@ export function applyProgressUpdate(comics, comicId, progress) {
   return changed ? updated : comics;
 }
 
+/**
+ * Records the changes made to the library while a fetch is in flight.
+ *
+ * A response describes the library as it was when the server answered, so a
+ * deletion or a saved reading position that landed after that is missing from
+ * it. Replaying those changes over the response is what stops it resurrecting a
+ * deleted comic or rewinding a page number that has already moved on.
+ *
+ * Only changes recorded after a load began are replayed onto it: anything older
+ * was the server's to know about.
+ */
+export function createMutationLog() {
+  let entries = [];
+  let loadsInFlight = 0;
+
+  return {
+    // Returns the mark the caller passes back to rebase().
+    beginLoad() {
+      loadsInFlight += 1;
+      return entries.length;
+    },
+
+    // The log is only worth keeping while something might still replay it.
+    endLoad() {
+      loadsInFlight = Math.max(0, loadsInFlight - 1);
+      if (loadsInFlight === 0) entries = [];
+    },
+
+    record(mutate) {
+      if (loadsInFlight > 0) entries.push(mutate);
+    },
+
+    rebase(comics, mark) {
+      return entries.slice(mark).reduce((current, mutate) => mutate(current), comics);
+    },
+
+    reset() {
+      entries = [];
+      loadsInFlight = 0;
+    },
+  };
+}
+
 export function removeComics(comics, comicIds) {
   const removed = new Set((comicIds || []).map(String));
   if (removed.size === 0) return comics;
