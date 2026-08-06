@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  LIBRARY_STALE_MS,
   applyProgressUpdate,
-  isLibraryStale,
   libraryRequestKey,
   normaliseComic,
   normaliseComics,
@@ -44,22 +42,6 @@ describe("libraryRequestKey", () => {
 
   it("separates two searches that share a URL", () => {
     expect(libraryRequestKey("/api/comics", "conan")).not.toBe(libraryRequestKey("/api/comics", "vampirella"));
-  });
-});
-
-describe("isLibraryStale", () => {
-  it("treats a library that was never fetched as stale", () => {
-    expect(isLibraryStale(null)).toBe(true);
-  });
-
-  it("keeps a just-fetched library usable", () => {
-    const now = 1000000;
-    expect(isLibraryStale(now - 1000, now)).toBe(false);
-  });
-
-  it("goes stale once the window has passed", () => {
-    const now = 1000000;
-    expect(isLibraryStale(now - LIBRARY_STALE_MS, now)).toBe(true);
   });
 });
 

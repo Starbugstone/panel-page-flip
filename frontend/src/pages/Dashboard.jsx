@@ -27,15 +27,15 @@ export default function Dashboard() {
     comics,
     isLoading,
     isRefreshing,
-    hasLoaded,
     error,
     loadLibrary,
     updateComicProgress,
     removeComicsFromLibrary,
   } = useComicLibrary();
-  // Before the first load settles there is nothing to show but the skeleton.
-  const showSkeleton = isLoading || !hasLoaded;
   const [isSearching, setIsSearching] = useState(false); // Specific state for search operations
+  // A search keeps the current results visible under its own overlay; every
+  // other first-time load has nothing to show yet but the skeleton.
+  const showSkeleton = isLoading && !isSearching;
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [editingComic, setEditingComic] = useState(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -49,17 +49,17 @@ export default function Dashboard() {
   const [shareModalComicId, setShareModalComicId] = useState(null);
   const [shareModalComicTitle, setShareModalComicTitle] = useState(null);
 
-  const fetchComicsFromApi = useCallback(async (url, fuzzyQuery = '', { force = false } = {}) => {
+  const fetchComicsFromApi = useCallback(async (url, fuzzyQuery = '') => {
     lastComicsUrl.current = url;
     lastSearchQuery.current = fuzzyQuery;
-    // Searches show their own overlay; the store decides between the skeleton
-    // and a quiet background refresh for everything else.
+    // A search keeps its own overlay over the results it is replacing; the store
+    // decides between the skeleton and a quiet refresh for everything else.
     const isSearchRequest = Boolean(fuzzyQuery) || url.includes('tags=');
     if (isSearchRequest) {
       setIsSearching(true);
     }
     try {
-      await loadLibrary({ url, fuzzyQuery, force });
+      await loadLibrary({ url, fuzzyQuery });
     } finally {
       if (isSearchRequest) {
         setIsSearching(false);
@@ -67,9 +67,9 @@ export default function Dashboard() {
     }
   }, [loadLibrary]);
 
-  const loadComics = useCallback(async ({ force = false } = {}) => {
+  const loadComics = useCallback(async () => {
     setIsSearchActive(false); // Reset search active state
-    await fetchComicsFromApi('/api/comics', '', { force });
+    await fetchComicsFromApi('/api/comics');
   }, [fetchComicsFromApi]);
 
   const fetchFilteredComics = async (searchQuery, tagNamesArray) => {
@@ -85,9 +85,7 @@ export default function Dashboard() {
     }
 
     setIsSearchActive(!!searchQuery || (tagNamesArray && tagNamesArray.length > 0));
-    // A search always asks the server, so results never lag behind a filter the
-    // user just changed.
-    await fetchComicsFromApi(url, searchQuery, { force: true });
+    await fetchComicsFromApi(url, searchQuery);
   };
 
   useEffect(() => {
@@ -162,7 +160,7 @@ export default function Dashboard() {
         }],
       });
       
-      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current, { force: true });
+      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
 
       return true;
     } catch (error) {
@@ -191,7 +189,7 @@ export default function Dashboard() {
       await api.patch("/api/comics", {
         updates: comicIds.map((id) => ({ id, changes: { addTags: [tag] } })),
       });
-      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current, { force: true });
+      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
       toast({ title: "Tag added", description: `Added “${tag}” to ${comicIds.length} comic(s).` });
     } catch (error) {
       logger.error("Error adding a tag to selected comics:", error);
@@ -313,7 +311,7 @@ export default function Dashboard() {
       ) : error ? (
         <div className="text-center py-12">
           <p className="text-xl text-destructive mb-4">{error}</p>
-          <Button onClick={() => loadComics({ force: true })}>Try Again</Button>
+          <Button onClick={loadComics}>Try Again</Button>
         </div>
       ) : comics.length === 0 ? (
         <div className="text-center py-12">

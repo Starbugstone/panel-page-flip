@@ -8,24 +8,16 @@
  */
 
 /**
- * How long a cached library stays usable without a background refresh. Long
- * enough that returning from a comic reuses the cards on screen, short enough
- * that a second tab's upload shows up on the next visit.
- */
-export const LIBRARY_STALE_MS = 30 * 1000;
-
-/**
- * One request produces one cached list. The URL alone is not enough: the fuzzy
- * query is applied client-side after the response, so two visits sharing a URL
- * can still hold different comics.
+ * Identifies which list the store is currently holding. The URL alone is not
+ * enough: the fuzzy query is applied client-side after the response, so two
+ * visits sharing a URL can still produce different comics.
+ *
+ * Every visit still refetches. The key only decides whether the comics on
+ * screen answer the request being made — and so whether to show a skeleton or
+ * refresh quietly behind them.
  */
 export function libraryRequestKey(url, fuzzyQuery = "") {
   return `${url}::${fuzzyQuery}`;
-}
-
-export function isLibraryStale(fetchedAt, now = Date.now(), staleMs = LIBRARY_STALE_MS) {
-  if (!fetchedAt) return true;
-  return now - fetchedAt >= staleMs;
 }
 
 /**

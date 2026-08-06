@@ -6,7 +6,6 @@ import { logger } from '@/lib/logger';
 import { fuzzyFilter } from '@/lib/fuzzy-search';
 import {
   applyProgressUpdate,
-  isLibraryStale,
   libraryRequestKey,
   normaliseComics,
   removeComics,
@@ -25,20 +24,21 @@ const ComicLibraryContext = createContext(undefined);
  */
 export function ComicLibraryProvider({ children }) {
   const [comics, setComics] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // Starts true: nothing has been loaded yet, so the dashboard shows its
+  // skeleton on the very first paint instead of flashing "no comics yet".
+  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  // False until a load has finished, so the dashboard shows its skeleton on the
-  // very first paint rather than flashing "no comics in your library yet".
-  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Mirrors of the state that loadLibrary reads, so the callback can stay
-  // stable and not restart the effect that calls it on every render.
+  // Mirrors of the state loadLibrary reads, so the callback can stay stable and
+  // not restart the effect that calls it on every render.
   const comicsRef = useRef([]);
-  const requestKeyRef = useRef(null);
-  const fetchedAtRef = useRef(null);
+  // The request most recently started, and the one whose comics are on screen.
+  // They differ while a load is in flight.
+  const activeKeyRef = useRef(null);
+  const displayedKeyRef = useRef(null);
 
   const storeComics = useCallback((nextComics) => {
     comicsRef.current = nextComics;
@@ -46,54 +46,49 @@ export function ComicLibraryProvider({ children }) {
   }, []);
 
   const resetLibrary = useCallback(() => {
-    requestKeyRef.current = null;
-    fetchedAtRef.current = null;
+    activeKeyRef.current = null;
+    displayedKeyRef.current = null;
     storeComics([]);
     setError(null);
-    setIsLoading(false);
+    setIsLoading(true);
     setIsRefreshing(false);
-    setHasLoaded(false);
   }, [storeComics]);
 
   /**
-   * Fetch a library list, showing whatever is already cached for the same
-   * request in the meantime.
+   * Fetch a library list.
    *
-   * Returns the comics that ended up displayed.
+   * Every call goes to the server, so an upload or an edit made elsewhere is
+   * never missed. What changes is the wait: when the comics already on screen
+   * answer this same request they stay put and the fetch happens behind them,
+   * which is what stops a return from the reader clearing the cards.
    */
-  const loadLibrary = useCallback(async ({ url = '/api/comics', fuzzyQuery = '', force = false } = {}) => {
+  const loadLibrary = useCallback(async ({ url = '/api/comics', fuzzyQuery = '' } = {}) => {
     const key = libraryRequestKey(url, fuzzyQuery);
-    const hasCached = requestKeyRef.current === key && fetchedAtRef.current !== null;
-
-    if (hasCached && !force && !isLibraryStale(fetchedAtRef.current)) {
-      return comicsRef.current;
-    }
+    const showsThisList = displayedKeyRef.current === key;
 
     // Claim the request before awaiting so a response that has been superseded
-    // by a newer search can be recognised and dropped.
-    requestKeyRef.current = key;
+    // by a newer one can be recognised and dropped.
+    activeKeyRef.current = key;
 
-    if (hasCached) {
-      // Cards stay on screen; only the quiet refresh indicator changes.
+    if (showsThisList) {
       setIsRefreshing(true);
     } else {
-      storeComics([]);
       setIsLoading(true);
     }
     setError(null);
 
     try {
       const data = await api.get(url);
-      if (requestKeyRef.current !== key) {
+      if (activeKeyRef.current !== key) {
         return comicsRef.current;
       }
 
       const fetched = fuzzyFilter(normaliseComics(data.comics), fuzzyQuery, FUZZY_FIELDS);
-      fetchedAtRef.current = Date.now();
+      displayedKeyRef.current = key;
       storeComics(fetched);
       return fetched;
     } catch (err) {
-      if (requestKeyRef.current !== key) {
+      if (activeKeyRef.current !== key) {
         return comicsRef.current;
       }
 
@@ -107,20 +102,19 @@ export function ComicLibraryProvider({ children }) {
         variant: 'destructive',
       });
 
-      // A failed background refresh must not replace comics that are already on
-      // screen with an error screen; the cached list is still the best answer.
-      if (!hasCached) {
-        fetchedAtRef.current = null;
+      // A refresh that fails must not replace comics that are already on screen
+      // with an error page; what is displayed is still the best answer there is.
+      if (!showsThisList) {
+        displayedKeyRef.current = null;
         storeComics([]);
         setError(message);
       }
 
       return comicsRef.current;
     } finally {
-      if (requestKeyRef.current === key) {
+      if (activeKeyRef.current === key) {
         setIsLoading(false);
         setIsRefreshing(false);
-        setHasLoaded(true);
       }
     }
   }, [storeComics, toast]);
@@ -143,13 +137,23 @@ export function ComicLibraryProvider({ children }) {
     }
   }, [storeComics]);
 
-  // One user's library must never be shown to the next one.
-  const lastUserIdRef = useRef(null);
+  // Drop one session's library on the way out, so it is not still in memory for
+  // whoever logs in next.
+  //
+  // Logging out is the only moment worth doing this. Logging in cannot need it,
+  // because reaching the login page means a logged-out state cleared the store
+  // already — and clearing here on the way *in* would be unsafe: effects run
+  // child-first, so it would fire after the dashboard had already asked for its
+  // library and would strand it on an empty screen.
+  const wasLoggedInRef = useRef(false);
   useEffect(() => {
-    const userId = user?.id ?? null;
-    if (lastUserIdRef.current === userId) return;
+    if (user) {
+      wasLoggedInRef.current = true;
+      return;
+    }
+    if (!wasLoggedInRef.current) return;
 
-    lastUserIdRef.current = userId;
+    wasLoggedInRef.current = false;
     resetLibrary();
   }, [user, resetLibrary]);
 
@@ -157,13 +161,11 @@ export function ComicLibraryProvider({ children }) {
     comics,
     isLoading,
     isRefreshing,
-    hasLoaded,
     error,
     loadLibrary,
     updateComicProgress,
     removeComicsFromLibrary,
-    resetLibrary,
-  }), [comics, isLoading, isRefreshing, hasLoaded, error, loadLibrary, updateComicProgress, removeComicsFromLibrary, resetLibrary]);
+  }), [comics, isLoading, isRefreshing, error, loadLibrary, updateComicProgress, removeComicsFromLibrary]);
 
   return <ComicLibraryContext.Provider value={value}>{children}</ComicLibraryContext.Provider>;
 }
