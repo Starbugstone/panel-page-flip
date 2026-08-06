@@ -29,14 +29,30 @@ target_dir=""
 overwrite=0
 seven_zip=""
 
+# Prints the header comment: everything from line 2 up to the first line that is
+# not a comment. Derived rather than a fixed line range, so editing the header
+# cannot make --help start printing the code below it.
 usage() {
-  sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,${/^#/!q
+s/^# \{0,1\}//
+p
+}' "$0"
+}
+
+# A value-taking option with nothing after it used to leave $# unchanged (shift 2
+# fails when only one argument remains) and spin here forever.
+require_value() {
+  if [ "$2" -lt 2 ]; then
+    printf 'Option %s needs a value.\n\n' "$1" >&2
+    usage >&2
+    exit 2
+  fi
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -p|--path)      target_dir="${2:-}"; shift 2 ;;
-    -s|--seven-zip) seven_zip="${2:-}"; shift 2 ;;
+    -p|--path)      require_value "$1" "$#"; target_dir="$2"; shift 2 ;;
+    -s|--seven-zip) require_value "$1" "$#"; seven_zip="$2"; shift 2 ;;
     -o|--overwrite) overwrite=1; shift ;;
     -h|--help)      usage; exit 0 ;;
     -v|--version)   echo "$VERSION"; exit 0 ;;

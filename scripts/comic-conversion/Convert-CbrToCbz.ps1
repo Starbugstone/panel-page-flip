@@ -100,9 +100,23 @@ function Invoke-SevenZip {
         [Parameter(Mandatory = $true)][string[]] $Arguments
     )
 
-    $output = & $Executable @Arguments 2>&1
+    # $ErrorActionPreference = 'Stop' turns anything a native command writes to
+    # stderr into a thrown NativeCommandError, which would report a 7-Zip
+    # *warning* on an otherwise successful archive as a failed conversion — and
+    # would throw right past the exit-code check below. Relaxed for the call so
+    # stderr arrives as text and the exit code is what decides.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $Executable @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+
     return [pscustomobject]@{
-        ExitCode = $LASTEXITCODE
+        ExitCode = $exitCode
         Output   = ($output | Out-String).Trim()
     }
 }

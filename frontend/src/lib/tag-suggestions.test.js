@@ -119,4 +119,22 @@ describe("describeTagSubmission", () => {
   it("submits the stored spelling rather than what was typed", () => {
     expect(describeTagSubmission(tags, "SUPERHERO").name).toBe("Superhero");
   });
+
+  it("submits an existing name verbatim, even one with odd internal spacing", () => {
+    // The backend matches the stored string exactly, so tidying "Sci  Fi" into
+    // "Sci Fi" here would create a second tag rather than reuse this one.
+    const odd = [{ id: 7, name: "Sci  Fi", isGlobal: false }];
+
+    expect(describeTagSubmission(odd, "sci fi")).toMatchObject({
+      status: "existing",
+      name: "Sci  Fi",
+    });
+  });
+
+  it("still normalises the name of a tag it is about to create", () => {
+    expect(describeTagSubmission(tags, "  Space   Noir ")).toEqual({
+      status: "new",
+      name: "Space Noir",
+    });
+  });
 });

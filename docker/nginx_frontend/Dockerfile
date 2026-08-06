@@ -30,6 +30,11 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Copy the Nginx configuration file
 # This file (nginx.conf) should be in the same directory as this Dockerfile
 COPY ./docker/nginx_frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# Included by default.conf from the server block and from each location that
+# adds a header of its own; nginx would fail to start without it. Kept out of
+# conf.d, which the base image globs into the http block — landing there would
+# apply these a second time at http level.
+COPY ./docker/nginx_frontend/security-headers.conf /etc/nginx/snippets/security-headers.conf
 
 # Expose port 80 for Nginx
 EXPOSE 80

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,10 @@ import { PAGE_SIZE_OPTIONS, visibleRange } from "@/lib/admin-list-params";
 export function AdminPagination({ pagination, itemCount, isLoading = false, onPageChange, onLimitChange, label = "results" }) {
   const { page, limit, totalItems, totalPages } = pagination;
   const range = visibleRange(pagination, itemCount);
+  // The user detail page renders a comics list and a tags list, so a fixed id
+  // here would put two identical ones in the document and point both labels at
+  // whichever control came first.
+  const pageSizeId = useId();
 
   return (
     <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -26,7 +31,7 @@ export function AdminPagination({ pagination, itemCount, isLoading = false, onPa
 
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
-          <Label htmlFor="admin-page-size" className="whitespace-nowrap text-sm font-normal text-muted-foreground">
+          <Label htmlFor={pageSizeId} className="whitespace-nowrap text-sm font-normal text-muted-foreground">
             Per page
           </Label>
           <Select
@@ -34,7 +39,7 @@ export function AdminPagination({ pagination, itemCount, isLoading = false, onPa
             onValueChange={(value) => onLimitChange(Number(value))}
             disabled={isLoading}
           >
-            <SelectTrigger id="admin-page-size" className="h-9 w-[84px]">
+            <SelectTrigger id={pageSizeId} className="h-9 w-[84px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

@@ -56,7 +56,6 @@ class TagRepository extends ServiceEntityRepository
         }
 
         $total = (int) (clone $qb)->select('COUNT(t.id)')
-            ->resetDQLPart('orderBy')
             ->getQuery()
             ->getSingleScalarResult();
 

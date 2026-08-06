@@ -106,6 +106,36 @@ final class AdminPaginationTest extends AbstractApiTestCase
         self::assertSame(1, $payload['pagination']['totalItems']);
     }
 
+    public function testUserSearchAndVerifiedFilterApplyTogether(): void
+    {
+        $this->createAndLoginAdmin();
+        UserFactory::new()->unverified()->create(['name' => 'Gordon Pending', 'email' => 'pending@example.com']);
+        UserFactory::createOne(['name' => 'Gordon Verified', 'email' => 'verified@example.com']);
+
+        $payload = $this->getJson('/api/users?verified=false&search=gordon');
+
+        // The name/email alternatives must be grouped: an ungrouped OR would
+        // let every unverified-or-name-matching user through.
+        self::assertResponseIsSuccessful();
+        self::assertSame(1, $payload['pagination']['totalItems']);
+        self::assertSame('Gordon Pending', $payload['items'][0]['name']);
+    }
+
+    public function testUserSearchTreatsWildcardCharactersLiterally(): void
+    {
+        $this->createAndLoginAdmin();
+        UserFactory::createOne(['name' => 'Fifty% Off', 'email' => 'discount@example.com']);
+        UserFactory::createMany(3);
+
+        // A bare "%" is the decisive case: unescaped it is a wildcard matching
+        // every row, so this only passes if it is treated as a literal.
+        $payload = $this->getJson('/api/users?search=' . urlencode('%'));
+
+        self::assertResponseIsSuccessful();
+        self::assertSame(1, $payload['pagination']['totalItems']);
+        self::assertSame('Fifty% Off', $payload['items'][0]['name']);
+    }
+
     public function testUserListReportsOwnedComicAndTagTotals(): void
     {
         $admin = $this->createAndLoginAdmin();
@@ -285,6 +315,28 @@ final class AdminPaginationTest extends AbstractApiTestCase
         self::assertCount(1, $payload['items']);
         self::assertSame(2, $payload['pagination']['totalItems']);
         self::assertContains('user_delete', $payload['filters']['actions']);
+    }
+
+    public function testAuditLogSearchMatchesATargetId(): void
+    {
+        $admin = $this->createAndLoginAdmin();
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        foreach ([42, 43] as $targetId) {
+            $entityManager->persist((new AdminAuditLog())
+                ->setAdminUser($entityManager->find(\App\Entity\User::class, $admin->getId()))
+                ->setAction('user_update')
+                ->setTargetType('user')
+                ->setTargetId($targetId));
+        }
+        $entityManager->flush();
+
+        // Target ids are integers and DQL has no portable CAST, so a numeric
+        // term is matched exactly rather than as a substring.
+        $payload = $this->getJson('/api/admin/audit-logs?search=42');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame(1, $payload['pagination']['totalItems']);
+        self::assertSame(42, $payload['items'][0]['targetId']);
     }
 
     public function testAuditLogRejectsANonAdmin(): void

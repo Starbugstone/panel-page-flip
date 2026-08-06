@@ -47,7 +47,6 @@ export function AdminTagsList({ creatorId, embedded = false }) {
 
   const {
     items: tags,
-    setItems: setTags,
     pagination,
     isLoading,
     searchInput,
@@ -100,12 +99,13 @@ export function AdminTagsList({ creatorId, embedded = false }) {
       return;
     }
     try {
-      const updatedTagData = await api.put(`/api/tags/${currentTag.id}`, {
+      await api.put(`/api/tags/${currentTag.id}`, {
         name: newTagName.trim(),
         ...(currentTag.isGlobal ? { hideFromLibrary } : {}),
       });
-      const finalUpdatedTag = updatedTagData.tag || updatedTagData;
-      setTags(tags.map(tag => (tag.id === currentTag.id ? finalUpdatedTag : tag)));
+      // Reload rather than patch the row in place: the list is sorted by name on
+      // the server, so a rename can move the tag to a different page entirely.
+      reload();
       setNewTagName("");
       setHideFromLibrary(false);
       setIsEditDialogOpen(false);
@@ -157,7 +157,9 @@ export function AdminTagsList({ creatorId, embedded = false }) {
           : "Tags added here are global and available to every user. The hide option can be changed independently for any global tag."}
       </p>
 
-      {isLoading ? (
+      {/* Spinner only on the first load; turning a page keeps the table and its
+          pager on screen, disabled, rather than collapsing the layout. */}
+      {isLoading && tags.length === 0 ? (
         <div className="flex justify-center p-8">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>

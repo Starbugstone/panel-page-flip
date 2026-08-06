@@ -117,6 +117,19 @@ export function useAdminList({
   }, [params.search]);
 
   const filterQuery = JSON.stringify(filters);
+  const lastFilterQuery = useRef(filterQuery);
+  const pageRef = useRef(params.page);
+  pageRef.current = params.page;
+
+  // A changed filter is a different result set, so the page number from the old
+  // one means nothing: picking an action filter while on page 3 of the audit log
+  // would otherwise land on page 3 of the filtered results, which is usually
+  // empty. Same reasoning as the search and page-size resets above.
+  useEffect(() => {
+    if (lastFilterQuery.current === filterQuery) return;
+    lastFilterQuery.current = filterQuery;
+    if (pageRef.current !== 1) setPage(1);
+  }, [filterQuery, setPage]);
 
   useEffect(() => {
     let cancelled = false;

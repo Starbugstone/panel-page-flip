@@ -10,6 +10,7 @@ import { useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast.js";
 import { cn } from "@/lib/utils";
+import { PAGE_LAYER_CLASSES } from "@/lib/overlay-layers";
 
 export function ComicCard({ comic, coverPriority = false, onResetProgress, onEditComic, onDeleteComic, onShareClick }) {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
@@ -133,7 +134,7 @@ export function ComicCard({ comic, coverPriority = false, onResetProgress, onEdi
           </CardFooter>
         </Card>
       </Link>
-        <div className="absolute top-2 right-2 z-10">
+        <div className={cn("absolute top-2 right-2", PAGE_LAYER_CLASSES.cardAction)}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white rounded-full">

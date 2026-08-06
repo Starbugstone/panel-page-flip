@@ -55,12 +55,16 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
         }
 
         if ($pattern = $request->searchPattern()) {
-            $qb->andWhere('LOWER(u.name) LIKE :search OR LOWER(u.email) LIKE :search')
-                ->setParameter('search', $pattern);
+            // Grouped explicitly, like the sibling repositories. Doctrine does
+            // parenthesise a string part containing OR (DDC-1237), so this is
+            // not a precedence fix — it just does not rely on that.
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(u.name) LIKE :search',
+                'LOWER(u.email) LIKE :search',
+            ))->setParameter('search', $pattern);
         }
 
         $total = (int) (clone $qb)->select('COUNT(u.id)')
-            ->resetDQLPart('orderBy')
             ->getQuery()
             ->getSingleScalarResult();
 

@@ -68,9 +68,23 @@ final class PaginationRequest
         return ($this->page - 1) * $this->limit;
     }
 
-    /** The `LIKE` argument for the search term, or null when nothing was searched for. */
+    /**
+     * The `LIKE` argument for the search term, or null when nothing was
+     * searched for.
+     *
+     * `%` and `_` are escaped so they match themselves: searching a comic
+     * library for "50%" should find "50% Off", not every row in the table. The
+     * escape character is the backslash MySQL applies to LIKE by default, so no
+     * ESCAPE clause has to be threaded through every query that uses this.
+     */
     public function searchPattern(): ?string
     {
-        return $this->search === null ? null : '%' . mb_strtolower($this->search) . '%';
+        if ($this->search === null) {
+            return null;
+        }
+
+        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], mb_strtolower($this->search));
+
+        return '%' . $escaped . '%';
     }
 }

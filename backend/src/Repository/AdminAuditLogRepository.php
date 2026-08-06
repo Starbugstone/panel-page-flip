@@ -72,7 +72,6 @@ class AdminAuditLogRepository extends ServiceEntityRepository
         }
 
         $total = (int) (clone $qb)->select('COUNT(l.id)')
-            ->resetDQLPart('orderBy')
             ->getQuery()
             ->getSingleScalarResult();
 

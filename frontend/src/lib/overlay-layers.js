@@ -43,6 +43,10 @@ export const PAGE_LAYER_CLASSES = {
   cardAction: "z-10",
   /** The application header. */
   header: "z-30",
+  /** A page-level control that has to sit above the page while it is open. */
+  activeControl: "z-30",
+  /** The panel such a control opens — above the page, below every overlay. */
+  activeControlPanel: "z-40",
 };
 
 /** Always-on-top notifications, deliberately above every modal. */

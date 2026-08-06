@@ -43,17 +43,31 @@ fi
 
 # A small ZIP archive under the given name: stands in for a CBR.
 make_fake_comic() {
-  local target="$1" pages="${2:-2}" stage i
+  local target="$1" pages="${2:-2}" stage i status
   stage="$(mktemp -d "${TMPDIR:-/tmp}/cbr2cbz_stage.XXXXXXXX")"
   for (( i = 1; i <= pages; i++ )); do
     printf 'page %d\n' "$i" > "$(printf '%s/page%02d.txt' "$stage" "$i")"
   done
   "$seven_zip" a -tzip -mx=0 -bso0 -bsp0 -- "$target" "${stage}/*" >/dev/null 2>&1
+  status=$?
   rm -rf -- "$stage"
+
+  # A fixture that failed to build would surface as a confusing assertion
+  # failure about the script under test, so it stops the run instead.
+  if [ $status -ne 0 ]; then
+    printf 'Could not build the test fixture %s (7-Zip exit %d).\n' "$target" "$status" >&2
+    exit 2
+  fi
 }
 
+# Bounded, so a regression that makes the script wait forever fails the suite
+# rather than hanging it.
 run_script() {
-  last_output="$("$script_under_test" "$@" 2>&1)"
+  if command -v timeout >/dev/null 2>&1; then
+    last_output="$(timeout 60 "$script_under_test" "$@" 2>&1)"
+  else
+    last_output="$("$script_under_test" "$@" 2>&1)"
+  fi
   last_exit=$?
 }
 
@@ -201,6 +215,23 @@ begin_case 'rejects an unknown option instead of guessing'
 run_script -p "$sandbox" --delete-originals
 [ "$last_exit" -eq 2 ] || fail "Expected exit code 2, got $last_exit."
 assert_contains 'Unknown option'
+end_case
+
+begin_case 'rejects a value-taking option with no value instead of hanging'
+run_script -p
+[ "$last_exit" -eq 2 ] || fail "Expected exit code 2, got $last_exit."
+assert_contains 'needs a value'
+run_script --seven-zip
+[ "$last_exit" -eq 2 ] || fail "Expected exit code 2, got $last_exit."
+end_case
+
+begin_case 'prints only the header comment for --help'
+run_script --help
+assert_true "$last_exit" "Expected exit code 0, got $last_exit."
+assert_contains 'Usage:'
+case "$last_output" in
+  *'set -uo pipefail'*) fail 'The help text leaked script code.' ;;
+esac
 end_case
 
 # --- results ------------------------------------------------------------

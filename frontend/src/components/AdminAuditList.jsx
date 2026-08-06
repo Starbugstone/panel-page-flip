@@ -69,7 +69,9 @@ export function AdminAuditList() {
         </div>
       </div>
 
-      {isLoading ? (
+      {/* Spinner only on the first load; turning a page keeps the table and its
+          pager on screen, disabled, rather than collapsing the layout. */}
+      {isLoading && logs.length === 0 ? (
         <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary" /></div>
       ) : (
         <div className="border rounded-md">
@@ -93,7 +95,13 @@ export function AdminAuditList() {
                   <TableCell className="max-w-[360px] truncate">{log.payload ? JSON.stringify(log.payload) : "N/A"}</TableCell>
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={5} className="text-center py-8">No audit logs yet</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8">
+                    {searchInput || action !== ALL_ACTIONS
+                      ? "No audit entries match your search"
+                      : "No audit logs yet"}
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>

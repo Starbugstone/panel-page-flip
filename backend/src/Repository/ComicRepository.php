@@ -71,7 +71,6 @@ class ComicRepository extends ServiceEntityRepository
         }
 
         $total = (int) (clone $qb)->select('COUNT(c.id)')
-            ->resetDQLPart('orderBy')
             ->getQuery()
             ->getSingleScalarResult();
 

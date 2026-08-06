@@ -245,7 +245,10 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
         </div>
       </div>
       
-      {isLoading ? (
+      {/* The spinner replaces the table only on the first load. Turning a page
+          keeps the table and its pager on screen, disabled, rather than
+          collapsing the layout and moving the button under the cursor. */}
+      {isLoading && users.length === 0 ? (
         <div className="flex justify-center p-8">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>

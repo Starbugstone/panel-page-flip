@@ -76,15 +76,25 @@ export function TagCombobox({
     const query = normalizeTagName(value);
     if (query.length < 2) return undefined;
 
+    // Debouncing only delays the request; it does not stop two of them being in
+    // flight at once. Without this guard a slow response for an earlier query
+    // can land after a newer one and repopulate the list with results for text
+    // the user has already typed past — and clear the spinner for a request
+    // that is still running.
+    let superseded = false;
+
     const timeoutId = setTimeout(() => {
       setIsSearching(true);
       searchTags(query, adminContext)
-        .then((results) => setRemoteTags(results || []))
+        .then((results) => { if (!superseded) setRemoteTags(results || []); })
         .catch((error) => logger.error("Error searching tags:", error))
-        .finally(() => setIsSearching(false));
+        .finally(() => { if (!superseded) setIsSearching(false); });
     }, 300);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      superseded = true;
+      clearTimeout(timeoutId);
+    };
   }, [adminContext, searchTags, value]);
 
   // Reset the highlight whenever the list underneath it changes, so Enter never

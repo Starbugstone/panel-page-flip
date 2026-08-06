@@ -112,9 +112,12 @@ export function describeTagSubmission(tags, value, applied = []) {
   }
 
   const existing = findTagByName(tags, name);
-  // Submit the stored spelling, not what was typed, so "sci fi" does not show
-  // up next to the "Sci Fi" it was meant to reuse.
-  const canonicalName = existing ? normalizeTagName(nameOf(existing)) : name;
+  // Submit the stored spelling verbatim, not what was typed, so "sci fi" does
+  // not show up next to the "Sci Fi" it was meant to reuse. Not re-normalised:
+  // the backend matches on the exact stored string, so collapsing the spaces of
+  // a tag genuinely called "Sci  Fi" would create the duplicate this is here to
+  // prevent. Normalising only applies to a name we are about to create.
+  const canonicalName = existing ? nameOf(existing) : name;
 
   if (findTagByName(applied, canonicalName)) {
     return { status: "duplicate", name: canonicalName, tag: existing };

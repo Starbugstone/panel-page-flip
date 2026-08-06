@@ -13,9 +13,13 @@
  * The archives are written by hand rather than shelled out to zip/7z: it keeps
  * the build dependency-free, and fixing the entry timestamps makes the output
  * byte-identical every run, so rebuilding an unchanged script produces no diff.
+ *
+ * Entries are stored rather than deflated. Compressed output is only guaranteed
+ * identical for a given zlib build, so deflating would let a different Node
+ * version produce a different archive from the same sources and fail --check for
+ * no real reason. These are a few kilobytes of text; the size is not worth it.
  */
 import { createHash } from "node:crypto";
-import { deflateRawSync } from "node:zlib";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,7 +81,7 @@ function crc32(buffer) {
 }
 
 /**
- * A ZIP archive containing the given entries, deflated.
+ * A ZIP archive containing the given entries, stored (compression method 0).
  * @param {{name: string, data: Buffer, executable?: boolean}[]} entries
  */
 function buildZip(entries) {
@@ -87,14 +91,14 @@ function buildZip(entries) {
 
   for (const entry of entries) {
     const nameBytes = Buffer.from(entry.name, "utf8");
-    const compressed = deflateRawSync(entry.data, { level: 9 });
+    const compressed = entry.data;
     const crc = crc32(entry.data);
 
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4); // version needed
     local.writeUInt16LE(0, 6); // flags
-    local.writeUInt16LE(8, 8); // deflate
+    local.writeUInt16LE(0, 8); // stored
     local.writeUInt16LE(DOS_TIME, 10);
     local.writeUInt16LE(DOS_DATE, 12);
     local.writeUInt32LE(crc, 14);
@@ -111,7 +115,7 @@ function buildZip(entries) {
     central.writeUInt16LE(0x031e, 4);
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(0, 8);
-    central.writeUInt16LE(8, 10);
+    central.writeUInt16LE(0, 10); // stored
     central.writeUInt16LE(DOS_TIME, 12);
     central.writeUInt16LE(DOS_DATE, 14);
     central.writeUInt32LE(crc, 16);

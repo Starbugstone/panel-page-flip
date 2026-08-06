@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -39,6 +40,21 @@ describe("conversion tool downloads", () => {
     const bytes = readFileSync(join(publicDir, "tools", tool.fileName));
 
     expect(bytes.subarray(0, 2).toString("latin1")).toBe("PK");
+  });
+
+  it("matches the scripts it was built from", () => {
+    // The zips and the checksums are committed artefacts, so they can silently
+    // drift from scripts/comic-conversion/. The production image builds only
+    // frontend/, which puts those sources out of scope there — so the drift
+    // check belongs here, where `npm test` will run it.
+    const result = spawnSync(
+      process.execPath,
+      [join(frontendDir, "scripts", "build-conversion-tools.mjs"), "--check"],
+      { encoding: "utf8" }
+    );
+
+    expect(result.stdout + result.stderr).not.toMatch(/out of date/);
+    expect(result.status).toBe(0);
   });
 
   it("is rendered by the settings page", () => {

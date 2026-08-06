@@ -109,7 +109,9 @@ export function AdminComicsList({ ownerId, embedded = false }) {
         </div>
       </div>
 
-      {isLoading ? (
+      {/* Spinner only on the first load; turning a page keeps the table and its
+          pager on screen, disabled, rather than collapsing the layout. */}
+      {isLoading && comics.length === 0 ? (
         <div className="flex justify-center p-8">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>
