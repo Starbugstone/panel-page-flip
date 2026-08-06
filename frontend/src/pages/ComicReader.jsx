@@ -4,8 +4,11 @@ import { Button } from "@/components/ui/button.jsx";
 import { ArrowLeft, ArrowRight, Info, Maximize, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
+import { Progress } from "@/components/ui/progress.jsx";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { isTypingTarget } from "@/lib/keyboard";
+import { parsePageNumber } from "@/lib/comic-progress";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 
 export default function ComicReader() {
@@ -23,6 +26,7 @@ export default function ComicReader() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
   const imageContainerRef = useRef(null);
+  const pageInputRef = useRef(null);
   
   // Refs for async operations
   const progressAbortController = useRef(null);
@@ -438,6 +442,31 @@ export default function ComicReader() {
     goToPage(currentPage + 1);
   }, [goToPage, currentPage]);
 
+  // The jump-to-page box holds raw text, not a page number: it has to survive
+  // the empty and half-typed states an input passes through. It is reconciled
+  // with the reader whenever the page changes by any other means.
+  const [pageInput, setPageInput] = useState("1");
+
+  useEffect(() => {
+    setPageInput(String(currentPage + 1));
+  }, [currentPage]);
+
+  const commitPageInput = useCallback(() => {
+    const requestedPage = parsePageNumber(pageInput, comicPages.length);
+
+    if (requestedPage === null) {
+      setPageInput(String(currentPageRef.current + 1));
+      return;
+    }
+
+    // Echo the clamped value back, so typing 500 in a 40-page comic settles on
+    // 40 rather than leaving a number that does not match the page shown.
+    setPageInput(String(requestedPage + 1));
+    if (requestedPage !== currentPageRef.current) {
+      goToPage(requestedPage);
+    }
+  }, [pageInput, comicPages.length, goToPage]);
+
   // Force a page to come from the server again, bypassing the browser cache.
   // A unique URL is what does the bypassing: the page endpoint is cacheable, so
   // re-requesting the plain URL would simply be answered locally.
@@ -507,12 +536,24 @@ export default function ComicReader() {
   // reader keeps focus in the document either way.
   useEffect(() => {
     const handleKeyPress = (event) => {
+      // Arrow keys belong to the jump-to-page box while it has focus; turning
+      // the page under someone editing a page number would be maddening.
+      if (isTypingTarget(event.target)) return;
+
       switch (event.key) {
         case "ArrowLeft":
           handlePreviousPage();
           break;
         case "ArrowRight":
           handleNextPage();
+          break;
+        case "Home":
+          event.preventDefault();
+          goToPage(0);
+          break;
+        case "End":
+          event.preventDefault();
+          goToPage(comicPages.length - 1);
           break;
         default:
           break;
@@ -521,7 +562,7 @@ export default function ComicReader() {
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [handlePreviousPage, handleNextPage]);
+  }, [handlePreviousPage, handleNextPage, goToPage, comicPages.length]);
 
   // Handle fullscreen change events
   useEffect(() => {
@@ -592,14 +633,14 @@ export default function ComicReader() {
       {/* Navigation areas for clicking left/right sides of screen */}
       <div 
         className={`page-navigation left-0 ${isFullscreen ? 'z-[55]' : ''}`}
-        style={{ bottom: '60px' }} // Leave space for controls to prevent overlap
+        style={{ bottom: '88px' }} // Leave space for controls to prevent overlap
         onClick={() => handleScreenNavClick('left')}
         aria-label="Previous page"
       ></div>
       
       <div 
         className={`page-navigation right-0 ${isFullscreen ? 'z-[55]' : ''}`}
-        style={{ bottom: '60px' }} // Leave space for controls to prevent overlap
+        style={{ bottom: '88px' }} // Leave space for controls to prevent overlap
         onClick={() => handleScreenNavClick('right')}
         aria-label="Next page"
       ></div>
@@ -797,47 +838,80 @@ export default function ComicReader() {
       
       {/* Reader controls - different styling in fullscreen mode */}
       <div className={isFullscreen ? "reader-controls-fullscreen" : "reader-controls"}>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={handlePreviousPage}
-            disabled={currentPage === 0}
-            className={isFullscreen ? "" : "bg-card"}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" /> Previous
-          </Button>
-          
-          {/* Force reload button */}
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={handleForceReload}
-            title="Force reload current page"
-            className={isFullscreen ? "" : "bg-card"}
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <div className="text-sm">
-            Page {currentPage + 1} of {comicPages.length}
+        {/* How far through the comic this page is, at a glance */}
+        {comicPages.length > 0 && (
+          <Progress
+            value={((currentPage + 1) / comicPages.length) * 100}
+            aria-label={`Page ${currentPage + 1} of ${comicPages.length}`}
+            className="h-1 w-full rounded-none bg-muted/60"
+          />
+        )}
+
+        <div className="flex w-full items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handlePreviousPage}
+              disabled={currentPage === 0}
+              className={isFullscreen ? "" : "bg-card"}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" /> Previous
+            </Button>
+
+            {/* Force reload button */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleForceReload}
+              title="Force reload current page"
+              className={isFullscreen ? "" : "bg-card"}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
           </div>
-          {isZoomed && (
-            <div className="text-xs bg-primary/20 px-2 py-1 rounded">
-              {Math.round(zoomLevel * 100)}% zoom
-            </div>
-          )}
+
+          <div className="flex items-center gap-2">
+            <form
+              className="flex items-center gap-1.5 text-sm"
+              onSubmit={(event) => {
+                event.preventDefault();
+                commitPageInput();
+                pageInputRef.current?.blur();
+              }}
+            >
+              <label htmlFor="reader-page-input" className="sr-only">Go to page</label>
+              <input
+                id="reader-page-input"
+                ref={pageInputRef}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={comicPages.length || 1}
+                value={pageInput}
+                onChange={(event) => setPageInput(event.target.value)}
+                onBlur={commitPageInput}
+                disabled={comicPages.length === 0}
+                title="Go to page"
+                className="h-8 w-16 rounded-md border border-input bg-background px-2 text-center text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+              />
+              <span className="whitespace-nowrap">of {comicPages.length}</span>
+            </form>
+            {isZoomed && (
+              <div className="text-xs bg-primary/20 px-2 py-1 rounded">
+                {Math.round(zoomLevel * 100)}% zoom
+              </div>
+            )}
+          </div>
+
+          <Button
+            variant="outline"
+            onClick={handleNextPage}
+            disabled={currentPage === comicPages.length - 1}
+            className={isFullscreen ? "" : "bg-card"}
+          >
+            Next <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
         </div>
-        
-        <Button
-          variant="outline"
-          onClick={handleNextPage}
-          disabled={currentPage === comicPages.length - 1}
-          className={isFullscreen ? "" : "bg-card"}
-        >
-          Next <ArrowRight className="ml-2 h-4 w-4" />
-        </Button>
       </div>
     </div>
   );

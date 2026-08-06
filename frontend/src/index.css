@@ -83,12 +83,14 @@
     @apply relative overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md hover:-translate-y-1;
   }
 
+  /* A column, so the progress bar can sit above the buttons rather than beside
+     them. The inner row keeps the original horizontal arrangement. */
   .reader-controls {
-    @apply fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background/90 to-transparent p-4 opacity-100 flex justify-between items-center;
+    @apply fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background/90 to-transparent p-4 opacity-100 flex flex-col gap-3;
   }
-  
+
   .reader-controls-fullscreen {
-    @apply fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background/90 to-transparent p-4 opacity-0 transition-opacity duration-300 hover:opacity-100 flex justify-between items-center;
+    @apply fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background/90 to-transparent p-4 opacity-0 transition-opacity duration-300 hover:opacity-100 flex flex-col gap-3;
   }
 
   .page-navigation {
