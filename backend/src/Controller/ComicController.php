@@ -6,11 +6,13 @@ use App\Entity\Comic;
 use App\Entity\ComicReadingProgress;
 use App\Entity\Tag;
 use App\Entity\User;
+use App\Repository\ComicRepository;
 use App\Repository\TagRepository;
 use App\Service\AdminAuditService;
 use App\Service\ComicSerializer;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicService;
+use App\Service\Pagination\PaginationRequest;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -141,8 +143,14 @@ class ComicController extends AbstractController
             ? array_values(array_unique(array_filter(array_map('trim', explode(',', $tagsParam)))))
             : [];
         
-        // Apply rate limiting only when search or tags parameters are present
-        if ($search || $tagsParam) {
+        // Check if we're in admin context - only consider this parameter if user is an admin
+        $adminContext = $request->query->get('adminContext') === 'true' && in_array('ROLE_ADMIN', $user->getRoles());
+
+        // Apply rate limiting only when search or tags parameters are present.
+        // The admin table is exempt: its search is debounced but server-side, so
+        // ten keystrokes a minute is a normal amount of typing, and the query it
+        // runs is bounded by the page size.
+        if (!$adminContext && ($search || $tagsParam)) {
             // Check rate limit
             $rateLimitResponse = $this->checkSearchRateLimit($request);
             if ($rateLimitResponse) {
@@ -150,13 +158,29 @@ class ComicController extends AbstractController
             }
         }
 
+        // The admin table pages through every owner's comics, so it uses the
+        // paginated repository query. A user's own library is still returned
+        // whole: the dashboard filters and groups it client-side.
+        if ($adminContext) {
+            $pagination = PaginationRequest::fromRequest($request, ComicRepository::ADMIN_SORT_FIELDS, 'uploadedAt');
+            $ownerId = $request->query->has('ownerId') ? $request->query->getInt('ownerId') : null;
+
+            /** @var ComicRepository $comicRepository */
+            $comicRepository = $entityManager->getRepository(Comic::class);
+            $page = $comicRepository->findAdminPage($pagination, $ownerId);
+            $comics = $this->comicSerializer->serializeMany($page->items, $user, true);
+
+            return $this->json([
+                'items' => $comics,
+                'comics' => $comics,
+                'pagination' => $page->toArray(),
+            ]);
+        }
+
         $qb = $entityManager->createQueryBuilder();
         $qb->select('c')
             ->from(Comic::class, 'c');
 
-        // Check if we're in admin context - only consider this parameter if user is an admin
-        $adminContext = $request->query->get('adminContext') === 'true' && in_array('ROLE_ADMIN', $user->getRoles());
-        
         // User Ownership Filter - only show all comics to admins in admin context
         if (!$adminContext) {
             // For non-admins or admins outside admin context, only show their own comics

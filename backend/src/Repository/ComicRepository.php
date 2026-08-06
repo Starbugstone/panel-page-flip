@@ -3,6 +3,9 @@
 namespace App\Repository;
 
 use App\Entity\Comic;
+use App\Entity\Tag;
+use App\Service\Pagination\PaginatedResult;
+use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -16,9 +19,71 @@ use Doctrine\Persistence\ManagerRegistry;
  */
 class ComicRepository extends ServiceEntityRepository
 {
+    /** Sortable columns for the admin comic table, as query alias => DQL field. */
+    public const ADMIN_SORT_FIELDS = [
+        'title' => 'c.title',
+        'author' => 'c.author',
+        'uploadedAt' => 'c.uploadedAt',
+        'pageCount' => 'c.pageCount',
+        'fileSize' => 'c.fileSize',
+    ];
+
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, Comic::class);
+    }
+
+    /**
+     * One page of the admin comic list, across every owner unless one is named.
+     *
+     * @param int|null $ownerId Restrict to a single owner's library.
+     * @return PaginatedResult<Comic>
+     */
+    public function findAdminPage(PaginationRequest $request, ?int $ownerId = null): PaginatedResult
+    {
+        $qb = $this->createQueryBuilder('c')->leftJoin('c.owner', 'o');
+
+        if ($ownerId !== null) {
+            $qb->andWhere('c.owner = :ownerId')->setParameter('ownerId', $ownerId);
+        }
+
+        if ($pattern = $request->searchPattern()) {
+            // The tag match runs as an EXISTS subquery rather than a join, so a
+            // comic carrying two matching tags is still one row and the count
+            // below stays honest.
+            $taggedSubquery = $this->getEntityManager()->createQueryBuilder()
+                ->select('1')
+                ->from(Tag::class, 'searchTag')
+                ->join('searchTag.comics', 'taggedComic')
+                ->where('taggedComic = c')
+                ->andWhere('LOWER(searchTag.name) LIKE :search')
+                ->getDQL();
+
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(c.title) LIKE :search',
+                'LOWER(c.author) LIKE :search',
+                'LOWER(c.publisher) LIKE :search',
+                'LOWER(c.description) LIKE :search',
+                'LOWER(o.name) LIKE :search',
+                'LOWER(o.email) LIKE :search',
+                $qb->expr()->exists($taggedSubquery),
+            ))->setParameter('search', $pattern);
+        }
+
+        $total = (int) (clone $qb)->select('COUNT(c.id)')
+            ->resetDQLPart('orderBy')
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        $comics = $qb
+            ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)
+            ->addOrderBy('c.id', 'DESC')
+            ->setFirstResult($request->offset())
+            ->setMaxResults($request->limit)
+            ->getQuery()
+            ->getResult();
+
+        return PaginatedResult::fromRequest($comics, $total, $request);
     }
 
     /**

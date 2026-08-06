@@ -5,12 +5,15 @@ namespace App\Controller;
 use App\Entity\AdminAuditLog;
 use App\Entity\Comic;
 use App\Entity\User;
+use App\Repository\AdminAuditLogRepository;
 use App\Service\AdminAuditService;
 use App\Service\ComicCleanupService;
+use App\Service\Pagination\PaginationRequest;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Routing\Attribute\Route;
@@ -168,22 +171,35 @@ class AdminController extends AbstractController
     }
 
     #[Route('/audit-logs', name: 'audit_logs', methods: ['GET'])]
-    public function auditLogs(EntityManagerInterface $entityManager): JsonResponse
+    public function auditLogs(Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
-        $logs = $entityManager->getRepository(AdminAuditLog::class)->findBy([], ['createdAt' => 'DESC'], 100);
+        $pagination = PaginationRequest::fromRequest($request, AdminAuditLogRepository::ADMIN_SORT_FIELDS, 'createdAt');
+
+        /** @var AdminAuditLogRepository $repository */
+        $repository = $entityManager->getRepository(AdminAuditLog::class);
+        $page = $repository->findAdminPage(
+            $pagination,
+            $request->query->get('action'),
+            $request->query->get('targetType'),
+        );
+
+        $logs = array_map(fn (AdminAuditLog $log): array => [
+            'id' => $log->getId(),
+            'admin' => $this->serializeUser($log->getAdminUser()),
+            'action' => $log->getAction(),
+            'targetType' => $log->getTargetType(),
+            'targetId' => $log->getTargetId(),
+            'payload' => $log->getPayload(),
+            'createdAt' => $log->getCreatedAt()->format('c'),
+        ], $page->items);
 
         return $this->json([
-            'logs' => array_map(fn (AdminAuditLog $log): array => [
-                'id' => $log->getId(),
-                'admin' => $this->serializeUser($log->getAdminUser()),
-                'action' => $log->getAction(),
-                'targetType' => $log->getTargetType(),
-                'targetId' => $log->getTargetId(),
-                'payload' => $log->getPayload(),
-                'createdAt' => $log->getCreatedAt()->format('c'),
-            ], $logs),
+            'items' => $logs,
+            'logs' => $logs,
+            'pagination' => $page->toArray(),
+            'filters' => $repository->findFilterOptions(),
         ]);
     }
 
