@@ -324,17 +324,20 @@ class ComicShareService
      * relationship, its status and the recipient's place in their own collection
      * are untouched: this suspends reading, it does not undo the share.
      *
+     * Mutates rather than issuing a bulk UPDATE, and asks the repository for
+     * only the shares that have something to reset. A DQL UPDATE would be one
+     * query, but it writes round the identity map — a share already loaded in
+     * this request would go on reporting a confirmation the database no longer
+     * holds — and it would commit on its own, splitting the single flush that
+     * makes the re-gate and the reclassification land together.
+     *
      * @return int the number of shares re-gated
      */
     public function regateSharesForComic(Comic $comic): int
     {
         $regated = 0;
 
-        foreach ($this->shareRepository->findLiveSharesForComic($comic) as $share) {
-            if ($share->getAdultConfirmedAt() === null) {
-                continue;
-            }
-
+        foreach ($this->shareRepository->findConfirmedSharesForComic($comic) as $share) {
             $share->resetAdultConfirmation();
             ++$regated;
         }

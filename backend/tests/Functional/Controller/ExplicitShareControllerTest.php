@@ -489,36 +489,73 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
     }
 
+    public function testRegatingTouchesOnlyTheSharesThatHaveSomethingToReset(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        // Explicit from the start: a confirmation can only exist on a comic that
+        // was asking for one, so this is the only way to arrive at a share that
+        // has something to withdraw.
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $confirmed = UserFactory::createOne(['email' => 'confirmed@test.local'])->object();
+        $neverAsked = UserFactory::createOne(['email' => 'never-asked@test.local'])->object();
+
+        $this->loginAs($confirmed);
+        $confirmedShare = $this->persistShare($comic, $owner, (string) $confirmed->getEmail());
+        $this->postJson('/api/shares/' . $confirmedShare->getId() . '/confirm-adult', ['adultConfirmed' => true]);
+        self::assertResponseIsSuccessful();
+        $this->postJson('/api/shares/' . $confirmedShare->getId() . '/accept');
+        self::assertResponseIsSuccessful();
+
+        // Live, and still behind the gate: nothing to reset.
+        $this->loginAs($neverAsked);
+        $this->persistShare($comic, $owner, (string) $neverAsked->getEmail());
+
+        $regated = static::getContainer()->get(ComicShareService::class)
+            ->regateSharesForComic($this->managed(Comic::class, (int) $comic->getId()));
+
+        // One, not two. The query is narrowed to the shares with a declaration
+        // to withdraw, so a comic shared with many people and confirmed by few
+        // loads the few — which is where the cost of re-gating actually is.
+        self::assertSame(1, $regated);
+
+        $this->flush();
+        $this->refresh();
+        self::assertNull($this->managed(ComicShare::class, (int) $confirmedShare->getId())->getAdultConfirmedAt());
+    }
+
     public function testRegatingReachesSharesThatAreAlreadyLoaded(): void
     {
         $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
         $recipient = UserFactory::createOne(['email' => 'in-memory@test.local'])->object();
 
         $this->loginAs($recipient);
-        $share = $this->createAcceptedShare($comic, $owner, $recipient);
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
         $this->postJson('/api/shares/' . $share->getId() . '/confirm-adult', ['adultConfirmed' => true]);
+        self::assertResponseIsSuccessful();
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
-        $managedComic = $this->managed(Comic::class, (int) $comic->getId());
         $managedShare = $this->managed(ComicShare::class, (int) $share->getId());
-        $managedComic->setExplicitContent(true);
+        // The precondition the rest of this test is about. Asserted, because a
+        // guard that starts from an already-null field proves nothing.
+        self::assertNotNull($managedShare->getAdultConfirmedAt());
 
-        static::getContainer()->get(ComicShareService::class)->regateSharesForComic($managedComic);
+        static::getContainer()->get(ComicShareService::class)
+            ->regateSharesForComic($this->managed(Comic::class, (int) $comic->getId()));
 
         // Re-gating goes through the ORM on purpose, and this is what says so.
         //
-        // A bulk DQL UPDATE would be fewer queries, but it writes round the
-        // identity map: a share already loaded in this request would keep
-        // reporting a confirmation the database no longer holds, and anything
-        // serializing it afterwards would tell the recipient the gate was open.
-        // It would also split one flush into two commits, which is the opposite
-        // of what ComicController::update() documents.
+        // A bulk DQL UPDATE would be one query, but it writes round the identity
+        // map: this share is already loaded, and it would go on reporting a
+        // confirmation the database no longer holds — so anything serializing it
+        // later in the request would tell the recipient the gate was open. It
+        // would also commit on its own, splitting the single flush that
+        // ComicController::update() documents.
         self::assertNull($managedShare->getAdultConfirmedAt());
 
-        // And it still reaches storage once the caller's single flush lands.
+        // And it still reaches storage on the caller's flush, not before it.
         $entityManager->flush();
-        $entityManager->clear();
+        $this->refresh();
         self::assertNull($this->managed(ComicShare::class, (int) $share->getId())->getAdultConfirmedAt());
     }
 

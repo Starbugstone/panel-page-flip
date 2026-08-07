@@ -138,12 +138,26 @@ class ComicShareRepository extends ServiceEntityRepository
      */
     public function findLiveSharesForComic(Comic $comic): array
     {
-        return $this->createQueryBuilder('s')
-            ->andWhere('s.comic = :comic')
-            ->andWhere('s.unavailableAt IS NULL')
-            ->andWhere('s.status IN (:live)')
-            ->setParameter('comic', $comic)
-            ->setParameter('live', [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED])
+        return $this->liveSharesForComicQueryBuilder($comic)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * The live shares on this comic whose recipient has confirmed their age —
+     * the only ones re-gating has anything to do.
+     *
+     * Narrowed in the query rather than after loading, so a comic shared with
+     * fifty people and confirmed by three hydrates three rows. That is where
+     * the cost of re-gating actually is; going round the ORM to save the rest
+     * would cost the identity-map consistency the callers rely on.
+     *
+     * @return list<ComicShare>
+     */
+    public function findConfirmedSharesForComic(Comic $comic): array
+    {
+        return $this->liveSharesForComicQueryBuilder($comic)
+            ->andWhere('s.adultConfirmedAt IS NOT NULL')
             ->getQuery()
             ->getResult();
     }
@@ -259,15 +273,28 @@ class ComicShareRepository extends ServiceEntityRepository
     /** Counterpart to {@see findLiveSharesForComic()} for the deletion warning. */
     public function countLiveSharesForComic(Comic $comic): int
     {
-        return (int) $this->createQueryBuilder('s')
+        return (int) $this->liveSharesForComicQueryBuilder($comic)
             ->select('COUNT(s.id)')
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /**
+     * "A share on this comic that still means something to its recipient",
+     * aliased `s` — pending or accepted, and not tombstoned.
+     *
+     * One definition, because deleting a comic, stopping sharing, warning the
+     * owner how many people that affects and re-gating all have to agree on
+     * which shares they are talking about.
+     */
+    private function liveSharesForComicQueryBuilder(Comic $comic): \Doctrine\ORM\QueryBuilder
+    {
+        return $this->createQueryBuilder('s')
             ->andWhere('s.comic = :comic')
             ->andWhere('s.unavailableAt IS NULL')
             ->andWhere('s.status IN (:live)')
             ->setParameter('comic', $comic)
-            ->setParameter('live', [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED])
-            ->getQuery()
-            ->getSingleScalarResult();
+            ->setParameter('live', [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED]);
     }
 
     private function deadSharesQueryBuilder(User $user): \Doctrine\ORM\QueryBuilder
