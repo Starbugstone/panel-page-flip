@@ -4,12 +4,16 @@ namespace App\Controller;
 
 use App\Entity\Comic;
 use App\Entity\ComicReadingProgress;
+use App\Entity\ComicShare;
 use App\Entity\Tag;
 use App\Entity\User;
 use App\Repository\ComicRepository;
+use App\Repository\ComicShareRepository;
 use App\Repository\TagRepository;
+use App\Security\Voter\ComicVoter;
 use App\Service\AdminAuditService;
 use App\Service\ComicSerializer;
+use App\Service\ComicShareService;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicService;
 use App\Service\Pagination\PaginationRequest;
@@ -21,6 +25,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\HttpKernel\EventListener\AbstractSessionListener;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\Routing\Attribute\Route;
@@ -66,7 +71,8 @@ class ComicController extends AbstractController
         private readonly int $uploadMaxTotalChunks,
         private readonly int $uploadUserQuotaBytes,
         private readonly ComicUploadFilenameValidator $uploadFilenameValidator,
-        private readonly ComicSerializer $comicSerializer
+        private readonly ComicSerializer $comicSerializer,
+        private readonly ComicShareRepository $shareRepository
     ) {
         $this->tempUploadDir = sys_get_temp_dir() . '/comic_uploads';
     }
@@ -183,9 +189,37 @@ class ComicController extends AbstractController
 
         // User Ownership Filter - only show all comics to admins in admin context
         if (!$adminContext) {
-            // For non-admins or admins outside admin context, only show their own comics
-            $qb->andWhere('c.owner = :owner')
-                ->setParameter('owner', $user);
+            // A collection is what the user owns plus what has been shared with
+            // them and not hidden. The shared half is resolved to ids first so
+            // the search and tag filters below apply to both halves through one
+            // query rather than two lists merged afterwards.
+            $ownership = $request->query->get('ownership', 'all');
+            if (!in_array($ownership, ['all', 'mine', 'shared'], true)) {
+                $ownership = 'all';
+            }
+
+            $sharedComicIds = $ownership === 'mine'
+                ? []
+                : array_values(array_filter(array_map(
+                    static fn (ComicShare $share): ?int => $share->getComic()?->getId(),
+                    $this->shareRepository->findVisibleCollectionShares($user)
+                )));
+
+            if ($ownership === 'shared') {
+                // An empty IN () is not valid DQL, and a user with no shares
+                // must get an empty list rather than everybody's comics.
+                if ($sharedComicIds === []) {
+                    return $this->json(['comics' => []]);
+                }
+                $qb->andWhere('c.id IN (:sharedComicIds)')
+                    ->setParameter('sharedComicIds', $sharedComicIds);
+            } elseif ($sharedComicIds === []) {
+                $qb->andWhere('c.owner = :owner')->setParameter('owner', $user);
+            } else {
+                $qb->andWhere($qb->expr()->orX('c.owner = :owner', 'c.id IN (:sharedComicIds)'))
+                    ->setParameter('owner', $user)
+                    ->setParameter('sharedComicIds', $sharedComicIds);
+            }
 
             /** @var TagRepository $tagRepository */
             $tagRepository = $entityManager->getRepository(Tag::class);
@@ -317,7 +351,8 @@ class ComicController extends AbstractController
     public function batchDelete(
         Request $request,
         EntityManagerInterface $entityManager,
-        ComicService $comicService
+        ComicService $comicService,
+        ComicShareService $shareService
     ): JsonResponse {
         $user = $this->getUser();
         if (!$user instanceof User) {
@@ -362,6 +397,9 @@ class ComicController extends AbstractController
         try {
             $entityManager->beginTransaction();
             foreach ($comics as $comic) {
+                // Same contract as the single delete: recipients are told why
+                // the comic went away, in the transaction that removes it.
+                $shareService->tombstoneSharesForComic($comic, ComicShare::REASON_OWNER_DELETED);
                 array_push($quarantinedFiles, ...$comicService->quarantineComicFiles($comic));
                 $entityManager->remove($comic);
             }
@@ -406,8 +444,9 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
 
-        // Check permissions: Admin can access any, user only their own
-        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
+        // Owner, administrator or accepted recipient — the voter is the only
+        // place that answers this.
+        if (!$this->isGranted(ComicVoter::VIEW, $comic)) {
             return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN); // Or HTTP_NOT_FOUND
         }
 
@@ -490,8 +529,9 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
 
-        // Check permissions: Admin can update any, user only their own
-        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
+        // Editing is the owner's (and an administrator's). A recipient reads the
+        // owner's comic and never changes it.
+        if (!$this->isGranted(ComicVoter::EDIT, $comic)) {
             return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN); // Or HTTP_NOT_FOUND
         }
 
@@ -585,21 +625,21 @@ class ComicController extends AbstractController
     public function delete(
         int $id,
         EntityManagerInterface $entityManager,
-        ComicService $comicService
+        ComicService $comicService,
+        ComicShareService $shareService
     ): JsonResponse {
         $user = $this->getUser();
         if (!$user) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
-        
+
         $comic = $entityManager->getRepository(Comic::class)->find($id);
-        
+
         if (!$comic) {
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
-        
-        // Check permissions: Admin can delete any, user only their own
-        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
+
+        if (!$this->isGranted(ComicVoter::DELETE, $comic)) {
             return $this->json(['message' => 'You do not have permission to delete this comic'], Response::HTTP_FORBIDDEN);
         }
 
@@ -607,16 +647,22 @@ class ComicController extends AbstractController
         try {
             // Use a transaction to ensure all operations succeed or fail together
             $entityManager->beginTransaction();
-            
+
+            // Inside the same transaction as the removal: the access records and
+            // the comic must not be able to disagree about whether it still
+            // exists. Recipients keep a tombstone explaining the disappearance
+            // instead of watching the comic vanish.
+            $shareService->tombstoneSharesForComic($comic, ComicShare::REASON_OWNER_DELETED);
+
             // Keep files recoverable if the database transaction fails.
             $quarantinedFiles = $comicService->quarantineComicFiles($comic);
-            
+
             // The entity removal will cascade to reading progress thanks to the relationship setup
             $entityManager->remove($comic);
             $entityManager->flush();
-            
+
             $entityManager->commit();
-            
+
             return $this->json(['message' => 'Comic deleted successfully']);
         } catch (\Throwable) {
             // Rollback the transaction if anything fails
@@ -650,8 +696,10 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
 
-        // Check permissions: Admin can reset any, user only their own
-        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $comic->getOwner() !== $user) {
+        // Anyone who may read the comic may reset their own position in it —
+        // progress is per user, so a recipient clearing theirs never touches
+        // the owner's.
+        if (!$this->isGranted(ComicVoter::VIEW, $comic)) {
             return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN);
         }
 
@@ -977,7 +1025,10 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
 
-        if ($comic->getOwner()?->getId() !== $user->getId() && !in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+        // Pages are the comic itself, so they go through exactly the same check
+        // as its metadata. Reported as missing rather than forbidden so probing
+        // for ids learns nothing.
+        if (!$this->isGranted(ComicVoter::VIEW, $comic)) {
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
 
@@ -1075,15 +1126,21 @@ class ComicController extends AbstractController
         return $response;
     }
 
-    #[Route('/{id}/progress', name: 'update_progress', methods: ['POST'])]
-    public function updateReadingProgressEndpoint(
-        int $id, 
-        Request $request, 
-        EntityManagerInterface $entityManager
-    ): JsonResponse {
-        // Get the current user
+    /**
+     * Download the original CBZ.
+     *
+     * Owners only, deliberately: this is the backup path for your own library.
+     * A shared comic is read through the reader, and handing a recipient the
+     * archive would put a second permanent copy outside the owner's control —
+     * which is exactly what the sharing model exists to avoid. Administrators
+     * are not exempted either; moderating a library is not a reason to take a
+     * copy of somebody's files.
+     */
+    #[Route('/{id}/download', name: 'download', methods: ['GET'], requirements: ['id' => '\d+'])]
+    public function download(int $id, EntityManagerInterface $entityManager, ComicService $comicService): Response
+    {
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -1092,10 +1149,77 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
 
-        $isAdminReadingAnotherUsersComic = in_array('ROLE_ADMIN', $user->getRoles(), true) && $comic->getOwner()?->getId() !== $user->getId();
-        if ($comic->getOwner()?->getId() !== $user->getId() && !$isAdminReadingAnotherUsersComic) {
+        if ($comic->getOwner()?->getId() !== $user->getId()) {
+            return $this->json(
+                ['message' => 'Only the owner of a comic can download its file.'],
+                Response::HTTP_FORBIDDEN
+            );
+        }
+
+        $archivePath = $comicService->locateComicArchive($comic);
+        if ($archivePath === null) {
+            return $this->json(['message' => 'Comic file not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $response = new BinaryFileResponse($archivePath);
+        $response->setPrivate();
+        // The stored filename carries a uniqid, so the download is named after
+        // the comic instead. setContentDisposition escapes it and supplies an
+        // ASCII fallback for titles that are not.
+        $response->setContentDisposition(
+            ResponseHeaderBag::DISPOSITION_ATTACHMENT,
+            $this->downloadFilename($comic)
+        );
+        $response->headers->set('Content-Type', 'application/vnd.comicbook+zip');
+        $response->headers->set(AbstractSessionListener::NO_AUTO_CACHE_CONTROL_HEADER, 'true');
+
+        return $response;
+    }
+
+    private function downloadFilename(Comic $comic): string
+    {
+        $title = trim((string) $comic->getTitle());
+        // Reserved and path-significant characters are dropped rather than
+        // escaped, so nothing in a title can steer where the file lands.
+        $safeTitle = trim((string) preg_replace('/[\x00-\x1F\/\\\\:*?"<>|]+/u', ' ', $title));
+        $safeTitle = (string) preg_replace('/\s+/u', ' ', $safeTitle);
+
+        if ($safeTitle === '') {
+            $safeTitle = 'comic-' . $comic->getId();
+        }
+
+        return mb_substr($safeTitle, 0, 100) . '.cbz';
+    }
+
+    #[Route('/{id}/progress', name: 'update_progress', methods: ['POST'])]
+    public function updateReadingProgressEndpoint(
+        int $id, 
+        Request $request, 
+        EntityManagerInterface $entityManager
+    ): JsonResponse {
+        // Get the current user
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
+        if (!$comic) {
             return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
         }
+
+        if (!$this->isGranted(ComicVoter::VIEW, $comic)) {
+            return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // An administrator reading somebody else's library is inspecting it, not
+        // reading it, so their position is not stored. A recipient with an
+        // accepted share genuinely is reading, and keeps their own position —
+        // which is why the share is checked before the admin role.
+        $isRecipient = $this->shareRepository->findAccessFor($user, $comic) !== null;
+        $isAdminReadingAnotherUsersComic = !$isRecipient
+            && $comic->getOwner()?->getId() !== $user->getId()
+            && in_array('ROLE_ADMIN', $user->getRoles(), true);
 
         // Get data from request
         $data = json_decode($request->getContent(), true);
@@ -1398,19 +1522,22 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
         }
 
-        if ($currentUser->getId() !== $userId && !in_array('ROLE_ADMIN', $currentUser->getRoles(), true)) {
-            // Log this attempt, as it could be a sign of probing or misconfiguration
+        // The owner id in the URL only has to agree with the comic; whether this
+        // request may see the cover is the voter's decision, so a recipient's
+        // cover request is not rejected for pointing at somebody else's id.
+        $owner = $entityManager->getRepository(User::class)->find($userId);
+        $comic = $owner ? $entityManager->getRepository(Comic::class)->findOneBy(['id' => $comicId, 'owner' => $owner]) : null;
+        if (!$comic) {
+            return $this->json(['message' => 'Comic not found or not owned by user.'], Response::HTTP_NOT_FOUND);
+        }
+
+        if (!$this->isGranted(ComicVoter::VIEW, $comic)) {
+            // Worth logging: it is either probing or a misconfiguration.
             $this->logger->warning('Forbidden cover access attempt.', [
                 'current_user_id' => $currentUser->getId(),
                 'target_user_id' => $userId,
             ]);
             return $this->json(['message' => 'Forbidden.'], Response::HTTP_FORBIDDEN);
-        }
-
-        $owner = $entityManager->getRepository(User::class)->find($userId);
-        $comic = $owner ? $entityManager->getRepository(Comic::class)->findOneBy(['id' => $comicId, 'owner' => $owner]) : null;
-        if (!$comic) {
-            return $this->json(['message' => 'Comic not found or not owned by user.'], Response::HTTP_NOT_FOUND);
         }
 
         $coverPath = $comic->getCoverImagePath(); // This is relative to user's comic dir, e.g., "covers/COMIC_ID/file.jpg"

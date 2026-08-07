@@ -12,7 +12,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ co
 - CBZ page streaming, fullscreen reading, keyboard navigation, and saved progress
 - Single and bulk chunked uploads with progress reporting
 - Search, custom tags, bulk tagging, and recoverable file cleanup
-- Comic sharing through expiring email invitations
+- Comic sharing that grants revocable read access without copying files, with a dedicated Sharing page
 - One-way Dropbox imports with duplicate detection and folder-based tags
 - Responsive light and dark themes
 - Administration for users, comics, tags, Dropbox connections, cleanup, and audit history
@@ -122,8 +122,8 @@ docker compose exec php php bin/console app:cleanup-expired-shares
 
 The personal-data cleanup removes administrator audit records after 12 months,
 unverified non-admin accounts after 30 days, and expired email-verification and
-password-reset tokens. The share cleanup permanently removes expired invitations
-and their public cover copies. Configure the web server separately to rotate and
+password-reset tokens. The share cleanup permanently removes invitations that
+expired without being answered. Configure the web server separately to rotate and
 delete access logs after the shortest period needed for security operations.
 
 ## Common commands
@@ -141,7 +141,7 @@ docker compose exec php php bin/console app:import-comics /path/to/comics user@e
 # Preview orphan cleanup without removing source files
 docker compose exec php php bin/console app:cleanup-comics --dry-run
 
-# Remove expired sharing invitations and temporary covers
+# Remove sharing invitations that expired unanswered
 docker compose exec php php bin/console app:cleanup-expired-shares
 
 # Clear the Symfony cache
@@ -215,7 +215,7 @@ Use `--user-id=<id>` to restrict a run to one user.
 The application has two persistent data stores:
 
 - MySQL data, stored in the Docker `db_data` volume during local development
-- Uploaded comics, covers, temporary share assets, and related files under `backend/public/uploads/`
+- Uploaded comics, covers, and related files under `backend/public/uploads/`
 
 A usable backup must include both stores. Production backups must also preserve `APP_DATA_KEY`; encrypted Dropbox credentials cannot be recovered without it.
 

@@ -22,7 +22,13 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [orphanedComics, setOrphanedComics] = useState([]);
-  const comicIds = useMemo(() => comics.map((comic) => comic.id), [comics]);
+  // Bulk tagging and bulk deletion are owner actions, so a comic somebody else
+  // shared is not selectable at all. Leaving it selectable would let the user
+  // build a selection the server can only reject as a whole.
+  const comicIds = useMemo(
+    () => comics.filter((comic) => !comic.isShared).map((comic) => comic.id),
+    [comics]
+  );
   const selectedComicIds = comicIds.filter((comicId) => selectedIds.has(comicId));
   const allSelected = comicIds.length > 0 && selectedComicIds.length === comicIds.length;
 
@@ -82,7 +88,12 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
     <div className="space-y-4">
       <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
         <p className="text-sm font-medium" aria-live="polite">
-          {selectedComicIds.length} of {comics.length} selected
+          {selectedComicIds.length} of {comicIds.length} selected
+          {comicIds.length !== comics.length && (
+            <span className="ml-1 font-normal text-muted-foreground">
+              ({comics.length - comicIds.length} shared with you and not selectable)
+            </span>
+          )}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
           <TagCombobox
@@ -141,13 +152,21 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
                     <Checkbox
                       checked={selectedIds.has(comic.id)}
                       onCheckedChange={(checked) => toggleComic(comic.id, checked)}
-                      aria-label={`Select ${comic.title}`}
+                      disabled={comic.isShared}
+                      aria-label={comic.isShared
+                        ? `${comic.title} is shared with you and cannot be selected`
+                        : `Select ${comic.title}`}
                     />
                   </TableCell>
                   <TableCell>
                     <Link to={`/read/${comic.id}`} className="font-medium hover:underline">
                       {comic.title}
                     </Link>
+                    {comic.isShared && (
+                      <Badge variant="secondary" className="ml-2 align-middle text-xs">
+                        Shared by {comic.sharedBy?.name || "another user"}
+                      </Badge>
+                    )}
                     {comic.publisher && <p className="text-xs text-muted-foreground">{comic.publisher}</p>}
                   </TableCell>
                   <TableCell>{comic.author || "—"}</TableCell>
@@ -171,9 +190,13 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
                     <Button variant="ghost" size="icon" asChild>
                       <Link to={`/read/${comic.id}`} aria-label={`Read ${comic.title}`}><Eye className="h-4 w-4" /></Link>
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => onEditComic(comic)} aria-label={`Edit ${comic.title}`}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
+                    {/* Editing belongs to the owner; a recipient reads and
+                        nothing more. */}
+                    {!comic.isShared && (
+                      <Button variant="ghost" size="icon" onClick={() => onEditComic(comic)} aria-label={`Edit ${comic.title}`}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               );

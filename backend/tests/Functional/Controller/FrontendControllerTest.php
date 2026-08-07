@@ -45,6 +45,7 @@ class FrontendControllerTest extends WebTestCase
         yield 'settings' => ['/settings', false];
         yield 'comic reader' => ['/read/123', false];
         yield 'password-reset token' => ['/reset-password/example-token', false];
-        yield 'share token' => ['/share/accept/example-token', false];
+        yield 'sharing page' => ['/sharing', false];
+        yield 'invitation token' => ['/share/invitation/example-token', false];
     }
 }

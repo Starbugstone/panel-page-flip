@@ -157,6 +157,17 @@ class ComicService
         return $this->findComicArchive($comic) !== null;
     }
 
+    /**
+     * Absolute path of a comic's archive on disk, or null when it is missing.
+     *
+     * Callers serve the file from here; the path itself is never handed to a
+     * client.
+     */
+    public function locateComicArchive(Comic $comic): ?string
+    {
+        return $this->findComicArchive($comic);
+    }
+
     /** @param list<array{originalPath: string, quarantinePath: string}> $records */
     public function restoreQuarantinedFiles(array $records): void
     {

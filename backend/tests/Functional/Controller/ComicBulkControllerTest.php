@@ -3,7 +3,7 @@
 namespace App\Tests\Functional\Controller;
 
 use App\Entity\Comic;
-use App\Entity\ShareToken;
+use App\Entity\ComicShare;
 use App\Entity\Tag;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\TagFactory;
@@ -144,10 +144,10 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
             'filePath' => 'missing-archive.cbz',
         ])->object();
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
-        $shareToken = new ShareToken($orphanedComic, $owner, 'recipient@example.com');
-        $entityManager->persist($shareToken);
+        $share = new ComicShare($orphanedComic, $owner, 'recipient@example.com');
+        $entityManager->persist($share);
         $entityManager->flush();
-        $shareTokenId = $shareToken->getId();
+        $shareId = $share->getId();
 
         $warning = $this->deleteJson('/api/comics', [
             'comicIds' => [$orphanedComic->getId()],
@@ -157,7 +157,7 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
         self::assertSame('orphaned_comics_confirmation_required', $warning['code']);
         self::assertSame($orphanedComic->getId(), $warning['orphanedComics'][0]['id']);
         self::assertNotNull($entityManager->getRepository(Comic::class)->find($orphanedComic->getId()));
-        self::assertNotNull($entityManager->getRepository(ShareToken::class)->find($shareTokenId));
+        self::assertNotNull($entityManager->getRepository(ComicShare::class)->find($shareId));
 
         $deleted = $this->deleteJson('/api/comics', [
             'comicIds' => [$orphanedComic->getId()],
@@ -167,7 +167,14 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
         self::assertSame([$orphanedComic->getId()], $deleted['orphanedComicIds']);
         self::assertNull($entityManager->getRepository(Comic::class)->find($orphanedComic->getId()));
-        self::assertNull($entityManager->getRepository(ShareToken::class)->find($shareTokenId));
+
+        // The share outlives the comic as a tombstone, so its recipient is told
+        // why the comic went away instead of finding it silently missing.
+        $entityManager->clear();
+        $tombstone = $entityManager->getRepository(ComicShare::class)->find($shareId);
+        self::assertNotNull($tombstone);
+        self::assertTrue($tombstone->isTombstoned());
+        self::assertSame(ComicShare::REASON_OWNER_DELETED, $tombstone->getTombstoneReason());
     }
 
     public function testBulkDeleteRejectsMixedOwnershipWithoutDeletingAnything(): void

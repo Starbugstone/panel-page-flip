@@ -11,6 +11,7 @@ import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
 import { TagProvider } from "./hooks/use-tags.jsx";
 import { ComicLibraryProvider } from "./hooks/use-comic-library.jsx";
+import { SharingProvider } from "./hooks/use-sharing.jsx";
 
 const Landing = lazy(() => import("./pages/Landing.jsx"));
 const Login = lazy(() => import("./pages/Login.jsx"));
@@ -23,7 +24,8 @@ const AdminUserDetails = lazy(() => import("./pages/AdminUserDetails.jsx"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword.jsx"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword.jsx"));
 const NotFound = lazy(() => import("./pages/NotFound.jsx"));
-const AcceptSharePage = lazy(() => import("./pages/AcceptSharePage.jsx"));
+const ShareInvitation = lazy(() => import("./pages/ShareInvitation.jsx"));
+const Sharing = lazy(() => import("./pages/Sharing.jsx"));
 const EmailVerification = lazy(() => import("./pages/EmailVerification.jsx"));
 const DropboxSyncPage = lazy(() => import("./pages/DropboxSyncPage.jsx"));
 const UserSettings = lazy(() => import("./pages/UserSettings.jsx"));
@@ -96,7 +98,10 @@ const AppRoutes = () => {
             <Route path="/read/:comicId" element={<ProtectedRoute><ComicReader /></ProtectedRoute>} />
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
             <Route path="/admin/users/:userId" element={<AdminRoute><AdminUserDetails /></AdminRoute>} />
-            <Route path="/share/accept/:token" element={<AcceptSharePage />} />
+            <Route path="/sharing" element={<ProtectedRoute><Sharing /></ProtectedRoute>} />
+            {/* Not protected: an invited person may not have an account yet, and
+                the preview is what tells them what they are being offered. */}
+            <Route path="/share/invitation/:token" element={<ShareInvitation />} />
             <Route path="/dropbox-sync" element={<ProtectedRoute><DropboxSyncPage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
@@ -118,12 +123,16 @@ const App = () => {
             {/* Outside the router so the library survives navigating into a
                 comic and back, instead of being refetched from empty. */}
             <ComicLibraryProvider>
-              <TooltipProvider>
-                <Toaster />
-                <Sonner />
-                <SessionMonitor />
-                <AppRoutes />
-              </TooltipProvider>
+              {/* One place holding the pending-invitation count, so the header
+                  badge and the dashboard alert cannot disagree about it. */}
+              <SharingProvider>
+                <TooltipProvider>
+                  <Toaster />
+                  <Sonner />
+                  <SessionMonitor />
+                  <AppRoutes />
+                </TooltipProvider>
+              </SharingProvider>
             </ComicLibraryProvider>
           </TagProvider>
         </AuthProvider>

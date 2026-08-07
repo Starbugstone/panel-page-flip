@@ -65,14 +65,23 @@
         <div class="content">
             <p>Hi there,</p>
             <p>
-                <span class="highlight">{{ userName|e }}</span> has shared the comic 
+                <span class="highlight">{{ userName|e }}</span> would like to share the comic
                 "<span class="highlight">{{ comic.title|e }}</span>" with you.
             </p>
-            <p>To view and accept the comic, please click the button below:</p>
-            <a href="{{ shareLink|e('html_attr') }}" class="cta-button" style="color: #ffffff;">Accept Comic</a>
+            {# One link, and it only opens a preview. Mail scanners and
+               link-preview services follow links without a person behind them,
+               so nothing here may accept or decline on the recipient's
+               behalf — that needs a button press on the page it leads to. #}
+            <p>The link below shows you what is being shared. Nothing is added to your account until you choose to accept it.</p>
+            <a href="{{ shareLink|e('html_attr') }}" class="cta-button" style="color: #ffffff;">Review invitation</a>
             <p>
-                To accept this comic, you'll need to log in or create an account on 
+                To accept, you'll need to log in or create an account on
                 <span class="highlight">Comic Share Platform</span>.
+            </p>
+            <p>
+                The comic stays owned by {{ userName|e }}. You will be able to read it
+                for as long as they keep sharing it, and it may become unavailable if
+                they stop sharing or remove it.
             </p>
             <p>
                 This invitation link will expire on <span class="highlight">{{ expiresAt|date("F j, Y") }}</span>.

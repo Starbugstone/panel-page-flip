@@ -37,12 +37,13 @@ This document provides detailed information for developers working on the projec
 - **Per-User Tags**: Tags are unique per user (creator), allowing different users to have tags with the same name
 
 #### ✅ Comic Sharing System
-- **ShareToken Entity**: Defined in `ShareToken.php` to manage comic sharing between users
-- **Share Controller**: Implemented in `ShareController.php` with endpoints for sharing, accepting, and refusing comics
-- **Email Notifications**: Sends email notifications to recipients when a comic is shared with them
-- **Public Cover Images**: Temporarily stores shared comic cover images in a public directory for preview
-- **Cleanup Command**: `CleanupExpiredSharesCommand` removes expired share tokens and their public cover images
-- **File Handling**: When accepting a shared comic, creates a copy with a UUID-based filename in the recipient's directory
+- **ComicShare Entity**: Defined in `ComicShare.php`. A durable, revocable grant of read access to the owner's single copy — sharing never creates a second `Comic` row or a second file
+- **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored; resending mints a new token and retires the old link
+- **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
+- **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup
+- **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared
+- **Email Notifications**: One "Review invitation" link per email; the link only previews, because mail scanners follow links on the recipient's behalf
+- **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered
 
 #### ✅ Dropbox Integration System
 - **DropboxController**: Handles OAuth flow, connection status, file listing, and individual comic import
@@ -90,10 +91,13 @@ This document provides detailed information for developers working on the projec
 - **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx` with chunked upload support, progress tracking, and tag management
 
 #### ✅ Comic Sharing
-- **Share Comic Modal**: Implemented in `ShareComicModal.jsx` for sharing comics with other users via email
-- **Pending Shares Alert**: Implemented in `PendingSharesAlert.jsx` to notify users of comics shared with them
-- **Accept Share Page**: Implemented in `AcceptSharePage.jsx` to handle the acceptance of shared comics
-- **Pending Shares Hook**: Custom hook `use-pending-shares.jsx` to fetch and manage pending shares
+- **Sharing Page**: `Sharing.jsx` at `/sharing`, with "Shared with me" and "Shared by me" tabs — the management surface for invitations, access and tombstones
+- **Share Comic Modal**: `ShareComicModal.jsx` invites a recipient and shows the invitation link once, since only its hash is stored
+- **Invitation Preview**: `ShareInvitation.jsx` at `/share/invitation/:token` loads the invitation through a safe `GET` and only accepts or declines on a button press
+- **Pending Shares Alert**: `PendingSharesAlert.jsx`, now a one-line prompt on the dashboard rather than a card per invitation
+- **Sharing Hooks**: `use-sharing.jsx` — `SharingProvider` holds the pending count for the header badge and the dashboard alert; `useSharingLists` loads both halves of the Sharing page
+- **Sharing Helpers**: `lib/sharing.js` holds the classification and wording rules, covered by `lib/sharing.test.js`
+- **Collection Integration**: Accepted shares appear in the normal collection with a "Shared by …" badge, an `All | Mine | Shared with me` filter, and owner actions hidden
 
 #### ✅ Dropbox Integration
 - **Dropbox Sync Page**: Complete UI in `DropboxSyncPage.jsx` for managing Dropbox connection and individual imports
@@ -112,60 +116,124 @@ The frontend is built with:
 
 ## Comic Sharing System
 
+### The model
+
+> A comic has one owner and one physical file. Sharing grants revocable read
+> access to that comic without copying it.
+
+Everything below follows from that. There is no second `Comic` row, no second
+CBZ, no copied cover and no copied tags. A recipient reads the owner's file
+through the same endpoints the owner uses, and the owner can take that away
+again at any time.
+
 ### Database Schema
 
-#### ShareToken Entity
-- **id**: Primary key
-- **token**: Unique token for the share link (generated using UUID v4 in base58 format)
-- **comic**: ManyToOne relation to the Comic entity
-- **sharedByUser**: ManyToOne relation to the User entity (the user who shared the comic)
-- **sharedWithEmail**: Email address of the recipient
-- **createdAt**: When the share was created
-- **isUsed**: Boolean flag indicating if the share has been used (accepted or refused)
-- **expiresAt**: When the share expires (default: 7 days after creation)
-- **publicCoverPath**: Path to the temporary public cover image for preview
+#### ComicShare Entity
+
+One durable relationship per comic and recipient. Re-inviting somebody reuses
+the row, enforced by a unique index on `(comic_id, recipient_email_normalized)`.
+
+- **comic / owner / recipientUser**: all nullable, all `ON DELETE SET NULL`, so
+  the record survives to explain a disappearance instead of cascading away
+- **recipientEmailNormalized**: trimmed and lowercased, so one address is one
+  recipient for uniqueness and for every lookup
+- **status**: `pending`, `accepted`, `declined` or `revoked`
+- **createdAt / acceptedAt / declinedAt / revokedAt**: when each transition happened
+- **recipientRemovedAt**: the recipient hid the comic from their own collection;
+  access is untouched and restoring it is one click
+- **expiresAt**: bounds an unanswered invitation. Cleared on acceptance — access
+  does not expire, only the invitation did
+- **comicTitleSnapshot / comicAuthorSnapshot / ownerNameSnapshot**: refreshed
+  whenever an invitation is issued, so a tombstone can still name what it was
+- **unavailableAt / tombstoneReason**: `owner_deleted`, `owner_account_deleted`,
+  `file_missing` or `administratively_removed`
+
+#### ShareInvitationToken Entity
+
+Kept separate from the access relationship so the two lifecycles do not fight:
+resending mints a new token and invalidates the old link, while access that has
+already been accepted survives both.
+
+- **tokenHash**: SHA-256 of the plaintext. The plaintext exists once, in the
+  email, and is returned to the owner once at creation so they can pass the link
+  on themselves. Nothing can reconstruct it afterwards
+- **createdAt / expiresAt / usedAt / revokedAt**
+
+A raw 256-bit token needs no work factor: there is no dictionary to slow an
+attacker down through.
+
+### Permissions
+
+`ComicVoter` is the single place that decides access. Every endpoint serving any
+part of a comic — metadata, cover, extracted page, reading position — asks it the
+same question.
+
+| Action | Owner | Admin | Accepted recipient |
+|---|---|---|---|
+| `COMIC_VIEW` (read, cover, pages, own progress) | Yes | Yes | Yes |
+| `COMIC_EDIT` | Yes | Yes | No |
+| `COMIC_DELETE` | Yes | Yes | No |
+| `COMIC_SHARE` | Yes | No | No |
+| Download the CBZ | Yes | No | No |
+
+Downloading is owner-only and not routed through the voter: it is the backup
+path for your own library, and handing a recipient the archive would create the
+permanent second copy the model exists to avoid.
 
 ### Sharing Workflow
 
-#### Sharing a Comic
-1. User clicks the share button on a comic card
-2. ShareComicModal opens, prompting for recipient's email
-3. On submission, a POST request is sent to `/api/share/comic/{comicId}` with the recipient's email
-4. Backend creates a ShareToken entity with a unique token
-5. If the comic has a cover image, a copy is created in the public shares directory
-6. An email is sent to the recipient with a link to accept the shared comic
-7. The link format is: `{frontendUrl}/share/accept/{token}`
+#### Inviting
+1. The owner enters a recipient email in `ShareComicModal`
+2. `POST /api/shares/comics/{comicId}/invitations` creates or reopens the
+   `ComicShare`, mints a token and emails the link — all one unit of work, so a
+   send that fails rolls the invitation back rather than showing the owner a
+   recipient who was never contacted
+3. The link is `{frontendUrl}/share/invitation/{token}` and is returned once in
+   the response for the owner to copy
 
-#### Accepting a Shared Comic
-1. Recipient clicks the link in the email or from the PendingSharesAlert
-2. AcceptSharePage loads and sends a POST request to `/api/share/accept/{token}`
-3. Backend validates the token (not used, not expired, correct recipient)
-4. A new copy of the comic is created in the recipient's directory with a UUID-based filename
-5. The comic's cover image is also copied to the recipient's directory
-6. Tags from the original comic are copied to the recipient's comic (creating new tags if needed)
-7. The ShareToken is marked as used
-8. The temporary public cover image is removed
+#### Answering
+1. The email carries a single **Review invitation** link
+2. `GET /api/shares/invitations/{token}` returns cover, title, author, page
+   count, sender and expiry, and changes nothing — mail scanners and
+   link-preview services follow links without a person behind them
+3. `POST .../accept` or `.../decline` requires a button press. A signed-in
+   recipient can also answer from `/sharing` without the token, since they have
+   already identified themselves more strongly than the token could
+4. Accepting sets the status, spends every outstanding token, and the comic
+   appears in the recipient's normal collection
 
-#### Refusing a Shared Comic
-1. Recipient clicks the refuse button in the PendingSharesAlert
-2. A POST request is sent to `/api/share/refuse/{token}`
-3. Backend validates the token and marks it as used
-4. No copy of the comic is created
+#### Losing access
+- **Revoke one recipient** (`POST /api/shares/{id}/revoke`) or **stop sharing
+  with everyone** (`DELETE /api/shares/comics/{comicId}`) — effective on the
+  next request
+- **Deleting the comic** tombstones every live share inside the same transaction
+  as the removal, so the access records and the comic cannot disagree. The owner
+  is warned first, with the number of people affected
+- **Deleting the owner's account** tombstones with `owner_account_deleted` and
+  anonymises the owner snapshot, so recipients keep the explanation without the
+  erased account keeping a name
+
+#### Recipient housekeeping
+- **Remove from my collection** hides the comic and keeps the access record
+- **Restore** puts it back, for as long as the owner still shares it
+- **Remove all dead shares** (`DELETE /api/shares/tombstones`) clears tombstones
+  and other dead ends, individually or in bulk, and never touches a live share.
+  The confirmation states the count
 
 #### Cleanup Process
-1. The `app:cleanup-expired-shares` command can be run manually or via a cron job
-2. It finds all expired share tokens that haven't been used
-3. For each expired token, it removes the associated public cover image
-4. The token is marked as used to prevent further processing
+`app:cleanup-expired-shares` deletes pending invitations whose expiry has passed.
+Only pending relationships are in scope: an accepted share has no expiry, and a
+declined or revoked one is history somebody may still be reading. An expired
+invitation is deleted rather than kept because it holds the email address of
+somebody who may never have had an account here.
 
 ### File Storage
 
 #### Original Comics
 - Stored in user-specific directories: `/uploads/comics/{user_id}/{filename}`
-
-#### Shared Comics
-- Copied to recipient's directory with UUID-based filename: `/uploads/comics/{recipient_id}/{uuid}.cbz`
-- This makes it easy to distinguish between original uploads and shared comics
+- A shared comic has exactly one of these, under its owner's id. Recipients read
+  it in place through `/api/comics/{id}/pages/{page}` and
+  `/api/comics/cover/{ownerId}/{comicId}/{filename}`, both gated by `COMIC_VIEW`
 
 #### Dropbox Synced Comics
 - Stored in user-specific Dropbox subdirectories: `/uploads/comics/{user_id}/dropbox/{filename}`
@@ -174,9 +242,9 @@ The frontend is built with:
 - One-way sync: files are downloaded from Dropbox to server
 
 #### Public Cover Images
-- Temporarily stored in: `/uploads/comics/public_shares/{token-based-filename}`
-- Accessible without authentication for preview in emails and pending shares alerts
-- Removed once the share is accepted, refused, or expires
+- Removed. Sharing no longer copies a cover into a world-readable directory;
+  covers are served from the authorised cover endpoint, which asks the voter
+  whether this viewer may see the comic at all
 - **Theme Persistence**: Switched from `localStorage` to client-side cookies for storing theme preferences (light/dark mode), managed by `ThemeProvider.jsx` and a new utility module `frontend/src/lib/cookies.js`. Includes a migration step from `localStorage`.
 - **Authentication Hook (`use-auth.jsx`)**: The `checkAuth` function updated to use `/api/users/me` for fetching comprehensive authenticated user details, including roles. The hook also includes a `refreshSession` method that forces an immediate session check.
 - **Session Management**: Consolidated session management to use a single endpoint (`/api/users/me`) for both session validation and session keep-alive functionality. The endpoint accepts both GET (for session checks) and POST (for explicit session refreshing) methods.

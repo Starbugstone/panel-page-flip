@@ -4,9 +4,11 @@ namespace App\Tests\Unit\Service;
 
 use App\Entity\AdminAuditLog;
 use App\Entity\User;
+use App\Repository\ComicShareRepository;
 use App\Repository\UserRepository;
 use App\Service\AccountDeletionService;
 use App\Service\ComicService;
+use App\Service\ComicShareService;
 use App\Service\FileQuarantineService;
 use App\Service\PendingFileDeletionService;
 use Doctrine\DBAL\Connection;
@@ -164,13 +166,17 @@ final class AccountDeletionServiceTest extends TestCase
         // is simpler than faking that interaction.
         $pendingFileDeletion = new PendingFileDeletionService($managerRegistry, [], new NullLogger());
 
+        $shareRepository = $this->createMock(ComicShareRepository::class);
+        $shareRepository->method('findAllInvolving')->willReturn([]);
+
         return new AccountDeletionService(
             $managerRegistry,
             $this->createMock(ComicService::class),
+            $this->createMock(ComicShareService::class),
+            $shareRepository,
             $fileQuarantine ?? $this->createMock(FileQuarantineService::class),
             $pendingFileDeletion,
             $this->createMock(UserRepository::class),
-            '/tmp/public_shares',
         );
     }
 }

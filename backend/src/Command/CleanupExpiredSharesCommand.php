@@ -2,107 +2,70 @@
 
 namespace App\Command;
 
-use App\Repository\ShareTokenRepository;
+use App\Repository\ComicShareRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Psr\Log\LoggerInterface;
 
 /**
- * Command to clean up expired share tokens and their public cover images
- * 
- * This command should be run periodically via a cron job to clean up expired share tokens
- * and their associated public cover images to free up disk space.
- * 
- * Usage:
- * 
- * Local installation:
- * php bin/console app:cleanup-expired-shares
- * 
- * Docker:
- * docker exec -it panel-page-flip-php-1 php bin/console app:cleanup-expired-shares
+ * Delete invitations nobody answered before they expired.
+ *
+ * Only pending relationships are in scope. An accepted share has no expiry, and
+ * a declined or revoked one is history somebody may still be looking at.
+ *
+ * An expired invitation is deleted rather than kept, because it holds the email
+ * address of somebody who may never have had an account here and who did not
+ * act on it.
+ *
+ * Run periodically from cron:
+ *
+ *   php bin/console app:cleanup-expired-shares
+ *   docker exec -it panel-page-flip-php-1 php bin/console app:cleanup-expired-shares
  */
 #[AsCommand(
     name: 'app:cleanup-expired-shares',
-    description: 'Cleans up expired share tokens and their public cover images',
+    description: 'Deletes share invitations that expired without being answered',
 )]
 class CleanupExpiredSharesCommand extends Command
 {
-    private string $publicSharesDirectory;
-
     public function __construct(
-        private EntityManagerInterface $entityManager,
-        private ShareTokenRepository $shareTokenRepository,
-        private LoggerInterface $logger,
-        ?string $publicSharesDirectory = null
+        private readonly EntityManagerInterface $entityManager,
+        private readonly ComicShareRepository $shareRepository,
     ) {
         parent::__construct();
-        // If not explicitly provided, use a default path
-        $this->publicSharesDirectory = $publicSharesDirectory ?? dirname(__DIR__, 2) . '/public/shared';
     }
 
     protected function configure(): void
     {
-        $this->setHelp('This command finds expired share tokens and removes their public cover images to free up disk space.');
+        $this->setHelp('Removes pending share invitations whose expiry date has passed.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $io->title('Cleaning up expired share tokens');
+        $io->title('Cleaning up expired share invitations');
 
-        // Find expired share tokens that haven't been used yet
-        $now = new \DateTimeImmutable();
-        $expiredTokens = $this->shareTokenRepository->findExpiredTokens($now);
-
-        $count = count($expiredTokens);
-        $io->info(sprintf('Found %d expired share tokens to clean up', $count));
+        $expired = $this->shareRepository->findExpiredPendingShares(new \DateTimeImmutable());
+        $count = count($expired);
 
         if ($count === 0) {
-            $io->success('No expired tokens to clean up.');
+            $io->success('No expired invitations to clean up.');
+
             return Command::SUCCESS;
         }
 
-        $removedCovers = 0;
-        $errors = 0;
-
-        foreach ($expiredTokens as $token) {
-            try {
-                // Clean up the public cover image if it exists
-                if ($token->getPublicCoverPath()) {
-                    $publicCoverPath = $this->publicSharesDirectory . '/' . basename($token->getPublicCoverPath());
-                    if (file_exists($publicCoverPath)) {
-                        if (@unlink($publicCoverPath)) {
-                            $removedCovers++;
-                            $io->writeln(sprintf('Removed public cover image: %s', basename($publicCoverPath)));
-                        } else {
-                            $this->logger->warning(sprintf('Failed to remove public cover image: %s', $publicCoverPath));
-                            $errors++;
-                        }
-                    }
-                }
-
-                // Expired invitations no longer serve a purpose and may contain
-                // a non-user recipient's email address.
-                $this->entityManager->remove($token);
-            } catch (\Exception $e) {
-                $this->logger->error(sprintf('Error cleaning up token %s: %s', $token->getToken(), $e->getMessage()));
-                $errors++;
-            }
+        foreach ($expired as $share) {
+            // The invitation tokens go with it: they are mapped with
+            // orphanRemoval and a cascading foreign key.
+            $this->entityManager->remove($share);
         }
 
-        // Flush all changes
         $this->entityManager->flush();
 
-        $io->success(sprintf(
-            'Cleanup completed. Processed %d tokens, removed %d cover images, encountered %d errors.',
-            $count,
-            $removedCovers,
-            $errors
-        ));
+        $io->success(sprintf('Removed %d expired invitation(s).', $count));
 
         return Command::SUCCESS;
     }

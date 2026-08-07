@@ -3,7 +3,7 @@
 namespace App\Tests\Functional\Controller;
 
 use App\Entity\AdminAuditLog;
-use App\Entity\ShareToken;
+use App\Entity\ComicShare;
 use App\Entity\User;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
@@ -133,7 +133,7 @@ class UserControllerSecurityTest extends AbstractApiTestCase
         $comic = ComicFactory::new()->ownedBy($comicOwner)->create()->object();
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
-        $share = (new ShareToken($comic, $comicOwner, $target->getEmail()))
+        $share = (new ComicShare($comic, $comicOwner, $target->getEmail()))
             ->setExpiresAt(new \DateTimeImmutable('+1 day'));
         $entityManager->persist($share);
         $entityManager->flush();
@@ -147,7 +147,9 @@ class UserControllerSecurityTest extends AbstractApiTestCase
 
         $entityManager->clear();
         self::assertNull($entityManager->find(User::class, $targetId));
-        self::assertNull($entityManager->find(ShareToken::class, $shareId));
+        // Addressed to the deleted account, so it holds their email address and
+        // goes with them rather than lingering as history.
+        self::assertNull($entityManager->find(ComicShare::class, $shareId));
 
         $auditLogs = $entityManager->getRepository(AdminAuditLog::class)->findBy(['action' => 'user_delete']);
         self::assertNotEmpty($auditLogs);

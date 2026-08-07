@@ -3,7 +3,6 @@ parameters:
     # create and delete files under these paths, and pointing them at
     # public/uploads puts real comics within reach of a test's cleanup.
     comics_directory: '%kernel.project_dir%/var/test-uploads/comics'
-    public_shares_directory: '%kernel.project_dir%/var/test-uploads/shared'
 
 services:
     _defaults:

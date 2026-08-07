@@ -5,7 +5,6 @@
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
 parameters:
     comics_directory: '%kernel.project_dir%/public/uploads/comics'
-    public_shares_directory: '%kernel.project_dir%/public/shared'
     quarantine_directory: '%kernel.project_dir%/var/quarantine/comics'
     mailer_from_address: '%env(MAILER_FROM_ADDRESS)%'
     mailer_from_name: '%env(MAILER_FROM_NAME)%'
@@ -101,8 +100,7 @@ services:
         arguments:
             $allowedRoots:
                 - '%quarantine_directory%'
-                - '%public_shares_directory%'
-            
+
     # Comic controller with comics directory configuration
     App\Controller\ComicController:
         arguments:
@@ -112,19 +110,6 @@ services:
             $uploadMaxTotalChunks: '%upload_max_total_chunks%'
             $uploadUserQuotaBytes: '%upload_user_quota_bytes%'
             
-    # Share controller with comics directory and frontend URL configuration
-    App\Controller\ShareController:
-        arguments:
-            $comicsDirectory: '%comics_directory%'
-            $frontendUrl: '%frontend_url%'
-            $mailerFromAddress: '%mailer_from_address%'
-            $mailerFromName: '%mailer_from_name%'
-            $publicSharesDirectory: '%public_shares_directory%'
-
-    App\Command\CleanupExpiredSharesCommand:
-        arguments:
-            $publicSharesDirectory: '%public_shares_directory%'
-
     App\Service\DropboxImportService:
         arguments:
             $dropboxAppFolder: '%dropbox_app_folder%'
