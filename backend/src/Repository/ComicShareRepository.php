@@ -56,19 +56,25 @@ class ComicShareRepository extends ServiceEntityRepository
     }
 
     /**
-     * Every share this user has accepted and not hidden — the shared half of
-     * their collection.
+     * The comics in the shared half of this user's collection, as ids.
      *
-     * @return list<ComicShare>
+     * Ids rather than entities because that is all the library query wants: it
+     * folds them into one `WHERE owner = ? OR id IN (…)` and re-reads the comics
+     * itself. Hydrating a share, its comic and its owner per row — three objects
+     * apiece, thrown away immediately — was the most expensive thing the
+     * dashboard did before it had loaded anything a reader can see.
+     *
+     * @return list<int>
      */
-    public function findVisibleCollectionShares(User $user): array
+    public function findVisibleCollectionComicIds(User $user): array
     {
-        return $this->readableQueryBuilder($user)
+        $rows = $this->readableQueryBuilder($user)
+            ->select('IDENTITY(s.comic) AS comicId')
             ->andWhere('s.recipientRemovedAt IS NULL')
-            ->addSelect('c', 'o')
-            ->leftJoin('s.owner', 'o')
             ->getQuery()
-            ->getResult();
+            ->getScalarResult();
+
+        return array_map(static fn ($id): int => (int) $id, array_column($rows, 'comicId'));
     }
 
     /**
@@ -123,6 +129,11 @@ class ComicShareRepository extends ServiceEntityRepository
     public function findAllForOwnerIncludingTombstones(User $user): array
     {
         return $this->createQueryBuilder('s')
+            // Joined because the export reads the comic off every row. Left, not
+            // inner: a tombstone has no comic left, and it is precisely the rows
+            // that lost theirs that an export still has to describe.
+            ->addSelect('c')
+            ->leftJoin('s.comic', 'c')
             ->andWhere('s.owner = :owner')
             ->setParameter('owner', $user)
             ->orderBy('s.createdAt', 'DESC')

@@ -291,6 +291,14 @@ the rest because it is the key to every endpoint that serves a cover, a page or
 an archive. The invitation email names no explicit comic either — an inbox is
 previewed on lock screens and read by scanners.
 
+`GET /api/shares/invitations/{token}` needs **both** halves before it reveals
+anything: the caller must be identified as the recipient *and* that share must
+carry a confirmation. An age declaration is made by one person about themselves,
+so it is not a property of the link and cannot unlock the link — this endpoint is
+public, and a forwarded email, a scanner or a proxy log holds the same token the
+recipient does. It also withholds `adultConfirmed` from everyone else, because
+whether the invited person has declared their age is a fact about them.
+
 The client shows a neutral placeholder, never the real cover blurred: blurring
 still sends the bytes, and the point of the gate is that they do not leave the
 server.

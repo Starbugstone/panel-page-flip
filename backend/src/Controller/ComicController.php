@@ -200,10 +200,7 @@ class ComicController extends AbstractController
 
             $sharedComicIds = $ownership === 'mine'
                 ? []
-                : array_values(array_filter(array_map(
-                    static fn (ComicShare $share): ?int => $share->getComic()?->getId(),
-                    $this->shareRepository->findVisibleCollectionShares($user)
-                )));
+                : $this->shareRepository->findVisibleCollectionComicIds($user);
 
             if ($ownership === 'shared') {
                 // An empty IN () is not valid DQL, and a user with no shares
@@ -584,8 +581,10 @@ class ComicController extends AbstractController
         }
 
         // array_key_exists rather than isset, so unticking the box — an explicit
-        // false — is a change the same way ticking it is.
-        if (array_key_exists('explicitContent', $data ?? []) && is_bool($data['explicitContent'])) {
+        // false — is a change the same way ticking it is. Guarded on is_array
+        // because a valid JSON scalar body ("5") decodes without error and
+        // array_key_exists would fatal on it.
+        if (is_array($data) && array_key_exists('explicitContent', $data) && is_bool($data['explicitContent'])) {
             $comic->setExplicitContent($data['explicitContent']);
         }
 

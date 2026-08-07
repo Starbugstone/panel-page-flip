@@ -234,11 +234,18 @@ class ShareController extends AbstractController
         // Only what the invitation is *about* goes out unconditionally; the
         // cover and the recipient's own address are gated on identity.
         $isForCurrentUser = $this->isRecipient($share, $user);
-        // Holding the token is not an age declaration, and it cannot be: nobody
-        // has identified themselves yet. So an explicit invitation describes
-        // itself and nothing else until the person it was sent to signs in and
-        // says they are 18 or older.
-        $redact = $share->requiresAdultConfirmation();
+
+        // An age declaration is made by one person about themselves. It is not
+        // a property of the link, so it cannot unlock the link.
+        //
+        // Both halves are needed. Confirming is what opens the gate, but only
+        // for whoever confirmed: this endpoint is public, and a forwarded email,
+        // a scanner or a proxy log holds the same token the recipient does. So
+        // an explicit invitation stays shut for everybody the server cannot
+        // identify as the recipient, however many times the recipient has
+        // confirmed.
+        $redact = $share->isExplicitContent()
+            && !($isForCurrentUser && $share->getAdultConfirmedAt() !== null);
 
         return $this->json([
             'invitation' => [
@@ -256,8 +263,12 @@ class ShareController extends AbstractController
                     : null,
                 'isForCurrentUser' => $isForCurrentUser,
                 'explicitContent' => $share->isExplicitContent(),
+                // Phrased for whoever is asking: "you must confirm to see this".
                 'requiresAdultConfirmation' => $redact,
-                'adultConfirmed' => $share->getAdultConfirmedAt() !== null,
+                // Withheld from everyone else, because whether the invited
+                // person has declared their age is a fact about them, and a
+                // link holder is not entitled to it.
+                'adultConfirmed' => $isForCurrentUser && $share->getAdultConfirmedAt() !== null,
             ],
         ]);
     }

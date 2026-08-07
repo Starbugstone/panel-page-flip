@@ -75,6 +75,30 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         self::assertNotNull($received['comicTitle']);
     }
 
+    public function testAScalarJsonBodyIsRejectedRatherThanFatal(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'malformed@test.local']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        // `5` is valid JSON, so it decodes without error and reaches the field
+        // handling as an int. Reading a key off it must not take the request
+        // down with a TypeError.
+        $this->browser()->request(
+            'PATCH',
+            '/api/comics/' . $comic->getId(),
+            [],
+            [],
+            array_merge(
+                ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'],
+                $this->csrfHeader()
+            ),
+            '5'
+        );
+
+        self::assertResponseIsSuccessful();
+        self::assertFalse($this->getJson('/api/comics/' . $comic->getId())['comic']['explicitContent']);
+    }
+
     public function testChangingTagsNeverTouchesTheExplicitFlag(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'tagger@test.local']);
@@ -232,6 +256,52 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         self::assertSame('Alex Owner', $invitation['ownerName']);
     }
 
+    public function testConfirmingDoesNotUnlockTheInvitationForEveryoneElseHoldingTheLink(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create([
+            'title' => 'Still Secret',
+            'author' => 'Still Secret Author',
+            'pageCount' => 42,
+        ])->object();
+        $recipient = $this->createAndLoginUser(['email' => 'the-one@test.local']);
+        [$share, $plaintext] = $this->createPendingInvitation($comic, $owner, (string) $recipient->getEmail());
+
+        $this->postJson('/api/shares/' . $share->getId() . '/confirm-adult', ['adultConfirmed' => true]);
+        self::assertResponseIsSuccessful();
+
+        // The recipient made a declaration about themselves. It says nothing
+        // about whoever else the link reached — a forwarded email, a scanner, a
+        // proxy log — so the preview must stay shut for all of them.
+        //
+        // The cookie jar is emptied rather than simply not used: this test signed
+        // in above, and a session left behind would answer as the recipient and
+        // make the assertions below pass without proving anything.
+        $this->client->getCookieJar()->clear();
+        $this->client->request('GET', '/api/shares/invitations/' . $plaintext, [], [], ['HTTP_ACCEPT' => 'application/json']);
+        self::assertResponseIsSuccessful();
+        $signedOut = $this->json()['invitation'];
+        self::assertNull($signedOut['comicTitle'], 'A signed-out link holder must not see the title.');
+        self::assertNull($signedOut['comicAuthor']);
+        self::assertNull($signedOut['pageCount']);
+        self::assertTrue($signedOut['requiresAdultConfirmation']);
+        // Nor may the link report what the person it was sent to has declared.
+        self::assertFalse($signedOut['adultConfirmed']);
+
+        $this->createAndLoginUser(['email' => 'wrong-account@test.local']);
+        $wrongAccount = $this->getJson('/api/shares/invitations/' . $plaintext)['invitation'];
+        self::assertNull($wrongAccount['comicTitle'], 'A signed-in stranger must not see the title.');
+        self::assertFalse($wrongAccount['adultConfirmed']);
+
+        // The recipient who actually made the declaration does see it.
+        $this->loginAs($recipient);
+        $forRecipient = $this->getJson('/api/shares/invitations/' . $plaintext)['invitation'];
+        self::assertSame('Still Secret', $forRecipient['comicTitle']);
+        self::assertSame(42, $forRecipient['pageCount']);
+        self::assertFalse($forRecipient['requiresAdultConfirmation']);
+        self::assertTrue($forRecipient['adultConfirmed']);
+    }
+
     public function testAnUnconfirmedExplicitInvitationCannotBeAccepted(): void
     {
         $owner = UserFactory::createOne()->object();
@@ -313,6 +383,32 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
             self::assertSame(ShareException::CODE_ADULT_CONFIRMATION_REQUIRED, $payload['code']);
         }
 
+        $this->refresh();
+        self::assertNull($this->onlyShare()->getAdultConfirmedAt());
+    }
+
+    public function testAnAgeDeclarationCannotBeMadeByACrossSiteRequest(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $recipient = $this->createAndLoginUser(['email' => 'csrf@test.local']);
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
+
+        // The generic /api rule covers this, but it is worth pinning here: of
+        // every endpoint on the site, this is the one whose entire purpose is to
+        // record a declaration a person makes about themselves. Another site
+        // being able to make it for them, in their session, is the whole reason
+        // the rule exists.
+        $this->browser()->request(
+            'POST',
+            '/api/shares/' . $share->getId() . '/confirm-adult',
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'],
+            json_encode(['adultConfirmed' => true], JSON_THROW_ON_ERROR)
+        );
+
+        self::assertResponseStatusCodeSame(403);
         $this->refresh();
         self::assertNull($this->onlyShare()->getAdultConfirmedAt());
     }
