@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './use-auth';
 import { api } from '@/lib/api';
 import { logger } from '@/lib/logger';
@@ -20,11 +20,19 @@ const EMPTY_SUMMARY = { pendingInvitations: 0, deadShares: 0 };
 export function SharingProvider({ children }) {
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
   const { isAuthenticated } = useAuth();
+  // Every read of the counts takes a number, and only the newest is allowed to
+  // write. Without it a slow request started before an invitation was accepted
+  // — or before logging out — could land afterwards and restore counts that are
+  // no longer true.
+  const requestIdRef = useRef(0);
 
   // Depends on authentication and nothing else, so its identity is stable while
   // a session lasts. Callers put it in their own dependency lists; if it changed
   // whenever the counts did, every one of them would refetch in a loop.
   const refreshSummary = useCallback(async () => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
     if (!isAuthenticated) {
       setSummary(EMPTY_SUMMARY);
       return;
@@ -32,6 +40,8 @@ export function SharingProvider({ children }) {
 
     try {
       const data = await api.get('/api/shares/summary');
+      if (requestIdRef.current !== requestId) return;
+
       setSummary({
         pendingInvitations: data.pendingInvitations || 0,
         deadShares: data.deadShares || 0,

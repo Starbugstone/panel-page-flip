@@ -41,7 +41,7 @@ This document provides detailed information for developers working on the projec
 - **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored; resending mints a new token and retires the old link
 - **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
 - **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup
-- **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared
+- **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
 - **Email Notifications**: One "Review invitation" link per email; the link only previews, because mail scanners follow links on the recipient's behalf
 - **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered
 
@@ -148,6 +148,19 @@ the row, enforced by a unique index on `(comic_id, recipient_email_normalized)`.
 - **unavailableAt / tombstoneReason**: `owner_deleted`, `owner_account_deleted`,
   `file_missing` or `administratively_removed`
 
+A tombstone belongs to the recipient. It exists to explain a disappearance to
+the people who lost access, so `findAllForOwner()` excludes it and the comic
+leaves the owner's **Shared by me** list completely — they caused the deletion,
+were warned about its reach beforehand, and have nothing left to manage. The
+personal-data export uses `findAllForOwnerIncludingTombstones()` instead,
+because an export describes what is stored rather than what a page shows.
+
+For the same reason, re-inviting somebody after a deletion starts a *fresh*
+relationship rather than resurrecting the tombstone: re-pointing it at a
+different comic would rewrite the recipient's history and destroy the
+explanation they were left with. Tombstones hold a null comic, which also keeps
+them clear of the unique index.
+
 #### ShareInvitationToken Entity
 
 Kept separate from the access relationship so the two lifecycles do not fight:
@@ -208,7 +221,8 @@ permanent second copy the model exists to avoid.
   next request
 - **Deleting the comic** tombstones every live share inside the same transaction
   as the removal, so the access records and the comic cannot disagree. The owner
-  is warned first, with the number of people affected
+  is warned first, with the number of people affected — from a card, and from
+  the table view's bulk deletion
 - **Deleting the owner's account** tombstones with `owner_account_deleted` and
   anonymises the owner snapshot, so recipients keep the explanation without the
   erased account keeping a name

@@ -71,9 +71,16 @@ class ComicShareService
 
         $this->assertWithinInvitationRate($owner);
 
+        // Keyed on the comic, so this only ever finds a live relationship: a
+        // tombstone holds a null comic and is invisible here by construction.
+        // That is deliberate. A tombstone belongs to the recipient, as the
+        // record of a comic that went away; re-pointing it at a different comic
+        // would rewrite their history and delete the explanation they were left
+        // with. Re-inviting somebody after a deletion starts a fresh
+        // relationship, and the null comic keeps it clear of the unique index.
         $share = $this->shareRepository->findForComicAndRecipient($comic, $email);
 
-        if ($share !== null && $share->getStatus() === ComicShare::STATUS_ACCEPTED && !$share->isTombstoned()) {
+        if ($share !== null && $share->getStatus() === ComicShare::STATUS_ACCEPTED) {
             throw new ShareException('This comic is already shared with that person.', 409);
         }
 
@@ -88,10 +95,10 @@ class ComicShareService
             $share = new ComicShare($comic, $owner, $email);
             $this->entityManager->persist($share);
         } else {
-            // A tombstoned row for this recipient can only exist if the comic
-            // it pointed at is gone, so it never refers to the comic being
-            // shared now; re-point it and let it live again.
-            $share->setComic($comic)->setOwner($owner)->refreshSnapshots();
+            // Declined, revoked, or a pending invitation that lapsed. The row is
+            // reused rather than duplicated, which is what the unique index on
+            // (comic, recipient) is there to guarantee.
+            $share->setOwner($owner)->refreshSnapshots();
         }
 
         $share->markPending($this->invitationExpiry());
@@ -168,9 +175,16 @@ class ComicShareService
      */
     public function accept(ShareInvitationToken $token, User $recipient): ComicShare
     {
+        // Validate before spending the token. Somebody who is not the recipient
+        // must not be able to mark a link used on their way to a 403 — the
+        // controller happens not to flush after that, but a link that only
+        // survives because nothing later in the request writes is not a link
+        // the legitimate recipient can rely on.
+        $share = $token->getComicShare();
+        $this->assertRecipient($share, $recipient);
         $token->markUsed();
 
-        return $this->acceptShare($token->getComicShare(), $recipient);
+        return $this->acceptShare($share, $recipient);
     }
 
     /**
@@ -178,9 +192,11 @@ class ComicShareService
      */
     public function decline(ShareInvitationToken $token, User $recipient): ComicShare
     {
+        $share = $token->getComicShare();
+        $this->assertRecipient($share, $recipient);
         $token->markUsed();
 
-        return $this->declineShare($token->getComicShare(), $recipient);
+        return $this->declineShare($share, $recipient);
     }
 
     /**
@@ -246,9 +262,21 @@ class ComicShareService
         return count($shares);
     }
 
-    /** Hide a shared comic from the recipient's collection without giving it up. */
+    /**
+     * Hide a shared comic from the recipient's collection without giving it up.
+     *
+     * Guarded the same way as restoring, so a direct API call cannot set
+     * recipientRemovedAt on a pending, declined or revoked share that was never
+     * in the collection to begin with.
+     *
+     * @throws ShareException
+     */
     public function removeFromCollection(ComicShare $share): void
     {
+        if (!$share->grantsAccess()) {
+            throw new ShareException('This comic is not in your collection.', 410);
+        }
+
         $share->markRecipientRemoved();
         $this->entityManager->flush();
     }
@@ -295,7 +323,7 @@ class ComicShareService
     /** How many recipients a deletion would affect, for the owner's warning. */
     public function countLiveShares(Comic $comic): int
     {
-        return count($this->shareRepository->findLiveSharesForComic($comic));
+        return $this->shareRepository->countLiveSharesForComic($comic);
     }
 
     /**

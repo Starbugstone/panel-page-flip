@@ -34,9 +34,14 @@ const TOMBSTONE_REASONS = {
 };
 
 export function tombstoneExplanation(reason) {
-  const cause = TOMBSTONE_REASONS[reason] || "it is no longer available";
+  const cause = TOMBSTONE_REASONS[reason];
 
-  return `This comic is no longer available because ${cause}.`;
+  // A reason added on the server that this build does not know about must still
+  // read as a sentence, so it drops the clause rather than explaining the
+  // unavailability with itself.
+  return cause
+    ? `This comic is no longer available because ${cause}.`
+    : "This comic is no longer available.";
 }
 
 /**
@@ -154,6 +159,21 @@ export function describeShareImpactOfDeletion(comic) {
   return `This comic is currently shared with ${count} ${count === 1 ? "person" : "people"}. `
     + "Deleting it will immediately remove their access and leave them an unavailable entry "
     + "in their sharing history.";
+}
+
+/**
+ * The same warning for a bulk deletion, summed over the comics being removed.
+ *
+ * Counts comics rather than people: one recipient may hold access to several of
+ * them, and adding those together would overstate how many people are affected.
+ */
+export function describeBulkShareImpactOfDeletion(comics = []) {
+  const shared = comics.filter((comic) => (comic?.sharedWithCount || 0) > 0);
+  if (shared.length === 0) return null;
+
+  return `${shared.length} of these ${shared.length === 1 ? "comics is" : "comics are"} currently shared. `
+    + "Deleting them will immediately remove their recipients' access and leave those recipients an "
+    + "unavailable entry in their sharing history.";
 }
 
 /** Email validation matching what the backend accepts, plus the RFC 5321 limit. */

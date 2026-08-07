@@ -46,7 +46,9 @@ final class PersonalDataExporter
             ];
         }
 
-        $sentShares = $this->mapShares($this->shareRepository->findAllForOwner($user));
+        // Tombstones included here, unlike on the sharing page: an export is a
+        // record of what is stored about the user, not a management view.
+        $sentShares = $this->mapShares($this->shareRepository->findAllForOwnerIncludingTombstones($user));
         $receivedShares = $this->mapShares($this->shareRepository->findAllForRecipient($user));
 
         return [

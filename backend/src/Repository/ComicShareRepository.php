@@ -97,7 +97,13 @@ class ComicShareRepository extends ServiceEntityRepository
     }
 
     /**
-     * Every share the user has handed out, newest comic first.
+     * Every share the user has handed out that still refers to a comic they
+     * have, newest first.
+     *
+     * Tombstones are deliberately excluded. They exist to explain a
+     * disappearance to the people who lost access; the owner is the one who
+     * caused it, already knows, and has no comic left to manage — so a deleted
+     * comic leaves their sharing list entirely.
      *
      * @return list<ComicShare>
      */
@@ -106,6 +112,25 @@ class ComicShareRepository extends ServiceEntityRepository
         return $this->createQueryBuilder('s')
             ->addSelect('c')
             ->leftJoin('s.comic', 'c')
+            ->andWhere('s.owner = :owner')
+            ->andWhere('s.comic IS NOT NULL')
+            ->andWhere('s.unavailableAt IS NULL')
+            ->setParameter('owner', $user)
+            ->orderBy('s.createdAt', 'DESC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Everything the user has handed out, tombstones included. Only for the
+     * personal-data export, which describes what is stored rather than what the
+     * sharing page shows.
+     *
+     * @return list<ComicShare>
+     */
+    public function findAllForOwnerIncludingTombstones(User $user): array
+    {
+        return $this->createQueryBuilder('s')
             ->andWhere('s.owner = :owner')
             ->setParameter('owner', $user)
             ->orderBy('s.createdAt', 'DESC')
@@ -223,11 +248,44 @@ class ComicShareRepository extends ServiceEntityRepository
      */
     public function findDeadSharesForRecipient(User $user): array
     {
-        return $this->recipientQueryBuilder($user)
-            ->andWhere('s.unavailableAt IS NOT NULL OR s.comic IS NULL OR s.status IN (:dead)')
-            ->setParameter('dead', [ComicShare::STATUS_REVOKED, ComicShare::STATUS_DECLINED])
+        return $this->deadSharesQueryBuilder($user)
             ->getQuery()
             ->getResult();
+    }
+
+    /**
+     * The same set, counted rather than hydrated. The summary endpoint runs on
+     * every authenticated page load, so loading a recipient's whole tombstone
+     * history just to call count() on it gets more expensive the longer they
+     * leave it uncleared.
+     */
+    public function countDeadSharesForRecipient(User $user): int
+    {
+        return (int) $this->deadSharesQueryBuilder($user)
+            ->select('COUNT(s.id)')
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /** Counterpart to {@see findLiveSharesForComic()} for the deletion warning. */
+    public function countLiveSharesForComic(Comic $comic): int
+    {
+        return (int) $this->createQueryBuilder('s')
+            ->select('COUNT(s.id)')
+            ->andWhere('s.comic = :comic')
+            ->andWhere('s.unavailableAt IS NULL')
+            ->andWhere('s.status IN (:live)')
+            ->setParameter('comic', $comic)
+            ->setParameter('live', [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED])
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    private function deadSharesQueryBuilder(User $user): \Doctrine\ORM\QueryBuilder
+    {
+        return $this->recipientQueryBuilder($user)
+            ->andWhere('s.unavailableAt IS NOT NULL OR s.comic IS NULL OR s.status IN (:dead)')
+            ->setParameter('dead', [ComicShare::STATUS_REVOKED, ComicShare::STATUS_DECLINED]);
     }
 
     /** How many invitations this user has sent since a given moment. */
@@ -249,18 +307,24 @@ class ComicShareRepository extends ServiceEntityRepository
      * them any more and they hold a non-user's email address, so they are
      * deleted rather than kept as history.
      *
+     * @param int|null $limit bound the batch so a long-neglected backlog is not
+     *                        hydrated in one go
      * @return list<ComicShare>
      */
-    public function findExpiredPendingShares(\DateTimeInterface $now): array
+    public function findExpiredPendingShares(\DateTimeInterface $now, ?int $limit = null): array
     {
-        return $this->createQueryBuilder('s')
+        $qb = $this->createQueryBuilder('s')
             ->andWhere('s.status = :pending')
             ->andWhere('s.expiresAt IS NOT NULL')
             ->andWhere('s.expiresAt < :now')
             ->setParameter('pending', ComicShare::STATUS_PENDING)
-            ->setParameter('now', $now)
-            ->getQuery()
-            ->getResult();
+            ->setParameter('now', $now);
+
+        if ($limit !== null) {
+            $qb->setMaxResults($limit);
+        }
+
+        return $qb->getQuery()->getResult();
     }
 
     /**

@@ -62,7 +62,14 @@ export default function Sharing() {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  const [busyId, setBusyId] = useState(null);
+  // The share currently being acted on, not the action being taken. Accept and
+  // Decline are alternatives, as are Resend and Revoke, so keying this by
+  // action would leave the opposite button live and let two conflicting
+  // transitions be requested for one share at once.
+  const [busyShareId, setBusyShareId] = useState(null);
+  // The two dialogs act on a comic or on the whole history rather than on one
+  // share, so they get their own flag instead of borrowing a share id.
+  const [isDialogBusy, setIsDialogBusy] = useState(false);
   const [inviteTarget, setInviteTarget] = useState(null);
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [stopSharingTarget, setStopSharingTarget] = useState(null);
@@ -77,8 +84,8 @@ export default function Sharing() {
    * reloaded alongside the sharing lists. Without that, accepting an invitation
    * would leave the dashboard showing a collection that predates it.
    */
-  const runAction = async (key, action, successMessage) => {
-    setBusyId(key);
+  const runAction = async (shareId, action, successMessage) => {
+    setBusyShareId(shareId);
     try {
       await action();
       await reload();
@@ -94,7 +101,7 @@ export default function Sharing() {
         variant: "destructive",
       });
     } finally {
-      setBusyId(null);
+      setBusyShareId(null);
     }
   };
 
@@ -116,7 +123,7 @@ export default function Sharing() {
           const counts = summariseRecipients(group.recipients);
 
           return (
-            <Card key={group.comicId ?? `gone-${group.title}`}>
+            <Card key={group.comicId}>
               <CardContent className="space-y-4 p-4">
                 <div className="flex gap-4">
                   <ShareCover src={group.coverImagePath} title={group.title} />
@@ -129,33 +136,24 @@ export default function Sharing() {
                       {counts.accepted} accepted, {counts.pending} pending, {counts.declined} declined,{" "}
                       {counts.revoked} revoked
                     </p>
-                    {!group.isAvailable && (
-                      <p className="mt-1 text-sm text-destructive">
-                        This comic has been deleted. Its recipients can no longer read it.
-                      </p>
-                    )}
                   </div>
                   <div className="flex flex-none flex-col gap-2">
-                    {group.isAvailable && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setInviteTarget({ id: group.comicId, title: group.title })}
-                        >
-                          <UserPlus className="mr-2 h-4 w-4" />
-                          Invite someone
-                        </Button>
-                        {counts.accepted + counts.pending > 0 && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setStopSharingTarget(group)}
-                          >
-                            Stop sharing
-                          </Button>
-                        )}
-                      </>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setInviteTarget({ id: group.comicId, title: group.title })}
+                    >
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      Invite someone
+                    </Button>
+                    {counts.accepted + counts.pending > 0 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setStopSharingTarget(group)}
+                      >
+                        Stop sharing
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -166,14 +164,12 @@ export default function Sharing() {
                       key={recipient.id}
                       className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
                     >
+                      {/* Every share here belongs to a comic the owner still
+                          has — a deleted one leaves this list entirely — so the
+                          only state worth calling out is a lapsed invitation. */}
                       <div className="min-w-0">
                         <span className="block truncate text-sm">{recipient.recipientEmail}</span>
-                        {recipient.isTombstoned && (
-                          <span className="text-xs text-muted-foreground">Comic unavailable</span>
-                        )}
-                        {!recipient.isTombstoned
-                          && recipient.status === SHARE_STATUS.PENDING
-                          && recipient.isExpired && (
+                        {recipient.status === SHARE_STATUS.PENDING && recipient.isExpired && (
                           <span className="text-xs text-muted-foreground">Invitation expired</span>
                         )}
                       </div>
@@ -185,14 +181,14 @@ export default function Sharing() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            disabled={busyId === `resend-${recipient.id}`}
+                            disabled={busyShareId === recipient.id}
                             onClick={() => runAction(
-                              `resend-${recipient.id}`,
+                              recipient.id,
                               () => api.post(`/api/shares/${recipient.id}/resend`, {}),
                               `Invitation resent to ${recipient.recipientEmail}.`
                             )}
                           >
-                            {busyId === `resend-${recipient.id}`
+                            {busyShareId === recipient.id
                               ? <Loader2 className="h-4 w-4 animate-spin" />
                               : <RotateCcw className="h-4 w-4" />}
                             <span className="ml-2 hidden sm:inline">Resend</span>
@@ -202,10 +198,10 @@ export default function Sharing() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            disabled={busyId === `revoke-${recipient.id}`}
+                            disabled={busyShareId === recipient.id}
                             aria-label={`Revoke access for ${recipient.recipientEmail}`}
                             onClick={() => runAction(
-                              `revoke-${recipient.id}`,
+                              recipient.id,
                               () => api.post(`/api/shares/${recipient.id}/revoke`, {}),
                               `Access revoked for ${recipient.recipientEmail}.`
                             )}
@@ -253,9 +249,9 @@ export default function Sharing() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={busyId === `remove-${share.id}`}
+                      disabled={busyShareId === share.id}
                       onClick={() => runAction(
-                        `remove-${share.id}`,
+                        share.id,
                         () => api.post(`/api/shares/${share.id}/remove`, {}),
                         "Removed from your collection."
                       )}
@@ -267,9 +263,9 @@ export default function Sharing() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={busyId === `restore-${share.id}`}
+                      disabled={busyShareId === share.id}
                       onClick={() => runAction(
-                        `restore-${share.id}`,
+                        share.id,
                         () => api.post(`/api/shares/${share.id}/restore`, {}),
                         "Restored to your collection."
                       )}
@@ -284,9 +280,9 @@ export default function Sharing() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={busyId === `clear-${share.id}`}
+                      disabled={busyShareId === share.id}
                       onClick={() => runAction(
-                        `clear-${share.id}`,
+                        share.id,
                         () => api.delete("/api/shares/tombstones", { body: { shareIds: [share.id] } }),
                         "Entry removed."
                       )}
@@ -339,9 +335,9 @@ export default function Sharing() {
                       <div className="flex flex-none flex-col gap-2">
                         <Button
                           size="sm"
-                          disabled={!share.canAnswer || busyId === `accept-${share.id}`}
+                          disabled={!share.canAnswer || busyShareId === share.id}
                           onClick={() => runAction(
-                            `accept-${share.id}`,
+                            share.id,
                             () => api.post(`/api/shares/${share.id}/accept`, {}),
                             "Comic added to your collection."
                           )}
@@ -351,9 +347,9 @@ export default function Sharing() {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={!share.canAnswer || busyId === `decline-${share.id}`}
+                          disabled={!share.canAnswer || busyShareId === share.id}
                           onClick={() => runAction(
-                            `decline-${share.id}`,
+                            share.id,
                             () => api.post(`/api/shares/${share.id}/decline`, {}),
                             "Invitation declined."
                           )}
@@ -450,13 +446,15 @@ export default function Sharing() {
             <Button variant="outline" onClick={() => setConfirmingCleanup(false)}>Cancel</Button>
             <Button
               variant="destructive"
-              disabled={busyId === "cleanup"}
+              disabled={isDialogBusy}
               onClick={async () => {
+                setIsDialogBusy(true);
                 await runAction(
-                  "cleanup",
+                  null,
                   () => api.delete("/api/shares/tombstones"),
                   "Unavailable shared comics removed."
                 );
+                setIsDialogBusy(false);
                 setConfirmingCleanup(false);
               }}
             >
@@ -479,14 +477,16 @@ export default function Sharing() {
             <Button variant="outline" onClick={() => setStopSharingTarget(null)}>Cancel</Button>
             <Button
               variant="destructive"
-              disabled={busyId === "stop-sharing"}
+              disabled={isDialogBusy}
               onClick={async () => {
                 const comicId = stopSharingTarget?.comicId;
+                setIsDialogBusy(true);
                 await runAction(
-                  "stop-sharing",
+                  null,
                   () => api.delete(`/api/shares/comics/${comicId}`),
                   "Sharing stopped."
                 );
+                setIsDialogBusy(false);
                 setStopSharingTarget(null);
               }}
             >

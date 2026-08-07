@@ -67,7 +67,7 @@ class ComicSerializer
             $viewer,
             $this->progressRepository->findByUserAndComic($viewer, $comic),
             $isOwner ? null : $this->shareRepository->findAccessFor($viewer, $comic),
-            $isOwner ? count($this->shareRepository->findLiveSharesForComic($comic)) : 0,
+            $isOwner ? $this->shareRepository->countLiveSharesForComic($comic) : 0,
             $includeOwner
         );
     }

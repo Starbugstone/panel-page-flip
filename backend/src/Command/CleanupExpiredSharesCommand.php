@@ -31,6 +31,14 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 )]
 class CleanupExpiredSharesCommand extends Command
 {
+    /**
+     * Shares removed per flush. A cron job that has not run for a long time, or
+     * a bulk invitation import, would otherwise hydrate every expired share and
+     * its cascaded tokens into one unit of work — and run out of memory before
+     * deleting anything at all.
+     */
+    private const BATCH_SIZE = 200;
+
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly ComicShareRepository $shareRepository,
@@ -48,22 +56,28 @@ class CleanupExpiredSharesCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $io->title('Cleaning up expired share invitations');
 
-        $expired = $this->shareRepository->findExpiredPendingShares(new \DateTimeImmutable());
-        $count = count($expired);
+        // Resolved once so a batch cannot pick up invitations that expire while
+        // the command is still working through the backlog.
+        $now = new \DateTimeImmutable();
+        $count = 0;
+
+        while (($expired = $this->shareRepository->findExpiredPendingShares($now, self::BATCH_SIZE)) !== []) {
+            foreach ($expired as $share) {
+                // The invitation tokens go with it: they are mapped with
+                // orphanRemoval and a cascading foreign key.
+                $this->entityManager->remove($share);
+            }
+
+            $this->entityManager->flush();
+            $this->entityManager->clear();
+            $count += count($expired);
+        }
 
         if ($count === 0) {
             $io->success('No expired invitations to clean up.');
 
             return Command::SUCCESS;
         }
-
-        foreach ($expired as $share) {
-            // The invitation tokens go with it: they are mapped with
-            // orphanRemoval and a cascading foreign key.
-            $this->entityManager->remove($share);
-        }
-
-        $this->entityManager->flush();
 
         $io->success(sprintf('Removed %d expired invitation(s).', $count));
 

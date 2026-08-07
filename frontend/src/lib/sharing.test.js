@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SHARE_STATUS,
+  describeBulkShareImpactOfDeletion,
   describeDeadShareCleanup,
   describeReceivedShare,
   describeShareImpactOfDeletion,
@@ -31,12 +32,11 @@ describe("tombstoneExplanation", () => {
     expect(tombstoneExplanation("administratively_removed")).toContain("an administrator removed it");
   });
 
-  it("still explains a reason it does not recognise", () => {
-    // A new reason added on the server must not produce "undefined" on screen.
-    expect(tombstoneExplanation("something_new")).toBe(
-      "This comic is no longer available because it is no longer available."
-    );
-    expect(tombstoneExplanation(null)).toContain("no longer available");
+  it("drops the clause for a reason it does not recognise", () => {
+    // A new reason added on the server must neither produce "undefined" on
+    // screen nor explain the unavailability with itself.
+    expect(tombstoneExplanation("something_new")).toBe("This comic is no longer available.");
+    expect(tombstoneExplanation(null)).toBe("This comic is no longer available.");
   });
 });
 
@@ -153,6 +153,32 @@ describe("describeShareImpactOfDeletion", () => {
   it("names the number of people who lose access", () => {
     expect(describeShareImpactOfDeletion({ sharedWithCount: 3 })).toContain("shared with 3 people");
     expect(describeShareImpactOfDeletion({ sharedWithCount: 1 })).toContain("shared with 1 person");
+  });
+});
+
+describe("describeBulkShareImpactOfDeletion", () => {
+  it("says nothing when none of the selection is shared", () => {
+    expect(describeBulkShareImpactOfDeletion([{ sharedWithCount: 0 }, {}])).toBeNull();
+    expect(describeBulkShareImpactOfDeletion([])).toBeNull();
+    expect(describeBulkShareImpactOfDeletion()).toBeNull();
+  });
+
+  it("counts comics rather than adding recipients up", () => {
+    // One person may hold access to several of them; summing the counts would
+    // claim more people are affected than there are.
+    const warning = describeBulkShareImpactOfDeletion([
+      { sharedWithCount: 3 },
+      { sharedWithCount: 2 },
+      { sharedWithCount: 0 },
+    ]);
+
+    expect(warning).toContain("2 of these comics are currently shared");
+    expect(warning).not.toContain("5");
+  });
+
+  it("reads correctly for a single shared comic", () => {
+    expect(describeBulkShareImpactOfDeletion([{ sharedWithCount: 1 }, { sharedWithCount: 0 }]))
+      .toContain("1 of these comics is currently shared");
   });
 });
 

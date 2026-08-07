@@ -256,6 +256,92 @@ final class ShareControllerTest extends AbstractApiTestCase
         self::assertTrue($shares[0]['isDead']);
     }
 
+    public function testADeletedComicLeavesTheOwnersSharingListEntirely(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $doomed = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Gone'])->object();
+        $kept = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Kept'])->object();
+        $recipient = UserFactory::createOne(['email' => 'onlooker@test.local'])->object();
+
+        $this->loginAs($recipient);
+        $this->createAcceptedShare($doomed, $owner, $recipient);
+        $this->createAcceptedShare($kept, $owner, $recipient);
+
+        $this->loginAs($owner);
+        self::assertCount(2, $this->getJson('/api/shares/shared-by-me')['sharedByMe']);
+
+        $this->browser()->request('DELETE', '/api/comics/' . $doomed->getId(), [], [], $this->csrfHeader());
+        self::assertResponseIsSuccessful();
+
+        // The tombstone belongs to the recipient, as the record of a comic that
+        // went away. The owner caused it, has no comic left to manage, and sees
+        // nothing of it.
+        $groups = $this->getJson('/api/shares/shared-by-me')['sharedByMe'];
+        self::assertCount(1, $groups);
+        self::assertSame('Kept', $groups[0]['title']);
+
+        // The recipient still gets their explanation.
+        $this->loginAs($recipient);
+        $received = $this->getJson('/api/shares/shared-with-me')['sharedWithMe'];
+        self::assertCount(1, array_filter($received, static fn (array $s): bool => $s['isTombstoned']));
+    }
+
+    public function testTheInvitationPreviewWithholdsTheRecipientAddressFromEveryoneElse(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        [, $plaintext] = $this->createPendingInvitation($comic, $owner, 'private@test.local');
+
+        // The preview is public, so anyone holding a forwarded link reaches it.
+        // Whoever that is must not learn who was invited.
+        $this->client->request('GET', '/api/shares/invitations/' . $plaintext, [], [], ['HTTP_ACCEPT' => 'application/json']);
+        self::assertResponseIsSuccessful();
+        self::assertNull($this->json()['invitation']['recipientEmail']);
+
+        $this->createAndLoginUser(['email' => 'someone-else@test.local']);
+        $payload = $this->getJson('/api/shares/invitations/' . $plaintext);
+        self::assertFalse($payload['invitation']['isForCurrentUser']);
+        self::assertNull($payload['invitation']['recipientEmail']);
+        self::assertNull($payload['invitation']['coverImagePath']);
+
+        // Their own address tells the recipient nothing new, so they still get it.
+        $this->createAndLoginUser(['email' => 'private@test.local']);
+        $payload = $this->getJson('/api/shares/invitations/' . $plaintext);
+        self::assertTrue($payload['invitation']['isForCurrentUser']);
+        self::assertSame('private@test.local', $payload['invitation']['recipientEmail']);
+    }
+
+    public function testAnInvitationLinkCannotBeBurnedByAThirdParty(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $recipient = UserFactory::createOne(['email' => 'rightful@test.local'])->object();
+        [, $plaintext] = $this->createPendingInvitation($comic, $owner, $recipient->getEmail());
+
+        // Somebody who got hold of the link but is not the recipient.
+        $this->createAndLoginUser(['email' => 'thief@test.local']);
+        $this->postJson('/api/shares/invitations/' . $plaintext . '/accept');
+        self::assertResponseStatusCodeSame(403);
+
+        // The token must not have been spent on the way to that rejection.
+        $this->loginAs($recipient);
+        $this->postJson('/api/shares/invitations/' . $plaintext . '/accept');
+        self::assertResponseIsSuccessful();
+    }
+
+    public function testAShareThatIsNotInTheCollectionCannotBeRemovedFromIt(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $recipient = $this->createAndLoginUser(['email' => 'premature@test.local']);
+
+        // Pending: never in the collection, so there is nothing to hide.
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
+
+        $this->postJson('/api/shares/' . $share->getId() . '/remove');
+        self::assertResponseStatusCodeSame(410);
+    }
+
     public function testOwnersAreToldHowManyPeopleADeletionWouldCutOff(): void
     {
         $owner = UserFactory::createOne()->object();

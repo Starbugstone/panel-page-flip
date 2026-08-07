@@ -46,28 +46,29 @@ class ShareController extends AbstractController
             return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
         }
 
+        // Only shares on comics the owner still has: a deleted comic leaves this
+        // list entirely, and the tombstone it leaves behind belongs to the
+        // recipients who lost access, not to the person who removed it.
         $shares = $this->shareRepository->findAllForOwner($user);
 
         // Grouped server-side so the page does not have to reconstruct which
-        // recipients belong to which comic, and so a tombstoned share still
-        // lands under the comic it used to be.
+        // recipients belong to which comic.
         $groups = [];
         foreach ($shares as $share) {
             $comic = $share->getComic();
-            $key = $comic?->getId() !== null ? 'comic-' . $comic->getId() : 'gone-' . $share->getComicTitleSnapshot();
-
-            if (!isset($groups[$key])) {
-                $groups[$key] = [
-                    'comicId' => $comic?->getId(),
-                    'title' => $comic?->getTitle() ?? $share->getComicTitleSnapshot(),
-                    'author' => $comic?->getAuthor() ?? $share->getComicAuthorSnapshot(),
-                    'coverImagePath' => $comic ? $this->comicSerializer->coverUrl($comic) : null,
-                    'isAvailable' => $comic !== null,
-                    'recipients' => [],
-                ];
+            if ($comic === null) {
+                continue;
             }
 
-            $groups[$key]['recipients'][] = $this->shareSerializer->forOwner($share);
+            $groups[$comic->getId()] ??= [
+                'comicId' => $comic->getId(),
+                'title' => $comic->getTitle(),
+                'author' => $comic->getAuthor(),
+                'coverImagePath' => $this->comicSerializer->coverUrl($comic),
+                'recipients' => [],
+            ];
+
+            $groups[$comic->getId()]['recipients'][] = $this->shareSerializer->forOwner($share);
         }
 
         return $this->json(['sharedByMe' => array_values($groups)]);
@@ -98,7 +99,7 @@ class ShareController extends AbstractController
 
         return $this->json([
             'pendingInvitations' => $this->shareRepository->countPendingForRecipient($user),
-            'deadShares' => count($this->shareRepository->findDeadSharesForRecipient($user)),
+            'deadShares' => $this->shareRepository->countDeadSharesForRecipient($user),
         ]);
     }
 
@@ -219,6 +220,11 @@ class ShareController extends AbstractController
 
         $share = $invitation->getComicShare();
         $comic = $share->getComic();
+        // This endpoint is public, so anything it returns is readable by anyone
+        // holding the link — a forwarded email, a link-preview bot, a proxy log.
+        // Only what the invitation is *about* goes out unconditionally; the
+        // cover and the recipient's own address are gated on identity.
+        $isForCurrentUser = $this->isRecipient($share, $user);
 
         return $this->json([
             'invitation' => [
@@ -226,15 +232,15 @@ class ShareController extends AbstractController
                 'comicAuthor' => $comic?->getAuthor() ?? $share->getComicAuthorSnapshot(),
                 'pageCount' => $comic?->getPageCount(),
                 'ownerName' => $share->getOwnerNameSnapshot(),
-                'recipientEmail' => $share->getRecipientEmailNormalized(),
+                // The intended recipient learns nothing from this — it is their
+                // own address — so withholding it costs them nothing and stops
+                // the link from disclosing who was invited.
+                'recipientEmail' => $isForCurrentUser ? $share->getRecipientEmailNormalized() : null,
                 'expiresAt' => $invitation->getExpiresAt()->format('c'),
-                // The preview is public so an invited person can read it before
-                // signing in; the cover is not, so it is only offered to the
-                // account the invitation belongs to.
-                'coverImagePath' => $comic && $this->isRecipient($share, $user)
+                'coverImagePath' => $comic && $isForCurrentUser
                     ? $this->comicSerializer->coverUrl($comic)
                     : null,
-                'isForCurrentUser' => $this->isRecipient($share, $user),
+                'isForCurrentUser' => $isForCurrentUser,
             ],
         ]);
     }
@@ -329,7 +335,11 @@ class ShareController extends AbstractController
             return $share;
         }
 
-        $this->shareService->removeFromCollection($share);
+        try {
+            $this->shareService->removeFromCollection($share);
+        } catch (ShareException $exception) {
+            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+        }
 
         return $this->json([
             'message' => 'Removed from your collection.',
@@ -389,8 +399,8 @@ class ShareController extends AbstractController
         ]);
     }
 
-    /** @return ComicShare|JsonResponse */
-    private function findOwnedShare(int $id, ?User $user)
+    /** The share, or the response to return instead of acting on it. */
+    private function findOwnedShare(int $id, ?User $user): ComicShare|JsonResponse
     {
         if (!$user) {
             return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
@@ -406,8 +416,8 @@ class ShareController extends AbstractController
         return $share;
     }
 
-    /** @return ComicShare|JsonResponse */
-    private function findReceivedShare(int $id, ?User $user)
+    /** The share, or the response to return instead of acting on it. */
+    private function findReceivedShare(int $id, ?User $user): ComicShare|JsonResponse
     {
         if (!$user) {
             return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);

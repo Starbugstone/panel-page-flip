@@ -13,11 +13,15 @@ use App\Entity\ComicShare;
  * database leak useless. An owner who needs another link resends the
  * invitation, and that mints a new one.
  */
-final readonly class IssuedInvitation
+// Properties are marked readonly individually rather than the class as a whole:
+// composer declares "php": ">=8.1" and docker-compose lets PHP_VERSION be
+// overridden, and a readonly *class* is 8.2 syntax that would fatal at parse
+// time on 8.1. One DTO is not a reason to narrow what the project runs on.
+final class IssuedInvitation
 {
     public function __construct(
-        public ComicShare $share,
-        public string $invitationUrl,
+        public readonly ComicShare $share,
+        public readonly string $invitationUrl,
     ) {
     }
 }

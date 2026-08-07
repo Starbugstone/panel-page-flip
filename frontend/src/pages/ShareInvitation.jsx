@@ -183,9 +183,11 @@ export default function ShareInvitation() {
               This comic remains owned by {invitation.ownerName}. It may become unavailable if the
               owner removes it or stops sharing it.
             </p>
+            {/* The address is withheld from anyone the server cannot identify
+                as the recipient, so a forwarded link does not disclose who was
+                invited. Signed out, that is always the case. */}
             <p className="text-sm">
-              Sign in as <span className="font-medium">{invitation.recipientEmail}</span> to answer
-              this invitation.
+              Sign in to the account this invitation was sent to in order to answer it.
             </p>
             <Button onClick={() => navigate(`/login?redirect=/share/invitation/${token}`)}>
               Log in to continue
@@ -204,7 +206,7 @@ export default function ShareInvitation() {
               <AlertCircle className="h-5 w-5" />
               <AlertTitle>This invitation is for a different account</AlertTitle>
               <AlertDescription>
-                It was sent to {invitation.recipientEmail}. Sign in with that account to accept it.
+                It was sent to another address. Sign in with that account to accept it.
               </AlertDescription>
             </Alert>
             <Button variant="outline" onClick={() => navigate("/dashboard")}>
