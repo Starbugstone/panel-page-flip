@@ -82,6 +82,7 @@ export function PendingSharesAlert() {
                 size="icon" 
                 className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm hover:bg-background/90 z-10"
                 onClick={() => handleDismiss(share.id)}
+                aria-label={`Dismiss share of ${share.comic?.title || "this comic"}`}
               >
                 <X className="h-4 w-4" />
               </Button>

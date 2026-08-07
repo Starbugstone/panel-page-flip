@@ -15,6 +15,7 @@ import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 export default function ComicReader() {
   const { comicId } = useParams();
   const [comic, setComic] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   const [comicPages, setComicPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [isLoading, setIsLoading] = useState(true); // For overall comic data
@@ -123,6 +124,7 @@ export default function ComicReader() {
   useEffect(() => {
     const loadComic = async () => {
       setIsLoading(true);
+      setLoadError(null);
       try {
         const data = await api.get(`/api/comics/${comicId}`);
         setComic(data.comic);
@@ -156,11 +158,19 @@ export default function ComicReader() {
 
       } catch (error) {
         logger.error("Failed to load comic:", error);
-        toast({
-          title: "Error loading comic",
-          description: "There was a problem loading the comic. Please try again.",
-          variant: "destructive",
-        });
+        setLoadError(error);
+        // A 404 is not retryable and the inline panel below already spells it
+        // out, so it gets no toast at all — telling the user to "try again"
+        // sends them back for a comic that will never be there.
+        if (error.status !== 404) {
+          toast({
+            title: "Error loading comic",
+            description: error.status >= 500
+              ? "The server had a problem loading this comic. Please try again in a moment."
+              : "There was a problem loading the comic. Please try again.",
+            variant: "destructive",
+          });
+        }
         // navigate("/dashboard"); // Optional: navigate away on general error
       } finally {
         setIsLoading(false);
@@ -642,9 +652,15 @@ export default function ComicReader() {
   }
 
   if (!comic) {
+    const isMissing = loadError?.status === 404;
     return (
-      <div className="min-h-screen flex flex-col justify-center items-center bg-background">
-        <p className="text-xl mb-4">Comic not found</p>
+      <div className="min-h-screen flex flex-col justify-center items-center bg-background px-4 text-center">
+        <p className="text-xl mb-2">{isMissing ? "Comic not found" : "Could not load this comic"}</p>
+        <p className="text-sm text-muted-foreground mb-4">
+          {isMissing
+            ? "This comic may have been deleted, or the link is wrong."
+            : "Something went wrong on the way to this comic. Please try again in a moment."}
+        </p>
         <Button onClick={() => navigate("/dashboard")}>Return to Library</Button>
       </div>
     );

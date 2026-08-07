@@ -100,6 +100,7 @@ export function ComicCard({ comic, coverPriority = false, onResetProgress, onEdi
                   size="sm" 
                   className="h-7 w-7 p-0 text-white hover:text-red-400"
                   onClick={handleResetClick}
+                  aria-label={`Reset reading progress for ${comic.title}`}
                 >
                   <RotateCcw size={16} />
                 </Button>
@@ -137,7 +138,12 @@ export function ComicCard({ comic, coverPriority = false, onResetProgress, onEdi
         <div className={cn("absolute top-2 right-2", PAGE_LAYER_CLASSES.cardAction)}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white rounded-full">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white rounded-full"
+                aria-label={`Actions for ${comic.title}`}
+              >
                 <MoreVertical size={16} />
               </Button>
             </DropdownMenuTrigger>
