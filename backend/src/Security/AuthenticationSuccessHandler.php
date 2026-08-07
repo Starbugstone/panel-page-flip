@@ -8,7 +8,6 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
-use Symfony\Component\Security\Core\Exception\CustomUserMessageAuthenticationException;
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 
 class AuthenticationSuccessHandler implements AuthenticationSuccessHandlerInterface
@@ -21,17 +20,11 @@ class AuthenticationSuccessHandler implements AuthenticationSuccessHandlerInterf
     {
         /** @var User $user */
         $user = $token->getUser();
-        
-        // Check if the user's email is verified
-        if (!$user->isEmailVerified()) {
-            return new JsonResponse([
-                'success' => false,
-                'message' => 'Your email address is not verified. Please check your inbox for the verification email.',
-                'requiresVerification' => true,
-                'email' => $user->getUserIdentifier(),
-            ], Response::HTTP_FORBIDDEN);
-        }
 
+        // Nothing is refused here. By the time this runs the token is already
+        // stored and the session cookie is already going out, so a 403 from
+        // this method would be a refusal in name only — see {@see UserChecker},
+        // which rejects unverified accounts during authentication instead.
         $user->setLastLoginAt(new \DateTimeImmutable());
         $this->entityManager->flush();
 

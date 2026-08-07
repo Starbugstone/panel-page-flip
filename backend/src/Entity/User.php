@@ -24,6 +24,16 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $dropboxRefreshToken = null;
 
+    /**
+     * When the stored Dropbox access token stops working.
+     *
+     * Null means unknown — an account connected before this was recorded, or a
+     * grant Dropbox described without an expiry — and is treated as expired, so
+     * the first call after an upgrade refreshes once and then stops.
+     */
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $dropboxTokenExpiresAt = null;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $dropboxLastSyncedAt = null;
 
@@ -128,6 +138,17 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setDropboxRefreshToken(?string $dropboxRefreshToken): static
     {
         $this->dropboxRefreshToken = $dropboxRefreshToken;
+        return $this;
+    }
+
+    public function getDropboxTokenExpiresAt(): ?\DateTimeImmutable
+    {
+        return $this->dropboxTokenExpiresAt;
+    }
+
+    public function setDropboxTokenExpiresAt(?\DateTimeImmutable $dropboxTokenExpiresAt): static
+    {
+        $this->dropboxTokenExpiresAt = $dropboxTokenExpiresAt;
         return $this;
     }
 

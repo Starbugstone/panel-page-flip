@@ -108,6 +108,11 @@ class DropboxController extends AbstractController
 
             $user->setDropboxAccessToken($accessToken);
             $user->setDropboxRefreshToken($tokenData['refresh_token'] ?? null);
+            // Recorded here so the very first API call after connecting uses
+            // the token it was just given instead of immediately refreshing it.
+            $user->setDropboxTokenExpiresAt(
+                $this->dropboxClientFactory->expiryFrom($tokenData['expires_in'] ?? null)
+            );
             $entityManager->flush();
 
             return new RedirectResponse(rtrim($this->frontendBaseUrl, '/') . '/dropbox-sync?status=connected');
@@ -142,6 +147,11 @@ class DropboxController extends AbstractController
                     'user_id' => $user->getId(),
                     'exception' => $e,
                 ]);
+                // The stored token did not work, whatever its recorded expiry
+                // claimed. Clearing that claim means the next call refreshes
+                // rather than presenting the same dead token again — which is
+                // what recovers a grant Dropbox retired early.
+                $this->dropboxClientFactory->invalidateAccessToken($user);
                 $connected = false;
             }
         }

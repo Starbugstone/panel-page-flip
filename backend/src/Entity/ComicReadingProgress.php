@@ -6,8 +6,20 @@ use App\Repository\ComicReadingProgressRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 
+/**
+ * One reader's position in one comic — and there is only ever one.
+ *
+ * The uniqueness is enforced by the database rather than by the code that looks
+ * for an existing row first. That check is a read followed by a write: two saves
+ * arriving together — a second tab, a phone and a laptop, the reader's own save
+ * on open racing its save on the first page turn — both find nothing and both
+ * insert. Nothing then reconciles them, and every later lookup returns whichever
+ * of the two the database happens to hand back, so the reader's position appears
+ * to flip between two pages.
+ */
 #[ORM\Entity(repositoryClass: ComicReadingProgressRepository::class)]
 #[ORM\HasLifecycleCallbacks]
+#[ORM\UniqueConstraint(name: 'UNIQ_reading_progress_user_comic', columns: ['user_id', 'comic_id'])]
 class ComicReadingProgress
 {
     #[ORM\Id]

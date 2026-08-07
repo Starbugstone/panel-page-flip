@@ -13,6 +13,16 @@ DirectoryIndex index.php
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # Nothing under /uploads/ is ever served by the web server directly.
+    #
+    # This has to come before the "file exists, serve it" rule below, which is
+    # what used to hand out cover images: they are ordinary .jpg/.png files
+    # sitting in public/uploads/comics/<ownerId>/covers/<comicId>/, so Apache
+    # answered for them and the COMIC_VIEW check — including the 18+ gate — was
+    # never consulted. Covers are served by /api/comics/cover/... and archives
+    # by /api/comics/<id>/download; both authenticate first.
+    RewriteRule ^uploads(/|$) - [F,L]
+
     # Keep one canonical production origin. The host checks ensure local and
     # staging installations are unaffected by these redirects.
     RewriteCond %{HTTP_HOST} ^www\.comics\.starbugstone\.com$ [NC]
@@ -59,8 +69,10 @@ DirectoryIndex index.php
 # Hardening
 # =============================================================================
 
-# Block direct access to anything inside /uploads/ that isn't an image we serve.
-# Note: covers go through Symfony so the entire uploads dir can stay private.
+# Belt and braces for hosts without mod_rewrite, and for anything that lands
+# outside /uploads/. The whole uploads tree is already refused above; this
+# catches file types that must never be served from anywhere in the document
+# root, whatever the rewrite rules do.
 <IfModule mod_authz_core.c>
     <FilesMatch "\.(env|env\..*|ini|log|sql|tar|gz|bak|swp|cbz|cbr|zip)$">
         Require all denied

@@ -86,6 +86,41 @@ class ComicRepository extends ServiceEntityRepository
     }
 
     /**
+     * How many comics each of these owners has with a given description,
+     * indexed by owner id.
+     *
+     * One grouped query for the whole page, because the caller needs the figure
+     * per owner and asking per owner means loading each owner's entire library
+     * to count a subset of it.
+     *
+     * @param list<int> $ownerIds
+     * @return array<int, int>
+     */
+    public function countByOwnerWithDescription(array $ownerIds, string $description): array
+    {
+        if ($ownerIds === []) {
+            return [];
+        }
+
+        $rows = $this->createQueryBuilder('c')
+            ->select('IDENTITY(c.owner) AS ownerId', 'COUNT(c.id) AS total')
+            ->andWhere('c.owner IN (:ownerIds)')
+            ->andWhere('c.description = :description')
+            ->setParameter('ownerIds', $ownerIds)
+            ->setParameter('description', $description)
+            ->groupBy('c.owner')
+            ->getQuery()
+            ->getArrayResult();
+
+        $counts = [];
+        foreach ($rows as $row) {
+            $counts[(int) $row['ownerId']] = (int) $row['total'];
+        }
+
+        return $counts;
+    }
+
+    /**
      * Hydrate the tag and owner associations of an already-loaded comic list in
      * one query. Serializing a library otherwise lazy-loads each comic's tag
      * collection and owner separately, which costs a query per comic and is the

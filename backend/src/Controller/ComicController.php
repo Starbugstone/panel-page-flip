@@ -17,7 +17,9 @@ use App\Service\ComicShareService;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicService;
 use App\Service\Pagination\PaginationRequest;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\Persistence\ManagerRegistry;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
@@ -72,7 +74,8 @@ class ComicController extends AbstractController
         private readonly int $uploadUserQuotaBytes,
         private readonly ComicUploadFilenameValidator $uploadFilenameValidator,
         private readonly ComicSerializer $comicSerializer,
-        private readonly ComicShareRepository $shareRepository
+        private readonly ComicShareRepository $shareRepository,
+        private readonly ManagerRegistry $managerRegistry
     ) {
         $this->tempUploadDir = sys_get_temp_dir() . '/comic_uploads';
     }
@@ -517,8 +520,14 @@ class ComicController extends AbstractController
 
         } catch (\Throwable $e) {
             $this->logger->warning('Comic upload failed.', ['user_id' => $user->getId(), 'exception' => $e]);
+
+            // The exception message used to be echoed back. ComicService throws
+            // its own vetted rejections ("Only CBZ files are allowed.") but the
+            // same catch also sees filesystem and database errors, which name
+            // server paths. The reasons a user can act on are enumerated here;
+            // anything else is a server fault and reads as one.
             return $this->json([
-                'message' => 'Upload failed: ' . $e->getMessage(),
+                'message' => 'Upload failed. Check that the file is a valid CBZ within your storage quota.',
             ], Response::HTTP_BAD_REQUEST);
         }
     }
@@ -851,10 +860,25 @@ class ComicController extends AbstractController
                 return $this->json(['message' => 'Invalid chunk index'], Response::HTTP_BAD_REQUEST);
             }
             
+            // Refuse the chunk that would take this upload past the size limit,
+            // rather than waiting for /upload/complete to notice.
+            //
+            // Per-chunk and per-file limits together used to leave the staging
+            // area unbounded: an upload could be initialised for the maximum
+            // chunk count and every chunk sent at the maximum size, filling the
+            // disk with several times the permitted total, and only be rejected
+            // once the last chunk had already been written. Nothing here is
+            // charged against the user's quota either, so the files were free.
+            $stagedBytes = array_sum(array_map('intval', $metadata['chunkSizes'] ?? []));
+            $replacedBytes = (int) ($metadata['chunkSizes'][(string) $chunkIndex] ?? 0);
+            if ($stagedBytes - $replacedBytes + (int) $chunk->getSize() > $this->uploadMaxTotalBytes) {
+                return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+            }
+
             // Save chunk
             $chunkPath = $userChunkDir . '/chunk_' . $chunkIndex;
             $chunk->move(dirname($chunkPath), basename($chunkPath));
-            
+
             // Update metadata
             $metadata['receivedChunks'] = $metadata['receivedChunks'] ?? [];
             if (!in_array($chunkIndex, $metadata['receivedChunks'], true)) {
@@ -1044,8 +1068,13 @@ class ComicController extends AbstractController
     }
     
     #[Route('/{id}/pages/{page}', name: 'get_page', methods: ['GET'])]
-    public function getPage(int $id, int $page, Request $request, EntityManagerInterface $entityManager): Response
-    {
+    public function getPage(
+        int $id,
+        int $page,
+        Request $request,
+        EntityManagerInterface $entityManager,
+        ComicService $comicService
+    ): Response {
         // Get the current user
         $user = $this->getUser();
         if (!$user) {
@@ -1116,29 +1145,31 @@ class ComicController extends AbstractController
             }
         }
 
-        // Open CBZ file
-        $zip = new ZipArchive();
-        if ($zip->open($filePath) !== true) {
+        // The page list comes from ComicService, cached against the archive, so
+        // a reading session scans it once rather than once per page — and so
+        // the numbering here is the same numbering the stored page count was
+        // derived from. This used to be a second, unfiltered copy of that loop,
+        // which counted __MACOSX resource forks as pages and shifted every page
+        // after one of them.
+        try {
+            $imageFiles = $comicService->getPageIndex($filePath);
+        } catch (\Throwable $exception) {
+            $this->logger->error('Failed to read a comic archive.', [
+                'comic_id' => $comic->getId(),
+                'exception' => $exception,
+            ]);
+
             return $this->json(['message' => 'Failed to open comic file'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
-        // Get all image files from the archive
-        $imageFiles = [];
-        for ($i = 0; $i < $zip->numFiles; $i++) {
-            $filename = $zip->getNameIndex($i);
-            $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-            if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-                $imageFiles[] = $filename;
-            }
-        }
-
-        // Sort image files naturally (1, 2, 10 instead of 1, 10, 2)
-        usort($imageFiles, 'strnatcmp');
-
         // Check if requested page exists
         if (!isset($imageFiles[$page - 1])) {
-            $zip->close();
             return $this->json(['message' => 'Page not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($filePath) !== true) {
+            return $this->json(['message' => 'Failed to open comic file'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
         // Get page image
@@ -1308,7 +1339,10 @@ class ComicController extends AbstractController
 
 
     /**
-     * Update reading progress for a user and comic
+     * Update reading progress for a user and comic.
+     *
+     * @param bool $isRetry set once the first attempt lost the race to create
+     *                      the row; stops a pathological loop
      */
     private function updateReadingProgress(
         User $user,
@@ -1316,7 +1350,8 @@ class ComicController extends AbstractController
         int $currentPage,
         EntityManagerInterface $entityManager,
         bool $completed = false,
-        ?int $revision = null
+        ?int $revision = null,
+        bool $isRetry = false
     ): ComicReadingProgress {
         // Get existing progress or create new one
         $progress = $entityManager->getRepository(ComicReadingProgress::class)
@@ -1355,7 +1390,8 @@ class ComicController extends AbstractController
             return $progress;
         }
 
-        if (!$progress) {
+        $isNew = $progress === null;
+        if ($isNew) {
             $progress = new ComicReadingProgress();
             $progress->setUser($user);
             $progress->setComic($comic);
@@ -1372,7 +1408,50 @@ class ComicController extends AbstractController
             $progress->setCompleted(true);
         }
 
-        $entityManager->flush();
+        try {
+            $entityManager->flush();
+        } catch (UniqueConstraintViolationException $exception) {
+            // Somebody else created the row between the lookup above and this
+            // insert — a second tab, or another device. The database refused the
+            // duplicate, which is the point of the constraint; the save itself
+            // is still perfectly valid, so it is applied to the row that won
+            // rather than reported to the reader as a failure.
+            if (!$isNew || $isRetry) {
+                throw $exception;
+            }
+
+            // A failed flush closes the entity manager, so the retry needs a
+            // fresh one. The comic and user are re-fetched through it for the
+            // same reason: entities from a closed manager are not managed.
+            $this->logger->debug('Reading progress row was created concurrently; applying the save to it.', [
+                'comic_id' => $comic->getId(),
+            ]);
+            $this->managerRegistry->resetManager();
+            $freshManager = $this->managerRegistry->getManager();
+            $freshUser = $freshManager->find(User::class, $user->getId());
+            $freshComic = $freshManager->find(Comic::class, $comic->getId());
+
+            // Losing the race is recoverable; losing the comic is not. If the
+            // owner deleted it in the same instant, there is nothing left to
+            // record a position against.
+            if (!$freshManager instanceof EntityManagerInterface
+                || !$freshUser instanceof User
+                || !$freshComic instanceof Comic
+            ) {
+                throw $exception;
+            }
+
+            return $this->updateReadingProgress(
+                $freshUser,
+                $freshComic,
+                $currentPage,
+                $freshManager,
+                $completed,
+                $revision,
+                true
+            );
+        }
+
         return $progress;
     }
 

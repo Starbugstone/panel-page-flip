@@ -26,6 +26,9 @@ class TagRepository extends ServiceEntityRepository
         'isGlobal' => 't.isGlobal',
     ];
 
+    /** Upper bound on an autocomplete response; nobody scrolls past this. */
+    public const SEARCH_LIMIT = 50;
+
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, Tag::class);
@@ -104,16 +107,32 @@ class TagRepository extends ServiceEntityRepository
     }
 
     /**
-     * Find tags by partial name match
+     * Tags matching a partial name, for the tag autocomplete.
+     *
+     * Both the scope and the limit are applied in the query. They used to be
+     * neither: every tag in the install whose name matched was hydrated and
+     * then filtered down to the caller's own in PHP, so one keystroke against a
+     * large install loaded the whole tag table to return a handful of rows.
+     *
+     * @param User|null $visibleTo Restrict to what this user may see — global
+     *                             tags plus their own. Null keeps every tag,
+     *                             for the admin tag table.
+     * @return list<Tag>
      */
-    public function findByNameLike(string $name)
+    public function findByNameLike(string $name, ?User $visibleTo = null, int $limit = self::SEARCH_LIMIT): array
     {
-        return $this->createQueryBuilder('t')
+        $qb = $this->createQueryBuilder('t')
             ->where('LOWER(t.name) LIKE LOWER(:name)')
             ->setParameter('name', '%' . strtolower($name) . '%')
             ->orderBy('t.name', 'ASC')
-            ->getQuery()
-            ->getResult();
+            ->setMaxResults($limit);
+
+        if ($visibleTo !== null) {
+            $qb->andWhere($qb->expr()->orX('t.isGlobal = true', 't.creator = :visibleTo'))
+                ->setParameter('visibleTo', $visibleTo);
+        }
+
+        return $qb->getQuery()->getResult();
     }
 
     /** @return list<Tag> */

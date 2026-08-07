@@ -90,6 +90,7 @@ services:
             $comicsDirectory: '%comics_directory%'
             $uploadMaxTotalBytes: '%upload_max_total_bytes%'
             $uploadUserQuotaBytes: '%upload_user_quota_bytes%'
+            $pageIndexCache: '@comic.page_index.cache'
 
     App\Service\ComicCleanupService:
         arguments:

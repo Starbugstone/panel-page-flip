@@ -8,6 +8,7 @@ use App\Entity\User;
 use App\Repository\AdminAuditLogRepository;
 use App\Service\AdminAuditService;
 use App\Service\ComicCleanupService;
+use App\Service\DropboxImportService;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -91,23 +92,23 @@ class AdminController extends AbstractController
             ->getQuery()
             ->getResult();
 
-        return $this->json([
-            'users' => array_map(function (User $user): array {
-                $dropboxComicCount = 0;
-                foreach ($user->getComics() as $comic) {
-                    if ($comic->getDescription() === 'Synced from Dropbox') {
-                        $dropboxComicCount++;
-                    }
-                }
+        // One grouped count rather than walking every user's whole comic
+        // collection in PHP. The old loop lazy-loaded each connected user's
+        // entire library — every row, every column — to compare one string, so
+        // opening this page hydrated the comic table once per Dropbox user.
+        $comicCounts = $entityManager->getRepository(Comic::class)->countByOwnerWithDescription(
+            array_map(static fn (User $user): int => $user->getId(), $users),
+            DropboxImportService::IMPORT_DESCRIPTION
+        );
 
-                return [
-                    'id' => $user->getId(),
-                    'email' => $user->getEmail(),
-                    'name' => $user->getName(),
-                    'lastSyncedAt' => $user->getDropboxLastSyncedAt()?->format('c'),
-                    'dropboxComicCount' => $dropboxComicCount,
-                ];
-            }, $users),
+        return $this->json([
+            'users' => array_map(static fn (User $user): array => [
+                'id' => $user->getId(),
+                'email' => $user->getEmail(),
+                'name' => $user->getName(),
+                'lastSyncedAt' => $user->getDropboxLastSyncedAt()?->format('c'),
+                'dropboxComicCount' => $comicCounts[$user->getId()] ?? 0,
+            ], $users),
         ]);
     }
 

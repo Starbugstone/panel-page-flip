@@ -12,9 +12,24 @@ class AuthenticationFailureHandler implements AuthenticationFailureHandlerInterf
 {
     public function onAuthenticationFailure(Request $request, AuthenticationException $exception): Response
     {
+        // The one failure the client is told the reason for, because there is
+        // something the user can do about it and the address is their own.
+        if ($exception instanceof UnverifiedEmailException) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => $exception->getMessageKey(),
+                'requiresVerification' => true,
+                'email' => $exception->getEmail(),
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        // Everything else gets one indistinguishable answer. The internal
+        // message used to be echoed back, which distinguishes "no such user"
+        // from "wrong password" and turns the login form into an account
+        // enumeration oracle.
         return new JsonResponse([
             'success' => false,
-            'message' => 'Authentication failed: ' . $exception->getMessage(),
+            'message' => 'Invalid credentials.',
         ], Response::HTTP_UNAUTHORIZED);
     }
 }
