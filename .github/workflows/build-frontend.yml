@@ -45,6 +45,13 @@ jobs:
       - name: Test
         run: npm run test
 
+      # The tool zips and their checksums are committed, so nothing rebuilds
+      # them on the way to production. Without this, editing a script under
+      # scripts/comic-conversion/ would ship a download that no longer matches
+      # the checksum shown next to it.
+      - name: Check conversion tool downloads
+        run: npm run check:tools
+
       - name: Build production frontend
         run: npm run build
         env:

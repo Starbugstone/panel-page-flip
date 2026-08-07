@@ -65,7 +65,12 @@ fi
 # A small ZIP archive under the given name: stands in for a CBR.
 make_fake_comic() {
   local target="$1" pages="${2:-2}" stage i status
-  stage="$(mktemp -d "${TMPDIR:-/tmp}/cbr2cbz_stage.XXXXXXXX")"
+  # An empty stage would hand 7-Zip a bare /* below, so a failed mktemp stops
+  # the run rather than archiving the filesystem root.
+  if ! stage="$(mktemp -d "${TMPDIR:-/tmp}/cbr2cbz_stage.XXXXXXXX")" || [ -z "$stage" ]; then
+    printf 'Could not create the staging directory for the test fixture %s.\n' "$target" >&2
+    exit 2
+  fi
   for (( i = 1; i <= pages; i++ )); do
     printf 'page %d\n' "$i" > "$(printf '%s/page%02d.txt' "$stage" "$i")"
   done
@@ -115,7 +120,12 @@ assert_contains() {
 begin_case() {
   current_case="$1"
   case_ok=1
-  sandbox="$(mktemp -d "${TMPDIR:-/tmp}/cbr2cbz_test.XXXXXXXX")"
+  # Same reason as the staging directory above: an empty sandbox would point
+  # every path in the case at the filesystem root.
+  if ! sandbox="$(mktemp -d "${TMPDIR:-/tmp}/cbr2cbz_test.XXXXXXXX")" || [ -z "$sandbox" ]; then
+    printf 'Could not create the sandbox directory for: %s\n' "$current_case" >&2
+    exit 2
+  fi
 }
 
 end_case() {

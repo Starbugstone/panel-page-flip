@@ -122,11 +122,20 @@ export default function ComicReader() {
   }, []);
 
   useEffect(() => {
+    // The route param can change without remounting, so the previous comic has
+    // to be cleared and its in-flight request disowned. Otherwise a reader that
+    // moves from a comic that loaded to one that 404s keeps rendering the first
+    // one's pages under the second one's id — and saves progress against it.
+    let active = true;
+
     const loadComic = async () => {
       setIsLoading(true);
       setLoadError(null);
+      setComic(null);
+      setComicPages([]);
       try {
         const data = await api.get(`/api/comics/${comicId}`);
+        if (!active) return;
         setComic(data.comic);
         // Reset image loading states for the new comic
         setIsPageImageLoading(true);
@@ -157,6 +166,7 @@ export default function ComicReader() {
         }
 
       } catch (error) {
+        if (!active) return;
         logger.error("Failed to load comic:", error);
         setLoadError(error);
         // A 404 is not retryable and the inline panel below already spells it
@@ -173,7 +183,7 @@ export default function ComicReader() {
         }
         // navigate("/dashboard"); // Optional: navigate away on general error
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
     };
 
@@ -188,6 +198,8 @@ export default function ComicReader() {
       navigate("/dashboard");
       setIsLoading(false);
     }
+
+    return () => { active = false; };
   }, [comicId, navigate, toast]);
 
   // Function to check if a page index is within the cache window
