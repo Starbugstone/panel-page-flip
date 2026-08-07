@@ -204,6 +204,15 @@ permanent second copy the model exists to avoid.
 3. The link is `{frontendUrl}/share/invitation/{token}` and is returned once in
    the response for the owner to copy
 
+Sends and resends are limited per owner by the `share_invitation` rate limiter
+(`config/packages/rate_limiter.yaml`, sliding window, 10 per hour). The
+framework's limiter is lock-backed, so the check and the record are one atomic
+step — counting recent invitations and then creating another is a read followed
+by a write, and concurrent requests can all read the same figure and all decide
+they are under the limit. The allowance is claimed immediately before an
+invitation is issued, so a request rejected as a duplicate, by permissions, or
+by validation does not spend it.
+
 #### Answering
 1. The email carries a single **Review invitation** link
 2. `GET /api/shares/invitations/{token}` returns cover, title, author, page

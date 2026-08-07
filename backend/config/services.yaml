@@ -73,6 +73,10 @@ services:
             $registerLimiter: '@limiter.register'
             $forgotPasswordLimiter: '@limiter.forgot_password'
             $verificationResendLimiter: '@limiter.verification_resend'
+
+    App\Service\ComicShareService:
+        arguments:
+            $shareInvitationLimiter: '@limiter.share_invitation'
             
     # Test mail command with mailer configuration
     App\Command\TestMailCommand:

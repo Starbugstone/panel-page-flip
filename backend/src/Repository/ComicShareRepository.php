@@ -288,20 +288,6 @@ class ComicShareRepository extends ServiceEntityRepository
             ->setParameter('dead', [ComicShare::STATUS_REVOKED, ComicShare::STATUS_DECLINED]);
     }
 
-    /** How many invitations this user has sent since a given moment. */
-    public function countInvitationsSentSince(User $user, \DateTimeInterface $since): int
-    {
-        return (int) $this->createQueryBuilder('s')
-            ->select('COUNT(t.id)')
-            ->join('s.invitationTokens', 't')
-            ->andWhere('s.owner = :owner')
-            ->andWhere('t.createdAt >= :since')
-            ->setParameter('owner', $user)
-            ->setParameter('since', $since)
-            ->getQuery()
-            ->getSingleScalarResult();
-    }
-
     /**
      * Pending invitations whose window has closed. Nothing can be done with
      * them any more and they hold a non-user's email address, so they are

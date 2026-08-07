@@ -650,6 +650,50 @@ final class ShareControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
     }
 
+    public function testInvitationsAreRateLimitedPerOwner(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'prolific@test.local']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        for ($i = 0; $i < 10; ++$i) {
+            $this->postJson(
+                '/api/shares/comics/' . $comic->getId() . '/invitations',
+                ['email' => sprintf('guest%d@example.com', $i)]
+            );
+            self::assertResponseStatusCodeSame(201, sprintf('Invitation %d should be within the allowance.', $i + 1));
+        }
+
+        $payload = $this->postJson(
+            '/api/shares/comics/' . $comic->getId() . '/invitations',
+            ['email' => 'one-too-many@example.com']
+        );
+
+        self::assertResponseStatusCodeSame(429);
+        self::assertStringContainsString('too many invitations', $payload['message']);
+    }
+
+    public function testRejectedInvitationsDoNotSpendTheAllowance(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'careful-sharer@test.local']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        // Requests turned away before anything is sent — a duplicate, and an
+        // attempt to share with yourself — must not count against the limit.
+        $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => 'guest@example.com']);
+        self::assertResponseStatusCodeSame(201);
+
+        for ($i = 0; $i < 5; ++$i) {
+            $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => 'guest@example.com']);
+            self::assertResponseStatusCodeSame(409);
+            $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => 'careful-sharer@test.local']);
+            self::assertResponseStatusCodeSame(400);
+        }
+
+        // Nine of the ten remain, so this is still accepted.
+        $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => 'another@example.com']);
+        self::assertResponseStatusCodeSame(201);
+    }
+
     public function testSummaryCountsPendingInvitationsForTheNavigationBadge(): void
     {
         $owner = UserFactory::createOne()->object();

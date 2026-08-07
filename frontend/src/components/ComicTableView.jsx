@@ -39,12 +39,19 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
   );
   const selectedComicIds = comicIds.filter((comicId) => selectedIds.has(comicId));
   const allSelected = comicIds.length > 0 && selectedComicIds.length === comicIds.length;
-  const bulkShareImpact = useMemo(
-    () => describeBulkShareImpactOfDeletion(
-      comics.filter((comic) => selectedIds.has(comic.id))
-    ),
+  // The selection as the server will see it. `selectedIds` is raw state that
+  // outlives the list — a comic can leave `comics` and come back — so every
+  // reader derives from this instead, and the checkbox, the counter, the
+  // warning and the request cannot describe different sets of comics.
+  const selectedComics = useMemo(
+    () => comics.filter((comic) => isSelectable(comic) && selectedIds.has(comic.id)),
     [comics, selectedIds]
   );
+  const bulkShareImpact = useMemo(
+    () => describeBulkShareImpactOfDeletion(selectedComics),
+    [selectedComics]
+  );
+  const isChecked = (comic) => isSelectable(comic) && selectedIds.has(comic.id);
 
   const toggleAll = (checked) => {
     setSelectedIds(checked ? new Set(comicIds) : new Set());
@@ -161,10 +168,10 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
             {comics.map((comic) => {
               const progress = getComicProgressState(comic);
               return (
-                <TableRow key={comic.id} className={cn(progress.rowClass, selectedIds.has(comic.id) && "ring-1 ring-inset ring-primary")}>
+                <TableRow key={comic.id} className={cn(progress.rowClass, isChecked(comic) && "ring-1 ring-inset ring-primary")}>
                   <TableCell>
                     <Checkbox
-                      checked={selectedIds.has(comic.id)}
+                      checked={isChecked(comic)}
                       onCheckedChange={(checked) => toggleComic(comic.id, checked)}
                       disabled={!isSelectable(comic)}
                       aria-label={isSelectable(comic)

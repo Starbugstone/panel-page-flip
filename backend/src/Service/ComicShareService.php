@@ -14,6 +14,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Twig\Environment;
 
 /**
@@ -28,9 +29,6 @@ class ComicShareService
     /** How long an unanswered invitation stays open. */
     public const INVITATION_TTL = '+7 days';
 
-    /** Invitations one owner may send or resend per hour. */
-    public const MAX_INVITATIONS_PER_HOUR = 10;
-
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly ComicShareRepository $shareRepository,
@@ -38,6 +36,7 @@ class ComicShareService
         private readonly MailerInterface $mailer,
         private readonly Environment $twig,
         private readonly LoggerInterface $logger,
+        private readonly RateLimiterFactory $shareInvitationLimiter,
         #[Autowire('%frontend_url%')]
         private readonly string $frontendUrl,
         #[Autowire('%mailer_from_address%')]
@@ -68,8 +67,6 @@ class ComicShareService
         if ($email === ComicShare::normaliseEmail((string) $owner->getEmail())) {
             throw new ShareException('You already own this comic.', 400);
         }
-
-        $this->assertWithinInvitationRate($owner);
 
         // Keyed on the comic, so this only ever finds a live relationship: a
         // tombstone holds a null comic and is invisible here by construction.
@@ -125,7 +122,6 @@ class ComicShareService
             throw new ShareException('That invitation has already been accepted.', 409);
         }
 
-        $this->assertWithinInvitationRate($owner);
         $share->markPending($this->invitationExpiry())->refreshSnapshots();
 
         return $this->issueInvitation($share, $comic, $owner);
@@ -364,6 +360,9 @@ class ComicShareService
      */
     private function issueInvitation(ComicShare $share, Comic $comic, User $owner): IssuedInvitation
     {
+        // The last thing checked before anything is created or sent, so only
+        // invitations that actually go out count against the allowance.
+        $this->reserveInvitationAllowance($owner);
         $this->revokeOutstandingTokens($share);
 
         [$plaintext, $hash] = ShareInvitationToken::generate();
@@ -491,18 +490,32 @@ class ComicShareService
     }
 
     /**
+     * Claim one invitation against the owner's hourly allowance.
+     *
+     * Reserves rather than checks. Counting sent invitations and then creating
+     * another is a read followed by a write, and concurrent requests can all
+     * read the same figure and all decide they are under the limit — which is
+     * exactly the thing a rate limit exists to stop. The framework's limiter
+     * takes a lock around the whole read-decide-record step, so the allowance
+     * holds however many requests arrive at once.
+     *
+     * Called immediately before an invitation is issued, so a request rejected
+     * as a duplicate or by permissions does not spend anybody's allowance.
+     *
      * @throws ShareException
      */
-    private function assertWithinInvitationRate(User $owner): void
+    private function reserveInvitationAllowance(User $owner): void
     {
-        $sent = $this->shareRepository->countInvitationsSentSince(
-            $owner,
-            new \DateTimeImmutable('-1 hour')
-        );
+        $limit = $this->shareInvitationLimiter->create((string) $owner->getId())->consume();
 
-        if ($sent >= self::MAX_INVITATIONS_PER_HOUR) {
+        if (!$limit->isAccepted()) {
+            $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
+
             throw new ShareException(
-                'You have sent too many invitations recently. Please try again later.',
+                sprintf(
+                    'You have sent too many invitations recently. Please try again in %d minute(s).',
+                    (int) ceil($retryAfter / 60)
+                ),
                 429
             );
         }
