@@ -41,6 +41,27 @@ if ! seven_zip="$(find_seven_zip)"; then
   exit 2
 fi
 
+# Homebrew's coreutils installs GNU timeout as gtimeout to keep it clear of the
+# BSD tools, so macOS is checked under both names.
+find_timeout() {
+  local candidate
+  for candidate in timeout gtimeout; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Every run of the script under test is bounded, so there is no point starting a
+# suite that cannot bound them: an unbounded run would hang instead of failing,
+# which is the one outcome this whole arrangement exists to avoid.
+if ! timeout_cmd="$(find_timeout)"; then
+  printf 'A timeout command is required to run these tests. Install coreutils (gtimeout on macOS).\n' >&2
+  exit 2
+fi
+
 # A small ZIP archive under the given name: stands in for a CBR.
 make_fake_comic() {
   local target="$1" pages="${2:-2}" stage i status
@@ -63,11 +84,7 @@ make_fake_comic() {
 # Bounded, so a regression that makes the script wait forever fails the suite
 # rather than hanging it.
 run_script() {
-  if command -v timeout >/dev/null 2>&1; then
-    last_output="$(timeout 60 "$script_under_test" "$@" 2>&1)"
-  else
-    last_output="$("$script_under_test" "$@" 2>&1)"
-  fi
+  last_output="$("$timeout_cmd" 60 "$script_under_test" "$@" 2>&1)"
   last_exit=$?
 }
 
