@@ -328,18 +328,7 @@ class ComicShareService
      */
     public function regateSharesForComic(Comic $comic): int
     {
-        $regated = 0;
-
-        foreach ($this->shareRepository->findLiveSharesForComic($comic) as $share) {
-            if ($share->getAdultConfirmedAt() === null) {
-                continue;
-            }
-
-            $share->resetAdultConfirmation();
-            ++$regated;
-        }
-
-        return $regated;
+        return $this->shareRepository->resetAdultConfirmationsForComic($comic);
     }
 
     /** Withdraw one recipient's access. Takes effect on the next request. */

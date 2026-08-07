@@ -1,5 +1,12 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -109,6 +116,9 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Edit Comic Details</DialogTitle>
+          <DialogDescription>
+            Update the information fans see for this comic, including its 18+ classification.
+          </DialogDescription>
         </DialogHeader>
         
         <div className="grid gap-4 py-4">

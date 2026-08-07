@@ -149,6 +149,29 @@ class ComicShareRepository extends ServiceEntityRepository
     }
 
     /**
+     * Close the adult gate for every live share without hydrating each row.
+     *
+     * Reclassification is a single database update even when a popular comic
+     * has many recipients. Shares which are already closed are excluded so the
+     * affected-row count remains useful to callers and the database does not
+     * rewrite unchanged records.
+     */
+    public function resetAdultConfirmationsForComic(Comic $comic): int
+    {
+        return $this->createQueryBuilder('s')
+            ->update()
+            ->set('s.adultConfirmedAt', 'NULL')
+            ->andWhere('s.comic = :comic')
+            ->andWhere('s.unavailableAt IS NULL')
+            ->andWhere('s.status IN (:live)')
+            ->andWhere('s.adultConfirmedAt IS NOT NULL')
+            ->setParameter('comic', $comic)
+            ->setParameter('live', [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED])
+            ->getQuery()
+            ->execute();
+    }
+
+    /**
      * How many people each of these comics is actively shared with, indexed by
      * comic id. Batched because the library endpoint needs it for every card.
      *
