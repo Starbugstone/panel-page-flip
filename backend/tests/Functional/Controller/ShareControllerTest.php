@@ -614,6 +614,60 @@ final class ShareControllerTest extends AbstractApiTestCase
         self::assertSame(ShareInvitationToken::hash($plaintext), $tokens[0]->getTokenHash());
     }
 
+    public function testAnInvitationLinkIsGoodForOneClaimWithinTwoMonths(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'lifecycle@test.local']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $payload = $this->postInvitation((int) $comic->getId(), 'claimant@test.local');
+        self::assertResponseStatusCodeSame(201);
+        $plaintext = substr((string) strrchr($payload['invitationUrl'], '/'), 1);
+
+        // The window is two months, and the link and the relationship share it,
+        // so neither can outlive the other.
+        $expiresAt = new \DateTimeImmutable($payload['share']['expiresAt']);
+        self::assertGreaterThan(new \DateTimeImmutable('+59 days'), $expiresAt);
+        self::assertLessThan(new \DateTimeImmutable('+62 days'), $expiresAt);
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $tokens = $entityManager->getRepository(ShareInvitationToken::class)->findAll();
+        self::assertCount(1, $tokens);
+        self::assertEqualsWithDelta(
+            $expiresAt->getTimestamp(),
+            $tokens[0]->getExpiresAt()->getTimestamp(),
+            5,
+            'The link and the invitation must run out together.'
+        );
+
+        // Previewing does not spend it, however many times it is followed.
+        // Mail scanners and link-preview services open links on the recipient's
+        // behalf, so a link that burned on a GET would be dead before the person
+        // it was sent to ever saw it.
+        $this->createAndLoginUser(['email' => 'claimant@test.local']);
+        foreach ([1, 2, 3] as $_) {
+            $this->getJson('/api/shares/invitations/' . $plaintext);
+            self::assertResponseIsSuccessful();
+        }
+
+        $this->postJson('/api/shares/invitations/' . $plaintext . '/accept');
+        self::assertResponseIsSuccessful();
+
+        // Claimed, and therefore spent — for every one of the things a link can
+        // be used for, not merely the one that spent it.
+        $entityManager->clear();
+        $spent = $entityManager->getRepository(ShareInvitationToken::class)->findAll();
+        self::assertCount(1, $spent);
+        self::assertNotNull($spent[0]->getUsedAt());
+        self::assertFalse($spent[0]->isUsable());
+
+        $this->getJson('/api/shares/invitations/' . $plaintext);
+        self::assertResponseStatusCodeSame(409);
+        $this->postJson('/api/shares/invitations/' . $plaintext . '/accept');
+        self::assertResponseStatusCodeSame(409);
+        $this->postJson('/api/shares/invitations/' . $plaintext . '/decline');
+        self::assertResponseStatusCodeSame(409);
+    }
+
     public function testResendingInvalidatesThePreviousLink(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'resender@test.local']);
@@ -731,7 +785,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         $share = $this->persistShare($comic, $owner, $recipientEmail);
 
         [$plaintext, $hash] = ShareInvitationToken::generate();
-        $token = new ShareInvitationToken($share, $hash, new \DateTimeImmutable('+7 days'));
+        $token = new ShareInvitationToken($share, $hash, new \DateTimeImmutable(ComicShareService::INVITATION_TTL));
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $entityManager->persist($token);
@@ -747,7 +801,7 @@ final class ShareControllerTest extends AbstractApiTestCase
             $this->managed(User::class, (int) $owner->getId()),
             $recipientEmail
         );
-        $share->markPending(new \DateTimeImmutable('+7 days'));
+        $share->markPending(new \DateTimeImmutable(ComicShareService::INVITATION_TTL));
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $entityManager->persist($share);

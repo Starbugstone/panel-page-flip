@@ -340,6 +340,29 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     /* Making the declaration                                                  */
     /* ---------------------------------------------------------------------- */
 
+    public function testASpentLinkCannotBeUsedToConfirmAnAgeEither(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $recipient = $this->createAndLoginUser(['email' => 'spent@test.local']);
+        [$share, $plaintext] = $this->createPendingInvitation($comic, $owner, (string) $recipient->getEmail());
+
+        $this->postJson('/api/shares/invitations/' . $plaintext . '/confirm-adult', ['adultConfirmed' => true]);
+        self::assertResponseIsSuccessful();
+        $this->postJson('/api/shares/invitations/' . $plaintext . '/accept');
+        self::assertResponseIsSuccessful();
+
+        // Accepting spends the link, and the age endpoint resolves the same
+        // token as everything else — so it cannot become a way back in for a
+        // link that has already been claimed.
+        $this->postJson('/api/shares/invitations/' . $plaintext . '/confirm-adult', ['adultConfirmed' => true]);
+        self::assertResponseStatusCodeSame(409);
+
+        // The share the recipient legitimately holds is untouched by that.
+        $this->refresh();
+        self::assertNotNull($this->managed(ComicShare::class, (int) $share->getId())->getAdultConfirmedAt());
+    }
+
     public function testOnlyTheIntendedRecipientCanConfirmTheirAge(): void
     {
         $owner = UserFactory::createOne()->object();
@@ -785,7 +808,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         $share = $this->persistShare($comic, $owner, $recipientEmail);
 
         [$plaintext, $hash] = ShareInvitationToken::generate();
-        $token = new ShareInvitationToken($share, $hash, new \DateTimeImmutable('+7 days'));
+        $token = new ShareInvitationToken($share, $hash, new \DateTimeImmutable(ComicShareService::INVITATION_TTL));
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $entityManager->persist($token);
@@ -801,7 +824,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
             $this->managed(User::class, (int) $owner->getId()),
             $recipientEmail
         );
-        $share->markPending(new \DateTimeImmutable('+7 days'))->acceptSenderResponsibility();
+        $share->markPending(new \DateTimeImmutable(ComicShareService::INVITATION_TTL))->acceptSenderResponsibility();
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $entityManager->persist($share);

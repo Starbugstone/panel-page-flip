@@ -38,7 +38,7 @@ This document provides detailed information for developers working on the projec
 
 #### ✅ Comic Sharing System
 - **ComicShare Entity**: Defined in `ComicShare.php`. A durable, revocable grant of read access to the owner's single copy — sharing never creates a second `Comic` row or a second file
-- **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored; resending mints a new token and retires the old link
+- **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored. One link per invitation, good for a single claim within two months; accepting spends it and revokes every other token for that share, and resending mints a new one and retires the old link
 - **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
 - **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
@@ -181,6 +181,29 @@ already been accepted survives both.
 A raw 256-bit token needs no work factor: there is no dictionary to slow an
 attacker down through.
 
+##### One link, one claim
+
+`isUsable()` is the whole rule: unused, unrevoked, and not past `expiresAt`.
+Every way a share can move on retires the links it had — accepting spends the one
+that was used and revokes the rest, and declining, revoking, stopping sharing,
+resending and tombstoning all revoke outstanding tokens. So a claimed link is
+dead for *every* purpose afterwards, not only for the one that claimed it:
+previewing, accepting, declining and confirming an age all resolve the same
+token and all refuse.
+
+**Previewing deliberately does not spend it.** Mail scanners, corporate link
+checkers and preview bots follow links without a person behind them, so a token
+that burned on a `GET` would be dead before the recipient ever saw it. That is
+why the link is not what keeps anyone out: it only ever previews. Accepting
+requires signing in as the intended recipient, and for an explicit comic the
+preview reveals nothing to a link holder at all.
+
+`INVITATION_TTL` is **two months**, and one constant sets both the token's expiry
+and the pending share's, so a link and the invitation behind it can never
+disagree about whether they are still live. Two months because answering is not
+always quick — the recipient may have no account here yet — against the cost that
+an escaped link stays live longer.
+
 ### Permissions
 
 `ComicVoter` is the single place that decides access. Every endpoint serving any
@@ -222,15 +245,19 @@ invitation is issued, so a request rejected as a duplicate, by permissions, or
 by validation does not spend it.
 
 #### Answering
-1. The email carries a single **Review invitation** link
-2. `GET /api/shares/invitations/{token}` returns cover, title, author, page
-   count, sender and expiry, and changes nothing — mail scanners and
+1. The email carries a single **Review invitation** link, good for one claim
+   within two months
+2. `GET /api/shares/invitations/{token}` returns sender and expiry — plus cover,
+   title, author and page count for a comic that is not classified 18+ — and
+   changes nothing. It does not spend the token, because mail scanners and
    link-preview services follow links without a person behind them
 3. `POST .../accept` or `.../decline` requires a button press. A signed-in
    recipient can also answer from `/sharing` without the token, since they have
    already identified themselves more strongly than the token could
-4. Accepting sets the status, spends every outstanding token, and the comic
-   appears in the recipient's normal collection
+4. Accepting sets the status, **spends the link and revokes every other
+   outstanding token for that share**, and the comic appears in the recipient's
+   normal collection. From then on the link refuses every use — preview, accept,
+   decline and age confirmation alike
 
 #### Losing access
 - **Revoke one recipient** (`POST /api/shares/{id}/revoke`) or **stop sharing

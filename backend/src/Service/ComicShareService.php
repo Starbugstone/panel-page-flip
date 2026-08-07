@@ -26,8 +26,20 @@ use Twig\Environment;
  */
 class ComicShareService
 {
-    /** How long an unanswered invitation stays open. */
-    public const INVITATION_TTL = '+7 days';
+    /**
+     * How long an unanswered invitation stays open — the link and the pending
+     * relationship together, so the two can never disagree about whether an
+     * invitation is still live.
+     *
+     * Two months, because answering one is not always quick: the recipient may
+     * have no account here yet, and a week is easy to lose to a holiday or a
+     * full inbox. The cost is that a link which escapes — forwarded, scanned,
+     * sitting in a proxy log — stays live for longer, which is why the window is
+     * not the thing keeping anybody out. A link only ever previews; accepting
+     * requires signing in as the intended recipient, and an explicit comic
+     * reveals nothing to a link holder at all.
+     */
+    public const INVITATION_TTL = '+2 months';
 
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
