@@ -56,10 +56,11 @@ class FrontendController extends AbstractController
             'admin',
             'dropbox-sync',
             'settings',
+            'sharing',
         ], true)) {
             return true;
         }
 
-        return preg_match('#^(?:reset-password/[^/]+|read/[^/]+|share/accept/[^/]+)$#', $route) === 1;
+        return preg_match('#^(?:reset-password/[^/]+|read/[^/]+|share/invitation/[^/]+)$#', $route) === 1;
     }
 }

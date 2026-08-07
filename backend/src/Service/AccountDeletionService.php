@@ -3,30 +3,29 @@
 namespace App\Service;
 
 use App\Entity\AdminAuditLog;
-use App\Entity\ShareToken;
+use App\Entity\ComicShare;
 use App\Entity\User;
+use App\Repository\ComicShareRepository;
 use App\Repository\UserRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 final class AccountDeletionService
 {
     public function __construct(
         private readonly ManagerRegistry $managerRegistry,
         private readonly ComicService $comicService,
+        private readonly ComicShareService $shareService,
+        private readonly ComicShareRepository $shareRepository,
         private readonly FileQuarantineService $fileQuarantine,
         private readonly PendingFileDeletionService $pendingFileDeletion,
         private readonly UserRepository $userRepository,
-        #[Autowire('%public_shares_directory%')]
-        private readonly string $publicSharesDirectory,
     ) {
     }
 
     public function delete(User $user): void
     {
         $quarantinedFiles = [];
-        $publicCoverPaths = [];
         $pendingFileDeletions = [];
         $entityManager = $this->entityManager();
         // Avoid nesting commits when a caller (or the test suite) already owns
@@ -46,15 +45,22 @@ final class AccountDeletionService
             }
 
             foreach ($user->getComics()->toArray() as $comic) {
+                // Recipients of this comic are told it went away with its
+                // owner's account rather than finding it silently missing.
+                $this->shareService->tombstoneSharesForComic($comic, ComicShare::REASON_OWNER_ACCOUNT_DELETED);
                 array_push($quarantinedFiles, ...$this->comicService->quarantineComicFiles($comic));
             }
 
-            foreach ($this->findRelatedShares($user) as $share) {
-                if ($share->getPublicCoverPath()) {
-                    $publicCoverPaths[] = rtrim($this->publicSharesDirectory, '/\\')
-                        . DIRECTORY_SEPARATOR . basename($share->getPublicCoverPath());
+            foreach ($this->shareRepository->findAllInvolving($user) as $share) {
+                // Anything addressed to this user holds their email address, so
+                // it goes; the tombstones they left behind for other people stay
+                // but stop naming them.
+                if ($this->isRecipient($share, $user)) {
+                    $entityManager->remove($share);
+                    continue;
                 }
-                $entityManager->remove($share);
+
+                $share->anonymiseOwner();
             }
 
             foreach ($user->getCreatedTags()->toArray() as $tag) {
@@ -64,10 +70,9 @@ final class AccountDeletionService
                 $entityManager->remove($tag);
             }
 
-            $pendingFileDeletions = $this->pendingFileDeletion->queue([
-                ...array_column($quarantinedFiles, 'quarantinePath'),
-                ...$publicCoverPaths,
-            ]);
+            $pendingFileDeletions = $this->pendingFileDeletion->queue(
+                array_column($quarantinedFiles, 'quarantinePath')
+            );
             $this->anonymiseAuditHistory($user);
             $entityManager->remove($user);
             $entityManager->flush();
@@ -88,22 +93,10 @@ final class AccountDeletionService
         }
     }
 
-    /**
-     * @return list<ShareToken>
-     */
-    private function findRelatedShares(User $user): array
+    private function isRecipient(ComicShare $share, User $user): bool
     {
-        return $this->entityManager()->createQueryBuilder()
-            ->select('s')
-            ->from(ShareToken::class, 's')
-            ->join('s.comic', 'comic')
-            ->where('s.sharedByUser = :user')
-            ->orWhere('LOWER(s.sharedWithEmail) = :email')
-            ->orWhere('comic.owner = :user')
-            ->setParameter('user', $user)
-            ->setParameter('email', strtolower((string) $user->getEmail()))
-            ->getQuery()
-            ->getResult();
+        return $share->getRecipientUser()?->getId() === $user->getId()
+            || $share->getRecipientEmailNormalized() === ComicShare::normaliseEmail((string) $user->getEmail());
     }
 
     private function anonymiseAuditHistory(User $user): void

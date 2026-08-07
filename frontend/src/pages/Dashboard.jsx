@@ -15,6 +15,7 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { getComicProgressState } from "@/lib/comic-progress";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
+import { useSharing } from "@/hooks/use-sharing.jsx";
 
 // Covers above the fold are worth fetching eagerly; the rest can wait until
 // they are scrolled towards.
@@ -32,7 +33,11 @@ export default function Dashboard() {
     updateComicProgress,
     removeComicsFromLibrary,
   } = useComicLibrary();
+  const { refreshSummary } = useSharing();
   const [isSearching, setIsSearching] = useState(false); // Specific state for search operations
+  // Which half of the collection to show. Applied server-side, because the
+  // shared half is decided by access records the client cannot see.
+  const [ownership, setOwnership] = useState("all");
   // A search keeps the current results visible under its own overlay; every
   // other first-time load has nothing to show yet but the skeleton.
   const showSkeleton = isLoading && !isSearching;
@@ -75,25 +80,27 @@ export default function Dashboard() {
     }
   }, [loadLibrary]);
 
-  const loadComics = useCallback(async () => {
-    setIsSearchActive(false); // Reset search active state
-    await fetchComicsFromApi('/api/comics');
-  }, [fetchComicsFromApi]);
-
-  const fetchFilteredComics = async (searchQuery, tagNamesArray) => {
-    let url = '/api/comics';
+  const buildLibraryUrl = useCallback((tagNamesArray = []) => {
     const queryParams = new URLSearchParams();
-    if (tagNamesArray && tagNamesArray.length > 0) {
+    if (tagNamesArray.length > 0) {
       queryParams.append('tags', tagNamesArray.join(','));
+    }
+    if (ownership !== 'all') {
+      queryParams.append('ownership', ownership);
     }
 
     const queryString = queryParams.toString();
-    if (queryString) {
-      url += `?${queryString}`;
-    }
+    return queryString ? `/api/comics?${queryString}` : '/api/comics';
+  }, [ownership]);
 
+  const loadComics = useCallback(async () => {
+    setIsSearchActive(false); // Reset search active state
+    await fetchComicsFromApi(buildLibraryUrl());
+  }, [fetchComicsFromApi, buildLibraryUrl]);
+
+  const fetchFilteredComics = async (searchQuery, tagNamesArray) => {
     setIsSearchActive(!!searchQuery || (tagNamesArray && tagNamesArray.length > 0));
-    await fetchComicsFromApi(url, searchQuery);
+    await fetchComicsFromApi(buildLibraryUrl(tagNamesArray || []), searchQuery);
   };
 
   useEffect(() => {
@@ -192,6 +199,21 @@ export default function Dashboard() {
     }
   };
 
+  /**
+   * Hide a comic somebody else shared. Nothing is deleted: the owner keeps it,
+   * and the Sharing page can put it back while they still share it.
+   */
+  const removeSharedComic = async (comic) => {
+    try {
+      await api.post(`/api/shares/${comic.shareId}/remove`, {});
+      removeComicsFromLibrary([comic.id]);
+      refreshSummary();
+    } catch (error) {
+      logger.error("Error removing a shared comic:", error);
+      throw error;
+    }
+  };
+
   const addTagToSelectedComics = async (comicIds, tag) => {
     try {
       await api.patch("/api/comics", {
@@ -267,6 +289,25 @@ export default function Dashboard() {
           )}
         </div>
         <div className="flex flex-wrap items-center justify-center gap-2">
+          {/* Owned and shared comics read the same way, so they live in one
+              collection; this is for the times you want to see only one. */}
+          <div className="flex rounded-md border p-1" role="group" aria-label="Show comics">
+            {[
+              { value: "all", label: "All" },
+              { value: "mine", label: "Mine" },
+              { value: "shared", label: "Shared with me" },
+            ].map(({ value, label }) => (
+              <Button
+                key={value}
+                variant={ownership === value ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setOwnership(value)}
+                aria-pressed={ownership === value}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
           <div className="flex rounded-md border p-1" aria-label="Library view">
             <Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}>
               <Grid3X3 className="mr-2 h-4 w-4" /> Grid
@@ -324,14 +365,23 @@ export default function Dashboard() {
       ) : comics.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-xl text-muted-foreground mb-4">
-            {isSearchActive ? "No comics found matching your search" : "No comics in your library yet."}
+            {isSearchActive
+              ? "No comics found matching your search"
+              : ownership === "shared"
+                ? "Nobody has shared a comic with you yet."
+                : "No comics in your library yet."}
           </p>
           {isSearchActive && (
             <Button onClick={() => handleSearch({ query: "", tags: [] })}>
               Clear Search
             </Button>
           )}
-           {!isSearchActive && (
+           {!isSearchActive && ownership === "shared" && (
+             <Link to="/sharing">
+              <Button variant="outline">Go to Sharing</Button>
+            </Link>
+           )}
+           {!isSearchActive && ownership !== "shared" && (
              <Link to="/upload">
               <Button>Upload Your First Comic</Button>
             </Link>
@@ -378,6 +428,7 @@ export default function Dashboard() {
                     onEditComic={handleEditComic}
                     onDeleteComic={deleteComic}
                     onShareClick={handleOpenShareModal}
+                    onRemoveSharedComic={removeSharedComic}
                   />
                 ))}
               </div>

@@ -3,15 +3,15 @@
 namespace App\Service;
 
 use App\Entity\Comic;
-use App\Entity\ShareToken;
+use App\Entity\ComicShare;
 use App\Entity\User;
-use Doctrine\ORM\EntityManagerInterface;
+use App\Repository\ComicShareRepository;
 
 final class PersonalDataExporter
 {
     public function __construct(
-        private readonly EntityManagerInterface $entityManager,
         private readonly ComicSerializer $comicSerializer,
+        private readonly ComicShareRepository $shareRepository,
     ) {
     }
 
@@ -46,22 +46,10 @@ final class PersonalDataExporter
             ];
         }
 
-        $sentShares = $this->mapShares(
-            $this->entityManager->getRepository(ShareToken::class)->findBy(
-                ['sharedByUser' => $user],
-                ['createdAt' => 'ASC'],
-            ),
-        );
-        $receivedShares = $this->mapShares(
-            $this->entityManager->createQueryBuilder()
-                ->select('s')
-                ->from(ShareToken::class, 's')
-                ->where('LOWER(s.sharedWithEmail) = :email')
-                ->setParameter('email', strtolower((string) $user->getEmail()))
-                ->orderBy('s.createdAt', 'ASC')
-                ->getQuery()
-                ->getResult(),
-        );
+        // Tombstones included here, unlike on the sharing page: an export is a
+        // record of what is stored about the user, not a management view.
+        $sentShares = $this->mapShares($this->shareRepository->findAllForOwnerIncludingTombstones($user));
+        $receivedShares = $this->mapShares($this->shareRepository->findAllForRecipient($user));
 
         return [
             'exportedAt' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
@@ -81,8 +69,8 @@ final class PersonalDataExporter
             'comics' => $comics,
             'readingProgress' => $progress,
             'personalTags' => $tags,
-            'shareInvitationsSent' => $sentShares,
-            'shareInvitationsReceived' => $receivedShares,
+            'sharesGranted' => $sentShares,
+            'sharesReceived' => $receivedShares,
         ];
     }
 
@@ -114,20 +102,29 @@ final class PersonalDataExporter
     }
 
     /**
-     * @param list<ShareToken> $shares
+     * The comic reference falls back to the snapshot so a tombstoned share is
+     * still recognisable in an export.
+     *
+     * @param list<ComicShare> $shares
      * @return list<array<string, mixed>>
      */
     private function mapShares(array $shares): array
     {
         return array_map(
-            static fn (ShareToken $share): array => [
-                'comicId' => $share->getComic()->getId(),
-                'comicTitle' => $share->getComic()->getTitle(),
-                'senderUserId' => $share->getSharedByUser()->getId(),
-                'recipientEmail' => $share->getSharedWithEmail(),
+            static fn (ComicShare $share): array => [
+                'comicId' => $share->getComic()?->getId(),
+                'comicTitle' => $share->getComic()?->getTitle() ?? $share->getComicTitleSnapshot(),
+                'ownerUserId' => $share->getOwner()?->getId(),
+                'ownerName' => $share->getOwnerNameSnapshot(),
+                'recipientEmail' => $share->getRecipientEmailNormalized(),
+                'status' => $share->getStatus(),
                 'createdAt' => $share->getCreatedAt()->format(\DateTimeInterface::ATOM),
-                'expiresAt' => $share->getExpiresAt()->format(\DateTimeInterface::ATOM),
-                'used' => $share->isIsUsed(),
+                'acceptedAt' => $share->getAcceptedAt()?->format(\DateTimeInterface::ATOM),
+                'declinedAt' => $share->getDeclinedAt()?->format(\DateTimeInterface::ATOM),
+                'revokedAt' => $share->getRevokedAt()?->format(\DateTimeInterface::ATOM),
+                'expiresAt' => $share->getExpiresAt()?->format(\DateTimeInterface::ATOM),
+                'unavailableAt' => $share->getUnavailableAt()?->format(\DateTimeInterface::ATOM),
+                'tombstoneReason' => $share->getTombstoneReason(),
             ],
             $shares,
         );

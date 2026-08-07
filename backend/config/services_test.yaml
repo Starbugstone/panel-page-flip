@@ -3,12 +3,19 @@ parameters:
     # create and delete files under these paths, and pointing them at
     # public/uploads puts real comics within reach of a test's cleanup.
     comics_directory: '%kernel.project_dir%/var/test-uploads/comics'
-    public_shares_directory: '%kernel.project_dir%/var/test-uploads/shared'
 
 services:
     _defaults:
         autowire: true
         autoconfigure: true
+
+    # Rate-limiter state lives in a cache pool that outlives the database, so a
+    # recycled user id would inherit whatever allowance the previous run had
+    # already spent — and the suite would pass once, then fail on a re-run.
+    # In-memory storage is per kernel, so each test starts from a clean
+    # allowance and the limits can still be exercised within one test.
+    limiter.storage.share_invitation:
+        class: Symfony\Component\RateLimiter\Storage\InMemoryStorage
 
     App\Tests\:
         resource: '../tests/'

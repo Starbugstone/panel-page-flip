@@ -3,14 +3,17 @@ import { Link } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle.jsx";
 import { useLocation } from "react-router-dom";
 import { Button } from "./ui/button.jsx";
-import { BookOpen, Upload, Files, Settings, User, Cloud, SlidersHorizontal } from "lucide-react";
+import { BookOpen, Upload, Files, Settings, User, Cloud, SlidersHorizontal, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PAGE_LAYER_CLASSES } from "@/lib/overlay-layers.js";
+import { useSharing } from "@/hooks/use-sharing.jsx";
 
 export function Header({ isLoggedIn, onLogout, isAdmin }) {
   const location = useLocation();
   const isReaderPage = location.pathname.includes("/read/");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const { summary } = useSharing();
+  const pendingInvitations = summary.pendingInvitations;
   
   // Listen for fullscreen changes
   useEffect(() => {
@@ -77,6 +80,27 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
               <Link to="/upload/bulk" aria-label="Bulk Upload" className={`${location.pathname === "/upload/bulk" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden lg:inline">Bulk Upload</span>
                 <Files className="inline lg:hidden h-5 w-5" />
+              </Link>
+              {/* The count is part of the accessible name, not decoration: the
+                  label collapses to an icon at narrow widths and "Sharing"
+                  alone would not say that anything is waiting. */}
+              <Link
+                to="/sharing"
+                aria-label={pendingInvitations > 0
+                  ? `Sharing, ${pendingInvitations} pending ${pendingInvitations === 1 ? "invitation" : "invitations"}`
+                  : "Sharing"}
+                className={`relative ${location.pathname === "/sharing" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}
+              >
+                <span className="hidden md:inline">
+                  Sharing{pendingInvitations > 0 ? ` (${pendingInvitations})` : ""}
+                </span>
+                <Share2 className="inline md:hidden h-5 w-5" />
+                {pendingInvitations > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -right-2 -top-1 h-2 w-2 rounded-full bg-comic-purple md:hidden"
+                  />
+                )}
               </Link>
               <Link to="/dropbox-sync" aria-label="Dropbox Sync" className={`${location.pathname === "/dropbox-sync" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden md:inline">Dropbox Sync</span>

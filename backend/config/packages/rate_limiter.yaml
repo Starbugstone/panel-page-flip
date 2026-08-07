@@ -16,6 +16,16 @@ framework:
             policy: fixed_window
             limit: 5
             interval: '1 hour'
+        # Invitation sends and resends, per owner. Sliding rather than fixed so
+        # the allowance cannot be doubled by sending across a window boundary.
+        #
+        # Deliberately not lowered under when@test: the limit is small enough to
+        # exercise from a functional test, and no other test sends more than two
+        # invitations from one owner.
+        share_invitation:
+            policy: sliding_window
+            limit: 10
+            interval: '1 hour'
 
 when@test:
     framework:

@@ -14,6 +14,17 @@ import { TagCombobox } from "@/components/TagCombobox";
 import { useTags } from "@/hooks/use-tags.jsx";
 import { describeTagSubmission } from "@/lib/tag-suggestions";
 import { formatDate } from "@/lib/format";
+import { describeBulkShareImpactOfDeletion } from "@/lib/sharing";
+
+/**
+ * Whether the bulk controls may act on a row.
+ *
+ * Driven by what the server says this viewer may do rather than by whether the
+ * comic happens to be shared, so the two can never disagree. Both bulk actions
+ * are owner actions, so a row has to satisfy both to be selectable — leaving
+ * one in would let the user build a selection the server rejects as a whole.
+ */
+const isSelectable = (comic) => comic.canEdit !== false && comic.canDelete !== false;
 
 export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete }) {
   const { tags: availableTags } = useTags();
@@ -22,9 +33,25 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [orphanedComics, setOrphanedComics] = useState([]);
-  const comicIds = useMemo(() => comics.map((comic) => comic.id), [comics]);
+  const comicIds = useMemo(
+    () => comics.filter(isSelectable).map((comic) => comic.id),
+    [comics]
+  );
   const selectedComicIds = comicIds.filter((comicId) => selectedIds.has(comicId));
   const allSelected = comicIds.length > 0 && selectedComicIds.length === comicIds.length;
+  // The selection as the server will see it. `selectedIds` is raw state that
+  // outlives the list — a comic can leave `comics` and come back — so every
+  // reader derives from this instead, and the checkbox, the counter, the
+  // warning and the request cannot describe different sets of comics.
+  const selectedComics = useMemo(
+    () => comics.filter((comic) => isSelectable(comic) && selectedIds.has(comic.id)),
+    [comics, selectedIds]
+  );
+  const bulkShareImpact = useMemo(
+    () => describeBulkShareImpactOfDeletion(selectedComics),
+    [selectedComics]
+  );
+  const isChecked = (comic) => isSelectable(comic) && selectedIds.has(comic.id);
 
   const toggleAll = (checked) => {
     setSelectedIds(checked ? new Set(comicIds) : new Set());
@@ -82,7 +109,12 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
     <div className="space-y-4">
       <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
         <p className="text-sm font-medium" aria-live="polite">
-          {selectedComicIds.length} of {comics.length} selected
+          {selectedComicIds.length} of {comicIds.length} selected
+          {comicIds.length !== comics.length && (
+            <span className="ml-1 font-normal text-muted-foreground">
+              ({comics.length - comicIds.length} not yours to change)
+            </span>
+          )}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
           <TagCombobox
@@ -136,18 +168,26 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
             {comics.map((comic) => {
               const progress = getComicProgressState(comic);
               return (
-                <TableRow key={comic.id} className={cn(progress.rowClass, selectedIds.has(comic.id) && "ring-1 ring-inset ring-primary")}>
+                <TableRow key={comic.id} className={cn(progress.rowClass, isChecked(comic) && "ring-1 ring-inset ring-primary")}>
                   <TableCell>
                     <Checkbox
-                      checked={selectedIds.has(comic.id)}
+                      checked={isChecked(comic)}
                       onCheckedChange={(checked) => toggleComic(comic.id, checked)}
-                      aria-label={`Select ${comic.title}`}
+                      disabled={!isSelectable(comic)}
+                      aria-label={isSelectable(comic)
+                        ? `Select ${comic.title}`
+                        : `${comic.title} is not yours to change and cannot be selected`}
                     />
                   </TableCell>
                   <TableCell>
                     <Link to={`/read/${comic.id}`} className="font-medium hover:underline">
                       {comic.title}
                     </Link>
+                    {comic.isShared && (
+                      <Badge variant="secondary" className="ml-2 align-middle text-xs">
+                        Shared by {comic.sharedBy?.name || "another user"}
+                      </Badge>
+                    )}
                     {comic.publisher && <p className="text-xs text-muted-foreground">{comic.publisher}</p>}
                   </TableCell>
                   <TableCell>{comic.author || "—"}</TableCell>
@@ -171,9 +211,13 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
                     <Button variant="ghost" size="icon" asChild>
                       <Link to={`/read/${comic.id}`} aria-label={`Read ${comic.title}`}><Eye className="h-4 w-4" /></Link>
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => onEditComic(comic)} aria-label={`Edit ${comic.title}`}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
+                    {/* Editing belongs to the owner; a recipient reads and
+                        nothing more. */}
+                    {comic.canEdit !== false && (
+                      <Button variant="ghost" size="icon" onClick={() => onEditComic(comic)} aria-label={`Edit ${comic.title}`}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               );
@@ -207,7 +251,16 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
                   </span>
                 </span>
               ) : (
-                "They will be removed from your library and their existing files moved to recoverable quarantine storage."
+                <span className="space-y-2">
+                  <span className="block">
+                    They will be removed from your library and their existing files moved to recoverable quarantine storage.
+                  </span>
+                  {/* A deletion that also cuts other people off is a bigger
+                      decision than one that does not, and has to say so. */}
+                  {bulkShareImpact && (
+                    <span className="block font-medium text-destructive">{bulkShareImpact}</span>
+                  )}
+                </span>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
