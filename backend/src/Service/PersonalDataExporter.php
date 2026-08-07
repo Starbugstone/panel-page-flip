@@ -89,6 +89,10 @@ final class PersonalDataExporter
             'author' => $comic->getAuthor(),
             'publisher' => $comic->getPublisher(),
             'description' => $comic->getDescription(),
+            // The owner's own classification, and stored as such. An export
+            // that named it only on the shares handed out would omit it
+            // entirely for a comic nobody has been invited to.
+            'explicitContent' => $comic->isExplicitContent(),
             'coverImagePath' => $this->comicSerializer->coverUrl($comic),
             'pageCount' => $comic->getPageCount(),
             'fileSize' => $comic->getFileSize(),
