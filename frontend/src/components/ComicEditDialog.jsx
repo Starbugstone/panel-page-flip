@@ -1,5 +1,12 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -109,6 +116,13 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Edit Comic Details</DialogTitle>
+          {/* Radix wires this to the dialog as its accessible description, so a
+              screen reader announces what the form is for rather than reading
+              the title and dropping the user into an unexplained set of fields.
+              Without one it also warns on every mount. */}
+          <DialogDescription>
+            Change the details stored for this comic, including whether it is classified 18+.
+          </DialogDescription>
         </DialogHeader>
         
         <div className="grid gap-4 py-4">

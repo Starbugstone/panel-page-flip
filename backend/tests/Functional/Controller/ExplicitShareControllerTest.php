@@ -489,6 +489,39 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
     }
 
+    public function testRegatingReachesSharesThatAreAlreadyLoaded(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $recipient = UserFactory::createOne(['email' => 'in-memory@test.local'])->object();
+
+        $this->loginAs($recipient);
+        $share = $this->createAcceptedShare($comic, $owner, $recipient);
+        $this->postJson('/api/shares/' . $share->getId() . '/confirm-adult', ['adultConfirmed' => true]);
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $managedComic = $this->managed(Comic::class, (int) $comic->getId());
+        $managedShare = $this->managed(ComicShare::class, (int) $share->getId());
+        $managedComic->setExplicitContent(true);
+
+        static::getContainer()->get(ComicShareService::class)->regateSharesForComic($managedComic);
+
+        // Re-gating goes through the ORM on purpose, and this is what says so.
+        //
+        // A bulk DQL UPDATE would be fewer queries, but it writes round the
+        // identity map: a share already loaded in this request would keep
+        // reporting a confirmation the database no longer holds, and anything
+        // serializing it afterwards would tell the recipient the gate was open.
+        // It would also split one flush into two commits, which is the opposite
+        // of what ComicController::update() documents.
+        self::assertNull($managedShare->getAdultConfirmedAt());
+
+        // And it still reaches storage once the caller's single flush lands.
+        $entityManager->flush();
+        $entityManager->clear();
+        self::assertNull($this->managed(ComicShare::class, (int) $share->getId())->getAdultConfirmedAt());
+    }
+
     public function testUnmarkingAComicRestoresAccessImmediately(): void
     {
         $owner = UserFactory::createOne()->object();

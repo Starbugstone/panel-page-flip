@@ -53,6 +53,15 @@ describe("ComicEditDialog explicit-content flag", () => {
       .toHaveTextContent("confirm they are 18 or older");
   });
 
+  it("gives the dialog an accessible description", () => {
+    renderDialog();
+
+    // A screen reader otherwise announces the title and drops the user into an
+    // unexplained set of fields — and Radix warns about it on every mount,
+    // which is how this was found.
+    expect(screen.getByRole("dialog")).toHaveAccessibleDescription(/classified 18\+/i);
+  });
+
   it("is unticked for a comic nobody has classified", () => {
     renderDialog();
 
