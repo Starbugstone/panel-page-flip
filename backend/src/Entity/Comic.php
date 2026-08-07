@@ -71,6 +71,18 @@ class Comic
     #[ORM\Column(length: 500, nullable: true)]
     private ?string $dropboxPath = null;
 
+    /**
+     * The owner's declaration that this comic contains adult material.
+     *
+     * Deliberately independent of every tag, including the ones that hide a
+     * comic from the library: hiding is a shelving preference and says nothing
+     * about content, so inferring an age rating from it would put an 18+ warning
+     * on a comic somebody merely wanted out of the way. Only the owner ticking
+     * the box sets this.
+     */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $explicitContent = false;
+
     public function __construct()
     {
         $this->uploadedAt = new \DateTimeImmutable();
@@ -244,6 +256,18 @@ class Comic
     public function setDropboxPath(?string $dropboxPath): static
     {
         $this->dropboxPath = $dropboxPath;
+
+        return $this;
+    }
+
+    public function isExplicitContent(): bool
+    {
+        return $this->explicitContent;
+    }
+
+    public function setExplicitContent(bool $explicitContent): static
+    {
+        $this->explicitContent = $explicitContent;
 
         return $this;
     }

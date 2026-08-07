@@ -70,6 +70,11 @@ final class ComicVoter extends Voter
         // Hiding a comic from your own collection does not give up access —
         // findAccessFor deliberately ignores recipientRemovedAt — so a link
         // straight to the reader keeps working until the owner revokes it.
+        //
+        // It does apply the 18+ gate, which is why that gate holds for covers,
+        // pages and archives and not only for the screen that asks the question:
+        // an accepted share on a comic marked explicit answers no here until
+        // that recipient has declared their age on it.
         return $this->shareRepository->findAccessFor($user, $comic) !== null;
     }
 }

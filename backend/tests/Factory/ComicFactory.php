@@ -39,6 +39,10 @@ final class ComicFactory extends ModelFactory
             'author' => self::faker()->name(),
             'publisher' => self::faker()->company(),
             'description' => self::faker()->sentence(),
+            // Never randomised. An age classification is the owner's deliberate
+            // statement, and a test comic that is sometimes 18+ would make the
+            // gate's tests pass for the wrong reason.
+            'explicitContent' => false,
             'owner' => UserFactory::new(),
         ];
     }
@@ -46,5 +50,10 @@ final class ComicFactory extends ModelFactory
     public function ownedBy(User $user): self
     {
         return $this->addState(['owner' => $user]);
+    }
+
+    public function explicit(): self
+    {
+        return $this->addState(['explicitContent' => true]);
     }
 }

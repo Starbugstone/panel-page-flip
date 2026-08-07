@@ -13,7 +13,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { BookOpen, Loader2, RotateCcw, Share2Icon, Trash2, Undo2, UserPlus, XCircle } from "lucide-react";
+import {
+  BookOpen,
+  Loader2,
+  RotateCcw,
+  Share2Icon,
+  ShieldAlert,
+  Trash2,
+  Undo2,
+  UserPlus,
+  XCircle,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
@@ -21,11 +31,17 @@ import { ShareComicModal } from "@/components/ShareComicModal";
 import { useSharingLists } from "@/hooks/use-sharing";
 import { useComicLibrary } from "@/hooks/use-comic-library";
 import {
+  EXPLICIT_FLAG_LABEL,
+  EXPLICIT_GATE_CONFIRM_LABEL,
+  EXPLICIT_GATE_TITLE,
   SHARE_STATUS,
   SHARE_STATUS_LABELS,
+  SHARING_PAGE_RESPONSIBILITY_REMINDER,
   describeDeadShareCleanup,
   describeReceivedShare,
   groupReceivedShares,
+  requiresAdultConfirmation,
+  shareDisplayTitle,
   summariseRecipients,
 } from "@/lib/sharing";
 
@@ -36,11 +52,15 @@ const STATUS_VARIANTS = {
   [SHARE_STATUS.REVOKED]: "outline",
 };
 
-function ShareCover({ src, title }) {
+function ShareCover({ src, title, gated = false }) {
   if (!src) {
     return (
       <div className="flex h-24 w-16 flex-none items-center justify-center rounded bg-muted">
-        <BookOpen className="h-6 w-6 text-muted-foreground" />
+        {/* No cover URL and none coming: for a gated share the server withheld
+            it, so this placeholder stands in rather than a blurred real one. */}
+        {gated
+          ? <ShieldAlert className="h-6 w-6 text-muted-foreground" />
+          : <BookOpen className="h-6 w-6 text-muted-foreground" />}
       </div>
     );
   }
@@ -107,18 +127,37 @@ export default function Sharing() {
 
   const cleanupCopy = describeDeadShareCleanup(dead.length);
 
+  /**
+   * The sender-side reminder.
+   *
+   * Informational only — the acknowledgement that actually goes on the record
+   * is the tick box in the share modal, once per share. This is here so the
+   * expectation is visible while somebody is looking at what they have already
+   * handed out, not only at the moment they hand out the next one.
+   */
+  const responsibilityReminder = (
+    <Alert className="mb-4">
+      <ShieldAlert className="h-5 w-5" />
+      <AlertDescription>{SHARING_PAGE_RESPONSIBILITY_REMINDER}</AlertDescription>
+    </Alert>
+  );
+
   const renderSharedByMe = () => {
     if (sharedByMe.length === 0) {
       return (
-        <p className="py-12 text-center text-muted-foreground">
-          You have not shared any comics yet. Use the share action on a comic in{" "}
-          <Link to="/dashboard" className="text-primary hover:underline">your library</Link>.
-        </p>
+        <>
+          {responsibilityReminder}
+          <p className="py-12 text-center text-muted-foreground">
+            You have not shared any comics yet. Use the share action on a comic in{" "}
+            <Link to="/dashboard" className="text-primary hover:underline">your library</Link>.
+          </p>
+        </>
       );
     }
 
     return (
       <div className="space-y-4">
+        {responsibilityReminder}
         {sharedByMe.map((group) => {
           const counts = summariseRecipients(group.recipients);
 
@@ -130,6 +169,9 @@ export default function Sharing() {
                   <div className="min-w-0 flex-1">
                     <h3 className="truncate font-bold">{group.title}</h3>
                     <p className="truncate text-sm text-muted-foreground">{group.author}</p>
+                    {group.explicitContent && (
+                      <Badge variant="outline" className="mt-1">{EXPLICIT_FLAG_LABEL}</Badge>
+                    )}
                     <p className="mt-1 text-sm text-muted-foreground">
                       {counts.total} {counts.total === 1 ? "recipient" : "recipients"}
                       {" · "}
@@ -222,23 +264,54 @@ export default function Sharing() {
     );
   };
 
+  /**
+   * Record the age declaration for one share and reload.
+   *
+   * The same endpoint the invitation page uses, because it is the same
+   * declaration: the gate follows the share, not the screen it is met on.
+   */
+  const confirmAdult = (share) => runAction(
+    share.id,
+    () => api.post(`/api/shares/${share.id}/confirm-adult`, { adultConfirmed: true }),
+    "Age confirmed."
+  );
+
   const renderReceivedList = (shares, { showActions }) => (
     <ul className="space-y-3">
-      {shares.map((share) => (
+      {shares.map((share) => {
+        const gated = requiresAdultConfirmation(share);
+
+        return (
         <li key={share.id}>
           <Card>
             <CardContent className="flex gap-4 p-4">
-              <ShareCover src={share.coverImagePath} title={share.comicTitle} />
+              <ShareCover src={share.coverImagePath} title={shareDisplayTitle(share)} gated={gated} />
               <div className="min-w-0 flex-1">
-                <h3 className="truncate font-bold">{share.comicTitle}</h3>
+                <h3 className="truncate font-bold">{shareDisplayTitle(share)}</h3>
                 <p className="truncate text-sm text-muted-foreground">
                   Shared by {share.ownerName}
                   {share.comicAuthor ? ` · ${share.comicAuthor}` : ""}
                 </p>
+                {gated && (
+                  <p className="mt-1 flex items-center gap-1 text-sm font-medium text-destructive">
+                    <ShieldAlert className="h-4 w-4" />
+                    {EXPLICIT_GATE_TITLE}
+                  </p>
+                )}
                 <p className="mt-1 text-sm text-muted-foreground">{describeReceivedShare(share)}</p>
               </div>
               {showActions && (
                 <div className="flex flex-none flex-col gap-2">
+                  {gated && !share.isDead && (
+                    <Button
+                      size="sm"
+                      disabled={busyShareId === share.id}
+                      onClick={() => confirmAdult(share)}
+                    >
+                      {busyShareId === share.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {EXPLICIT_GATE_CONFIRM_LABEL}
+                    </Button>
+                  )}
                   {share.canRead && (
                     <Button size="sm" onClick={() => navigate(`/read/${share.comicId}`)}>
                       <BookOpen className="mr-2 h-4 w-4" />
@@ -296,7 +369,8 @@ export default function Sharing() {
             </CardContent>
           </Card>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 
@@ -315,35 +389,60 @@ export default function Sharing() {
           <section>
             <h2 className="mb-3 text-lg font-semibold">Pending invitations</h2>
             <ul className="space-y-3">
-              {invitations.map((share) => (
+              {invitations.map((share) => {
+                const gated = requiresAdultConfirmation(share);
+
+                return (
                 <li key={share.id}>
                   <Card>
                     <CardContent className="flex gap-4 p-4">
-                      <ShareCover src={share.coverImagePath} title={share.comicTitle} />
+                      <ShareCover
+                        src={share.coverImagePath}
+                        title={shareDisplayTitle(share)}
+                        gated={gated}
+                      />
                       <div className="min-w-0 flex-1">
-                        <h3 className="truncate font-bold">{share.comicTitle}</h3>
+                        <h3 className="truncate font-bold">{shareDisplayTitle(share)}</h3>
                         <p className="truncate text-sm text-muted-foreground">
                           {share.ownerName} wants to share this with you.
                         </p>
+                        {gated && (
+                          <p className="mt-1 flex items-center gap-1 text-sm font-medium text-destructive">
+                            <ShieldAlert className="h-4 w-4" />
+                            {EXPLICIT_GATE_TITLE}
+                          </p>
+                        )}
                         <p className="mt-1 text-sm text-muted-foreground">
                           {describeReceivedShare(share)}
                         </p>
                       </div>
                       {/* The emailed link is not the only way in: somebody
                           signed in and looking at their own invitation has
-                          already identified themselves. */}
+                          already identified themselves. That still is not an
+                          age declaration, so an explicit invitation offers the
+                          gate here instead of Accept. */}
                       <div className="flex flex-none flex-col gap-2">
-                        <Button
-                          size="sm"
-                          disabled={!share.canAnswer || busyShareId === share.id}
-                          onClick={() => runAction(
-                            share.id,
-                            () => api.post(`/api/shares/${share.id}/accept`, {}),
-                            "Comic added to your collection."
-                          )}
-                        >
-                          Add to my collection
-                        </Button>
+                        {gated ? (
+                          <Button
+                            size="sm"
+                            disabled={!share.canAnswer || busyShareId === share.id}
+                            onClick={() => confirmAdult(share)}
+                          >
+                            {EXPLICIT_GATE_CONFIRM_LABEL}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            disabled={!share.canAnswer || busyShareId === share.id}
+                            onClick={() => runAction(
+                              share.id,
+                              () => api.post(`/api/shares/${share.id}/accept`, {}),
+                              "Comic added to your collection."
+                            )}
+                          >
+                            Add to my collection
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -360,7 +459,8 @@ export default function Sharing() {
                     </CardContent>
                   </Card>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </section>
         )}

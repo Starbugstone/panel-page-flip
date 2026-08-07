@@ -43,7 +43,10 @@ class ComicShareSerializer
      */
     public function forOwner(ComicShare $share): array
     {
-        return $this->common($share) + [
+        // Never redacted. The owner classified the comic, and owns the file; an
+        // age gate protects a recipient from content they have not agreed to
+        // see, not a person from their own library.
+        return $this->common($share, false) + [
             'recipientEmail' => $share->getRecipientEmailNormalized(),
             'recipientName' => $share->getRecipientUser()?->getName(),
             // Resending only makes sense while the recipient still has a choice
@@ -61,15 +64,18 @@ class ComicShareSerializer
     public function forRecipient(ComicShare $share): array
     {
         $owner = $share->getOwner();
+        $needsConfirmation = $share->requiresAdultConfirmation();
 
-        return $this->common($share) + [
+        return $this->common($share, $needsConfirmation) + [
             'ownerName' => $share->getOwnerNameSnapshot(),
             'ownerId' => $owner?->getId(),
             'removedFromCollection' => $share->getRecipientRemovedAt()?->format('c'),
             // An invitation can still be answered from the Sharing page while it
-            // is pending, has a comic behind it and has not run out.
+            // is pending, has a comic behind it and has not run out. Answering
+            // an explicit one starts with the age gate, so the page has to be
+            // able to tell "you may answer this" from "you may accept it now".
             'canAnswer' => $share->isPending(),
-            'canRead' => $share->grantsAccess(),
+            'canRead' => $share->grantsReadAccess(),
             'canRestore' => $share->grantsAccess() && $share->getRecipientRemovedAt() !== null,
             'canRemove' => $share->grantsAccess() && $share->getRecipientRemovedAt() === null,
             // A dead entry is one nothing can be done with any more; these are
@@ -80,24 +86,35 @@ class ComicShareSerializer
     }
 
     /**
+     * @param bool $redact withhold everything that identifies the comic, for a
+     *                     recipient who has not passed the age gate. The comic
+     *                     id goes too: it is the key to every endpoint that
+     *                     serves a cover, a page or an archive, so leaving it in
+     *                     would make the gate a suggestion.
      * @return array<string, mixed>
      */
-    private function common(ComicShare $share): array
+    private function common(ComicShare $share, bool $redact): array
     {
         $comic = $share->getComic();
 
         return [
             'id' => $share->getId(),
             'status' => $share->getStatus(),
-            'comicId' => $comic?->getId(),
+            'comicId' => $redact ? null : $comic?->getId(),
             // Falls back to the snapshot so a tombstone can still name the
             // comic it used to be.
-            'comicTitle' => $comic?->getTitle() ?? $share->getComicTitleSnapshot(),
-            'comicAuthor' => $comic?->getAuthor() ?? $share->getComicAuthorSnapshot(),
-            'pageCount' => $comic?->getPageCount(),
+            'comicTitle' => $redact ? null : ($comic?->getTitle() ?? $share->getComicTitleSnapshot()),
+            'comicAuthor' => $redact ? null : ($comic?->getAuthor() ?? $share->getComicAuthorSnapshot()),
+            'pageCount' => $redact ? null : $comic?->getPageCount(),
             // Null for a tombstone: there is no file left, and the URL of one
             // that has been deleted must not be handed out.
-            'coverImagePath' => $comic ? $this->comicSerializer->coverUrl($comic) : null,
+            'coverImagePath' => $comic && !$redact ? $this->comicSerializer->coverUrl($comic) : null,
+            // Booleans rather than the stored timestamps: the client only ever
+            // needs to know which screen to show. The timestamps stay on the
+            // record as the audit trail they were added for.
+            'explicitContent' => $share->isExplicitContent(),
+            'requiresAdultConfirmation' => $share->requiresAdultConfirmation(),
+            'adultConfirmed' => $share->getAdultConfirmedAt() !== null,
             'createdAt' => $share->getCreatedAt()->format('c'),
             'acceptedAt' => $share->getAcceptedAt()?->format('c'),
             'declinedAt' => $share->getDeclinedAt()?->format('c'),

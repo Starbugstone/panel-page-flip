@@ -11,14 +11,21 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Check, Copy, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
-import { isValidShareEmail } from "@/lib/sharing";
+import {
+  SHARE_RESPONSIBILITY_ACK_LABEL,
+  SHARE_RESPONSIBILITY_NOTICE,
+  buildInvitationRequest,
+  canSendInvitation,
+} from "@/lib/sharing";
 
 export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, onShared }) {
   const [recipientEmail, setRecipientEmail] = useState("");
+  const [responsibilityAccepted, setResponsibilityAccepted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [invitationUrl, setInvitationUrl] = useState(null);
@@ -30,6 +37,7 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, onShared
       // Allow the close animation to finish before wiping the contents.
       const timeout = setTimeout(() => {
         setRecipientEmail("");
+        setResponsibilityAccepted(false);
         setIsLoading(false);
         setError(null);
         setInvitationUrl(null);
@@ -42,12 +50,20 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, onShared
     setError(null);
     setInvitationUrl(null);
     setCopied(false);
+    // Unticked for every share, including a second one opened straight after
+    // the first. The acknowledgement is about this comic going to this person,
+    // so carrying it over would record an agreement nobody made.
+    setResponsibilityAccepted(false);
     return undefined;
   }, [isOpen, comicId]);
 
   const handleShare = async () => {
-    if (!isValidShareEmail(recipientEmail)) {
-      setError("Please enter a valid email address.");
+    if (!canSendInvitation({ email: recipientEmail, responsibilityAccepted })) {
+      setError(
+        responsibilityAccepted
+          ? "Please enter a valid email address."
+          : "Please confirm that you understand you are responsible for what you share."
+      );
       return;
     }
 
@@ -55,9 +71,10 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, onShared
     setError(null);
 
     try {
-      const data = await api.post(`/api/shares/comics/${comicId}/invitations`, {
-        email: recipientEmail.trim(),
-      });
+      const data = await api.post(
+        `/api/shares/comics/${comicId}/invitations`,
+        buildInvitationRequest({ email: recipientEmail, responsibilityAccepted })
+      );
 
       // Shown rather than auto-closing: this is the only moment the link
       // exists in a readable form, because the server keeps only its hash.
@@ -135,6 +152,25 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, onShared
                 disabled={isLoading}
               />
             </div>
+
+            {/* Next to the address and the Send button rather than in the
+                dialog's preamble: this has to be read at the moment of sending,
+                not skimmed on the way in. */}
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm text-muted-foreground">{SHARE_RESPONSIBILITY_NOTICE}</p>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="share-responsibility"
+                  checked={responsibilityAccepted}
+                  onCheckedChange={(checked) => setResponsibilityAccepted(checked === true)}
+                  disabled={isLoading}
+                />
+                <Label htmlFor="share-responsibility" className="cursor-pointer text-sm font-medium">
+                  {SHARE_RESPONSIBILITY_ACK_LABEL}
+                </Label>
+              </div>
+            </div>
+
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
         )}
@@ -146,7 +182,9 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, onShared
           {!invitationUrl && (
             <Button
               onClick={handleShare}
-              disabled={isLoading || !isValidShareEmail(recipientEmail)}
+              disabled={
+                isLoading || !canSendInvitation({ email: recipientEmail, responsibilityAccepted })
+              }
             >
               {isLoading ? (
                 <>

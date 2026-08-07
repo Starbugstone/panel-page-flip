@@ -264,8 +264,11 @@ class ComicController extends AbstractController
     }
 
     #[Route('', name: 'batch_update', methods: ['PATCH'])]
-    public function batchUpdate(Request $request, EntityManagerInterface $entityManager): JsonResponse
-    {
+    public function batchUpdate(
+        Request $request,
+        EntityManagerInterface $entityManager,
+        ComicShareService $shareService
+    ): JsonResponse {
         $user = $this->getUser();
         if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
@@ -323,6 +326,18 @@ class ComicController extends AbstractController
                 if (array_key_exists($field, $changes)) {
                     $setter = 'set' . ucfirst($field);
                     $comic->{$setter}($changes[$field]);
+                }
+            }
+
+            if (array_key_exists('explicitContent', $changes)) {
+                $wasExplicit = $comic->isExplicitContent();
+                $comic->setExplicitContent($changes['explicitContent']);
+
+                // Same rule as the single-comic update: newly explicit means
+                // every live share loses its confirmation and the recipient has
+                // to make the declaration again.
+                if (!$wasExplicit && $changes['explicitContent']) {
+                    $shareService->regateSharesForComic($comic);
                 }
             }
 
@@ -516,7 +531,8 @@ class ComicController extends AbstractController
         int $id,
         Request $request,
         EntityManagerInterface $entityManager,
-        AdminAuditService $auditService
+        AdminAuditService $auditService,
+        ComicShareService $shareService
     ): JsonResponse {
         // Get the current user
         $user = $this->getUser();
@@ -546,6 +562,7 @@ class ComicController extends AbstractController
             'author' => $comic->getAuthor(),
             'publisher' => $comic->getPublisher(),
             'description' => $comic->getDescription(),
+            'explicitContent' => $comic->isExplicitContent(),
         ];
         $tagOwner = $comic->getOwner() ?? $user;
 
@@ -564,6 +581,12 @@ class ComicController extends AbstractController
 
         if (isset($data['description'])) {
             $comic->setDescription($data['description']);
+        }
+
+        // array_key_exists rather than isset, so unticking the box — an explicit
+        // false — is a change the same way ticking it is.
+        if (array_key_exists('explicitContent', $data ?? []) && is_bool($data['explicitContent'])) {
+            $comic->setExplicitContent($data['explicitContent']);
         }
 
         // Update tags if provided
@@ -596,6 +619,15 @@ class ComicController extends AbstractController
             }
         }
 
+        // Newly explicit: everyone who is already reading it agreed to something
+        // that was not classified 18+, so the gate closes on them until they say
+        // otherwise. Done before the flush so the re-gate and the reclassification
+        // land together — a crash between the two would leave recipients reading
+        // a comic nobody had confirmed for.
+        if (!$metadataBefore['explicitContent'] && $comic->isExplicitContent()) {
+            $shareService->regateSharesForComic($comic);
+        }
+
         if (in_array('ROLE_ADMIN', $user->getRoles(), true) && $comic->getOwner()?->getId() !== $user->getId()) {
             $auditService->log($user, 'comic_update', 'comic', $comic->getId(), [
                 'ownerId' => $comic->getOwner()?->getId(),
@@ -605,6 +637,7 @@ class ComicController extends AbstractController
                     'author' => $comic->getAuthor(),
                     'publisher' => $comic->getPublisher(),
                     'description' => $comic->getDescription(),
+                    'explicitContent' => $comic->isExplicitContent(),
                 ],
             ]);
         }
@@ -1404,8 +1437,15 @@ class ComicController extends AbstractController
                 return [];
             }
 
-            $allowedFields = ['title', 'author', 'publisher', 'description', 'tags', 'addTags'];
+            $allowedFields = ['title', 'author', 'publisher', 'description', 'tags', 'addTags', 'explicitContent'];
             if (array_diff(array_keys($changes), $allowedFields) !== []) {
+                return [];
+            }
+
+            // A classification is a yes or a no. Anything else — "true", 1, null
+            // — is a client that has not decided, and guessing which way it
+            // meant is not this endpoint's job.
+            if (array_key_exists('explicitContent', $changes) && !is_bool($changes['explicitContent'])) {
                 return [];
             }
 

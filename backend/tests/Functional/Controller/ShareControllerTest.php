@@ -122,7 +122,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         $this->browser()->request('DELETE', '/api/comics/' . $comic->getId(), [], [], $this->csrfHeader());
         self::assertResponseStatusCodeSame(403);
 
-        $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => 'third@test.local']);
+        $this->postInvitation((int) $comic->getId(), 'third@test.local');
         self::assertResponseStatusCodeSame(403);
 
         // Downloading the archive is owner-only: a recipient reads through the
@@ -526,10 +526,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'owner@test.local']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
-        $this->postJson(
-            '/api/shares/comics/' . $comic->getId() . '/invitations',
-            ['email' => '  Mixed.Case@Example.COM  ']
-        );
+        $this->postInvitation((int) $comic->getId(), '  Mixed.Case@Example.COM  ');
         self::assertResponseStatusCodeSame(201);
 
         $shares = static::getContainer()->get(ComicShareRepository::class)->findAllForOwner($owner);
@@ -538,10 +535,7 @@ final class ShareControllerTest extends AbstractApiTestCase
 
         // The same address in a different spelling is the same recipient, so it
         // cannot open a second invitation.
-        $this->postJson(
-            '/api/shares/comics/' . $comic->getId() . '/invitations',
-            ['email' => 'MIXED.CASE@example.com']
-        );
+        $this->postInvitation((int) $comic->getId(), 'MIXED.CASE@example.com');
         self::assertResponseStatusCodeSame(409);
     }
 
@@ -550,10 +544,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'self@test.local']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
-        $payload = $this->postJson(
-            '/api/shares/comics/' . $comic->getId() . '/invitations',
-            ['email' => 'SELF@test.local']
-        );
+        $payload = $this->postInvitation((int) $comic->getId(), 'SELF@test.local');
 
         self::assertResponseStatusCodeSame(400);
         self::assertStringContainsString('already own', $payload['message']);
@@ -586,7 +577,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Batman: Year One'])->object();
 
         foreach (['jane@example.com', 'bob@example.com'] as $email) {
-            $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => $email]);
+            $this->postInvitation((int) $comic->getId(), $email);
             self::assertResponseStatusCodeSame(201);
         }
 
@@ -609,10 +600,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'linker@test.local']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
-        $payload = $this->postJson(
-            '/api/shares/comics/' . $comic->getId() . '/invitations',
-            ['email' => 'guest@example.com']
-        );
+        $payload = $this->postInvitation((int) $comic->getId(), 'guest@example.com');
         self::assertResponseStatusCodeSame(201);
         self::assertArrayHasKey('invitationUrl', $payload);
 
@@ -631,10 +619,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'resender@test.local']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
-        $first = $this->postJson(
-            '/api/shares/comics/' . $comic->getId() . '/invitations',
-            ['email' => 'guest@example.com']
-        );
+        $first = $this->postInvitation((int) $comic->getId(), 'guest@example.com');
         $shareId = $first['share']['id'];
         $firstToken = substr((string) strrchr($first['invitationUrl'], '/'), 1);
 
@@ -656,17 +641,11 @@ final class ShareControllerTest extends AbstractApiTestCase
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
         for ($i = 0; $i < 10; ++$i) {
-            $this->postJson(
-                '/api/shares/comics/' . $comic->getId() . '/invitations',
-                ['email' => sprintf('guest%d@example.com', $i)]
-            );
+            $this->postInvitation((int) $comic->getId(), sprintf('guest%d@example.com', $i));
             self::assertResponseStatusCodeSame(201, sprintf('Invitation %d should be within the allowance.', $i + 1));
         }
 
-        $payload = $this->postJson(
-            '/api/shares/comics/' . $comic->getId() . '/invitations',
-            ['email' => 'one-too-many@example.com']
-        );
+        $payload = $this->postInvitation((int) $comic->getId(), 'one-too-many@example.com');
 
         self::assertResponseStatusCodeSame(429);
         self::assertStringContainsString('too many invitations', $payload['message']);
@@ -679,18 +658,18 @@ final class ShareControllerTest extends AbstractApiTestCase
 
         // Requests turned away before anything is sent — a duplicate, and an
         // attempt to share with yourself — must not count against the limit.
-        $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => 'guest@example.com']);
+        $this->postInvitation((int) $comic->getId(), 'guest@example.com');
         self::assertResponseStatusCodeSame(201);
 
         for ($i = 0; $i < 5; ++$i) {
-            $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => 'guest@example.com']);
+            $this->postInvitation((int) $comic->getId(), 'guest@example.com');
             self::assertResponseStatusCodeSame(409);
-            $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => 'careful-sharer@test.local']);
+            $this->postInvitation((int) $comic->getId(), 'careful-sharer@test.local');
             self::assertResponseStatusCodeSame(400);
         }
 
         // Nine of the ten remain, so this is still accepted.
-        $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', ['email' => 'another@example.com']);
+        $this->postInvitation((int) $comic->getId(), 'another@example.com');
         self::assertResponseStatusCodeSame(201);
     }
 
@@ -722,6 +701,24 @@ final class ShareControllerTest extends AbstractApiTestCase
             ->acceptShare($share, $this->managed(User::class, (int) $recipient->getId()));
 
         return $share;
+    }
+
+    /**
+     * Send an invitation the way the share modal does, acknowledgement and all.
+     *
+     * Every share now carries the sender's acknowledgement, so the tests that
+     * are about something else say so once here rather than repeating the tick
+     * box in each of them.
+     *
+     * @param array<string, mixed> $extra additional or overriding body fields
+     * @return array<string, mixed>
+     */
+    private function postInvitation(int $comicId, string $email, array $extra = []): array
+    {
+        return $this->postJson(
+            '/api/shares/comics/' . $comicId . '/invitations',
+            array_merge(['email' => $email, 'senderResponsibilityAccepted' => true], $extra)
+        );
     }
 
     /**

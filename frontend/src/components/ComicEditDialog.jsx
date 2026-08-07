@@ -4,12 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { X, Tag as TagIcon, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { useTags } from "@/hooks/use-tags.jsx";
 import { TagBadge } from "@/components/TagBadge";
 import { TagCombobox } from "@/components/TagCombobox";
 import { describeTagSubmission } from "@/lib/tag-suggestions.js";
+import { EXPLICIT_FLAG_DESCRIPTION, EXPLICIT_FLAG_LABEL } from "@/lib/sharing.js";
 
 export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
   const [title, setTitle] = useState("");
@@ -17,6 +19,7 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
   const [publisher, setPublisher] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState([]);
+  const [explicitContent, setExplicitContent] = useState(false);
   const [newTag, setNewTag] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -29,6 +32,10 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
       setPublisher(comic.publisher || "");
       setDescription(comic.description || "");
       setTags(comic.tags || []);
+      // Restored from the comic like every other field, and never inferred from
+      // one: adding or removing a tag — including one that hides the comic from
+      // the library — must leave this exactly as the owner set it.
+      setExplicitContent(comic.explicitContent === true);
     }
   }, [comic]);
 
@@ -67,7 +74,8 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
         author,
         publisher,
         description,
-        tags
+        tags,
+        explicitContent
       });
       
       // If we have new tags, add them to the cache
@@ -182,6 +190,24 @@ export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
                 <Plus size={16} className="mr-1" />
                 Add
               </Button>
+            </div>
+          </div>
+
+          {/* Below the tags, and deliberately not among them. Hiding a comic
+              from the library is a shelving choice; this is a statement about
+              what is inside it, and the two must not be read as one setting. */}
+          <div className="flex items-start gap-3 rounded-md border p-3">
+            <Checkbox
+              id="explicit-content"
+              checked={explicitContent}
+              onCheckedChange={(checked) => setExplicitContent(checked === true)}
+              className="mt-0.5"
+            />
+            <div className="grid gap-1">
+              <Label htmlFor="explicit-content" className="cursor-pointer">
+                {EXPLICIT_FLAG_LABEL}
+              </Label>
+              <p className="text-xs text-muted-foreground">{EXPLICIT_FLAG_DESCRIPTION}</p>
             </div>
           </div>
         </div>

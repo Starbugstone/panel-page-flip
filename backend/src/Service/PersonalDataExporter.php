@@ -125,6 +125,12 @@ final class PersonalDataExporter
                 'expiresAt' => $share->getExpiresAt()?->format(\DateTimeInterface::ATOM),
                 'unavailableAt' => $share->getUnavailableAt()?->format(\DateTimeInterface::ATOM),
                 'tombstoneReason' => $share->getTombstoneReason(),
+                // The two declarations this share records. They are statements
+                // the user made about themselves, so an export of what is held
+                // about them has to include them.
+                'senderResponsibilityAcceptedAt' => $share->getSenderResponsibilityAcceptedAt()?->format(\DateTimeInterface::ATOM),
+                'adultConfirmedAt' => $share->getAdultConfirmedAt()?->format(\DateTimeInterface::ATOM),
+                'explicitContent' => $share->isExplicitContent(),
             ],
             $shares,
         );

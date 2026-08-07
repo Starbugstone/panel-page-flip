@@ -171,6 +171,7 @@ export default function Dashboard() {
             publisher: updatedComic.publisher,
             description: updatedComic.description,
             tags: updatedComic.tags,
+            explicitContent: updatedComic.explicitContent === true,
           },
         }],
       });

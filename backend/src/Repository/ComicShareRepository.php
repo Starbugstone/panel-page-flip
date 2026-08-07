@@ -47,12 +47,9 @@ class ComicShareRepository extends ServiceEntityRepository
      */
     public function findAccessFor(User $user, Comic $comic): ?ComicShare
     {
-        return $this->recipientQueryBuilder($user)
+        return $this->readableQueryBuilder($user)
             ->andWhere('s.comic = :comic')
-            ->andWhere('s.status = :accepted')
-            ->andWhere('s.unavailableAt IS NULL')
             ->setParameter('comic', $comic)
-            ->setParameter('accepted', ComicShare::STATUS_ACCEPTED)
             ->setMaxResults(1)
             ->getQuery()
             ->getOneOrNullResult();
@@ -66,14 +63,9 @@ class ComicShareRepository extends ServiceEntityRepository
      */
     public function findVisibleCollectionShares(User $user): array
     {
-        return $this->recipientQueryBuilder($user)
-            ->andWhere('s.status = :accepted')
-            ->andWhere('s.unavailableAt IS NULL')
-            ->andWhere('s.comic IS NOT NULL')
+        return $this->readableQueryBuilder($user)
             ->andWhere('s.recipientRemovedAt IS NULL')
-            ->setParameter('accepted', ComicShare::STATUS_ACCEPTED)
             ->addSelect('c', 'o')
-            ->leftJoin('s.comic', 'c')
             ->leftJoin('s.owner', 'o')
             ->getQuery()
             ->getResult();
@@ -201,14 +193,11 @@ class ComicShareRepository extends ServiceEntityRepository
             return [];
         }
 
-        $shares = $this->recipientQueryBuilder($user)
+        $shares = $this->readableQueryBuilder($user)
             ->addSelect('o')
             ->leftJoin('s.owner', 'o')
             ->andWhere('s.comic IN (:comics)')
-            ->andWhere('s.status = :accepted')
-            ->andWhere('s.unavailableAt IS NULL')
             ->setParameter('comics', $comics)
-            ->setParameter('accepted', ComicShare::STATUS_ACCEPTED)
             ->getQuery()
             ->getResult();
 
@@ -327,6 +316,28 @@ class ComicShareRepository extends ServiceEntityRepository
             ->setParameter('email', ComicShare::normaliseEmail((string) $user->getEmail()))
             ->getQuery()
             ->getResult();
+    }
+
+    /**
+     * Shares that actually let this user read the comic behind them, aliased
+     * `s` with the comic joined as `c`.
+     *
+     * Every read path resolves access through this, so an age gate cannot hold
+     * on one endpoint and be missing on another: an accepted share on a comic
+     * the owner has marked explicit grants nothing until that recipient has
+     * declared their age on this very share.
+     *
+     * Note what it does *not* filter on: a comic the recipient removed from
+     * their own collection is still readable, because hiding is not giving up.
+     */
+    private function readableQueryBuilder(User $user): \Doctrine\ORM\QueryBuilder
+    {
+        return $this->recipientQueryBuilder($user)
+            ->innerJoin('s.comic', 'c')
+            ->andWhere('s.status = :accepted')
+            ->andWhere('s.unavailableAt IS NULL')
+            ->andWhere('c.explicitContent = false OR s.adultConfirmedAt IS NOT NULL')
+            ->setParameter('accepted', ComicShare::STATUS_ACCEPTED);
     }
 
     /**
