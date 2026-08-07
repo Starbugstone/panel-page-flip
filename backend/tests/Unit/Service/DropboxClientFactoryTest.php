@@ -5,8 +5,13 @@ namespace App\Tests\Unit\Service;
 use App\Entity\User;
 use App\Service\DropboxClientFactory;
 use Doctrine\ORM\EntityManagerInterface;
+use GuzzleHttp\Exception\BadResponseException;
+use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Spatie\Dropbox\Exceptions\BadRequest;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 
@@ -98,6 +103,58 @@ final class DropboxClientFactoryTest extends TestCase
         $this->expectException(\RuntimeException::class);
 
         $this->factory(new MockHttpClient())->createForUser(new User());
+    }
+
+    /**
+     * Only a rejected credential may clear the recorded expiry.
+     *
+     * A timeout or a Dropbox outage says nothing about the token, and treating
+     * one as a rejection puts the refresh back in front of every later request —
+     * which is the whole cost the expiry exists to avoid.
+     *
+     * @dataProvider credentialRejectionProvider
+     */
+    public function testClassifiesFailuresThatMeanTheTokenIsNoGood(
+        \Throwable $exception,
+        bool $expected
+    ): void {
+        self::assertSame(
+            $expected,
+            $this->factory(new MockHttpClient())->isCredentialRejection($exception)
+        );
+    }
+
+    public function credentialRejectionProvider(): iterable
+    {
+        yield 'HTTP 401' => [$this->badResponse(401), true];
+        yield 'invalid_access_token' => [$this->dropboxBadRequest('invalid_access_token'), true];
+        yield 'expired_access_token' => [$this->dropboxBadRequest('expired_access_token'), true];
+        yield 'refresh token refused' => [new \RuntimeException('Dropbox token refresh failed.'), true];
+
+        // Everything below is Dropbox being unreachable or unwell, or the call
+        // being wrong — none of it is evidence about the credential.
+        yield 'HTTP 500' => [$this->badResponse(500), false];
+        yield 'HTTP 429' => [$this->badResponse(429), false];
+        yield 'HTTP 403' => [$this->badResponse(403), false];
+        yield 'transport failure' => [new \RuntimeException('Connection timed out'), false];
+        yield 'unrelated Dropbox error' => [$this->dropboxBadRequest('path/not_found'), false];
+    }
+
+    private function badResponse(int $status): BadResponseException
+    {
+        return new ClientException(
+            sprintf('HTTP %d', $status),
+            new Request('POST', 'https://api.dropboxapi.com/2/users/get_current_account'),
+            new Response($status, [], '{}')
+        );
+    }
+
+    private function dropboxBadRequest(string $tag): BadRequest
+    {
+        return new BadRequest(new Response(409, [], json_encode([
+            'error' => ['.tag' => $tag],
+            'error_summary' => $tag . '/...',
+        ], JSON_THROW_ON_ERROR)));
     }
 
     private function connectedUser(string $accessToken, ?\DateTimeImmutable $expiresAt): User

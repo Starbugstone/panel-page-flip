@@ -130,6 +130,97 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
     }
 
+    /**
+     * The client sends five chunks of one upload at once, and the handler is a
+     * read-modify-write of a single JSON file. Every chunk has to survive that:
+     * a lost chunkSizes entry undercounts the staged total and lets the size
+     * limit be walked past, and a lost receivedChunks entry makes
+     * /upload/complete reject an upload that did arrive in full.
+     */
+    public function testEveryChunkIsRecordedInTheUploadMetadata(): void
+    {
+        $user = $this->createAndLoginUser();
+        $fileId = 'upload-metadata-test';
+        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $this->temporaryUploadDirectories[] = $chunkDirectory;
+
+        $this->postJson('/api/comics/upload/init', [
+            'fileId' => $fileId,
+            'filename' => 'metadata.cbz',
+            'totalChunks' => 5,
+            'metadata' => ['title' => 'Metadata test'],
+        ]);
+        self::assertResponseIsSuccessful();
+
+        for ($chunkIndex = 0; $chunkIndex < 5; $chunkIndex++) {
+            $this->uploadChunk($fileId, $chunkIndex, str_repeat('X', 32 + $chunkIndex));
+            self::assertResponseIsSuccessful();
+        }
+
+        $metadata = json_decode((string) file_get_contents($chunkDirectory . '/metadata.json'), true);
+        sort($metadata['receivedChunks']);
+        self::assertSame([0, 1, 2, 3, 4], $metadata['receivedChunks']);
+        self::assertSame(
+            ['0' => 32, '1' => 33, '2' => 34, '3' => 35, '4' => 36],
+            $metadata['chunkSizes']
+        );
+    }
+
+    /**
+     * The lock is what makes the check above hold under real concurrency, and it
+     * only holds if it is genuinely exclusive and genuinely released.
+     *
+     * Parallel HTTP requests cannot be driven from this harness, so the lock file
+     * itself is asserted: exclusive while held, and free once the request that
+     * held it has answered — including a request that was rejected, which is the
+     * path that would otherwise wedge the rest of the upload.
+     */
+    public function testTheChunkLockIsExclusiveAndReleased(): void
+    {
+        $user = $this->createAndLoginUser();
+        $fileId = 'upload-lock-test';
+        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $this->temporaryUploadDirectories[] = $chunkDirectory;
+
+        $this->postJson('/api/comics/upload/init', [
+            'fileId' => $fileId,
+            'filename' => 'lock.cbz',
+            'totalChunks' => 2,
+            'metadata' => ['title' => 'Lock test'],
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $this->uploadChunk($fileId, 0, str_repeat('X', 16));
+        self::assertResponseIsSuccessful();
+
+        $lockPath = $chunkDirectory . '/.chunk.lock';
+        self::assertFileExists($lockPath);
+
+        // Released: a request that answered must not still hold it.
+        $first = fopen($lockPath, 'c');
+        self::assertTrue(flock($first, LOCK_EX | LOCK_NB), 'The chunk lock was left held after a request.');
+
+        // Exclusive: a second holder cannot get in while the first has it.
+        $second = fopen($lockPath, 'c');
+        self::assertFalse(flock($second, LOCK_EX | LOCK_NB), 'The chunk lock is not exclusive.');
+
+        flock($first, LOCK_UN);
+        fclose($first);
+        fclose($second);
+
+        // A rejected chunk releases the lock too, so the upload is not wedged.
+        $this->uploadChunk($fileId, 99, str_repeat('X', 16));
+        self::assertResponseStatusCodeSame(400);
+
+        $afterRejection = fopen($lockPath, 'c');
+        self::assertTrue(
+            flock($afterRejection, LOCK_EX | LOCK_NB),
+            'A rejected chunk left the upload lock held.'
+        );
+        flock($afterRejection, LOCK_UN);
+        fclose($afterRejection);
+    }
+
     private function uploadChunk(string $fileId, int $chunkIndex, string $contents): void
     {
         $chunkPath = tempnam(sys_get_temp_dir(), 'chunk_');
@@ -172,7 +263,14 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
                 continue;
             }
 
-            foreach (glob($directory . '/*') ?: [] as $path) {
+            // scandir rather than glob: the chunk lock is a dot-file, and glob
+            // skips those, so rmdir would fail on a directory that still had it.
+            foreach (scandir($directory) ?: [] as $entry) {
+                if ($entry === '.' || $entry === '..') {
+                    continue;
+                }
+
+                $path = $directory . '/' . $entry;
                 if (is_file($path)) {
                     unlink($path);
                 }

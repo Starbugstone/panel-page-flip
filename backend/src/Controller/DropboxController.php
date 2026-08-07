@@ -147,11 +147,13 @@ class DropboxController extends AbstractController
                     'user_id' => $user->getId(),
                     'exception' => $e,
                 ]);
-                // The stored token did not work, whatever its recorded expiry
-                // claimed. Clearing that claim means the next call refreshes
-                // rather than presenting the same dead token again — which is
-                // what recovers a grant Dropbox retired early.
-                $this->dropboxClientFactory->invalidateAccessToken($user);
+                // Only when Dropbox actually rejected the credential. Clearing
+                // the expiry after a timeout or a Dropbox outage would put a
+                // refresh back in front of every later request — the cost the
+                // recorded expiry exists to avoid — for a token that was fine.
+                if ($this->dropboxClientFactory->isCredentialRejection($e)) {
+                    $this->dropboxClientFactory->invalidateAccessToken($user);
+                }
                 $connected = false;
             }
         }

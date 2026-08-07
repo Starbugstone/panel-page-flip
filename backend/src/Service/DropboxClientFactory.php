@@ -4,8 +4,10 @@ namespace App\Service;
 
 use App\Entity\User;
 use Doctrine\ORM\EntityManagerInterface;
+use GuzzleHttp\Exception\BadResponseException;
 use Psr\Log\LoggerInterface;
 use Spatie\Dropbox\Client as DropboxClient;
+use Spatie\Dropbox\Exceptions\BadRequest;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class DropboxClientFactory
@@ -48,11 +50,47 @@ class DropboxClientFactory
      *
      * For callers that discover the token is dead before it was due to expire —
      * a grant revoked from Dropbox's side, or a clock that disagreed.
+     *
+     * Only for those. Clearing the expiry after a timeout or a Dropbox outage
+     * would put the refresh back in front of every later request, which is the
+     * cost this expiry exists to avoid; {@see isCredentialRejection()} is how
+     * callers tell the two apart.
      */
     public function invalidateAccessToken(User $user): void
     {
         $user->setDropboxTokenExpiresAt(null);
         $this->entityManager->flush();
+    }
+
+    /**
+     * Whether a failed Dropbox call means "this token is no good" rather than
+     * "Dropbox could not be reached".
+     *
+     * A rejected token is 401 `invalid_access_token`. Dropbox also answers 400
+     * for a malformed one, which the Spatie client turns into a BadRequest
+     * carrying the tag. A transport error, a 5xx or a timeout says nothing about
+     * the credential and must leave the recorded expiry alone.
+     */
+    public function isCredentialRejection(\Throwable $exception): bool
+    {
+        // Our own signal that the refresh token itself was refused. The access
+        // token is already past its expiry in that case, so this is belt and
+        // braces rather than the main path.
+        if ($exception instanceof \RuntimeException
+            && str_contains($exception->getMessage(), 'Dropbox token refresh failed')
+        ) {
+            return true;
+        }
+
+        if ($exception instanceof BadRequest) {
+            return in_array($exception->dropboxCode, ['invalid_access_token', 'expired_access_token'], true);
+        }
+
+        if ($exception instanceof BadResponseException) {
+            return $exception->getResponse()->getStatusCode() === 401;
+        }
+
+        return false;
     }
 
     private function needsRefresh(User $user): bool

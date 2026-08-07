@@ -92,6 +92,42 @@ class ComicController extends AbstractController
         }
     }
 
+    /**
+     * Take the exclusive lock for one staged upload.
+     *
+     * A dedicated lock file rather than metadata.json itself: the metadata is
+     * rewritten with file_put_contents, which truncates, and a lock held on a
+     * handle to a file being replaced under it protects nothing.
+     *
+     * Blocking, not LOCK_NB. The chunks of one upload are meant to be admitted
+     * one at a time, so a request that arrives mid-write should wait its turn
+     * rather than be told to try again.
+     *
+     * @return resource
+     */
+    private function acquireUploadLock(string $userChunkDir)
+    {
+        $handle = fopen($userChunkDir . '/.chunk.lock', 'c');
+        if ($handle === false) {
+            throw new \RuntimeException('Failed to open the upload lock.');
+        }
+
+        if (!flock($handle, LOCK_EX)) {
+            fclose($handle);
+
+            throw new \RuntimeException('Failed to acquire the upload lock.');
+        }
+
+        return $handle;
+    }
+
+    /** @param resource $handle */
+    private function releaseUploadLock($handle): void
+    {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+
     private function assertSafeFileId(string $fileId): void
     {
         if (!preg_match(self::FILE_ID_REGEX, $fileId)) {
@@ -852,48 +888,70 @@ class ComicController extends AbstractController
             if (!file_exists($metadataPath)) {
                 return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
             }
-            
-            $metadata = json_decode(file_get_contents($metadataPath), true);
-            
-            // Validate chunk index
-            if ($chunkIndex < 0 || $chunkIndex >= $metadata['totalChunks']) {
-                return $this->json(['message' => 'Invalid chunk index'], Response::HTTP_BAD_REQUEST);
-            }
-            
-            // Refuse the chunk that would take this upload past the size limit,
-            // rather than waiting for /upload/complete to notice.
+
+            // Everything from here to the metadata write is one critical section,
+            // held per upload.
             //
-            // Per-chunk and per-file limits together used to leave the staging
-            // area unbounded: an upload could be initialised for the maximum
-            // chunk count and every chunk sent at the maximum size, filling the
-            // disk with several times the permitted total, and only be rejected
-            // once the last chunk had already been written. Nothing here is
-            // charged against the user's quota either, so the files were free.
-            $stagedBytes = array_sum(array_map('intval', $metadata['chunkSizes'] ?? []));
-            $replacedBytes = (int) ($metadata['chunkSizes'][(string) $chunkIndex] ?? 0);
-            if ($stagedBytes - $replacedBytes + (int) $chunk->getSize() > $this->uploadMaxTotalBytes) {
-                return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
-            }
+            // The client sends five chunks of the same upload at once, and this
+            // is a read-modify-write of a single JSON file. Without the lock two
+            // requests read the same metadata and the second write drops the
+            // first one's entries: a lost chunkSizes entry undercounts the
+            // staged total and lets the size limit below be walked past, and a
+            // lost receivedChunks entry makes /upload/complete reject an upload
+            // that did arrive in full.
+            $lock = $this->acquireUploadLock($userChunkDir);
 
-            // Save chunk
-            $chunkPath = $userChunkDir . '/chunk_' . $chunkIndex;
-            $chunk->move(dirname($chunkPath), basename($chunkPath));
+            try {
+                $metadata = json_decode((string) file_get_contents($metadataPath), true);
+                if (!is_array($metadata)) {
+                    return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
+                }
 
-            // Update metadata
-            $metadata['receivedChunks'] = $metadata['receivedChunks'] ?? [];
-            if (!in_array($chunkIndex, $metadata['receivedChunks'], true)) {
-                $metadata['receivedChunks'][] = $chunkIndex;
+                // Validate chunk index
+                if ($chunkIndex < 0 || $chunkIndex >= $metadata['totalChunks']) {
+                    return $this->json(['message' => 'Invalid chunk index'], Response::HTTP_BAD_REQUEST);
+                }
+
+                // Refuse the chunk that would take this upload past the size
+                // limit, rather than waiting for /upload/complete to notice.
+                //
+                // Per-chunk and per-file limits together used to leave the
+                // staging area unbounded: an upload could be initialised for the
+                // maximum chunk count and every chunk sent at the maximum size,
+                // filling the disk with several times the permitted total, and
+                // only be rejected once the last chunk had already been written.
+                // Nothing here is charged against the user's quota either, so
+                // the files were free.
+                $stagedBytes = array_sum(array_map('intval', $metadata['chunkSizes'] ?? []));
+                $replacedBytes = (int) ($metadata['chunkSizes'][(string) $chunkIndex] ?? 0);
+                if ($stagedBytes - $replacedBytes + (int) $chunk->getSize() > $this->uploadMaxTotalBytes) {
+                    return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+                }
+
+                // Save chunk
+                $chunkPath = $userChunkDir . '/chunk_' . $chunkIndex;
+                $chunk->move(dirname($chunkPath), basename($chunkPath));
+
+                // Update metadata
+                $metadata['receivedChunks'] = $metadata['receivedChunks'] ?? [];
+                if (!in_array($chunkIndex, $metadata['receivedChunks'], true)) {
+                    $metadata['receivedChunks'][] = $chunkIndex;
+                }
+                $metadata['chunkSizes'] = $metadata['chunkSizes'] ?? [];
+                $metadata['chunkSizes'][(string) $chunkIndex] = (int) filesize($chunkPath);
+                file_put_contents($metadataPath, json_encode($metadata));
+
+                return $this->json([
+                    'message' => 'Chunk uploaded',
+                    'chunkIndex' => $chunkIndex,
+                    'chunksReceived' => count($metadata['receivedChunks']),
+                    'chunksTotal' => $metadata['totalChunks']
+                ]);
+            } finally {
+                // Every path out, including the rejections above, which would
+                // otherwise wedge the rest of the upload behind a held lock.
+                $this->releaseUploadLock($lock);
             }
-            $metadata['chunkSizes'] = $metadata['chunkSizes'] ?? [];
-            $metadata['chunkSizes'][(string) $chunkIndex] = (int) filesize($chunkPath);
-            file_put_contents($metadataPath, json_encode($metadata));
-            
-            return $this->json([
-                'message' => 'Chunk uploaded',
-                'chunkIndex' => $chunkIndex,
-                'chunksReceived' => count($metadata['receivedChunks']),
-                'chunksTotal' => $metadata['totalChunks']
-            ]);
         } catch (BadRequestHttpException $e) {
             return $this->json(['message' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
         } catch (\Exception $e) {
