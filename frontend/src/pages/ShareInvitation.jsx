@@ -6,10 +6,17 @@ import { useComicLibrary } from "@/hooks/use-comic-library";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertCircle, BookOpen, Loader2 } from "lucide-react";
+import { AlertCircle, BookOpen, Loader2, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import {
+  EXPLICIT_GATE_BODY,
+  EXPLICIT_GATE_CONFIRM_LABEL,
+  EXPLICIT_GATE_TITLE,
+  requiresAdultConfirmation,
+  shareDisplayTitle,
+} from "@/lib/sharing";
 
 /**
  * The page an invitation link opens.
@@ -62,6 +69,27 @@ export default function ShareInvitation() {
   useEffect(() => {
     loadInvitation();
   }, [loadInvitation]);
+
+  /**
+   * Make the age declaration, then redisplay whatever the server chooses to
+   * reveal in response.
+   *
+   * The preview is reloaded rather than patched from local state: the unlocked
+   * metadata only exists because the backend decided to send it, and rendering
+   * it any earlier would be the client deciding instead.
+   */
+  const confirmAdult = async () => {
+    setIsAnswering(true);
+    setError(null);
+    try {
+      await api.post(`/api/shares/invitations/${token}/confirm-adult`, { adultConfirmed: true });
+      await loadInvitation();
+    } catch (err) {
+      setError(err.message || "Your age could not be confirmed.");
+    } finally {
+      setIsAnswering(false);
+    }
+  };
 
   const answer = async (decision) => {
     setIsAnswering(true);
@@ -140,8 +168,22 @@ export default function ShareInvitation() {
 
     if (!invitation) return null;
 
+    const gated = requiresAdultConfirmation(invitation);
+
+    const explicitWarning = (
+      <Alert>
+        <ShieldAlert className="h-5 w-5" />
+        <AlertTitle>{EXPLICIT_GATE_TITLE}</AlertTitle>
+        <AlertDescription>{EXPLICIT_GATE_BODY}</AlertDescription>
+      </Alert>
+    );
+
     const preview = (
       <div className="flex gap-4">
+        {/* A neutral placeholder, never the real cover behind a blur: blurring
+            still sends the cover, and the point of the gate is that those bytes
+            do not leave the server until somebody has confirmed. The backend
+            withholds the URL entirely, so there is nothing here to blur. */}
         {invitation.coverImagePath ? (
           <img
             src={invitation.coverImagePath}
@@ -150,11 +192,13 @@ export default function ShareInvitation() {
           />
         ) : (
           <div className="flex h-40 w-28 flex-none items-center justify-center rounded bg-muted">
-            <BookOpen className="h-8 w-8 text-muted-foreground" />
+            {gated
+              ? <ShieldAlert className="h-8 w-8 text-muted-foreground" />
+              : <BookOpen className="h-8 w-8 text-muted-foreground" />}
           </div>
         )}
         <div className="min-w-0 space-y-1">
-          <h1 className="font-comic text-2xl">{invitation.comicTitle}</h1>
+          <h1 className="font-comic text-2xl">{shareDisplayTitle(invitation)}</h1>
           {invitation.comicAuthor && (
             <p className="text-sm text-muted-foreground">{invitation.comicAuthor}</p>
           )}
@@ -179,6 +223,10 @@ export default function ShareInvitation() {
         <Card className="w-full max-w-lg">
           <CardContent className="space-y-4 p-6">
             {preview}
+            {/* Holding the link is not an age declaration — nobody has said who
+                they are yet — so a signed-out visitor is told what the
+                invitation is and nothing about the comic. */}
+            {gated && explicitWarning}
             <p className="rounded bg-muted p-3 text-sm text-muted-foreground">
               This comic remains owned by {invitation.ownerName}. It may become unavailable if the
               owner removes it or stops sharing it.
@@ -212,6 +260,29 @@ export default function ShareInvitation() {
             <Button variant="outline" onClick={() => navigate("/dashboard")}>
               Go to my collection
             </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // The recipient, signed in, on an explicit comic they have not confirmed
+    // for. Accepting is not offered at all here: it is the age declaration that
+    // has to come first, and the backend refuses an accept without it anyway.
+    if (gated) {
+      return (
+        <Card className="w-full max-w-lg">
+          <CardContent className="space-y-4 p-6">
+            {preview}
+            {explicitWarning}
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button disabled={isAnswering} onClick={confirmAdult}>
+                {isAnswering && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {EXPLICIT_GATE_CONFIRM_LABEL}
+              </Button>
+              <Button variant="outline" disabled={isAnswering} onClick={() => answer("decline")}>
+                Decline
+              </Button>
+            </div>
           </CardContent>
         </Card>
       );

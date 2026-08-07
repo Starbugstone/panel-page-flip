@@ -64,10 +64,25 @@
         </div>
         <div class="content">
             <p>Hi there,</p>
-            <p>
-                <span class="highlight">{{ userName|e }}</span> would like to share the comic
-                "<span class="highlight">{{ comic.title|e }}</span>" with you.
-            </p>
+            {# An explicit comic is not named here. The email is the one place
+               the recipient cannot choose to open: it is previewed on lock
+               screens and read by scanners, so the title stays behind the age
+               gate along with everything else that identifies the comic. #}
+            {% if explicitContent %}
+                <p>
+                    <span class="highlight">{{ userName|e }}</span> would like to share a comic with you.
+                </p>
+                <p class="highlight">
+                    They have marked it as containing explicit adult content (18+).
+                    You will be asked to confirm that you are 18 or older before any
+                    details of the comic are shown to you.
+                </p>
+            {% else %}
+                <p>
+                    <span class="highlight">{{ userName|e }}</span> would like to share the comic
+                    "<span class="highlight">{{ comic.title|e }}</span>" with you.
+                </p>
+            {% endif %}
             {# One link, and it only opens a preview. Mail scanners and
                link-preview services follow links without a person behind them,
                so nothing here may accept or decline on the recipient's

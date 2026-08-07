@@ -111,6 +111,37 @@ class ComicShare
     #[ORM\Column(length: 255)]
     private string $ownerNameSnapshot = '';
 
+    /**
+     * Whether the comic was marked explicit when the snapshots were last taken.
+     *
+     * Kept alongside the title snapshot because a tombstone outlives the comic
+     * that would otherwise answer the question — and the title it preserves is
+     * exactly the identifying detail an unconfirmed age gate is holding back.
+     * Deleting the comic must not be the way that title gets out.
+     */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $explicitContentSnapshot = false;
+
+    /**
+     * When the sender accepted responsibility for what they were sharing.
+     *
+     * Per share rather than per account: the acknowledgement is about this
+     * comic going to this person, so a blanket "I understand" ticked once a year
+     * ago would not be a record of anything. Null only on shares created before
+     * the acknowledgement existed.
+     */
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $senderResponsibilityAcceptedAt = null;
+
+    /**
+     * When the recipient declared they are 18 or older, for a comic the owner
+     * marked explicit. Null means the gate is still closed, which is the state
+     * an explicit share starts in and returns to whenever the comic is newly
+     * marked explicit.
+     */
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $adultConfirmedAt = null;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $unavailableAt = null;
 
@@ -152,6 +183,7 @@ class ComicShare
         if ($this->comic !== null) {
             $this->comicTitleSnapshot = (string) $this->comic->getTitle();
             $this->comicAuthorSnapshot = $this->comic->getAuthor();
+            $this->explicitContentSnapshot = $this->comic->isExplicitContent();
         }
 
         if ($this->owner !== null) {
@@ -269,6 +301,78 @@ class ComicShare
     public function getOwnerNameSnapshot(): string
     {
         return $this->ownerNameSnapshot;
+    }
+
+    public function getSenderResponsibilityAcceptedAt(): ?\DateTimeImmutable
+    {
+        return $this->senderResponsibilityAcceptedAt;
+    }
+
+    /**
+     * Record the sender's acknowledgement, now.
+     *
+     * The timestamp is taken here and never read off the request: an audit trail
+     * the audited party can write is not one.
+     */
+    public function acceptSenderResponsibility(): self
+    {
+        $this->senderResponsibilityAcceptedAt = new \DateTimeImmutable();
+
+        return $this;
+    }
+
+    public function getAdultConfirmedAt(): ?\DateTimeImmutable
+    {
+        return $this->adultConfirmedAt;
+    }
+
+    /**
+     * Record the recipient's age declaration, once.
+     *
+     * Idempotent on purpose: confirming twice is a double click or a retried
+     * request, and neither is a reason to move the moment the declaration was
+     * actually made.
+     */
+    public function confirmAdult(): self
+    {
+        $this->adultConfirmedAt ??= new \DateTimeImmutable();
+
+        return $this;
+    }
+
+    /**
+     * Close the age gate again.
+     *
+     * Used when a comic that was already shared becomes explicit: the recipient
+     * agreed to read something that was not marked 18+, so their earlier silence
+     * cannot stand in for a declaration about the comic it is now.
+     */
+    public function resetAdultConfirmation(): self
+    {
+        $this->adultConfirmedAt = null;
+
+        return $this;
+    }
+
+    /**
+     * Whether the comic behind this share is classified 18+.
+     *
+     * Answered by the comic while there is one, and by the snapshot once there
+     * is not — so a tombstone still knows what it is a tombstone of.
+     */
+    public function isExplicitContent(): bool
+    {
+        return $this->comic?->isExplicitContent() ?? $this->explicitContentSnapshot;
+    }
+
+    /**
+     * Whether this share is currently waiting on the recipient's age
+     * declaration. False for anything that is not explicit, so the ordinary
+     * flow never notices this exists.
+     */
+    public function requiresAdultConfirmation(): bool
+    {
+        return $this->isExplicitContent() && $this->adultConfirmedAt === null;
     }
 
     public function getUnavailableAt(): ?\DateTimeImmutable
@@ -414,10 +518,23 @@ class ComicShare
             && $this->unavailableAt === null;
     }
 
+    /**
+     * Whether the recipient may actually read the comic right now.
+     *
+     * Access and readability are separated because an explicit comic can suspend
+     * the second without touching the first: the relationship survives an age
+     * gate closing, so the recipient still has a share to confirm against and
+     * still keeps their place in their collection once they do.
+     */
+    public function grantsReadAccess(): bool
+    {
+        return $this->grantsAccess() && !$this->requiresAdultConfirmation();
+    }
+
     /** Whether the recipient should see this in their normal collection. */
     public function isVisibleInCollection(): bool
     {
-        return $this->grantsAccess() && $this->recipientRemovedAt === null;
+        return $this->grantsReadAccess() && $this->recipientRemovedAt === null;
     }
 
     public function isPending(?\DateTimeImmutable $now = null): bool

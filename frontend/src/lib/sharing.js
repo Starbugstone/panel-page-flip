@@ -61,6 +61,21 @@ export function describeReceivedShare(share) {
       return "The owner has stopped sharing this comic with you.";
     case SHARE_STATUS.DECLINED:
       return "You declined this invitation.";
+    default:
+      break;
+  }
+
+  // After the endings, before the ordinary states. An age gate is something the
+  // recipient can act on, so it is worth saying — but only while there is still
+  // something behind it. Offering to unlock a share the owner has already
+  // withdrawn would be an invitation to a dead end.
+  if (share.requiresAdultConfirmation) {
+    return share.status === SHARE_STATUS.ACCEPTED
+      ? "This comic is marked 18+. Confirm your age to read it again."
+      : "This comic is marked 18+. Confirm your age to see what is being shared.";
+  }
+
+  switch (share.status) {
     case SHARE_STATUS.PENDING:
       return share.isExpired
         ? "This invitation expired before you answered it."
@@ -184,4 +199,95 @@ export function isValidShareEmail(email) {
   return trimmed.length <= 254
     && /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
       .test(trimmed);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Explicit content                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The wording for both halves of the classification feature, kept here rather
+ * than inline in the components.
+ *
+ * These sentences are the feature: they are what tells a sender what they are
+ * taking on and a recipient what they are about to open. Keeping them in one
+ * place is what lets them be asserted directly, and stops the share modal and
+ * the sharing page drifting into saying different things.
+ */
+export const SHARE_RESPONSIBILITY_NOTICE = "You are responsible for the content you share. "
+  + "Only share material you are allowed to distribute, and make sure adult or explicit comics "
+  + "are correctly marked as Explicit content (18+) before sending them.";
+
+export const SHARE_RESPONSIBILITY_ACK_LABEL = "I understand";
+
+export const SHARING_PAGE_RESPONSIBILITY_REMINDER =
+  "You are responsible for the content you share and for marking explicit material correctly.";
+
+export const EXPLICIT_FLAG_LABEL = "Explicit content (18+)";
+
+export const EXPLICIT_FLAG_DESCRIPTION = "Mark this comic as containing adult or explicit material. "
+  + "Recipients will have to confirm they are 18 or older before the comic is revealed or accepted.";
+
+export const EXPLICIT_GATE_TITLE = "Explicit content — 18+";
+
+export const EXPLICIT_GATE_BODY = "This shared comic has been marked by its owner as containing "
+  + "explicit adult content. You must be 18 or older to continue. The cover and comic details will "
+  + "remain hidden until you confirm.";
+
+export const EXPLICIT_GATE_CONFIRM_LABEL = "I am 18 or older — continue";
+
+/**
+ * Whether an invitation or share is still waiting on the recipient's age
+ * declaration.
+ *
+ * Reads the server's answer rather than deriving one from `explicitContent`:
+ * the backend is the thing that decides what it has withheld, and a client that
+ * worked it out separately could show a title the server had redacted, or hide
+ * one it had not.
+ */
+export function requiresAdultConfirmation(share) {
+  return share?.requiresAdultConfirmation === true;
+}
+
+/**
+ * What to call a comic whose title the server is withholding.
+ *
+ * There is genuinely nothing to show — the redaction is the point — so this
+ * names the state instead of leaving an empty heading.
+ */
+export function shareDisplayTitle(share) {
+  if (requiresAdultConfirmation(share)) {
+    // A dead entry stays redacted — the recipient never passed the gate, and
+    // the share ending is not the same as them having done so — but there is no
+    // longer anything to confirm, so it must not promise one.
+    return share?.isDead
+      ? "Hidden — explicit content (18+)"
+      : "Hidden until you confirm your age";
+  }
+
+  return share?.comicTitle || "Untitled comic";
+}
+
+/**
+ * Whether "Send invitation" may be pressed.
+ *
+ * Both conditions, always. The acknowledgement is not a formality the UI can
+ * skip once an address looks right — the backend rejects a share without it —
+ * and putting the rule here keeps the button and the request in agreement.
+ */
+export function canSendInvitation({ email, responsibilityAccepted }) {
+  return isValidShareEmail(email) && responsibilityAccepted === true;
+}
+
+/**
+ * The body of an invitation request.
+ *
+ * The acknowledgement goes on the wire as a literal `true`; the server accepts
+ * nothing else, and the timestamp it stores is its own.
+ */
+export function buildInvitationRequest({ email, responsibilityAccepted }) {
+  return {
+    email: typeof email === "string" ? email.trim() : "",
+    senderResponsibilityAccepted: responsibilityAccepted === true,
+  };
 }

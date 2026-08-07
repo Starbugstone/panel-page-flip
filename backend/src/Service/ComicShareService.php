@@ -26,8 +26,20 @@ use Twig\Environment;
  */
 class ComicShareService
 {
-    /** How long an unanswered invitation stays open. */
-    public const INVITATION_TTL = '+7 days';
+    /**
+     * How long an unanswered invitation stays open — the link and the pending
+     * relationship together, so the two can never disagree about whether an
+     * invitation is still live.
+     *
+     * Two months, because answering one is not always quick: the recipient may
+     * have no account here yet, and a week is easy to lose to a holiday or a
+     * full inbox. The cost is that a link which escapes — forwarded, scanned,
+     * sitting in a proxy log — stays live for longer, which is why the window is
+     * not the thing keeping anybody out. A link only ever previews; accepting
+     * requires signing in as the intended recipient, and an explicit comic
+     * reveals nothing to a link holder at all.
+     */
+    public const INVITATION_TTL = '+2 months';
 
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
@@ -54,10 +66,30 @@ class ComicShareService
      * rolls the invitation back, so the owner is never shown a recipient who
      * was never actually contacted.
      *
+     * @param bool $senderResponsibilityAccepted the sender's acknowledgement
+     *                                           that they are responsible for
+     *                                           what they hand out, and for
+     *                                           having classified it correctly
+     *
      * @throws ShareException
      */
-    public function invite(Comic $comic, User $owner, string $recipientEmail): IssuedInvitation
-    {
+    public function invite(
+        Comic $comic,
+        User $owner,
+        string $recipientEmail,
+        bool $senderResponsibilityAccepted
+    ): IssuedInvitation {
+        // Checked before anything else is decided, so a share cannot come into
+        // existence without the acknowledgement that goes on the record with it.
+        // The tick box in the UI is a prompt, not the rule.
+        if (!$senderResponsibilityAccepted) {
+            throw new ShareException(
+                'You must acknowledge responsibility for the content you share.',
+                400,
+                ShareException::CODE_RESPONSIBILITY_REQUIRED
+            );
+        }
+
         $email = ComicShare::normaliseEmail($recipientEmail);
 
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -95,10 +127,17 @@ class ComicShareService
             // Declined, revoked, or a pending invitation that lapsed. The row is
             // reused rather than duplicated, which is what the unique index on
             // (comic, recipient) is there to guarantee.
-            $share->setOwner($owner)->refreshSnapshots();
+            //
+            // Reusing the row does not carry the old age declaration forward:
+            // this is a fresh offer of the comic as it is now, and the previous
+            // relationship ended without the recipient reading anything.
+            $share->setOwner($owner)->refreshSnapshots()->resetAdultConfirmation();
         }
 
         $share->markPending($this->invitationExpiry());
+        // A new share, so a new acknowledgement. Resending does not come through
+        // here and keeps the timestamp it already has.
+        $share->acceptSenderResponsibility();
 
         return $this->issueInvitation($share, $comic, $owner);
     }
@@ -175,9 +214,12 @@ class ComicShareService
         // must not be able to mark a link used on their way to a 403 — the
         // controller happens not to flush after that, but a link that only
         // survives because nothing later in the request writes is not a link
-        // the legitimate recipient can rely on.
+        // the legitimate recipient can rely on. The age gate is checked here for
+        // the same reason: being sent to the warning must not cost the recipient
+        // the link they need once they have answered it.
         $share = $token->getComicShare();
         $this->assertRecipient($share, $recipient);
+        $this->assertAdultConfirmed($share);
         $token->markUsed();
 
         return $this->acceptShare($share, $recipient);
@@ -209,6 +251,11 @@ class ComicShareService
     {
         $this->assertRecipient($share, $recipient);
         $this->assertAnswerable($share);
+        // The warning on the invitation page is a prompt; this is the boundary.
+        // Accepting is what puts a comic in somebody's collection, so an
+        // unconfirmed explicit share must not get that far however the request
+        // was made.
+        $this->assertAdultConfirmed($share);
 
         $share->markAccepted($recipient)->refreshSnapshots();
         // Every link that was issued for this invitation is spent now.
@@ -231,6 +278,83 @@ class ComicShareService
         $this->entityManager->flush();
 
         return $share;
+    }
+
+    /**
+     * Record that this recipient has declared they are 18 or older, for this
+     * share.
+     *
+     * The declaration belongs to the share and not to the account: somebody may
+     * be willing to make it about one comic and not about the next, and a
+     * per-account flag would answer for them.
+     *
+     * Idempotent — a second confirmation keeps the first timestamp — so a
+     * retried request cannot rewrite when the declaration was actually made.
+     *
+     * @throws ShareException
+     */
+    public function confirmAdult(ComicShare $share, User $recipient): ComicShare
+    {
+        $this->assertRecipient($share, $recipient);
+
+        if ($share->isTombstoned() || $share->getComic() === null) {
+            throw new ShareException('The shared comic is no longer available.', 410);
+        }
+
+        if ($share->getStatus() === ComicShare::STATUS_REVOKED) {
+            throw new ShareException('The owner has withdrawn this invitation.', 410);
+        }
+
+        if ($share->getStatus() === ComicShare::STATUS_DECLINED) {
+            throw new ShareException('You have already declined this invitation.', 409);
+        }
+
+        // Only a pending invitation runs out. An accepted share has no expiry —
+        // markAccepted clears it — so this cannot lock out somebody re-gated
+        // long after they accepted.
+        if ($share->isExpired()) {
+            throw new ShareException('This invitation has expired.', 410);
+        }
+
+        if (!$share->getComic()->isExplicitContent()) {
+            throw new ShareException('This comic is not marked as explicit content.', 409);
+        }
+
+        $share->confirmAdult();
+        $this->entityManager->flush();
+
+        return $share;
+    }
+
+    /**
+     * Re-close the age gate on every live share of a comic that has just been
+     * marked explicit.
+     *
+     * Fails closed by design. Those recipients agreed to read something that was
+     * not classified 18+, and an old silence is not a declaration about the
+     * comic as it is now — so access stops until each of them says so. The
+     * relationship, its status and the recipient's place in their own collection
+     * are untouched: this suspends reading, it does not undo the share.
+     *
+     * Mutates rather than issuing a bulk UPDATE, and asks the repository for
+     * only the shares that have something to reset. A DQL UPDATE would be one
+     * query, but it writes round the identity map — a share already loaded in
+     * this request would go on reporting a confirmation the database no longer
+     * holds — and it would commit on its own, splitting the single flush that
+     * makes the re-gate and the reclassification land together.
+     *
+     * @return int the number of shares re-gated
+     */
+    public function regateSharesForComic(Comic $comic): int
+    {
+        $regated = 0;
+
+        foreach ($this->shareRepository->findConfirmedSharesForComic($comic) as $share) {
+            $share->resetAdultConfirmation();
+            ++$regated;
+        }
+
+        return $regated;
     }
 
     /** Withdraw one recipient's access. Takes effect on the next request. */
@@ -413,8 +537,14 @@ class ComicShareService
     {
         $ownerName = $owner->getName() ?: $owner->getEmail();
 
+        // An email is the least controlled surface there is: it sits in an inbox,
+        // gets previewed on a lock screen and is scanned on the way. For an
+        // explicit comic the template is given no title and no cover to show, so
+        // the identifying details stay behind the age gate rather than being
+        // announced by the notification of it.
         $body = $this->twig->render('emails/share_comic.html.twig', [
             'comic' => $comic,
+            'explicitContent' => $comic->isExplicitContent(),
             'userName' => $ownerName,
             'shareLink' => $this->invitationUrl($plaintextToken),
             'privacyUrl' => rtrim($this->frontendUrl, '/') . '/privacy',
@@ -486,6 +616,20 @@ class ComicShareService
 
         if ($share->isExpired()) {
             throw new ShareException('This invitation has expired.', 410);
+        }
+    }
+
+    /**
+     * @throws ShareException
+     */
+    private function assertAdultConfirmed(ComicShare $share): void
+    {
+        if ($share->requiresAdultConfirmation()) {
+            throw new ShareException(
+                'You must confirm that you are 18 or older to access this shared comic.',
+                403,
+                ShareException::CODE_ADULT_CONFIRMATION_REQUIRED
+            );
         }
     }
 

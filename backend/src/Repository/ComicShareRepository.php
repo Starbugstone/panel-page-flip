@@ -47,36 +47,34 @@ class ComicShareRepository extends ServiceEntityRepository
      */
     public function findAccessFor(User $user, Comic $comic): ?ComicShare
     {
-        return $this->recipientQueryBuilder($user)
+        return $this->readableQueryBuilder($user)
             ->andWhere('s.comic = :comic')
-            ->andWhere('s.status = :accepted')
-            ->andWhere('s.unavailableAt IS NULL')
             ->setParameter('comic', $comic)
-            ->setParameter('accepted', ComicShare::STATUS_ACCEPTED)
             ->setMaxResults(1)
             ->getQuery()
             ->getOneOrNullResult();
     }
 
     /**
-     * Every share this user has accepted and not hidden — the shared half of
-     * their collection.
+     * The comics in the shared half of this user's collection, as ids.
      *
-     * @return list<ComicShare>
+     * Ids rather than entities because that is all the library query wants: it
+     * folds them into one `WHERE owner = ? OR id IN (…)` and re-reads the comics
+     * itself. Hydrating a share, its comic and its owner per row — three objects
+     * apiece, thrown away immediately — was the most expensive thing the
+     * dashboard did before it had loaded anything a reader can see.
+     *
+     * @return list<int>
      */
-    public function findVisibleCollectionShares(User $user): array
+    public function findVisibleCollectionComicIds(User $user): array
     {
-        return $this->recipientQueryBuilder($user)
-            ->andWhere('s.status = :accepted')
-            ->andWhere('s.unavailableAt IS NULL')
-            ->andWhere('s.comic IS NOT NULL')
+        $rows = $this->readableQueryBuilder($user)
+            ->select('IDENTITY(s.comic) AS comicId')
             ->andWhere('s.recipientRemovedAt IS NULL')
-            ->setParameter('accepted', ComicShare::STATUS_ACCEPTED)
-            ->addSelect('c', 'o')
-            ->leftJoin('s.comic', 'c')
-            ->leftJoin('s.owner', 'o')
             ->getQuery()
-            ->getResult();
+            ->getScalarResult();
+
+        return array_map(static fn ($id): int => (int) $id, array_column($rows, 'comicId'));
     }
 
     /**
@@ -131,6 +129,11 @@ class ComicShareRepository extends ServiceEntityRepository
     public function findAllForOwnerIncludingTombstones(User $user): array
     {
         return $this->createQueryBuilder('s')
+            // Joined because the export reads the comic off every row. Left, not
+            // inner: a tombstone has no comic left, and it is precisely the rows
+            // that lost theirs that an export still has to describe.
+            ->addSelect('c')
+            ->leftJoin('s.comic', 'c')
             ->andWhere('s.owner = :owner')
             ->setParameter('owner', $user)
             ->orderBy('s.createdAt', 'DESC')
@@ -146,12 +149,26 @@ class ComicShareRepository extends ServiceEntityRepository
      */
     public function findLiveSharesForComic(Comic $comic): array
     {
-        return $this->createQueryBuilder('s')
-            ->andWhere('s.comic = :comic')
-            ->andWhere('s.unavailableAt IS NULL')
-            ->andWhere('s.status IN (:live)')
-            ->setParameter('comic', $comic)
-            ->setParameter('live', [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED])
+        return $this->liveSharesForComicQueryBuilder($comic)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * The live shares on this comic whose recipient has confirmed their age —
+     * the only ones re-gating has anything to do.
+     *
+     * Narrowed in the query rather than after loading, so a comic shared with
+     * fifty people and confirmed by three hydrates three rows. That is where
+     * the cost of re-gating actually is; going round the ORM to save the rest
+     * would cost the identity-map consistency the callers rely on.
+     *
+     * @return list<ComicShare>
+     */
+    public function findConfirmedSharesForComic(Comic $comic): array
+    {
+        return $this->liveSharesForComicQueryBuilder($comic)
+            ->andWhere('s.adultConfirmedAt IS NOT NULL')
             ->getQuery()
             ->getResult();
     }
@@ -201,14 +218,11 @@ class ComicShareRepository extends ServiceEntityRepository
             return [];
         }
 
-        $shares = $this->recipientQueryBuilder($user)
+        $shares = $this->readableQueryBuilder($user)
             ->addSelect('o')
             ->leftJoin('s.owner', 'o')
             ->andWhere('s.comic IN (:comics)')
-            ->andWhere('s.status = :accepted')
-            ->andWhere('s.unavailableAt IS NULL')
             ->setParameter('comics', $comics)
-            ->setParameter('accepted', ComicShare::STATUS_ACCEPTED)
             ->getQuery()
             ->getResult();
 
@@ -270,15 +284,28 @@ class ComicShareRepository extends ServiceEntityRepository
     /** Counterpart to {@see findLiveSharesForComic()} for the deletion warning. */
     public function countLiveSharesForComic(Comic $comic): int
     {
-        return (int) $this->createQueryBuilder('s')
+        return (int) $this->liveSharesForComicQueryBuilder($comic)
             ->select('COUNT(s.id)')
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /**
+     * "A share on this comic that still means something to its recipient",
+     * aliased `s` — pending or accepted, and not tombstoned.
+     *
+     * One definition, because deleting a comic, stopping sharing, warning the
+     * owner how many people that affects and re-gating all have to agree on
+     * which shares they are talking about.
+     */
+    private function liveSharesForComicQueryBuilder(Comic $comic): \Doctrine\ORM\QueryBuilder
+    {
+        return $this->createQueryBuilder('s')
             ->andWhere('s.comic = :comic')
             ->andWhere('s.unavailableAt IS NULL')
             ->andWhere('s.status IN (:live)')
             ->setParameter('comic', $comic)
-            ->setParameter('live', [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED])
-            ->getQuery()
-            ->getSingleScalarResult();
+            ->setParameter('live', [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED]);
     }
 
     private function deadSharesQueryBuilder(User $user): \Doctrine\ORM\QueryBuilder
@@ -327,6 +354,28 @@ class ComicShareRepository extends ServiceEntityRepository
             ->setParameter('email', ComicShare::normaliseEmail((string) $user->getEmail()))
             ->getQuery()
             ->getResult();
+    }
+
+    /**
+     * Shares that actually let this user read the comic behind them, aliased
+     * `s` with the comic joined as `c`.
+     *
+     * Every read path resolves access through this, so an age gate cannot hold
+     * on one endpoint and be missing on another: an accepted share on a comic
+     * the owner has marked explicit grants nothing until that recipient has
+     * declared their age on this very share.
+     *
+     * Note what it does *not* filter on: a comic the recipient removed from
+     * their own collection is still readable, because hiding is not giving up.
+     */
+    private function readableQueryBuilder(User $user): \Doctrine\ORM\QueryBuilder
+    {
+        return $this->recipientQueryBuilder($user)
+            ->innerJoin('s.comic', 'c')
+            ->andWhere('s.status = :accepted')
+            ->andWhere('s.unavailableAt IS NULL')
+            ->andWhere('c.explicitContent = false OR s.adultConfirmedAt IS NOT NULL')
+            ->setParameter('accepted', ComicShare::STATUS_ACCEPTED);
     }
 
     /**

@@ -18,7 +18,7 @@ final class PrivacyControllerTest extends AbstractApiTestCase
             'dropboxAccessToken' => 'encrypted-access-secret',
             'dropboxRefreshToken' => 'encrypted-refresh-secret',
         ]);
-        ComicFactory::new()->ownedBy($user)->create(['title' => 'Exported Comic']);
+        ComicFactory::new()->ownedBy($user)->explicit()->create(['title' => 'Exported Comic']);
 
         $payload = $this->getJson('/api/privacy/export');
         $encoded = json_encode($payload, JSON_THROW_ON_ERROR);
@@ -26,6 +26,10 @@ final class PrivacyControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
         self::assertSame('export@test.local', $payload['account']['email']);
         self::assertSame('Exported Comic', $payload['comics'][0]['title']);
+        // The owner's own classification is stored, so an export of what is
+        // held about them has to name it — and on the comic, not only on the
+        // shares handed out, or a comic nobody was invited to would omit it.
+        self::assertTrue($payload['comics'][0]['explicitContent']);
         self::assertTrue($payload['account']['dropboxConnected']);
         self::assertStringNotContainsString('password', strtolower($encoded));
         self::assertStringNotContainsString('encrypted-access-secret', $encoded);

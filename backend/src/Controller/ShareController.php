@@ -65,6 +65,7 @@ class ShareController extends AbstractController
                 'title' => $comic->getTitle(),
                 'author' => $comic->getAuthor(),
                 'coverImagePath' => $this->comicSerializer->coverUrl($comic),
+                'explicitContent' => $comic->isExplicitContent(),
                 'recipients' => [],
             ];
 
@@ -126,9 +127,17 @@ class ShareController extends AbstractController
         }
 
         try {
-            $invitation = $this->shareService->invite($comic, $user, $email);
+            $invitation = $this->shareService->invite(
+                $comic,
+                $user,
+                $email,
+                // Strictly true: a missing key, a string "true" or anything else
+                // truthy is not somebody having read the notice and ticked the
+                // box, and this timestamp is meant to record that they did.
+                (is_array($data) ? ($data['senderResponsibilityAccepted'] ?? null) : null) === true
+            );
         } catch (ShareException $exception) {
-            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
         }
 
         return $this->json([
@@ -152,7 +161,7 @@ class ShareController extends AbstractController
         try {
             $invitation = $this->shareService->resend($share);
         } catch (ShareException $exception) {
-            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
         }
 
         return $this->json([
@@ -215,7 +224,7 @@ class ShareController extends AbstractController
         try {
             $invitation = $this->shareService->resolveInvitation($token);
         } catch (ShareException $exception) {
-            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
         }
 
         $share = $invitation->getComicShare();
@@ -226,23 +235,121 @@ class ShareController extends AbstractController
         // cover and the recipient's own address are gated on identity.
         $isForCurrentUser = $this->isRecipient($share, $user);
 
+        // An age declaration is made by one person about themselves. It is not
+        // a property of the link, so it cannot unlock the link.
+        //
+        // Both halves are needed. Confirming is what opens the gate, but only
+        // for whoever confirmed: this endpoint is public, and a forwarded email,
+        // a scanner or a proxy log holds the same token the recipient does. So
+        // an explicit invitation stays shut for everybody the server cannot
+        // identify as the recipient, however many times the recipient has
+        // confirmed.
+        $redact = $share->isExplicitContent()
+            && !($isForCurrentUser && $share->getAdultConfirmedAt() !== null);
+
         return $this->json([
             'invitation' => [
-                'comicTitle' => $comic?->getTitle() ?? $share->getComicTitleSnapshot(),
-                'comicAuthor' => $comic?->getAuthor() ?? $share->getComicAuthorSnapshot(),
-                'pageCount' => $comic?->getPageCount(),
+                'comicTitle' => $redact ? null : ($comic?->getTitle() ?? $share->getComicTitleSnapshot()),
+                'comicAuthor' => $redact ? null : ($comic?->getAuthor() ?? $share->getComicAuthorSnapshot()),
+                'pageCount' => $redact ? null : $comic?->getPageCount(),
                 'ownerName' => $share->getOwnerNameSnapshot(),
                 // The intended recipient learns nothing from this — it is their
                 // own address — so withholding it costs them nothing and stops
                 // the link from disclosing who was invited.
                 'recipientEmail' => $isForCurrentUser ? $share->getRecipientEmailNormalized() : null,
                 'expiresAt' => $invitation->getExpiresAt()->format('c'),
-                'coverImagePath' => $comic && $isForCurrentUser
+                'coverImagePath' => $comic && $isForCurrentUser && !$redact
                     ? $this->comicSerializer->coverUrl($comic)
                     : null,
                 'isForCurrentUser' => $isForCurrentUser,
+                'explicitContent' => $share->isExplicitContent(),
+                // Phrased for whoever is asking: "you must confirm to see this".
+                'requiresAdultConfirmation' => $redact,
+                // Withheld from everyone else, because whether the invited
+                // person has declared their age is a fact about them, and a
+                // link holder is not entitled to it.
+                'adultConfirmed' => $isForCurrentUser && $share->getAdultConfirmedAt() !== null,
             ],
         ]);
+    }
+
+    /**
+     * Record the recipient's declaration that they are 18 or older, from an
+     * emailed invitation link.
+     *
+     * A POST because it writes, and because a GET would be followed by the same
+     * mail scanners the preview is careful about — making an age declaration
+     * something a link preview could make on somebody's behalf.
+     */
+    #[Route('/invitations/{token}/confirm-adult', name: 'app_shares_invitation_confirm_adult', methods: ['POST'])]
+    public function confirmAdultForInvitation(string $token, Request $request, #[CurrentUser] ?User $user): JsonResponse
+    {
+        if (!$user) {
+            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        if (!$this->isAdultConfirmed($request)) {
+            return $this->json([
+                'message' => 'You must confirm that you are 18 or older to access this shared comic.',
+                'code' => ShareException::CODE_ADULT_CONFIRMATION_REQUIRED,
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $invitation = $this->shareService->resolveInvitation($token);
+            $share = $this->shareService->confirmAdult($invitation->getComicShare(), $user);
+        } catch (ShareException $exception) {
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
+        }
+
+        return $this->json([
+            'message' => 'Age confirmed.',
+            // Freshly serialized, so the caller gets the now-unlocked view back
+            // from the same request that unlocked it.
+            'share' => $this->shareSerializer->forRecipient($share),
+        ]);
+    }
+
+    /** The same declaration, made from the Sharing page rather than a link. */
+    #[Route('/{id}/confirm-adult', name: 'app_shares_confirm_adult', methods: ['POST'], requirements: ['id' => '\d+'])]
+    public function confirmAdultForShare(int $id, Request $request, #[CurrentUser] ?User $user): JsonResponse
+    {
+        $share = $this->findReceivedShare($id, $user);
+        if ($share instanceof JsonResponse) {
+            return $share;
+        }
+
+        if (!$this->isAdultConfirmed($request)) {
+            return $this->json([
+                'message' => 'You must confirm that you are 18 or older to access this shared comic.',
+                'code' => ShareException::CODE_ADULT_CONFIRMATION_REQUIRED,
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $this->shareService->confirmAdult($share, $user);
+        } catch (ShareException $exception) {
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
+        }
+
+        return $this->json([
+            'message' => 'Age confirmed.',
+            'share' => $this->shareSerializer->forRecipient($share),
+        ]);
+    }
+
+    /**
+     * Whether the request carries the declaration itself.
+     *
+     * Only the boolean is read. The moment it was made is the server's to
+     * record, because a timestamp the declaring party can choose is not
+     * evidence of anything.
+     */
+    private function isAdultConfirmed(Request $request): bool
+    {
+        $data = json_decode($request->getContent(), true);
+
+        return is_array($data) && ($data['adultConfirmed'] ?? null) === true;
     }
 
     #[Route('/invitations/{token}/accept', name: 'app_shares_invitation_accept', methods: ['POST'])]
@@ -256,7 +363,7 @@ class ShareController extends AbstractController
             $invitation = $this->shareService->resolveInvitation($token);
             $share = $this->shareService->accept($invitation, $user);
         } catch (ShareException $exception) {
-            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
         }
 
         return $this->json([
@@ -276,7 +383,7 @@ class ShareController extends AbstractController
             $invitation = $this->shareService->resolveInvitation($token);
             $this->shareService->decline($invitation, $user);
         } catch (ShareException $exception) {
-            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
         }
 
         return $this->json(['message' => 'Invitation declined.']);
@@ -300,7 +407,7 @@ class ShareController extends AbstractController
         try {
             $this->shareService->acceptShare($share, $user);
         } catch (ShareException $exception) {
-            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
         }
 
         return $this->json([
@@ -320,7 +427,7 @@ class ShareController extends AbstractController
         try {
             $this->shareService->declineShare($share, $user);
         } catch (ShareException $exception) {
-            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
         }
 
         return $this->json(['message' => 'Invitation declined.']);
@@ -338,7 +445,7 @@ class ShareController extends AbstractController
         try {
             $this->shareService->removeFromCollection($share);
         } catch (ShareException $exception) {
-            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
         }
 
         return $this->json([
@@ -358,7 +465,7 @@ class ShareController extends AbstractController
         try {
             $this->shareService->restoreToCollection($share);
         } catch (ShareException $exception) {
-            return $this->json(['message' => $exception->getMessage()], $exception->getStatusCode());
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
         }
 
         return $this->json([

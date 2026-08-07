@@ -89,6 +89,10 @@ final class PersonalDataExporter
             'author' => $comic->getAuthor(),
             'publisher' => $comic->getPublisher(),
             'description' => $comic->getDescription(),
+            // The owner's own classification, and stored as such. An export
+            // that named it only on the shares handed out would omit it
+            // entirely for a comic nobody has been invited to.
+            'explicitContent' => $comic->isExplicitContent(),
             'coverImagePath' => $this->comicSerializer->coverUrl($comic),
             'pageCount' => $comic->getPageCount(),
             'fileSize' => $comic->getFileSize(),
@@ -125,6 +129,12 @@ final class PersonalDataExporter
                 'expiresAt' => $share->getExpiresAt()?->format(\DateTimeInterface::ATOM),
                 'unavailableAt' => $share->getUnavailableAt()?->format(\DateTimeInterface::ATOM),
                 'tombstoneReason' => $share->getTombstoneReason(),
+                // The two declarations this share records. They are statements
+                // the user made about themselves, so an export of what is held
+                // about them has to include them.
+                'senderResponsibilityAcceptedAt' => $share->getSenderResponsibilityAcceptedAt()?->format(\DateTimeInterface::ATOM),
+                'adultConfirmedAt' => $share->getAdultConfirmedAt()?->format(\DateTimeInterface::ATOM),
+                'explicitContent' => $share->isExplicitContent(),
             ],
             $shares,
         );

@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  EXPLICIT_FLAG_LABEL,
+  SHARE_RESPONSIBILITY_ACK_LABEL,
+  SHARE_RESPONSIBILITY_NOTICE,
   SHARE_STATUS,
+  SHARING_PAGE_RESPONSIBILITY_REMINDER,
+  buildInvitationRequest,
+  canSendInvitation,
   describeBulkShareImpactOfDeletion,
   describeDeadShareCleanup,
   describeReceivedShare,
   describeShareImpactOfDeletion,
   groupReceivedShares,
   isValidShareEmail,
+  requiresAdultConfirmation,
+  shareDisplayTitle,
   summariseRecipients,
   tombstoneExplanation,
 } from "./sharing";
@@ -198,5 +206,159 @@ describe("isValidShareEmail", () => {
 
   it("rejects an address past the RFC 5321 length limit", () => {
     expect(isValidShareEmail(`${"a".repeat(250)}@example.com`)).toBe(false);
+  });
+});
+
+describe("the sender responsibility acknowledgement", () => {
+  it("is worded as a statement about the sender's own obligations", () => {
+    // The wording is the feature. It has to say who is responsible and what
+    // they are being asked to have done, not merely that rules exist.
+    expect(SHARE_RESPONSIBILITY_NOTICE).toContain("You are responsible for the content you share");
+    expect(SHARE_RESPONSIBILITY_NOTICE).toContain("allowed to distribute");
+    expect(SHARE_RESPONSIBILITY_NOTICE).toContain(EXPLICIT_FLAG_LABEL);
+    expect(SHARE_RESPONSIBILITY_ACK_LABEL).toBe("I understand");
+  });
+
+  it("is reflected on the sharing page as a reminder", () => {
+    expect(SHARING_PAGE_RESPONSIBILITY_REMINDER)
+      .toContain("You are responsible for the content you share");
+    expect(SHARING_PAGE_RESPONSIBILITY_REMINDER).toContain("marking explicit material correctly");
+  });
+});
+
+describe("canSendInvitation", () => {
+  it("needs both a valid address and the acknowledgement", () => {
+    expect(canSendInvitation({ email: "jane@example.com", responsibilityAccepted: true })).toBe(true);
+  });
+
+  it("refuses a valid address without the acknowledgement", () => {
+    // The whole point of the tick box: a well-formed address is not consent.
+    expect(canSendInvitation({ email: "jane@example.com", responsibilityAccepted: false })).toBe(false);
+    expect(canSendInvitation({ email: "jane@example.com" })).toBe(false);
+  });
+
+  it("refuses an acknowledgement without a valid address", () => {
+    expect(canSendInvitation({ email: "jane@", responsibilityAccepted: true })).toBe(false);
+    expect(canSendInvitation({ email: "", responsibilityAccepted: true })).toBe(false);
+  });
+
+  it("treats anything other than a literal true as unacknowledged", () => {
+    expect(canSendInvitation({ email: "jane@example.com", responsibilityAccepted: "true" })).toBe(false);
+    expect(canSendInvitation({ email: "jane@example.com", responsibilityAccepted: 1 })).toBe(false);
+  });
+});
+
+describe("buildInvitationRequest", () => {
+  it("sends the trimmed address and the acknowledgement", () => {
+    expect(buildInvitationRequest({ email: "  jane@example.com ", responsibilityAccepted: true }))
+      .toEqual({ email: "jane@example.com", senderResponsibilityAccepted: true });
+  });
+
+  it("never claims an acknowledgement that was not given", () => {
+    expect(buildInvitationRequest({ email: "jane@example.com" }).senderResponsibilityAccepted)
+      .toBe(false);
+    expect(
+      buildInvitationRequest({ email: "jane@example.com", responsibilityAccepted: "yes" })
+        .senderResponsibilityAccepted
+    ).toBe(false);
+  });
+
+  it("carries no timestamp of its own", () => {
+    // Both acknowledgement timestamps are the server's. A client that sent one
+    // would be writing its own audit trail.
+    expect(Object.keys(buildInvitationRequest({ email: "jane@example.com", responsibilityAccepted: true })))
+      .toEqual(["email", "senderResponsibilityAccepted"]);
+  });
+});
+
+describe("requiresAdultConfirmation", () => {
+  it("follows the server's answer rather than deriving one", () => {
+    // Only the backend knows what it redacted, so an explicit comic that has
+    // already been confirmed for is not gated, and nothing here second-guesses
+    // that from `explicitContent` alone.
+    expect(requiresAdultConfirmation({ explicitContent: true, requiresAdultConfirmation: true })).toBe(true);
+    expect(requiresAdultConfirmation({ explicitContent: true, requiresAdultConfirmation: false })).toBe(false);
+    expect(requiresAdultConfirmation({ explicitContent: false })).toBe(false);
+    expect(requiresAdultConfirmation(null)).toBe(false);
+  });
+});
+
+describe("shareDisplayTitle", () => {
+  it("names the redaction rather than showing an empty heading", () => {
+    expect(shareDisplayTitle({ requiresAdultConfirmation: true, comicTitle: null }))
+      .toBe("Hidden until you confirm your age");
+  });
+
+  it("uses the title once the server is willing to send one", () => {
+    expect(shareDisplayTitle({ requiresAdultConfirmation: false, comicTitle: "Sandman" }))
+      .toBe("Sandman");
+    expect(shareDisplayTitle({ comicTitle: "" })).toBe("Untitled comic");
+  });
+});
+
+describe("describeReceivedShare, for explicit shares", () => {
+  it("asks a pending invitation's recipient to confirm before anything is revealed", () => {
+    const line = describeReceivedShare(share({
+      status: SHARE_STATUS.PENDING,
+      requiresAdultConfirmation: true,
+      comicTitle: null,
+    }));
+
+    expect(line).toContain("marked 18+");
+    expect(line).toContain("Confirm your age");
+  });
+
+  it("explains a comic that was re-gated after being accepted", () => {
+    // The owner marked an already-shared comic explicit. The share survived;
+    // reading it did not, until the recipient confirms again.
+    const line = describeReceivedShare(share({
+      status: SHARE_STATUS.ACCEPTED,
+      requiresAdultConfirmation: true,
+    }));
+
+    expect(line).toContain("Confirm your age to read it again");
+  });
+
+  it("says nothing extra once the gate is passed", () => {
+    expect(describeReceivedShare(share({
+      status: SHARE_STATUS.ACCEPTED,
+      explicitContent: true,
+      requiresAdultConfirmation: false,
+    }))).toBe("In your collection.");
+  });
+
+  it("still explains a tombstone rather than the gate", () => {
+    // Nothing can be confirmed for a comic that is gone; the recipient needs
+    // the explanation, which is all the tombstone has left.
+    expect(describeReceivedShare(share({
+      isTombstoned: true,
+      tombstoneReason: "owner_deleted",
+      requiresAdultConfirmation: true,
+    }))).toContain("no longer available");
+  });
+});
+
+describe("explicit shares that have ended", () => {
+  it("explains the ending rather than offering a gate that leads nowhere", () => {
+    // Confirming an age for a share the owner has withdrawn achieves nothing;
+    // saying so would be an invitation to a dead end.
+    expect(describeReceivedShare(share({
+      status: SHARE_STATUS.REVOKED,
+      isDead: true,
+      requiresAdultConfirmation: true,
+    }))).toContain("The owner has stopped sharing");
+
+    expect(describeReceivedShare(share({
+      status: SHARE_STATUS.DECLINED,
+      isDead: true,
+      requiresAdultConfirmation: true,
+    }))).toContain("You declined");
+  });
+
+  it("stays redacted without promising a confirmation", () => {
+    // The recipient never passed the gate, and the share ending is not the same
+    // as them having done so.
+    expect(shareDisplayTitle({ requiresAdultConfirmation: true, isDead: true }))
+      .toBe("Hidden — explicit content (18+)");
   });
 });

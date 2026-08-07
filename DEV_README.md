@@ -38,7 +38,7 @@ This document provides detailed information for developers working on the projec
 
 #### ✅ Comic Sharing System
 - **ComicShare Entity**: Defined in `ComicShare.php`. A durable, revocable grant of read access to the owner's single copy — sharing never creates a second `Comic` row or a second file
-- **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored; resending mints a new token and retires the old link
+- **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored. One link per invitation, good for a single claim within two months; accepting spends it and revokes every other token for that share, and resending mints a new one and retires the old link
 - **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
 - **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
@@ -143,8 +143,14 @@ the row, enforced by a unique index on `(comic_id, recipient_email_normalized)`.
   access is untouched and restoring it is one click
 - **expiresAt**: bounds an unanswered invitation. Cleared on acceptance — access
   does not expire, only the invitation did
-- **comicTitleSnapshot / comicAuthorSnapshot / ownerNameSnapshot**: refreshed
-  whenever an invitation is issued, so a tombstone can still name what it was
+- **comicTitleSnapshot / comicAuthorSnapshot / ownerNameSnapshot /
+  explicitContentSnapshot**: refreshed whenever an invitation is issued, so a
+  tombstone can still name what it was — and still know that what it names was
+  18+, which is why deleting a comic cannot leak the title an unconfirmed age
+  gate was holding back
+- **senderResponsibilityAcceptedAt / adultConfirmedAt**: the two acknowledgements
+  this relationship records, both server-generated. See
+  [Explicit content and the 18+ gate](#explicit-content-and-the-18-gate)
 - **unavailableAt / tombstoneReason**: `owner_deleted`, `owner_account_deleted`,
   `file_missing` or `administratively_removed`
 
@@ -175,6 +181,29 @@ already been accepted survives both.
 A raw 256-bit token needs no work factor: there is no dictionary to slow an
 attacker down through.
 
+##### One link, one claim
+
+`isUsable()` is the whole rule: unused, unrevoked, and not past `expiresAt`.
+Every way a share can move on retires the links it had — accepting spends the one
+that was used and revokes the rest, and declining, revoking, stopping sharing,
+resending and tombstoning all revoke outstanding tokens. So a claimed link is
+dead for *every* purpose afterwards, not only for the one that claimed it:
+previewing, accepting, declining and confirming an age all resolve the same
+token and all refuse.
+
+**Previewing deliberately does not spend it.** Mail scanners, corporate link
+checkers and preview bots follow links without a person behind them, so a token
+that burned on a `GET` would be dead before the recipient ever saw it. That is
+why the link is not what keeps anyone out: it only ever previews. Accepting
+requires signing in as the intended recipient, and for an explicit comic the
+preview reveals nothing to a link holder at all.
+
+`INVITATION_TTL` is **two months**, and one constant sets both the token's expiry
+and the pending share's, so a link and the invitation behind it can never
+disagree about whether they are still live. Two months because answering is not
+always quick — the recipient may have no account here yet — against the cost that
+an escaped link stays live longer.
+
 ### Permissions
 
 `ComicVoter` is the single place that decides access. Every endpoint serving any
@@ -183,7 +212,7 @@ same question.
 
 | Action | Owner | Admin | Accepted recipient |
 |---|---|---|---|
-| `COMIC_VIEW` (read, cover, pages, own progress) | Yes | Yes | Yes |
+| `COMIC_VIEW` (read, cover, pages, own progress) | Yes | Yes | Yes, once any 18+ gate is passed |
 | `COMIC_EDIT` | Yes | Yes | No |
 | `COMIC_DELETE` | Yes | Yes | No |
 | `COMIC_SHARE` | Yes | No | No |
@@ -196,7 +225,9 @@ permanent second copy the model exists to avoid.
 ### Sharing Workflow
 
 #### Inviting
-1. The owner enters a recipient email in `ShareComicModal`
+1. The owner enters a recipient email in `ShareComicModal` and ticks
+   **I understand** against the responsibility notice — unticked every time the
+   modal opens, and required before **Send invitation** is live
 2. `POST /api/shares/comics/{comicId}/invitations` creates or reopens the
    `ComicShare`, mints a token and emails the link — all one unit of work, so a
    send that fails rolls the invitation back rather than showing the owner a
@@ -214,15 +245,19 @@ invitation is issued, so a request rejected as a duplicate, by permissions, or
 by validation does not spend it.
 
 #### Answering
-1. The email carries a single **Review invitation** link
-2. `GET /api/shares/invitations/{token}` returns cover, title, author, page
-   count, sender and expiry, and changes nothing — mail scanners and
+1. The email carries a single **Review invitation** link, good for one claim
+   within two months
+2. `GET /api/shares/invitations/{token}` returns sender and expiry — plus cover,
+   title, author and page count for a comic that is not classified 18+ — and
+   changes nothing. It does not spend the token, because mail scanners and
    link-preview services follow links without a person behind them
 3. `POST .../accept` or `.../decline` requires a button press. A signed-in
    recipient can also answer from `/sharing` without the token, since they have
    already identified themselves more strongly than the token could
-4. Accepting sets the status, spends every outstanding token, and the comic
-   appears in the recipient's normal collection
+4. Accepting sets the status, **spends the link and revokes every other
+   outstanding token for that share**, and the comic appears in the recipient's
+   normal collection. From then on the link refuses every use — preview, accept,
+   decline and age confirmation alike
 
 #### Losing access
 - **Revoke one recipient** (`POST /api/shares/{id}/revoke`) or **stop sharing
@@ -242,6 +277,87 @@ by validation does not spend it.
 - **Remove all dead shares** (`DELETE /api/shares/tombstones`) clears tombstones
   and other dead ends, individually or in bulk, and never touches a live share.
   The confirmation states the count
+
+### Explicit content and the 18+ gate
+
+> A comic is 18+ because its owner said so. Nothing else says so on their behalf.
+
+`Comic.explicitContent` is a deliberate, comic-level classification, independent
+of every tag — including the library-hiding ones. Hiding a comic from your own
+library is a shelving preference and says nothing about what is inside it, so
+inferring an age rating from it would put an 18+ warning on a comic somebody
+merely wanted out of the way. Imports and uploads start non-explicit, existing
+comics migrated as non-explicit, and tag edits never touch the flag.
+
+#### The two acknowledgements
+
+Both live on the same `ComicShare` row, so one record is the whole audit trail
+for one sharing relationship. Neither timestamp is ever read from the request —
+an audit trail the audited party can write is not one.
+
+| Field | Written when | Required |
+|---|---|---|
+| `senderResponsibilityAcceptedAt` | the invitation is created | every new share |
+| `adultConfirmedAt` | the recipient declares they are 18+ | explicit comics only |
+
+`POST /api/shares/comics/{comicId}/invitations` rejects a body whose
+`senderResponsibilityAccepted` is not literally `true`, with
+`400 share_responsibility_acknowledgement_required`. Resending preserves both
+timestamps — it is the same relationship reaching the same person. Re-inviting
+somebody after a decline, revoke or lapse reuses the row but takes a fresh
+sender acknowledgement and clears any age declaration: that is a new offer of
+the comic as it is now.
+
+#### What an unconfirmed recipient may see
+
+Nothing that identifies the comic. Pending-share, invitation-preview and
+recipient serializers all return `null` for `comicId`, `comicTitle`,
+`comicAuthor`, `pageCount` and `coverImagePath`, alongside `explicitContent`,
+`requiresAdultConfirmation` and `adultConfirmed`. The comic id is redacted with
+the rest because it is the key to every endpoint that serves a cover, a page or
+an archive. The invitation email names no explicit comic either — an inbox is
+previewed on lock screens and read by scanners.
+
+`GET /api/shares/invitations/{token}` needs **both** halves before it reveals
+anything: the caller must be identified as the recipient *and* that share must
+carry a confirmation. An age declaration is made by one person about themselves,
+so it is not a property of the link and cannot unlock the link — this endpoint is
+public, and a forwarded email, a scanner or a proxy log holds the same token the
+recipient does. It also withholds `adultConfirmed` from everyone else, because
+whether the invited person has declared their age is a fact about them.
+
+The client shows a neutral placeholder, never the real cover blurred: blurring
+still sends the bytes, and the point of the gate is that they do not leave the
+server.
+
+#### Where the gate is enforced
+
+`ComicShareRepository::readableQueryBuilder()` is the single definition of "a
+share that lets this user read this comic", and it requires
+`explicitContent = false OR adultConfirmedAt IS NOT NULL`. `findAccessFor()`,
+`findAccessIndexedByComic()` and `findVisibleCollectionShares()` all build on
+it, so `COMIC_VIEW` answers no for an unconfirmed explicit share — and with it
+the metadata, cover, page and progress endpoints, not merely the screen that
+asks the question. `ComicShareService::accept()` and `acceptShare()` refuse
+separately, with `403 adult_confirmation_required`, so a direct API call cannot
+put an unconfirmed explicit comic into somebody's collection.
+
+`POST /api/shares/{id}/confirm-adult` and
+`POST /api/shares/invitations/{token}/confirm-adult` record the declaration for
+the intended, authenticated recipient. They are idempotent: a repeat keeps the
+original timestamp, because confirming twice is a retry and not a new
+declaration. Declining never requires confirming.
+
+#### Re-gating
+
+Marking an already-shared comic explicit **fails closed**: every live share loses
+its `adultConfirmedAt` in the same unit of work as the reclassification. Those
+recipients agreed to read something that was not classified 18+, and an old
+silence is not a declaration about the comic as it is now. The relationship, its
+status and the recipient's place in their own collection all survive — reading
+stops, the share does not — and one confirmation restores it. Unmarking the
+comic restores access immediately, because there is no longer anything to
+confirm about.
 
 #### Cleanup Process
 `app:cleanup-expired-shares` deletes pending invitations whose expiry has passed.
@@ -794,6 +910,41 @@ Test users are created for development and testing purposes. Their credentials a
 - Admin user: `testadmin@example.com` with password `AdminPass123!`
 - Regular user: `testuser1@example.com` with password `UserPass123!`
 - Regular user: `testuser2@example.com` with password `UserPass123!`
+
+### Automated Test Suites
+
+```sh
+# Backend — PHPUnit, needs the database container up
+docker compose exec php php vendor/bin/phpunit
+
+# Frontend — Vitest
+cd frontend && npm test
+```
+
+The frontend suite is split into two Vitest projects, by file extension, because
+the two kinds of test genuinely differ:
+
+| Pattern | Project | Environment | For |
+|---|---|---|---|
+| `src/**/*.test.js` | `unit` | `node` | pure logic — helpers, classification and wording rules |
+| `src/**/*.test.jsx` | `dom` | `jsdom` | a rendered component, driven through Testing Library |
+
+Standing a DOM up for the helper tests would cost seconds per file to give them
+something none of them touch, so the extension decides. `src/test/setup.js` runs
+for the `dom` project only. It registers `@testing-library/jest-dom`, unmounts
+between tests — auto-cleanup does not register itself while Vitest's globals are
+off, and they deliberately are — and stubs the browser APIs Radix calls during a
+normal mount that jsdom does not implement: `matchMedia`, `ResizeObserver`,
+`IntersectionObserver`, `scrollIntoView` and the pointer-capture methods. Without
+them a dialog or checkbox throws before a single assertion runs, and the failure
+reads like a bug in the component rather than a gap in the environment.
+
+Component tests mock the modules at the edges — `@/lib/api`, the toast, auth,
+sharing and library hooks — and render the real component with the real UI
+primitives, so what is asserted is what a user would see. Copy is asserted
+against the constants exported from `lib/sharing.js` rather than against
+paraphrases, which is what stops the responsibility notice or the 18+ warning
+being watered down in a component without a test noticing.
 
 ### Testing Commands
 You can test the current implementation using the following commands:
