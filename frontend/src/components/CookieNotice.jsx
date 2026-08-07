@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { persistCookieNoticeDismissal, wasCookieNoticeDismissed } from "@/lib/cookie-notice-storage";
+import { NOTIFICATION_LAYER_CLASSES } from "@/lib/overlay-layers";
+import { cn } from "@/lib/utils";
 
 export function CookieNotice() {
   const [visible, setVisible] = useState(() => !wasCookieNoticeDismissed());
@@ -16,7 +18,10 @@ export function CookieNotice() {
   return (
     <aside
       aria-label="Cookie notice"
-      className="fixed inset-x-4 bottom-4 z-[100] mx-auto max-w-3xl rounded-lg border bg-background p-4"
+      className={cn(
+        "fixed inset-x-4 bottom-4 mx-auto max-w-3xl rounded-lg border bg-background p-4",
+        NOTIFICATION_LAYER_CLASSES.cookieNotice
+      )}
     >
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">

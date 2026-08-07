@@ -3,9 +3,11 @@
 namespace App\Controller;
 
 use App\Entity\User;
+use App\Repository\UserRepository;
 use App\Service\AccountDeletionService;
 use App\Service\AdminAuditService;
 use App\Service\PasswordValidator;
+use App\Service\Pagination\PaginationRequest;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -32,30 +34,47 @@ class UserController extends AbstractController
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
-        $criteria = [];
-        if ($request->query->has('verified')) {
-            $criteria['isEmailVerified'] = $request->query->getBoolean('verified');
-        }
+        $verified = $request->query->has('verified') ? $request->query->getBoolean('verified') : null;
+        $pagination = PaginationRequest::fromRequest($request, UserRepository::ADMIN_SORT_FIELDS, 'createdAt');
 
-        $users = $entityManager->getRepository(User::class)->findBy($criteria, ['createdAt' => 'DESC']);
+        /** @var UserRepository $userRepository */
+        $userRepository = $entityManager->getRepository(User::class);
+        $page = $userRepository->findAdminPage($pagination, $verified);
+        $counts = $userRepository->countOwnedContent(
+            array_map(static fn (User $u): int => $u->getId(), $page->items)
+        );
 
-        // Transform users to array
-        $usersArray = [];
-        foreach ($users as $u) {
-            $usersArray[] = [
-                'id' => $u->getId(),
-                'email' => $u->getEmail(),
-                'name' => $u->getName(),
-                'roles' => $u->getRoles(),
-                'createdAt' => $u->getCreatedAt()->format('c'),
-                'lastLoginAt' => $u->getLastLoginAt()?->format('c'),
-                'isEmailVerified' => $u->isEmailVerified(),
-                'comicCount' => $u->getComics()->count(),
-                'tagCount' => $u->getCreatedTags()->count()
-            ];
-        }
+        $usersArray = array_map(
+            fn (User $u): array => $this->serializeUser($u, $counts[$u->getId()] ?? null),
+            $page->items
+        );
 
-        return $this->json(['users' => $usersArray]);
+        // `users` stays alongside `items` while any client still reads it.
+        return $this->json([
+            'items' => $usersArray,
+            'users' => $usersArray,
+            'pagination' => $page->toArray(),
+        ]);
+    }
+
+    /**
+     * @param array{comicCount: int, tagCount: int}|null $counts Precomputed
+     *        totals; omitted counts fall back to the user's own collections.
+     * @return array<string, mixed>
+     */
+    private function serializeUser(User $user, ?array $counts = null): array
+    {
+        return [
+            'id' => $user->getId(),
+            'email' => $user->getEmail(),
+            'name' => $user->getName(),
+            'roles' => $user->getRoles(),
+            'createdAt' => $user->getCreatedAt()?->format('c'),
+            'lastLoginAt' => $user->getLastLoginAt()?->format('c'),
+            'isEmailVerified' => $user->isEmailVerified(),
+            'comicCount' => $counts['comicCount'] ?? $user->getComics()->count(),
+            'tagCount' => $counts['tagCount'] ?? $user->getCreatedTags()->count(),
+        ];
     }
 
     #[Route('/{id}', name: 'get', methods: ['GET'])]
@@ -78,18 +97,15 @@ class UserController extends AbstractController
             return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
         }
 
-        // Transform user to array
-        $userData = [
-            'id' => $targetUser->getId(),
-            'email' => $targetUser->getEmail(),
-            'name' => $targetUser->getName(),
-            'roles' => $targetUser->getRoles(),
-            'createdAt' => $targetUser->getCreatedAt()->format('c'),
-            'lastLoginAt' => $targetUser->getLastLoginAt()?->format('c'),
-            'isEmailVerified' => $targetUser->isEmailVerified(),
-            'comicCount' => $targetUser->getComics()->count(),
-            'tagCount' => $targetUser->getCreatedTags()->count()
-        ];
+        $userData = $this->serializeUser($targetUser);
+
+        // The admin user page needs enough to explain why an account can or
+        // cannot be deleted, and whether Dropbox is still attached.
+        if ($this->isGranted('ROLE_ADMIN')) {
+            $userData['dropboxConnected'] = $targetUser->getDropboxAccessToken() !== null
+                && $targetUser->getDropboxAccessToken() !== '';
+            $userData['dropboxLastSyncedAt'] = $targetUser->getDropboxLastSyncedAt()?->format('c');
+        }
 
         return $this->json(['user' => $userData]);
     }

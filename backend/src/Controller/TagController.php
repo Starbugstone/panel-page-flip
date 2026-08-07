@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\Tag;
 use App\Entity\User;
 use App\Repository\TagRepository;
+use App\Service\Pagination\PaginationRequest;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -33,12 +34,32 @@ class TagController extends AbstractController
         // Only show all tags if explicitly in admin context and user is an admin
         $isAdminListing = $showAll && $isAdminContext && $this->isGranted('ROLE_ADMIN');
         if ($isAdminListing) {
-            // Admin with all=true and in admin context: Get all tags
-            $tags = $tagRepository->findAll();
-        } else {
-            // Regular user, or admin in personal dashboard: global tags plus their own
-            $tags = $tagRepository->findAvailableForUser($user);
+            // The admin table pages through every tag in the install; the tag
+            // pickers elsewhere still load the caller's own set in one go.
+            $pagination = PaginationRequest::fromRequest(
+                $request,
+                TagRepository::ADMIN_SORT_FIELDS,
+                'name',
+                'ASC'
+            );
+            $creatorId = $request->query->has('creatorId') ? $request->query->getInt('creatorId') : null;
+
+            $page = $tagRepository->findAdminPage($pagination, $creatorId);
+            $comicCounts = $tagRepository->countComicsPerTag($page->items);
+            $tagsArray = array_map(
+                fn (Tag $tag): array => $this->serializeTag($tag, true, $comicCounts[$tag->getId()] ?? 0),
+                $page->items
+            );
+
+            return $this->json([
+                'items' => $tagsArray,
+                'tags' => $tagsArray,
+                'pagination' => $page->toArray(),
+            ]);
         }
+
+        // Regular user, or admin in personal dashboard: global tags plus their own
+        $tags = $tagRepository->findAvailableForUser($user);
 
         // Usage counts are only reported for tags the caller owns. Outside the
         // admin table, how many comics across the whole install carry a global
@@ -46,7 +67,7 @@ class TagController extends AbstractController
         // per global tag on every dashboard load.
         $tagsArray = [];
         foreach ($tags as $tag) {
-            $tagsArray[] = $this->serializeTag($tag, $isAdminListing || !$tag->isGlobal());
+            $tagsArray[] = $this->serializeTag($tag, !$tag->isGlobal());
         }
 
         return $this->json(['tags' => $tagsArray]);
@@ -372,9 +393,11 @@ class TagController extends AbstractController
      * @param bool $includeUsage Add the comic count. Costs a query per tag, and
      *                           for a global tag it aggregates comics the caller
      *                           does not own — so callers opt in deliberately.
+     * @param int|null $comicCount A precomputed count, for callers that already
+     *                             aggregated a whole page in one query.
      * @return array<string, mixed>
      */
-    private function serializeTag(Tag $tag, bool $includeUsage = true): array
+    private function serializeTag(Tag $tag, bool $includeUsage = true, ?int $comicCount = null): array
     {
         $creator = $tag->getCreator();
 
@@ -389,7 +412,7 @@ class TagController extends AbstractController
         ];
 
         if ($includeUsage) {
-            $data['comicCount'] = $tag->getComics()->count();
+            $data['comicCount'] = $comicCount ?? $tag->getComics()->count();
         }
 
         return $data;

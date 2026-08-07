@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Loader2, Upload, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -7,8 +7,10 @@ import { useConfig } from "@/hooks/use-config.jsx";
 import { useTags } from "@/hooks/use-tags.jsx";
 import { useToast } from "@/hooks/use-toast";
 import { generateTitleFromFilename, isCbzFile } from "@/lib/comic-upload";
+import { describeTagSubmission } from "@/lib/tag-suggestions";
 import { cn } from "@/lib/utils.js";
 import { TagBadge } from "@/components/TagBadge";
+import { TagCombobox } from "@/components/TagCombobox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,8 +30,7 @@ export default function UploadComicForm() {
   const { toast } = useToast();
   const { refreshSession } = useAuth();
   const { config } = useConfig();
-  const { tags: availableTags, searchTags, addTagToCache, isAdminContext } = useTags();
-  const adminContext = isAdminContext();
+  const { tags: availableTags, addTagToCache } = useTags();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
   const { start, cancel, status, progress } = useChunkedUpload({ concurrentChunks });
   const uploading = ["initialising", "uploading", "completing"].includes(status);
@@ -39,9 +40,6 @@ export default function UploadComicForm() {
   const [author, setAuthor] = useState("");
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState("");
-  const [suggestions, setSuggestions] = useState([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef(null);
 
@@ -54,29 +52,16 @@ export default function UploadComicForm() {
     setTitle((current) => current.trim() || generateTitleFromFilename(candidate.name));
   }, [toast]);
 
-  useEffect(() => {
-    if (tagInput.trim().length < 2) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return undefined;
-    }
+  // Resolves what is typed against the tags this user already has, so uploading
+  // does not mint a second spelling of a tag they already use.
+  const tagSubmission = describeTagSubmission(availableTags, tagInput, tags);
+  const canAddTag = tagSubmission.status === "existing" || tagSubmission.status === "new";
 
-    const timeout = setTimeout(async () => {
-      setLoadingSuggestions(true);
-      const results = await searchTags(tagInput.trim(), adminContext);
-      setSuggestions(results);
-      setShowSuggestions(true);
-      setLoadingSuggestions(false);
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, [adminContext, searchTags, tagInput]);
-
-  const addTag = useCallback((value = tagInput) => {
-    const nextTag = value.trim();
+  const addTag = useCallback((value) => {
+    const nextTag = value ?? describeTagSubmission(availableTags, tagInput, tags).name;
     if (nextTag && !tags.includes(nextTag)) setTags((current) => [...current, nextTag]);
     setTagInput("");
-    setShowSuggestions(false);
-  }, [tagInput, tags]);
+  }, [availableTags, tagInput, tags]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -178,31 +163,18 @@ export default function UploadComicForm() {
           <div className="space-y-2">
             <Label htmlFor="tags">Tags</Label>
             <div className="relative flex gap-2">
-              <div className="relative flex-1">
-                <Input
-                  id="tags"
-                  value={tagInput}
-                  onChange={(event) => setTagInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") { event.preventDefault(); addTag(); }
-                    if (event.key === "Escape") setShowSuggestions(false);
-                  }}
-                  disabled={uploading}
-                  autoComplete="off"
-                  placeholder="Add tags…"
-                />
-                {loadingSuggestions && <Loader2 className="absolute right-2 top-2.5 h-4 w-4 animate-spin" />}
-                {showSuggestions && suggestions.length > 0 && (
-                  <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-md border bg-background shadow-lg">
-                    {suggestions.map((suggestion) => (
-                      <button key={suggestion.id} type="button" className="block w-full px-3 py-2 text-left text-sm hover:bg-accent" disabled={tags.includes(suggestion.name)} onClick={() => addTag(suggestion.name)}>
-                        {suggestion.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <Button type="button" variant="outline" onClick={() => addTag()} disabled={uploading || !tagInput.trim()}>Add</Button>
+              <TagCombobox
+                id="tags"
+                value={tagInput}
+                onChange={setTagInput}
+                onSubmit={addTag}
+                applied={tags}
+                disabled={uploading}
+                placeholder="Add tags…"
+                label="Add tags"
+                className="flex-1"
+              />
+              <Button type="button" variant="outline" onClick={() => addTag()} disabled={uploading || !canAddTag}>Add</Button>
             </div>
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (

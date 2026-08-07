@@ -5,6 +5,7 @@ import { useLocation } from "react-router-dom";
 import { Button } from "./ui/button.jsx";
 import { BookOpen, Upload, Files, Settings, User, Cloud, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
+import { PAGE_LAYER_CLASSES } from "@/lib/overlay-layers.js";
 
 export function Header({ isLoggedIn, onLogout, isAdmin }) {
   const location = useLocation();
@@ -28,7 +29,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
     // In normal mode, use relative position with minimal height
     if (isFullscreen) {
       return (
-        <header className="fixed top-0 left-0 right-0 z-[60] bg-gradient-to-b from-background/90 to-transparent p-2 opacity-0 hover:opacity-100 transition-opacity duration-300">
+        <header className={`fixed top-0 left-0 right-0 ${PAGE_LAYER_CLASSES.header} bg-gradient-to-b from-background/90 to-transparent p-2 opacity-0 hover:opacity-100 transition-opacity duration-300`}>
           <div className="flex justify-between items-center">
             <Link to="/dashboard" className="text-foreground hover:text-comic-purple text-sm">
               Back to Library
@@ -40,7 +41,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
     } else {
       // Compact header for normal mode with relative positioning
       return (
-        <header className="relative w-full bg-background border-b border-border py-1 px-4 z-[60]">
+        <header className={`relative w-full bg-background border-b border-border py-1 px-4 ${PAGE_LAYER_CLASSES.header}`}>
           <div className="flex justify-between items-center">
             <Link to="/dashboard" className="text-foreground hover:text-comic-purple text-sm">
               Back to Library
@@ -62,19 +63,22 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
         <nav className="flex items-center gap-2 sm:gap-4">
           {isLoggedIn ? (
             <>
-              <Link to="/dashboard" className={`${location.pathname === "/dashboard" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+              {/* Every one of these collapses to an icon at some breakpoint, so
+                  each carries an aria-label — the visible text disappears but
+                  the accessible name has to survive. */}
+              <Link to="/dashboard" aria-label="My Comics" className={`${location.pathname === "/dashboard" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden sm:inline">My Comics</span>
                 <BookOpen className="h-5 w-5 sm:hidden" />
               </Link>
-              <Link to="/upload" className={`${location.pathname === "/upload" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+              <Link to="/upload" aria-label="Upload Comic" className={`${location.pathname === "/upload" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden md:inline">Upload Comic</span>
                 <Upload className="inline md:hidden h-5 w-5" />
               </Link>
-              <Link to="/upload/bulk" className={`${location.pathname === "/upload/bulk" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+              <Link to="/upload/bulk" aria-label="Bulk Upload" className={`${location.pathname === "/upload/bulk" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden lg:inline">Bulk Upload</span>
                 <Files className="inline lg:hidden h-5 w-5" />
               </Link>
-              <Link to="/dropbox-sync" className={`${location.pathname === "/dropbox-sync" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+              <Link to="/dropbox-sync" aria-label="Dropbox Sync" className={`${location.pathname === "/dropbox-sync" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden md:inline">Dropbox Sync</span>
                 <Cloud className="inline md:hidden h-5 w-5" />
               </Link>
@@ -83,7 +87,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
                 <SlidersHorizontal className="inline lg:hidden h-5 w-5" />
               </Link>
               {isAdmin && (
-                <Link to="/admin" className={`${location.pathname === "/admin" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+                <Link to="/admin" aria-label="Admin Panel" className={`${location.pathname === "/admin" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                   <span className="hidden md:inline">Admin Panel</span>
                   <Settings className="inline md:hidden h-5 w-5" />
                 </Link>

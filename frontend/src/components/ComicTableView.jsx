@@ -5,15 +5,18 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { getComicProgressState } from "@/lib/comic-progress";
 import { TagBadge } from "@/components/TagBadge";
+import { TagCombobox } from "@/components/TagCombobox";
+import { useTags } from "@/hooks/use-tags.jsx";
+import { describeTagSubmission } from "@/lib/tag-suggestions";
 import { formatDate } from "@/lib/format";
 
 export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete }) {
+  const { tags: availableTags } = useTags();
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [tagName, setTagName] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
@@ -35,13 +38,20 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
     });
   };
 
-  const addTag = async () => {
-    const trimmedTag = tagName.trim();
-    if (!trimmedTag || selectedComicIds.length === 0) return;
+  // Bulk tagging submits the canonical name of an existing tag where one
+  // matches, so picking "sci fi" out of the list does not create a second
+  // spelling of "Sci Fi".
+  const tagSubmission = describeTagSubmission(availableTags, tagName);
+  const canAddTag = selectedComicIds.length > 0
+    && !isUpdating
+    && (tagSubmission.status === "existing" || tagSubmission.status === "new");
+
+  const addTag = async (name = tagSubmission.name) => {
+    if (!name || selectedComicIds.length === 0) return;
 
     setIsUpdating(true);
     try {
-      await onBulkAddTag(selectedComicIds, trimmedTag);
+      await onBulkAddTag(selectedComicIds, name);
       setTagName("");
       setSelectedIds(new Set());
     } catch {
@@ -75,25 +85,19 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
           {selectedComicIds.length} of {comics.length} selected
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
+          <TagCombobox
             value={tagName}
-            onChange={(event) => setTagName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                addTag();
-              }
-            }}
-            maxLength={50}
-            placeholder="Tag selected comics"
-            aria-label="Tag selected comics"
+            onChange={setTagName}
+            onSubmit={(name) => addTag(name)}
             disabled={selectedComicIds.length === 0 || isUpdating}
+            placeholder="Tag selected comics"
+            label="Tag selected comics"
             className="sm:w-56"
           />
           <Button
             variant="secondary"
-            onClick={addTag}
-            disabled={selectedComicIds.length === 0 || !tagName.trim() || isUpdating}
+            onClick={() => addTag()}
+            disabled={!canAddTag}
           >
             <Tags className="mr-2 h-4 w-4" />
             Add tag

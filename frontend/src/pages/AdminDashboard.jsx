@@ -1,8 +1,7 @@
 
-import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { AdminUsersList } from "@/components/AdminUsersList";
 import { AdminComicsList } from "@/components/AdminComicsList";
 import { AdminTagsList } from "@/components/AdminTagsList";
@@ -10,9 +9,24 @@ import { AdminOverview } from "@/components/AdminOverview";
 import { AdminDropbox } from "@/components/AdminDropbox";
 import { AdminAuditList } from "@/components/AdminAuditList";
 
+const TABS = ["overview", "pending", "users", "comics", "tags", "dropbox", "audit"];
+
 export default function AdminDashboard() {
   const { user, loading } = useAuth(); // Destructure loading state
-  const [activeTab, setActiveTab] = useState("overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // The tab lives in the URL alongside each list's page and search, so coming
+  // back from a user's detail page lands on the view that was left.
+  const requestedTab = searchParams.get("tab");
+  const activeTab = TABS.includes(requestedTab) ? requestedTab : "overview";
+
+  const setActiveTab = (tab) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      tab === "overview" ? next.delete("tab") : next.set("tab", tab);
+      return next;
+    });
+  };
 
   // Display a loading message while authentication is in progress
   if (loading) {

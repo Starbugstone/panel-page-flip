@@ -1,13 +1,14 @@
 
-import { useCallback, useState, useEffect } from "react";
-import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { 
-  Search, 
-  UserPlus, 
-  Settings, 
+import {
+  Search,
+  UserPlus,
+  UserRoundCog,
   Trash,
   Edit
 } from "lucide-react";
@@ -34,15 +35,14 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox"; // Assuming Checkbox component is available
 import { useAuth } from "@/hooks/use-auth"; // Import useAuth hook
 import { useToast } from "@/hooks/use-toast";
+import { useAdminList } from "@/hooks/use-admin-list";
+import { AdminPagination } from "@/components/AdminPagination";
 import { api } from "@/lib/api";
 import { validatePassword } from "@/lib/password-policy";
-import { formatDateTime, matchesQuery } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 
 export function AdminUsersList({ showOnlyUnverified = false }) {
   const { toast } = useToast();
-  const [users, setUsers] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [editFormData, setEditFormData] = useState({ name: '', email: '', password: '', roles: [] });
@@ -57,40 +57,38 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
 
   const title = showOnlyUnverified ? "Pending Verifications" : "Users Management";
   const emptyMessage = showOnlyUnverified ? "No pending verifications found" : "No users found matching your search";
-  const totalLabel = showOnlyUnverified ? "Pending users" : "Total Users";
   const searchPlaceholder = showOnlyUnverified ? "Search pending users..." : "Search users...";
 
-  const loadUsers = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const query = showOnlyUnverified ? "?verified=false" : "";
-      const data = await api.get(`/api/users${query}`);
-      setUsers(data.users || []);
-    } catch (error) {
-      toast({
-        title: "Failed to load users",
-        description: error.message,
-        variant: "destructive",
-      });
-      setUsers([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [showOnlyUnverified, toast]);
-  
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
-  
-  const query = searchQuery.toLowerCase();
-  const filteredUsers = users.filter(user =>
-    matchesQuery(user.name, query) || matchesQuery(user.email, query)
+  const filters = useMemo(
+    () => (showOnlyUnverified ? { verified: "false" } : {}),
+    [showOnlyUnverified]
   );
+
+  const {
+    items: users,
+    setItems: setUsers,
+    pagination,
+    isLoading,
+    searchInput,
+    setSearch,
+    setPage,
+    setLimit,
+    reload,
+  } = useAdminList({
+    basePath: "/api/users",
+    filters,
+    // Separate keys so the pending and users tabs do not share a page number.
+    urlKey: showOnlyUnverified ? "pending" : "users",
+    itemsKey: "users",
+    errorTitle: "Failed to load users",
+  });
 
   const handleDeleteUser = async (userId) => {
     try {
       await api.delete(`/api/users/${userId}`);
-      setUsers((currentUsers) => currentUsers.filter((user) => user.id !== userId));
+      // Reload rather than splice: a row leaving this page pulls one up from
+      // the next, and the total has changed.
+      reload();
       toast({ title: "User deleted" });
     } catch (error) {
       toast({ title: "Delete failed", description: error.message, variant: "destructive" });
@@ -108,23 +106,6 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
       roles: Array.isArray(user.roles) ? [...user.roles] : [] 
     }); 
     setIsEditDialogOpen(true);
-  };
-  
-  const handlePromoteToAdmin = async (userId) => {
-    const userToPromote = users.find(u => u.id === userId);
-    if (!userToPromote) return;
-
-    const newRoles = Array.from(new Set([...userToPromote.roles, 'ROLE_ADMIN']));
-
-    try {
-      const updatedUser = await api.put(`/api/users/${userId}`, { roles: newRoles });
-      setUsers((currentUsers) => currentUsers.map((user) => (
-        user.id === userId ? { ...user, roles: updatedUser.user.roles } : user
-      )));
-      toast({ title: "User promoted to admin" });
-    } catch (error) {
-      toast({ title: "Promotion failed", description: error.message, variant: "destructive" });
-    }
   };
   
   const handleSaveUserUpdate = async () => {
@@ -199,7 +180,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
 
     try {
       const data = await api.post("/api/users", newUserData);
-      setUsers((currentUsers) => [data.user, ...currentUsers]);
+      reload();
       setIsAddUserDialogOpen(false);
       toast({ title: "User created", description: `${data.user.email} can log in immediately.` });
     } catch (error) {
@@ -210,9 +191,14 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
   const handleVerifyUser = async (userId) => {
     try {
       const data = await api.post(`/api/users/${userId}/verify`, {});
-      setUsers((currentUsers) => currentUsers
-        .map((user) => user.id === userId ? { ...user, ...data.user } : user)
-        .filter((user) => !showOnlyUnverified || !user.isEmailVerified));
+      if (showOnlyUnverified) {
+        // The row no longer belongs on this list, so the page has to be refilled.
+        reload();
+      } else {
+        setUsers((currentUsers) => currentUsers.map(
+          (user) => user.id === userId ? { ...user, ...data.user } : user
+        ));
+      }
       toast({ title: "User verified" });
     } catch (error) {
       toast({ title: "Verification failed", description: error.message, variant: "destructive" });
@@ -246,8 +232,8 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
               type="search"
               placeholder={searchPlaceholder}
               className="pl-8 w-[250px]"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           {!showOnlyUnverified && (
@@ -259,7 +245,10 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
         </div>
       </div>
       
-      {isLoading ? (
+      {/* The spinner replaces the table only on the first load. Turning a page
+          keeps the table and its pager on screen, disabled, rather than
+          collapsing the layout and moving the button under the cursor. */}
+      {isLoading && users.length === 0 ? (
         <div className="flex justify-center p-8">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>
@@ -278,8 +267,8 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsers.length > 0 ? (
-                filteredUsers.map((user) => (
+              {users.length > 0 ? (
+                users.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell>
                       <div className="flex flex-col">
@@ -321,21 +310,23 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
-                        {!user.roles.includes("ROLE_ADMIN") && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-label={`Promote ${user.name || user.email} to administrator`}
-                            title="Promote to administrator"
-                            onClick={() => setConfirmAction({
-                              title: "Promote user?",
-                              description: `Promote ${user.name || user.email} to administrator.`,
-                              onConfirm: () => handlePromoteToAdmin(user.id),
-                            })}
+                        {/* Replaces the cog that used to promote a user to
+                            administrator on a single click. Role changes are
+                            already in the edit dialog, where they are harder to
+                            hit by accident. */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          asChild
+                          title="Manage user"
+                        >
+                          <Link
+                            to={`/admin/users/${user.id}`}
+                            aria-label={`Manage ${user.name || user.email}`}
                           >
-                            <Settings className="h-4 w-4" />
-                          </Button>
-                        )}
+                            <UserRoundCog className="h-4 w-4" />
+                          </Link>
+                        </Button>
                         {!user.isEmailVerified && (
                           <>
                             <Button variant="ghost" size="sm" onClick={() => handleResendVerification(user)}>
@@ -371,13 +362,15 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                 </TableRow>
               )}
             </TableBody>
-            <TableFooter>
-              <TableRow>
-                <TableCell colSpan={6}>{totalLabel}</TableCell>
-                <TableCell className="text-right">{filteredUsers.length}</TableCell>
-              </TableRow>
-            </TableFooter>
           </Table>
+          <AdminPagination
+            pagination={pagination}
+            itemCount={users.length}
+            isLoading={isLoading}
+            onPageChange={setPage}
+            onLimitChange={setLimit}
+            label={showOnlyUnverified ? "pending users" : "users"}
+          />
         </div>
       )}
 

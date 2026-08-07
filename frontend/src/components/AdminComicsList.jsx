@@ -1,16 +1,17 @@
 
-import { useCallback, useMemo, useState, useEffect } from "react";
-import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from "@/components/ui/table";
+import { useMemo, useState } from "react";
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TagBadge } from "@/components/TagBadge";
 import { Search, Tag as TagIcon, Trash, Edit, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { useAdminList } from "@/hooks/use-admin-list";
+import { AdminPagination } from "@/components/AdminPagination";
 import { ComicEditDialog } from "@/components/ComicEditDialog";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
-import { fuzzyFilter } from "@/lib/fuzzy-search";
 import { formatDate } from "@/lib/format";
 import {
   AlertDialog,
@@ -26,52 +27,45 @@ import {
 // const mockComics = [ // Mock data removed
 
 
-export function AdminComicsList() {
+/**
+ * @param {object} props
+ * @param {number} [props.ownerId] Restrict the list to one user's library. Passed
+ *        to the backend rather than filtered here, so paging stays correct.
+ * @param {boolean} [props.embedded] Rendered inside another admin page; keeps its
+ *        paging state local instead of claiming the page's query string.
+ */
+export function AdminComicsList({ ownerId, embedded = false }) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [comics, setComics] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
   const [editingComic, setEditingComic] = useState(null);
   const [comicToDelete, setComicToDelete] = useState(null);
 
-  const loadComics = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const data = await api.get("/api/comics?adminContext=true");
-      setComics(data.comics || data || []);
-    } catch (error) {
-      logger.error("Failed to load comics:", error);
-      toast({ title: "Failed to load comics", description: error.message, variant: "destructive" });
-      setComics([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast]);
-  
-  useEffect(() => {
-    loadComics();
-  }, [loadComics]);
-  
-  // Fuzzy matching tolerates the nullable author/publisher/owner fields on its
-  // own. Memoised because each call rebuilds the Fuse index over every comic.
-  const filteredComics = useMemo(
-    () => fuzzyFilter(comics, searchQuery, [
-      "title",
-      "author",
-      "publisher",
-      "description",
-      "owner.name",
-      "owner.email",
-      "tags.name",
-    ]),
-    [comics, searchQuery]
+  const filters = useMemo(
+    () => ({ adminContext: "true", ...(ownerId ? { ownerId } : {}) }),
+    [ownerId]
   );
+
+  const {
+    items: comics,
+    pagination,
+    isLoading,
+    searchInput,
+    setSearch,
+    setPage,
+    setLimit,
+    reload,
+  } = useAdminList({
+    basePath: "/api/comics",
+    filters,
+    urlKey: embedded ? undefined : "comics",
+    itemsKey: "comics",
+    errorTitle: "Failed to load comics",
+  });
 
   const handleDeleteComic = async (comicId) => {
     try {
       await api.delete(`/api/comics/${comicId}`);
-      setComics((currentComics) => currentComics.filter((comic) => comic.id !== comicId));
+      reload();
       toast({ title: "Comic deleted" });
     } catch (error) {
       logger.error(`Failed to delete comic ${comicId}:`, error);
@@ -94,28 +88,30 @@ export function AdminComicsList() {
     const data = await api.patch(`/api/comics/${payload.id}`, payload);
     // Patch response only returns id/title; reload so TagBadge gets full tag
     // metadata (id, isGlobal, hideFromLibrary) instead of rebuilt name stubs.
-    await loadComics();
+    reload();
     toast({ title: "Comic updated" });
     return data.comic || payload;
   };
-  
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold">Comics Management</h2>
+        <h2 className="text-xl font-bold">{embedded ? "Comics owned by this user" : "Comics Management"}</h2>
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             type="search"
             placeholder="Search comics..."
             className="pl-8 w-[300px]"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearch(e.target.value)}
           />
         </div>
       </div>
-      
-      {isLoading ? (
+
+      {/* Spinner only on the first load; turning a page keeps the table and its
+          pager on screen, disabled, rather than collapsing the layout. */}
+      {isLoading && comics.length === 0 ? (
         <div className="flex justify-center p-8">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>
@@ -133,8 +129,8 @@ export function AdminComicsList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredComics.length > 0 ? (
-                filteredComics.map((comic) => (
+              {comics.length > 0 ? (
+                comics.map((comic) => (
                   <TableRow key={comic.id}>
                     <TableCell>
                       <div className="flex flex-col">
@@ -184,14 +180,15 @@ export function AdminComicsList() {
                 </TableRow>
               )}
             </TableBody>
-            <TableFooter>
-              <TableRow>
-                <TableCell colSpan={6} className="text-right">
-                  Total Comics: {filteredComics.length}
-                </TableCell>
-              </TableRow>
-            </TableFooter>
           </Table>
+          <AdminPagination
+            pagination={pagination}
+            itemCount={comics.length}
+            isLoading={isLoading}
+            onPageChange={setPage}
+            onLimitChange={setLimit}
+            label="comics"
+          />
         </div>
       )}
       <ComicEditDialog

@@ -2,10 +2,11 @@
 
 namespace App\Entity;
 
+use App\Repository\AdminAuditLogRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 
-#[ORM\Entity]
+#[ORM\Entity(repositoryClass: AdminAuditLogRepository::class)]
 #[ORM\Table(name: 'admin_audit_log')]
 #[ORM\Index(name: 'IDX_5BCE80B6642B8210', columns: ['admin_user_id'])]
 #[ORM\Index(name: 'IDX_ADMIN_AUDIT_CREATED_AT', columns: ['created_at'])]

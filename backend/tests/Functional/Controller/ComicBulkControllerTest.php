@@ -6,6 +6,7 @@ use App\Entity\Comic;
 use App\Entity\ShareToken;
 use App\Entity\Tag;
 use App\Tests\Factory\ComicFactory;
+use App\Tests\Factory\TagFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 use Doctrine\ORM\EntityManagerInterface;
@@ -56,6 +57,45 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
         $tag = $entityManager->getRepository(Tag::class)->findOneBy(['name' => 'Weekend', 'creator' => $owner]);
         self::assertNotNull($tag);
         self::assertCount(2, $tag->getComics());
+    }
+
+    public function testBulkTagReusesAnExistingTagDespiteCaseAndWhitespace(): void
+    {
+        $owner = $this->createAndLoginUser();
+        $existing = TagFactory::new()->createdBy($owner)->create(['name' => 'Sci Fi'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $this->patchJson('/api/comics', [
+            'updates' => [
+                ['id' => $comic->getId(), 'changes' => ['addTags' => ['  sci fi ']]],
+            ],
+        ]);
+
+        self::assertResponseIsSuccessful();
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->clear();
+        // One tag, still spelled the way its owner created it.
+        self::assertSame(1, $entityManager->getRepository(Tag::class)->count(['creator' => $owner]));
+        $tag = $entityManager->getRepository(Tag::class)->find($existing->getId());
+        self::assertSame('Sci Fi', $tag->getName());
+        self::assertCount(1, $tag->getComics());
+    }
+
+    public function testRepeatedBulkTagSubmissionDoesNotAttachDuplicates(): void
+    {
+        $owner = $this->createAndLoginUser();
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $request = ['updates' => [['id' => $comic->getId(), 'changes' => ['addTags' => ['Weekend']]]]];
+
+        $this->patchJson('/api/comics', $request);
+        self::assertResponseIsSuccessful();
+        $this->patchJson('/api/comics', $request);
+
+        self::assertResponseIsSuccessful();
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->clear();
+        self::assertSame(1, $entityManager->getRepository(Tag::class)->count(['name' => 'Weekend']));
+        self::assertCount(1, $entityManager->find(Comic::class, $comic->getId())->getTags());
     }
 
     public function testBulkTagRejectsAnotherUsersComicWithoutChangingAnyComic(): void

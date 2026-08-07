@@ -19,6 +19,7 @@ const UploadComic = lazy(() => import("./pages/UploadComic.jsx"));
 const BulkUploadComic = lazy(() => import("./pages/BulkUploadComic.jsx"));
 const ComicReader = lazy(() => import("./pages/ComicReader.jsx"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard.jsx"));
+const AdminUserDetails = lazy(() => import("./pages/AdminUserDetails.jsx"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword.jsx"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword.jsx"));
 const NotFound = lazy(() => import("./pages/NotFound.jsx"));
@@ -94,6 +95,7 @@ const AppRoutes = () => {
             <Route path="/upload/bulk" element={<ProtectedRoute><BulkUploadComic /></ProtectedRoute>} />
             <Route path="/read/:comicId" element={<ProtectedRoute><ComicReader /></ProtectedRoute>} />
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+            <Route path="/admin/users/:userId" element={<AdminRoute><AdminUserDetails /></AdminRoute>} />
             <Route path="/share/accept/:token" element={<AcceptSharePage />} />
             <Route path="/dropbox-sync" element={<ProtectedRoute><DropboxSyncPage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><UserSettings /></ProtectedRoute>} />

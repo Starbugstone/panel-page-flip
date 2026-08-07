@@ -10,6 +10,7 @@ import { useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast.js";
 import { cn } from "@/lib/utils";
+import { PAGE_LAYER_CLASSES } from "@/lib/overlay-layers";
 
 export function ComicCard({ comic, coverPriority = false, onResetProgress, onEditComic, onDeleteComic, onShareClick }) {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
@@ -68,12 +69,6 @@ export function ComicCard({ comic, coverPriority = false, onResetProgress, onEdi
     }
   };
 
-  const handleEditClick = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onEditComic(comic);
-  };
-  
   return (
     <>
       <div className="relative">
@@ -105,6 +100,7 @@ export function ComicCard({ comic, coverPriority = false, onResetProgress, onEdi
                   size="sm" 
                   className="h-7 w-7 p-0 text-white hover:text-red-400"
                   onClick={handleResetClick}
+                  aria-label={`Reset reading progress for ${comic.title}`}
                 >
                   <RotateCcw size={16} />
                 </Button>
@@ -139,36 +135,38 @@ export function ComicCard({ comic, coverPriority = false, onResetProgress, onEdi
           </CardFooter>
         </Card>
       </Link>
-        <div className="absolute top-2 right-2 z-10">
+        <div className={cn("absolute top-2 right-2", PAGE_LAYER_CLASSES.cardAction)}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white rounded-full">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 bg-black/50 hover:bg-black/70 text-white rounded-full"
+                aria-label={`Actions for ${comic.title}`}
+              >
                 <MoreVertical size={16} />
               </Button>
             </DropdownMenuTrigger>
+            {/* onSelect, not onClick: Radix closes the menu from its own click
+                handler, and preventDefault() on the click event suppressed it —
+                which is how the menu ended up sitting over the dialog it had
+                just opened. The menu is outside the card's Link, so there is no
+                navigation left to cancel. */}
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleEditClick}>
+              <DropdownMenuItem onSelect={() => onEditComic(comic)}>
                 <Edit className="mr-2 h-4 w-4" />
                 Edit Details
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsDeleteDialogOpen(true);
-              }}>
+              <DropdownMenuItem onSelect={() => setIsDeleteDialogOpen(true)}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete Comic
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onShareClick(comic.id, comic.title);
-              }}>
+              <DropdownMenuItem onSelect={() => onShareClick(comic.id, comic.title)}>
                 <Share2Icon className="mr-2 h-4 w-4" />
                 Share Comic
               </DropdownMenuItem>
               {comic.lastReadPage !== undefined && (
-                <DropdownMenuItem onClick={handleResetClick}>
+                <DropdownMenuItem onSelect={() => setIsResetDialogOpen(true)}>
                   <RotateCcw className="mr-2 h-4 w-4" />
                   Reset Progress
                 </DropdownMenuItem>

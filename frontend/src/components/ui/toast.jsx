@@ -4,14 +4,18 @@ import { cva } from "class-variance-authority";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { NOTIFICATION_LAYER_CLASSES } from "@/lib/overlay-layers";
 
 const ToastProvider = ToastPrimitives.Provider;
 
+// Deliberately above every modal: a toast that a dialog covers is a toast
+// nobody reads.
 const ToastViewport = React.forwardRef(({ className, ...props }, ref) => (
   <ToastPrimitives.Viewport
     ref={ref}
     className={cn(
-      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
+      NOTIFICATION_LAYER_CLASSES.toast,
+      "fixed top-0 flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
       className
     )}
     {...props}
