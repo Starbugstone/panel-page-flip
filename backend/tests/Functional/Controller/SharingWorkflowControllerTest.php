@@ -2,6 +2,7 @@
 
 namespace App\Tests\Functional\Controller;
 
+use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\User;
 use App\Service\ComicShareService;
@@ -123,7 +124,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         self::assertSame([], $this->getJson('/api/shares/shared-by-me')['sharedByMe']);
     }
 
-    private function persistPendingShare(object $comic, User $owner, string $recipientEmail): ComicShare
+    private function persistPendingShare(Comic $comic, User $owner, string $recipientEmail): ComicShare
     {
         $share = new ComicShare($comic, $owner, $recipientEmail);
         $share->markPending(new \DateTimeImmutable(ComicShareService::INVITATION_TTL));
