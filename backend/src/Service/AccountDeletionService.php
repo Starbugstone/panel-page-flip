@@ -20,13 +20,32 @@ final class AccountDeletionService
         private readonly FileQuarantineService $fileQuarantine,
         private readonly PendingFileDeletionService $pendingFileDeletion,
         private readonly UserRepository $userRepository,
+        private readonly SecurityAuditLogger $auditLogger,
     ) {
     }
 
-    public function delete(User $user): void
+    /**
+     * @param User|null $actor who asked for this — the account holder, an
+     *                         administrator, or null for the retention sweep,
+     *                         which acts on nobody's behalf
+     */
+    public function delete(User $user, ?User $actor = null): void
     {
+        // Read before the removal, because afterwards the entity has no id and
+        // an audit record that cannot name what it deleted is not one.
+        //
+        // The actor for the same reason, and not only the target: on the
+        // self-service path the actor *is* the account being removed, so
+        // reading its id after the flush would report the one deletion somebody
+        // asked for themselves as having no actor at all — indistinguishable
+        // from the retention sweep, which is the one case where nobody asked.
+        $userId = $user->getId();
+        $actorId = $actor?->getId();
+        $wasAdmin = in_array('ROLE_ADMIN', $user->getRoles(), true);
+
         $quarantinedFiles = [];
         $pendingFileDeletions = [];
+        $tombstonedShares = 0;
         $entityManager = $this->entityManager();
         // Avoid nesting commits when a caller (or the test suite) already owns
         // the transaction — a nested commit would escape DAMA's rollback wrap.
@@ -47,7 +66,7 @@ final class AccountDeletionService
             foreach ($user->getComics()->toArray() as $comic) {
                 // Recipients of this comic are told it went away with its
                 // owner's account rather than finding it silently missing.
-                $this->shareService->tombstoneSharesForComic($comic, ComicShare::REASON_OWNER_ACCOUNT_DELETED);
+                $tombstonedShares += $this->shareService->tombstoneSharesForComic($comic, ComicShare::REASON_OWNER_ACCOUNT_DELETED);
                 array_push($quarantinedFiles, ...$this->comicService->quarantineComicFiles($comic));
             }
 
@@ -85,12 +104,47 @@ final class AccountDeletionService
             }
             $this->pendingFileDeletion->cancel($pendingFileDeletions);
             $this->fileQuarantine->restore($quarantinedFiles);
+
+            // A refused deletion — the last administrator, say — is the rule
+            // working and needs no alarm. Anything else got part way through
+            // moving somebody's files before failing, and even though the
+            // rollback above puts them back, an administrator should know that
+            // an erasure request did not complete.
+            if (!$exception instanceof \DomainException) {
+                $this->auditLogger->critical(
+                    SecurityAuditLogger::DATA_INTEGRITY_FAILURE,
+                    [
+                        'target_user_id' => $userId,
+                        'target_type' => 'user',
+                        'operation' => 'account_deletion',
+                        'reason' => 'account deletion failed after partial cleanup',
+                        'quarantined_files' => count($quarantinedFiles),
+                    ],
+                    SecurityAuditLogger::RESULT_FAILED,
+                    'user:' . $userId
+                );
+            }
+
             throw $exception;
         }
 
         if ($pendingFileDeletions !== []) {
             $this->pendingFileDeletion->purge($pendingFileDeletions);
         }
+
+        // Written once here, so self-service deletion, admin deletion and the
+        // retention sweep all leave the same record. The address is gone by
+        // now — that is the point of the operation — and the id is what the
+        // remaining anonymised rows are keyed on anyway.
+        $this->auditLogger->audit(SecurityAuditLogger::USER_ACCOUNT_DELETED, [
+            'actor_user_id' => $actorId,
+            'target_user_id' => $userId,
+            'target_type' => 'user',
+            'target_was_admin' => $wasAdmin,
+            'self_service' => $actorId !== null && $actorId === $userId,
+            'comics_quarantined' => count($quarantinedFiles),
+            'shares_tombstoned' => $tombstonedShares,
+        ]);
     }
 
     private function isRecipient(ComicShare $share, User $user): bool

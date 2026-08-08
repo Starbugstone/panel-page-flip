@@ -17,8 +17,17 @@ final class PersonalDataRetentionService
         private readonly AccountDeletionService $accountDeletion,
         private readonly PendingFileDeletionService $pendingFileDeletion,
         private readonly LoggerInterface $logger,
+        private readonly SecurityAuditLogger $auditLogger,
     ) {
     }
+
+    /**
+     * Unresolved file deletions above this many are no longer a retry that will
+     * sort itself out. Something is holding those files — a permission, a mount,
+     * a path that moved — and personal data is sitting on disk that this
+     * application has promised to remove.
+     */
+    private const PENDING_FILE_ALERT_THRESHOLD = 25;
 
     /**
      * @return array{auditLogs: int, verificationTokens: int, resetTokens: int, unverifiedAccounts: int, filesDeleted: int, filesRemaining: int, errors: int}
@@ -54,6 +63,7 @@ final class PersonalDataRetentionService
             }
 
             try {
+                // No actor: nobody asked for this one, the retention policy did.
                 $this->accountDeletion->delete($user);
                 ++$counts['unverifiedAccounts'];
             } catch (\Throwable $exception) {
@@ -69,6 +79,37 @@ final class PersonalDataRetentionService
         $fileDeletionResult = $this->pendingFileDeletion->retryAll();
         $counts['filesDeleted'] = $fileDeletionResult['deleted'];
         $counts['filesRemaining'] = $fileDeletionResult['remaining'];
+
+        // One record for the run. The database rows this deleted are counts, not
+        // people: the accounts it removed are already recorded individually by
+        // AccountDeletionService.
+        $this->auditLogger->audit(SecurityAuditLogger::RETENTION_CLEANUP, [
+            'target_type' => 'retention',
+            'audit_logs_deleted' => $counts['auditLogs'],
+            'verification_tokens_deleted' => $counts['verificationTokens'],
+            'reset_tokens_deleted' => $counts['resetTokens'],
+            'unverified_accounts_deleted' => $counts['unverifiedAccounts'],
+            'files_deleted' => $counts['filesDeleted'],
+            'files_remaining' => $counts['filesRemaining'],
+            'errors' => $counts['errors'],
+        ]);
+
+        // A cleanup that keeps failing is a retention promise that is not being
+        // kept, and nothing about it is visible from the application.
+        if ($counts['errors'] > 0 || $counts['filesRemaining'] >= self::PENDING_FILE_ALERT_THRESHOLD) {
+            $this->auditLogger->critical(
+                SecurityAuditLogger::DATA_INTEGRITY_FAILURE,
+                [
+                    'target_type' => 'retention',
+                    'operation' => 'personal_data_retention',
+                    'errors' => $counts['errors'],
+                    'files_remaining' => $counts['filesRemaining'],
+                    'reason' => 'retention cleanup did not complete',
+                ],
+                SecurityAuditLogger::RESULT_FAILED,
+                'retention'
+            );
+        }
 
         return $counts;
     }

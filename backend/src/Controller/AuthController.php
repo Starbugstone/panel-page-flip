@@ -2,6 +2,8 @@
 
 namespace App\Controller;
 
+use App\Entity\User;
+use App\Service\SecurityAuditLogger;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -60,16 +62,27 @@ class AuthController extends AbstractController
     public function logoutUser(
         TokenStorageInterface $tokenStorage,
         RequestStack $requestStack,
-        EventDispatcherInterface $eventDispatcher
+        EventDispatcherInterface $eventDispatcher,
+        SecurityAuditLogger $securityLogger
     ): JsonResponse
     {
         // Check if user is authenticated
-        if (!$this->getUser()) {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
             return $this->json([
                 'message' => 'No user to logout',
             ]);
         }
-        
+
+        // Read before the token is thrown away, and recorded because the end of
+        // a session is the other half of the login that opened it — the pair is
+        // what says how long somebody was actually inside.
+        $securityLogger->audit(SecurityAuditLogger::USER_LOGGED_OUT, [
+            'actor_user_id' => $user->getId(),
+            'target_user_id' => $user->getId(),
+            'target_type' => 'user',
+        ]);
+
         // Programmatically invalidate the current user session
         $logoutEvent = new LogoutEvent($requestStack->getCurrentRequest(), $tokenStorage->getToken());
         $eventDispatcher->dispatch($logoutEvent);

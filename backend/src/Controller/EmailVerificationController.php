@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\User;
 use App\Repository\UserRepository;
 use App\Service\ApiRateLimiter;
+use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -21,11 +22,21 @@ class EmailVerificationController extends AbstractController
         string $token,
         UserRepository $userRepository,
         EntityManagerInterface $entityManager,
-        Request $request
+        SecurityAuditLogger $securityLogger
     ): Response {
         $user = $userRepository->findOneBy(['emailVerificationToken' => hash('sha256', $token)]);
 
         if (!$user) {
+            // The token is not logged, only the fact that one did not match. A
+            // verification link is a bearer credential, and a security log is a
+            // file somebody else may be allowed to read.
+            $securityLogger->suspicious(
+                SecurityAuditLogger::AUTHENTICATION_FAILED,
+                'verify:' . $securityLogger->clientIp(),
+                ['reason' => 'invalid_email_verification_token'],
+                $securityLogger->failedLoginThreshold()
+            );
+
             return $this->redirectToFrontend('verification-failed', 'Invalid verification token');
         }
 
@@ -45,6 +56,13 @@ class EmailVerificationController extends AbstractController
         $entityManager->persist($user);
         $entityManager->flush();
 
+        $securityLogger->audit(SecurityAuditLogger::USER_EMAIL_VERIFIED, [
+            'actor_user_id' => $user->getId(),
+            'target_user_id' => $user->getId(),
+            'target_type' => 'user',
+            'verified_by_admin' => false,
+        ]);
+
         return $this->redirectToFrontend('verification-success', 'Your email has been verified successfully');
     }
 
@@ -56,7 +74,8 @@ class EmailVerificationController extends AbstractController
         ApiRateLimiter $rateLimiter,
         \Symfony\Component\Mailer\MailerInterface $mailer,
         UrlGeneratorInterface $urlGenerator,
-        \Twig\Environment $twig
+        \Twig\Environment $twig,
+        SecurityAuditLogger $securityLogger
     ): JsonResponse {
         if ($rateLimitResponse = $rateLimiter->limit($request, 'verification_resend')) {
             return $rateLimitResponse;
@@ -87,6 +106,12 @@ class EmailVerificationController extends AbstractController
 
         // Send verification email
         $this->sendVerificationEmail($user, $token, $mailer, $urlGenerator, $twig);
+
+        $securityLogger->audit(SecurityAuditLogger::USER_VERIFICATION_RESENT, [
+            'actor_user_id' => $user->getId(),
+            'target_user_id' => $user->getId(),
+            'target_type' => 'user',
+        ]);
 
         return $this->json(['message' => 'Verification email has been sent'], Response::HTTP_OK);
     }

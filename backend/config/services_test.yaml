@@ -17,6 +17,34 @@ services:
     limiter.storage.share_invitation:
         class: Symfony\Component\RateLimiter\Storage\InMemoryStorage
 
+    # Alert thresholds and cooldowns must not outlive the run that set them. The
+    # real pool is filesystem-backed and survives the database, so a cooldown
+    # claimed by one run would suppress the alert the next run asserts on — the
+    # same trap as the rate-limiter storage above. In-memory, per kernel, and
+    # not cleared between requests, because counting across requests is the
+    # mechanism being tested.
+    security.alert.cache:
+        class: App\Tests\Support\PersistentArrayCache
+        public: true
+
+    # In-memory handlers for the security and audit channels, so a test can read
+    # back exactly what a real handler would have been given — after the
+    # processors, which is the only way to assert that redaction happens in the
+    # pipeline rather than in the caller.
+    app.monolog.test_security_handler:
+        class: App\Tests\Support\AccumulatingTestHandler
+        public: true
+
+    app.monolog.test_audit_handler:
+        class: App\Tests\Support\AccumulatingTestHandler
+        public: true
+
+    # Fetched directly by the tests covering throttling and the disable switch.
+    App\Service\SecurityAlertService:
+        public: true
+        arguments:
+            $securityAlertCache: '@security.alert.cache'
+
     App\Tests\:
         resource: '../tests/'
         exclude:

@@ -8,6 +8,7 @@ use App\Service\AccountDeletionService;
 use App\Service\AdminAuditService;
 use App\Service\PasswordValidator;
 use App\Service\Pagination\PaginationRequest;
+use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -118,7 +119,8 @@ class UserController extends AbstractController
         UserPasswordHasherInterface $passwordHasher,
         ValidatorInterface $validator,
         PasswordValidator $passwordValidator,
-        AdminAuditService $auditService
+        AdminAuditService $auditService,
+        SecurityAuditLogger $securityLogger
     ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
@@ -173,8 +175,33 @@ class UserController extends AbstractController
 
         $admin = $this->getUser();
         if ($admin instanceof User) {
+            // The address stays: an administrator reading the audit page needs to
+            // recognise the account, and it is already theirs to see. What the
+            // payload must never gain is the submitted password.
             $auditService->log($admin, 'user_create', 'user', $user->getId(), ['email' => $user->getEmail(), 'roles' => $user->getRoles()]);
             $entityManager->flush();
+
+            $securityLogger->audit(SecurityAuditLogger::USER_REGISTERED, [
+                'actor_user_id' => $admin->getId(),
+                'target_user_id' => $user->getId(),
+                'target_type' => 'user',
+                'created_by_admin' => true,
+                'roles_after' => $user->getRoles(),
+            ]);
+
+            // An account that is an administrator from the moment it exists is a
+            // privilege grant, and reads the same to anybody investigating later
+            // as promoting an existing one.
+            if (in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+                $securityLogger->critical(SecurityAuditLogger::ADMIN_ROLE_CHANGED, [
+                    'actor_user_id' => $admin->getId(),
+                    'target_user_id' => $user->getId(),
+                    'target_type' => 'user',
+                    'change' => 'granted_on_creation',
+                    'roles_before' => [],
+                    'roles_after' => $user->getRoles(),
+                ], SecurityAuditLogger::RESULT_SUCCESS, 'user:' . $user->getId());
+            }
         }
 
         return $this->json([
@@ -198,7 +225,8 @@ class UserController extends AbstractController
         UserPasswordHasherInterface $passwordHasher,
         ValidatorInterface $validator,
         PasswordValidator $passwordValidator,
-        AdminAuditService $auditService
+        AdminAuditService $auditService,
+        SecurityAuditLogger $securityLogger
     ): JsonResponse {
         // Get the current user and assert its type
         $user = $this->getUser();
@@ -245,6 +273,20 @@ class UserController extends AbstractController
             if (in_array('ROLE_ADMIN', $targetUser->getRoles(), true) && !in_array('ROLE_ADMIN', $roles, true)) {
                 $remainingAdmins = $entityManager->getRepository(User::class)->countAdminsExcluding($targetUser);
                 if ($remainingAdmins === 0) {
+                    // Once is somebody discovering the rule. Repeatedly is worth
+                    // an administrator's attention: the last admin account is
+                    // the one an attacker would most like to be rid of.
+                    $securityLogger->suspicious(
+                        SecurityAuditLogger::LAST_ADMIN_PROTECTED,
+                        'user:' . $user->getId(),
+                        [
+                            'actor_user_id' => $user->getId(),
+                            'target_user_id' => $targetUser->getId(),
+                            'target_type' => 'user',
+                        ],
+                        3
+                    );
+
                     return $this->json(['message' => 'There must be at least one admin'], Response::HTTP_CONFLICT);
                 }
             }
@@ -253,6 +295,7 @@ class UserController extends AbstractController
         }
 
         // Update password if provided
+        $passwordChanged = false;
         if (isset($data['password']) && !empty($data['password'])) {
             $passwordErrors = $passwordValidator->validate((string) $data['password']);
             if ($passwordErrors !== []) {
@@ -260,6 +303,7 @@ class UserController extends AbstractController
             }
 
             $targetUser->setPassword($passwordHasher->hashPassword($targetUser, $data['password']));
+            $passwordChanged = true;
         }
 
         // Validate user
@@ -272,8 +316,9 @@ class UserController extends AbstractController
             return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
         }
 
+        $afterRoles = $targetUser->getRoles();
+
         if ($user instanceof User && in_array('ROLE_ADMIN', $user->getRoles(), true)) {
-            $afterRoles = $targetUser->getRoles();
             if ($beforeRoles !== $afterRoles || $user->getId() !== $targetUser->getId()) {
                 $auditService->log($user, 'user_update', 'user', $targetUser->getId(), [
                     'email' => $targetUser->getEmail(),
@@ -285,6 +330,47 @@ class UserController extends AbstractController
 
         // Save changes
         $entityManager->flush();
+
+        // After the flush, so nothing is announced that a validation failure or
+        // a database error could still have undone.
+        if ($passwordChanged) {
+            // The value and the hash are both absent by construction: neither is
+            // ever put in the context, and the processor would remove them if
+            // some later edit did.
+            $securityLogger->audit(SecurityAuditLogger::USER_PASSWORD_CHANGED, [
+                'actor_user_id' => $user->getId(),
+                'target_user_id' => $targetUser->getId(),
+                'target_type' => 'user',
+                'changed_by_admin' => $user->getId() !== $targetUser->getId(),
+            ]);
+        }
+
+        if ($beforeRoles !== $afterRoles) {
+            $securityLogger->audit(SecurityAuditLogger::USER_ROLES_CHANGED, [
+                'actor_user_id' => $user->getId(),
+                'target_user_id' => $targetUser->getId(),
+                'target_type' => 'user',
+                'roles_before' => $beforeRoles,
+                'roles_after' => $afterRoles,
+            ]);
+
+            $wasAdmin = in_array('ROLE_ADMIN', $beforeRoles, true);
+            $isAdmin = in_array('ROLE_ADMIN', $afterRoles, true);
+
+            // Both directions, and both immediately. A grant is somebody gaining
+            // the run of the instance; a removal may be an attacker locking the
+            // real administrators out of their own site.
+            if ($wasAdmin !== $isAdmin) {
+                $securityLogger->critical(SecurityAuditLogger::ADMIN_ROLE_CHANGED, [
+                    'actor_user_id' => $user->getId(),
+                    'target_user_id' => $targetUser->getId(),
+                    'target_type' => 'user',
+                    'change' => $isAdmin ? 'granted' : 'removed',
+                    'roles_before' => $beforeRoles,
+                    'roles_after' => $afterRoles,
+                ], SecurityAuditLogger::RESULT_SUCCESS, 'user:' . $targetUser->getId());
+            }
+        }
 
         return $this->json([
             'message' => 'User updated successfully',
@@ -304,6 +390,7 @@ class UserController extends AbstractController
         EntityManagerInterface $entityManager,
         AdminAuditService $auditService,
         AccountDeletionService $accountDeletion,
+        SecurityAuditLogger $securityLogger,
     ): JsonResponse {
         // Get the current user and assert its type
         $user = $this->getUser();
@@ -333,7 +420,10 @@ class UserController extends AbstractController
             ], Response::HTTP_CONFLICT);
         }
 
-        $auditService->log($user, 'user_delete', 'user', $targetUser->getId(), ['email' => $targetUser->getEmail()]);
+        $targetUserId = $targetUser->getId();
+        $targetWasAdmin = in_array('ROLE_ADMIN', $targetUser->getRoles(), true);
+
+        $auditService->log($user, 'user_delete', 'user', $targetUserId, ['email' => $targetUser->getEmail()]);
         // Flush so AccountDeletionService can load and redact this audit row.
         $entityManager->flush();
 
@@ -341,17 +431,32 @@ class UserController extends AbstractController
             // Same erasure path as self-service deletion: shares, tags, audit
             // redaction, and durable file purge. Comics remain an explicit
             // admin precondition above so libraries are not deleted by surprise.
-            $accountDeletion->delete($targetUser);
+            $accountDeletion->delete($targetUser, $user);
         } catch (\DomainException $exception) {
             return $this->json(['message' => $exception->getMessage()], Response::HTTP_CONFLICT);
+        }
+
+        // Losing an administrator is a privilege change, and one that cannot be
+        // undone by putting the role back.
+        if ($targetWasAdmin) {
+            $securityLogger->critical(SecurityAuditLogger::ADMIN_ROLE_CHANGED, [
+                'actor_user_id' => $user->getId(),
+                'target_user_id' => $targetUserId,
+                'target_type' => 'user',
+                'change' => 'admin_account_deleted',
+            ], SecurityAuditLogger::RESULT_SUCCESS, 'user:' . $targetUserId);
         }
 
         return $this->json(['message' => 'User deleted successfully']);
     }
 
     #[Route('/{id}/verify', name: 'verify', methods: ['POST'])]
-    public function verify(int $id, EntityManagerInterface $entityManager, AdminAuditService $auditService): JsonResponse
-    {
+    public function verify(
+        int $id,
+        EntityManagerInterface $entityManager,
+        AdminAuditService $auditService,
+        SecurityAuditLogger $securityLogger
+    ): JsonResponse {
         $admin = $this->getUser();
         if (!$admin instanceof User || !in_array('ROLE_ADMIN', $admin->getRoles(), true)) {
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
@@ -367,6 +472,13 @@ class UserController extends AbstractController
         $targetUser->setEmailVerificationTokenExpiresAt(null);
         $auditService->log($admin, 'user_verify', 'user', $targetUser->getId(), ['email' => $targetUser->getEmail()]);
         $entityManager->flush();
+
+        $securityLogger->audit(SecurityAuditLogger::USER_EMAIL_VERIFIED, [
+            'actor_user_id' => $admin->getId(),
+            'target_user_id' => $targetUser->getId(),
+            'target_type' => 'user',
+            'verified_by_admin' => true,
+        ]);
 
         return $this->json([
             'message' => 'User marked as verified',

@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\User;
 use App\Service\AccountDeletionService;
 use App\Service\PersonalDataExporter;
+use App\Service\SecurityAuditLogger;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -34,6 +35,7 @@ final class PrivacyController extends AbstractController
         Request $request,
         UserPasswordHasherInterface $passwordHasher,
         AccountDeletionService $accountDeletion,
+        SecurityAuditLogger $securityLogger,
     ): JsonResponse {
         $user = $this->authenticatedUser();
         $data = json_decode($request->getContent(), true);
@@ -48,13 +50,21 @@ final class PrivacyController extends AbstractController
             );
         }
 
+        // Recorded before the password check, so an erasure request is on the
+        // record whether or not the person asking got their own password right.
+        $securityLogger->audit(SecurityAuditLogger::USER_ACCOUNT_DELETION_REQUESTED, [
+            'actor_user_id' => $user->getId(),
+            'target_user_id' => $user->getId(),
+            'target_type' => 'user',
+        ]);
+
         $password = (string) ($data['currentPassword'] ?? '');
         if ($password === '' || !$passwordHasher->isPasswordValid($user, $password)) {
             return $this->json(['message' => 'The current password is incorrect.'], Response::HTTP_FORBIDDEN);
         }
 
         try {
-            $accountDeletion->delete($user);
+            $accountDeletion->delete($user, $user);
         } catch (\DomainException $exception) {
             return $this->json(['message' => $exception->getMessage()], Response::HTTP_CONFLICT);
         }

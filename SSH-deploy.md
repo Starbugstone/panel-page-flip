@@ -552,7 +552,23 @@ sudo systemctl enable --now comics-messenger
 
 ### 7.3 Daily log rotation
 
-`/etc/logrotate.d/comics`:
+The application writes its own daily files and deletes them on its own schedule
+— see [docs/security-logging.md](docs/security-logging.md). Schedule the command
+that actually applies the retention periods, because nothing else does:
+
+```cron
+# crontab -e for the deploy user
+15 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-logs --env=prod >> /var/log/comics-cleanup.log 2>&1
+```
+
+That covers `backend/var/log/app/`, `backend/var/log/security/` and
+`backend/var/log/audit/`. Do **not** point logrotate at those subdirectories as
+well: the retention there is a year for security and audit records, and a
+14-rotation logrotate rule would silently undercut it.
+
+`logrotate` is still the right tool for anything the application does not date
+itself — the legacy `prod.log`/`dev.log` at the top of `var/log/`, and the web
+server's access logs. `/etc/logrotate.d/comics`:
 
 ```
 /var/www/comics/backend/var/log/*.log {
@@ -564,6 +580,16 @@ sudo systemctl enable --now comics-messenger
     copytruncate
     su www-data www-data
 }
+```
+
+The glob is deliberately not recursive, so it matches only the files directly in
+`var/log/` and leaves the dated subdirectories to `app:cleanup-logs`.
+
+### 7.4 Retention and privacy cleanups
+
+```cron
+0 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-personal-data --env=prod >> /var/log/comics-cleanup.log 2>&1
+5 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-expired-shares --env=prod >> /var/log/comics-cleanup.log 2>&1
 ```
 
 ---

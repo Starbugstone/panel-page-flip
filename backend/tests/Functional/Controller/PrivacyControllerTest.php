@@ -4,12 +4,16 @@ namespace App\Tests\Functional\Controller;
 
 use App\Entity\AdminAuditLog;
 use App\Entity\User;
+use App\Service\SecurityAuditLogger;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use App\Tests\Functional\SecurityLogAssertions;
 use Doctrine\ORM\EntityManagerInterface;
 
 final class PrivacyControllerTest extends AbstractApiTestCase
 {
+    use SecurityLogAssertions;
+
     public function testUserCanExportPersonalDataWithoutSecrets(): void
     {
         $user = $this->createAndLoginUser([
@@ -91,6 +95,33 @@ final class PrivacyControllerTest extends AbstractApiTestCase
         // length, so the payload comes back as name-then-email regardless of
         // the order it was written in.
         self::assertEquals(['email' => '[redacted]', 'name' => '[redacted]'], $redactedAudit->getPayload());
+    }
+
+    /**
+     * The three deletion paths write one shared record, so the only thing that
+     * tells them apart afterwards is who is named as the actor. An erasure the
+     * account holder asked for must not be indistinguishable from the retention
+     * sweep, which acts on nobody's behalf — that distinction is the answer to
+     * "did this person ask to be forgotten, or did we decide for them".
+     */
+    public function testSelfServiceDeletionRecordsTheAccountHolderAsTheActor(): void
+    {
+        $user = $this->createAndLoginUser([
+            'email' => 'self-delete@test.local',
+            'password' => 'P@ssw0rd!Strong',
+        ]);
+        $userId = $user->getId();
+
+        $this->deleteJson('/api/privacy/account', [
+            'confirmation' => 'DELETE',
+            'currentPassword' => 'P@ssw0rd!Strong',
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $record = $this->assertLoggedAuditEvent(SecurityAuditLogger::USER_ACCOUNT_DELETED);
+        self::assertSame($userId, $record->context['actor_user_id']);
+        self::assertSame($userId, $record->context['target_user_id']);
+        self::assertTrue($record->context['self_service']);
     }
 
     public function testLastAdministratorCannotDeleteOwnAccount(): void

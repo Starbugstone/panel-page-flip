@@ -11,6 +11,7 @@ use App\Service\ComicService;
 use App\Service\ComicShareService;
 use App\Service\FileQuarantineService;
 use App\Service\PendingFileDeletionService;
+use App\Service\SecurityAuditLogger;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\EntityRepository;
@@ -177,6 +178,7 @@ final class AccountDeletionServiceTest extends TestCase
             $fileQuarantine ?? $this->createMock(FileQuarantineService::class),
             $pendingFileDeletion,
             $this->createMock(UserRepository::class),
+            $this->createMock(SecurityAuditLogger::class),
         );
     }
 }
