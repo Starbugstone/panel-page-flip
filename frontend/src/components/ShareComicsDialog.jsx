@@ -210,7 +210,19 @@ export function ShareComicsDialog({
           : `Invitation${created === 1 ? "" : "s"} sent to ${recipientEmail.trim()}.`,
       });
 
-      await onShared?.();
+      try {
+        await onShared?.();
+      } catch (refreshError) {
+        logger.error("Sharing data refresh failed:", refreshError);
+        toast({
+          title: "Invitation sent",
+          description: "The invitation was sent, but the Sharing list could not refresh. Reload the page to see the latest state.",
+          variant: "destructive",
+        });
+      }
+
+      // The invitations already exist at this point. Always close so a refresh
+      // failure cannot encourage the sender to submit the same share again.
       onClose();
     } catch (err) {
       logger.error("Bulk sharing failed:", err);
