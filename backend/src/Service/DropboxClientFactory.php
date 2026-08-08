@@ -17,7 +17,8 @@ class DropboxClientFactory
         private readonly string $dropboxAppSecret,
         private readonly HttpClientInterface $httpClient,
         private readonly EntityManagerInterface $entityManager,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly SecurityAuditLogger $auditLogger
     ) {
     }
 
@@ -83,6 +84,24 @@ class DropboxClientFactory
                 'user_id' => $user->getId(),
                 'exception' => $e,
             ]);
+
+            // A refresh that fails once is Dropbox being slow. Repeatedly, for
+            // the same account, it is a revoked grant or an app credential that
+            // has been rotated out from under this instance — either way, that
+            // user's library has quietly stopped syncing and only an
+            // administrator can put it right. The credentials themselves are not
+            // in the context, and the exception is left to the line above.
+            $this->auditLogger->suspicious(
+                SecurityAuditLogger::INTEGRATION_TOKEN_REJECTED,
+                'dropbox:' . $user->getId(),
+                [
+                    'target_user_id' => $user->getId(),
+                    'target_type' => 'user',
+                    'integration' => 'dropbox',
+                    'reason' => 'refresh_failed',
+                ],
+                3
+            );
 
             return false;
         }

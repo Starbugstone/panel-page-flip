@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\User;
 use App\Service\ApiRateLimiter;
 use App\Service\PasswordValidator;
+use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -30,7 +31,8 @@ class RegistrationController extends AbstractController
         ApiRateLimiter $rateLimiter,
         MailerInterface $mailer,
         UrlGeneratorInterface $urlGenerator,
-        Environment $twig
+        Environment $twig,
+        SecurityAuditLogger $securityLogger
     ): Response {
         // If user is already logged in, return an appropriate API response
         if ($this->getUser()) {
@@ -117,6 +119,16 @@ class RegistrationController extends AbstractController
         
         // Send verification email
         $this->sendVerificationEmail($user, $verificationToken, $mailer, $urlGenerator, $twig);
+
+        // The account id, not the address that created it, and nothing from the
+        // submitted body — which at this point still holds the plaintext
+        // password.
+        $securityLogger->audit(SecurityAuditLogger::USER_REGISTERED, [
+            'actor_user_id' => $user->getId(),
+            'target_user_id' => $user->getId(),
+            'target_type' => 'user',
+            'created_by_admin' => false,
+        ]);
 
         // Return success response
         return new JsonResponse(

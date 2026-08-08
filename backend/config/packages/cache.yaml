@@ -23,3 +23,11 @@ framework:
             comic.page_index.cache:
                 adapter: cache.app
                 default_lifetime: 86400
+
+            # Threshold counters and cooldowns for administrator security
+            # alerts. Its own pool so that clearing an application cache cannot
+            # reset every cooldown at once and let a burst of alerts through,
+            # and so the counters survive a page-index purge.
+            security.alert.cache:
+                adapter: cache.app
+                default_lifetime: 3600

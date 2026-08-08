@@ -33,6 +33,12 @@ parameters:
     dropbox_sync_limit: '%env(int:DROPBOX_SYNC_LIMIT)%'
     dropbox_rate_limit: '%env(int:DROPBOX_RATE_LIMIT)%'
     app_data_key: '%env(APP_DATA_KEY)%'
+    # Daily log files live under these, one folder per stream. Security and
+    # audit files are grouped into YYYY/MM/ because a year of them at one file
+    # per day is several hundred entries in a single listing.
+    app_log_directory: '%kernel.logs_dir%/app'
+    security_log_directory: '%kernel.logs_dir%/security'
+    audit_log_directory: '%kernel.logs_dir%/audit'
 
 services:
     # default configuration for services in *this* file
@@ -51,7 +57,54 @@ services:
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
-    
+
+    # ---------------------------------------------------------------------
+    # Security and audit logging
+    # ---------------------------------------------------------------------
+
+    # Pushed onto the logger prototype rather than onto one handler, so it runs
+    # for every channel. Redaction that only covered the security log would miss
+    # the credential that leaks from an exception context in `main`.
+    App\Monolog\SensitiveDataProcessor:
+        tags:
+            - { name: monolog.processor }
+
+    app.monolog.app_handler:
+        class: App\Monolog\DailyFolderHandler
+        arguments:
+            $directory: '%app_log_directory%'
+            $groupByMonth: false
+            $level: 'debug'
+
+    app.monolog.security_handler:
+        class: App\Monolog\DailyFolderHandler
+        arguments:
+            $directory: '%security_log_directory%'
+            $groupByMonth: true
+            $level: 'info'
+
+    app.monolog.audit_handler:
+        class: App\Monolog\DailyFolderHandler
+        arguments:
+            $directory: '%audit_log_directory%'
+            $groupByMonth: true
+            $level: 'info'
+
+    # The two channels this feature owns. Autowiring resolves LoggerInterface to
+    # the default channel, so without these the security records would go to
+    # `main` and the split configured in monolog.yaml would do nothing.
+    App\Service\SecurityAuditLogger:
+        arguments:
+            $securityLogger: '@monolog.logger.app_security'
+            $auditLogger: '@monolog.logger.app_audit'
+
+    App\Service\SecurityAlertService:
+        arguments:
+            $securityAlertCache: '@security.alert.cache'
+
+    # ---------------------------------------------------------------------
+
+
     # Reset password service with mailer configuration
     App\Service\ResetPasswordService:
         arguments:

@@ -113,18 +113,42 @@ generic development default is not a substitute for identifying the controller.
 
 ### Privacy retention
 
-Run both cleanup commands at least daily in production:
+Run all three cleanup commands at least daily in production:
 
 ```bash
 docker compose exec php php bin/console app:cleanup-personal-data
 docker compose exec php php bin/console app:cleanup-expired-shares
+docker compose exec php php bin/console app:cleanup-logs
 ```
 
 The personal-data cleanup removes administrator audit records after 12 months,
 unverified non-admin accounts after 30 days, and expired email-verification and
 password-reset tokens. The share cleanup permanently removes invitations that
-expired without being answered. Configure the web server separately to rotate and
-delete access logs after the shortest period needed for security operations.
+expired without being answered. The log cleanup deletes daily log files past
+their retention period — 30 days for application logs, a year for security and
+audit records — and is the only thing that does: nothing deletes them on its own.
+Configure the web server separately to rotate and delete access logs after the
+shortest period needed for security operations.
+
+### Security and audit logging
+
+Security-relevant events are written to dedicated daily files under
+`backend/var/log/security/` and `backend/var/log/audit/`, and serious ones can
+email administrators.
+
+```dotenv
+SECURITY_ALERTS_ENABLED=0
+SECURITY_ALERT_EMAILS=
+APP_LOG_RETENTION_DAYS=30
+SECURITY_LOG_RETENTION_DAYS=365
+AUDIT_LOG_RETENTION_DAYS=365
+```
+
+Alerts are off by default and are rate-limited per event and per source when
+enabled. See [docs/security-logging.md](docs/security-logging.md) for the file
+layout, the retention rules, which events alert, how to silence them during
+maintenance, and the rules for adding a new event — in particular, that
+identifiers go in a log record and secrets, addresses and comic titles do not.
 
 ## Common commands
 

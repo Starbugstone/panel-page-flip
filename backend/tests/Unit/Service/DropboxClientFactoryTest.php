@@ -5,6 +5,7 @@ namespace App\Tests\Unit\Service;
 use App\Entity\User;
 use App\Service\DropboxClientFactory;
 use App\Service\DropboxTokenProvider;
+use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use GuzzleHttp\Exception\BadResponseException;
 use GuzzleHttp\Exception\ClientException;
@@ -196,7 +197,8 @@ final class DropboxClientFactoryTest extends TestCase
             'app-secret',
             $httpClient,
             $this->createMock(EntityManagerInterface::class),
-            new NullLogger()
+            new NullLogger(),
+            $this->createMock(SecurityAuditLogger::class)
         );
     }
 }
