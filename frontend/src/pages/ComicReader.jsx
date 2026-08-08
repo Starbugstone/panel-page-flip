@@ -541,9 +541,6 @@ export default function ComicReader() {
       logger.error("Failed to reload image");
       delete loadingPagesRef.current[pageToReload];
       failForcedLoad();
-      // Recorded in the cache like any other failure, which is what the view
-      // reads to show the retry panel instead of a spinner that never stops.
-      setImageCache(prev => ({ ...prev, [pageToReload]: 'failed' }));
       if (currentPageRef.current !== pageToReload) return;
 
       toast({
