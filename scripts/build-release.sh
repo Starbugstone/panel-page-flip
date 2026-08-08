@@ -38,6 +38,7 @@
 
 set -euo pipefail
 
+# --- locate repo root ---------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
@@ -47,6 +48,7 @@ RELEASE_DIR="$REPO_ROOT/release"
 PHP_VERSION_DEFAULT="8.2"
 NODE_VERSION_DEFAULT="20"
 
+# --- helpers ------------------------------------------------------------------
 log()  { printf "\033[1;36m[build]\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m[warn]\033[0m  %s\n" "$*"; }
 fail() { printf "\033[1;31m[fail]\033[0m  %s\n" "$*" >&2; exit 1; }
@@ -57,6 +59,7 @@ require_command() {
     fi
 }
 
+# --- parse args ---------------------------------------------------------------
 DO_FRONTEND=1
 DO_BACKEND=1
 DO_TARBALL=0
@@ -74,17 +77,20 @@ for arg in "$@"; do
     esac
 done
 
+# --- preflight ----------------------------------------------------------------
 require_command docker
 
 if [ ! -f "$ENV_FILE" ]; then
     fail "Missing $ENV_FILE — copy scripts/.env.deploy.example and fill it in."
 fi
 
+# Load PROD_* / POST_DEPLOY_TOKEN safely.
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
 
+# Try to read PHP_VERSION / NODE_VERSION from the project's .env if present.
 if [ -f "$REPO_ROOT/.env" ]; then
     # shellcheck disable=SC1091
     source <(grep -E '^(PHP_VERSION|NODE_VERSION)=' "$REPO_ROOT/.env" || true)
@@ -92,6 +98,7 @@ fi
 PHP_VERSION="${PHP_VERSION:-$PHP_VERSION_DEFAULT}"
 NODE_VERSION="${NODE_VERSION:-$NODE_VERSION_DEFAULT}"
 
+# Required PROD_* values for backend env baking.
 REQUIRED_PROD_VARS=(
     PROD_APP_SECRET
     PROD_APP_DATA_KEY
@@ -105,12 +112,20 @@ for v in "${REQUIRED_PROD_VARS[@]}"; do
     fi
 done
 
+# --- clean ---------------------------------------------------------------------
 log "Cleaning $RELEASE_DIR"
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR/backend/public"
 
+# =============================================================================
+# Frontend
+# =============================================================================
 if [ "$DO_FRONTEND" = "1" ]; then
     log "Building frontend with node:${NODE_VERSION}-alpine"
+    # The development container can leave generated dist files owned by root.
+    # Remove only that disposable build output before switching to the host UID.
+    # Do not bind-mount scripts/ here: it can contain .env.deploy with
+    # FTP/production secrets, and the Vite build only needs the route manifest.
     docker run --rm \
         -v "$REPO_ROOT/frontend":/app \
         -w /app \
@@ -146,6 +161,9 @@ else
     warn "Skipping frontend build (--skip-frontend)"
 fi
 
+# =============================================================================
+# Backend
+# =============================================================================
 if [ "$DO_BACKEND" = "1" ]; then
     log "Copying backend sources to release/"
     rsync -a \
@@ -171,14 +189,22 @@ if [ "$DO_BACKEND" = "1" ]; then
         --exclude='/compose.override.yaml' \
         "$REPO_ROOT/backend/" "$RELEASE_DIR/backend/"
 
+    # public/comic.png is deliberately kept: ComicController serves it as the
+    # cover placeholder when a comic's own cover file is missing. Excluding it
+    # turned that fallback into a 404 and a broken image in the library.
+
+    # Recreate var/ structure expected by Symfony.
     mkdir -p "$RELEASE_DIR/backend/var/cache" "$RELEASE_DIR/backend/var/log"
 
+    # Drop the .htaccess so Apache shared hosting routes to index.php.
     log "Installing public/.htaccess"
     cp "$SCRIPT_DIR/deploy/htaccess.dist" "$RELEASE_DIR/backend/public/.htaccess"
 
+    # Drop the post-deploy runner.
     log "Installing public/_post-deploy.php"
     cp "$SCRIPT_DIR/deploy/_post-deploy.php.dist" "$RELEASE_DIR/backend/public/_post-deploy.php"
 
+    # Generate .env.prod.local from PROD_* vars (will be consolidated by dump-env).
     log "Writing temporary .env.prod.local"
     PROD_ENV_FILE="$RELEASE_DIR/backend/.env.prod.local"
     : > "$PROD_ENV_FILE"
@@ -229,6 +255,8 @@ if [ "$DO_BACKEND" = "1" ]; then
     chmod 600 "$PROD_ENV_FILE"
 
     log "Running composer install --no-dev inside php:${PHP_VERSION}-cli"
+    # The official php:X-cli image already has a base; we add zip+intl which
+    # Symfony often needs at composer-time, then install Composer.
     docker run --rm \
         -v "$RELEASE_DIR/backend":/app \
         -w /app \
@@ -252,6 +280,8 @@ if [ "$DO_BACKEND" = "1" ]; then
             php bin/console cache:warmup --env=prod --no-debug
         '
 
+    # The .env.prod.local has been consolidated into .env.local.php. Drop the
+    # raw file so the production server never sees secrets in plaintext.
     if [ -f "$RELEASE_DIR/backend/.env.local.php" ]; then
         log "Removing raw .env.prod.local (consolidated into .env.local.php)"
         rm -f "$PROD_ENV_FILE"
@@ -259,11 +289,15 @@ if [ "$DO_BACKEND" = "1" ]; then
         warn ".env.local.php was NOT generated. Composer dump-env prod may have failed."
     fi
 
+    # Strip dev-only profiler cache if it sneaked in.
     rm -rf "$RELEASE_DIR/backend/var/cache/dev" "$RELEASE_DIR/backend/var/log/dev.log"
 else
     warn "Skipping backend build (--skip-backend)"
 fi
 
+# =============================================================================
+# Tarball (optional)
+# =============================================================================
 if [ "$DO_TARBALL" = "1" ]; then
     log "Creating release.tar.gz"
     tar -C "$RELEASE_DIR" \
@@ -271,6 +305,9 @@ if [ "$DO_TARBALL" = "1" ]; then
         -czf "$REPO_ROOT/release.tar.gz" .
 fi
 
+# =============================================================================
+# Summary
+# =============================================================================
 log "Release ready in: $RELEASE_DIR"
 RELEASE_SIZE=$(du -sh "$RELEASE_DIR" | cut -f1)
 log "Total size:      $RELEASE_SIZE"
