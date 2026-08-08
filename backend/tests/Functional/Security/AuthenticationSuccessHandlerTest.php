@@ -47,6 +47,36 @@ class AuthenticationSuccessHandlerTest extends AbstractApiTestCase
         self::assertNull($user->getLastLoginAt());
     }
 
+    /**
+     * The 403 body is not the security boundary — the session is.
+     *
+     * json_login stores the authenticated token before the success handler is
+     * consulted, so refusing an unverified account in the response alone leaves
+     * a usable session cookie behind and every other endpoint lets it through.
+     */
+    public function testRejectedUnverifiedLoginLeavesNoUsableSession(): void
+    {
+        $user = UserFactory::new()->unverified()->create([
+            'email' => 'unverified-session@test.local',
+            'password' => 'Valid!Password123',
+        ])->object();
+
+        $this->postJson('/api/login', [
+            'email' => $user->getEmail(),
+            'password' => 'Valid!Password123',
+        ]);
+
+        self::assertResponseStatusCodeSame(403);
+
+        // The account the login was refused for must not be able to read the
+        // library it was refused access to.
+        $this->client->request('GET', '/api/comics', [], [], ['HTTP_ACCEPT' => 'application/json']);
+        self::assertResponseStatusCodeSame(401);
+
+        $this->client->request('GET', '/api/me', [], [], ['HTTP_ACCEPT' => 'application/json']);
+        self::assertResponseStatusCodeSame(401);
+    }
+
     public function testInvalidPasswordDoesNotRecordLastLoginDate(): void
     {
         $user = UserFactory::createOne([

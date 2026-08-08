@@ -17,7 +17,9 @@ use App\Service\ComicShareService;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicService;
 use App\Service\Pagination\PaginationRequest;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\Persistence\ManagerRegistry;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
@@ -72,7 +74,8 @@ class ComicController extends AbstractController
         private readonly int $uploadUserQuotaBytes,
         private readonly ComicUploadFilenameValidator $uploadFilenameValidator,
         private readonly ComicSerializer $comicSerializer,
-        private readonly ComicShareRepository $shareRepository
+        private readonly ComicShareRepository $shareRepository,
+        private readonly ManagerRegistry $managerRegistry
     ) {
         $this->tempUploadDir = sys_get_temp_dir() . '/comic_uploads';
     }
@@ -87,6 +90,42 @@ class ComicController extends AbstractController
         if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
             throw new \RuntimeException('Failed to create the upload staging directory.');
         }
+    }
+
+    /**
+     * Take the exclusive lock for one staged upload.
+     *
+     * A dedicated lock file rather than metadata.json itself: the metadata is
+     * rewritten with file_put_contents, which truncates, and a lock held on a
+     * handle to a file being replaced under it protects nothing.
+     *
+     * Blocking, not LOCK_NB. The chunks of one upload are meant to be admitted
+     * one at a time, so a request that arrives mid-write should wait its turn
+     * rather than be told to try again.
+     *
+     * @return resource
+     */
+    private function acquireUploadLock(string $userChunkDir)
+    {
+        $handle = fopen($userChunkDir . '/.chunk.lock', 'c');
+        if ($handle === false) {
+            throw new \RuntimeException('Failed to open the upload lock.');
+        }
+
+        if (!flock($handle, LOCK_EX)) {
+            fclose($handle);
+
+            throw new \RuntimeException('Failed to acquire the upload lock.');
+        }
+
+        return $handle;
+    }
+
+    /** @param resource $handle */
+    private function releaseUploadLock($handle): void
+    {
+        flock($handle, LOCK_UN);
+        fclose($handle);
     }
 
     private function assertSafeFileId(string $fileId): void
@@ -517,8 +556,14 @@ class ComicController extends AbstractController
 
         } catch (\Throwable $e) {
             $this->logger->warning('Comic upload failed.', ['user_id' => $user->getId(), 'exception' => $e]);
+
+            // The exception message used to be echoed back. ComicService throws
+            // its own vetted rejections ("Only CBZ files are allowed.") but the
+            // same catch also sees filesystem and database errors, which name
+            // server paths. The reasons a user can act on are enumerated here;
+            // anything else is a server fault and reads as one.
             return $this->json([
-                'message' => 'Upload failed: ' . $e->getMessage(),
+                'message' => 'Upload failed. Check that the file is a valid CBZ within your storage quota.',
             ], Response::HTTP_BAD_REQUEST);
         }
     }
@@ -843,33 +888,76 @@ class ComicController extends AbstractController
             if (!file_exists($metadataPath)) {
                 return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
             }
-            
-            $metadata = json_decode(file_get_contents($metadataPath), true);
-            
-            // Validate chunk index
-            if ($chunkIndex < 0 || $chunkIndex >= $metadata['totalChunks']) {
-                return $this->json(['message' => 'Invalid chunk index'], Response::HTTP_BAD_REQUEST);
+
+            // Everything from here to the metadata write is one critical section,
+            // held per upload.
+            //
+            // The client sends five chunks of the same upload at once, and this
+            // is a read-modify-write of a single JSON file. Without the lock two
+            // requests read the same metadata and the second write drops the
+            // first one's entries: a lost chunkSizes entry undercounts the
+            // staged total and lets the size limit below be walked past, and a
+            // lost receivedChunks entry makes /upload/complete reject an upload
+            // that did arrive in full.
+            $lock = $this->acquireUploadLock($userChunkDir);
+
+            try {
+                $metadata = json_decode((string) file_get_contents($metadataPath), true);
+                if (!is_array($metadata)) {
+                    return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
+                }
+
+                // Validate chunk index. The key is checked rather than assumed:
+                // initUpload always writes it, but a truncated or hand-edited
+                // metadata file would otherwise compare against null and take
+                // the wrong branch on a warning.
+                if (!isset($metadata['totalChunks'])
+                    || $chunkIndex < 0
+                    || $chunkIndex >= (int) $metadata['totalChunks']
+                ) {
+                    return $this->json(['message' => 'Invalid chunk index'], Response::HTTP_BAD_REQUEST);
+                }
+
+                // Refuse the chunk that would take this upload past the size
+                // limit, rather than waiting for /upload/complete to notice.
+                //
+                // Per-chunk and per-file limits together used to leave the
+                // staging area unbounded: an upload could be initialised for the
+                // maximum chunk count and every chunk sent at the maximum size,
+                // filling the disk with several times the permitted total, and
+                // only be rejected once the last chunk had already been written.
+                // Nothing here is charged against the user's quota either, so
+                // the files were free.
+                $stagedBytes = array_sum(array_map('intval', $metadata['chunkSizes'] ?? []));
+                $replacedBytes = (int) ($metadata['chunkSizes'][(string) $chunkIndex] ?? 0);
+                if ($stagedBytes - $replacedBytes + (int) $chunk->getSize() > $this->uploadMaxTotalBytes) {
+                    return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+                }
+
+                // Save chunk
+                $chunkPath = $userChunkDir . '/chunk_' . $chunkIndex;
+                $chunk->move(dirname($chunkPath), basename($chunkPath));
+
+                // Update metadata
+                $metadata['receivedChunks'] = $metadata['receivedChunks'] ?? [];
+                if (!in_array($chunkIndex, $metadata['receivedChunks'], true)) {
+                    $metadata['receivedChunks'][] = $chunkIndex;
+                }
+                $metadata['chunkSizes'] = $metadata['chunkSizes'] ?? [];
+                $metadata['chunkSizes'][(string) $chunkIndex] = (int) filesize($chunkPath);
+                file_put_contents($metadataPath, json_encode($metadata));
+
+                return $this->json([
+                    'message' => 'Chunk uploaded',
+                    'chunkIndex' => $chunkIndex,
+                    'chunksReceived' => count($metadata['receivedChunks']),
+                    'chunksTotal' => $metadata['totalChunks']
+                ]);
+            } finally {
+                // Every path out, including the rejections above, which would
+                // otherwise wedge the rest of the upload behind a held lock.
+                $this->releaseUploadLock($lock);
             }
-            
-            // Save chunk
-            $chunkPath = $userChunkDir . '/chunk_' . $chunkIndex;
-            $chunk->move(dirname($chunkPath), basename($chunkPath));
-            
-            // Update metadata
-            $metadata['receivedChunks'] = $metadata['receivedChunks'] ?? [];
-            if (!in_array($chunkIndex, $metadata['receivedChunks'], true)) {
-                $metadata['receivedChunks'][] = $chunkIndex;
-            }
-            $metadata['chunkSizes'] = $metadata['chunkSizes'] ?? [];
-            $metadata['chunkSizes'][(string) $chunkIndex] = (int) filesize($chunkPath);
-            file_put_contents($metadataPath, json_encode($metadata));
-            
-            return $this->json([
-                'message' => 'Chunk uploaded',
-                'chunkIndex' => $chunkIndex,
-                'chunksReceived' => count($metadata['receivedChunks']),
-                'chunksTotal' => $metadata['totalChunks']
-            ]);
         } catch (BadRequestHttpException $e) {
             return $this->json(['message' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
         } catch (\Exception $e) {
@@ -912,96 +1000,27 @@ class ComicController extends AbstractController
                 return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
             }
             
-            $metadata = json_decode(file_get_contents($metadataPath), true);
-            $filename = $this->assertSafeFilename((string) $metadata['filename']);
-            $receivedChunks = $metadata['receivedChunks'] ?? [];
-            
-            // Check if all chunks are received
-            if (count($receivedChunks) !== (int) $metadata['totalChunks']) {
-                return $this->json([
-                    'message' => 'Not all chunks received',
-                    'chunksReceived' => count($receivedChunks),
-                    'chunksExpected' => $metadata['totalChunks']
-                ], Response::HTTP_BAD_REQUEST);
+            // The same per-upload lock the chunk handler takes, for the same
+            // reason: this reads the staged metadata, sums it, and unlinks the
+            // chunk files as it assembles them. A chunk request overlapping any
+            // of that could have its file deleted underneath it, or write
+            // metadata that assembly has already read past. The app's own client
+            // waits for every chunk before completing, so this is the case where
+            // a client does not — but the staging area must be consistent
+            // whatever the client does.
+            $lock = $this->acquireUploadLock($userChunkDir);
+
+            try {
+                return $this->assembleUpload(
+                    $userChunkDir,
+                    $metadataPath,
+                    $user,
+                    $entityManager,
+                    $comicService
+                );
+            } finally {
+                $this->releaseUploadLock($lock);
             }
-
-            $totalSize = array_sum(array_map('intval', $metadata['chunkSizes'] ?? []));
-            if ($totalSize > $this->uploadMaxTotalBytes) {
-                return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
-            }
-
-            $currentUsage = (int) $entityManager->createQueryBuilder()
-                ->select('COALESCE(SUM(c.fileSize), 0)')
-                ->from(Comic::class, 'c')
-                ->where('c.owner = :owner')
-                ->setParameter('owner', $user)
-                ->getQuery()
-                ->getSingleScalarResult();
-
-            if ($currentUsage + $totalSize > $this->uploadUserQuotaBytes) {
-                return $this->json(['message' => 'User storage quota exceeded'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
-            }
-
-            // Extract metadata. Only the title is required; the rest are optional
-            // and may legitimately be absent from the init payload. Validate before
-            // assembling so a rejected upload never leaves staged files behind: the
-            // title comes from the init payload, so retrying can never succeed.
-            $comicMetadata = is_array($metadata['metadata'] ?? null) ? $metadata['metadata'] : [];
-            $title = trim((string) ($comicMetadata['title'] ?? ''));
-            if ($title === '') {
-                $this->cleanupTempDirectory($userChunkDir);
-
-                return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
-            }
-
-            // Combine chunks into final file
-            // The client filename is metadata only. Always assemble into a
-            // server-controlled path so valid punctuation and Unicode never
-            // influence filesystem path handling.
-            $finalFilePath = $userChunkDir . '/' . self::ASSEMBLED_UPLOAD_FILENAME;
-            $finalFile = fopen($finalFilePath, 'wb');
-            
-            for ($i = 0; $i < $metadata['totalChunks']; $i++) {
-                $chunkPath = $userChunkDir . '/chunk_' . $i;
-                if (!file_exists($chunkPath)) {
-                    fclose($finalFile);
-                    return $this->json(['message' => 'Chunk ' . $i . ' is missing'], Response::HTTP_BAD_REQUEST);
-                }
-                
-                $chunkData = file_get_contents($chunkPath);
-                fwrite($finalFile, $chunkData);
-                unlink($chunkPath); // Delete chunk after combining
-            }
-            
-            fclose($finalFile);
-            
-            // Create a Symfony UploadedFile from the combined file
-            $tempFile = new UploadedFile(
-                $finalFilePath,
-                $filename,
-                mime_content_type($finalFilePath),
-                null,
-                true // Test mode to avoid moving the file
-            );
-
-            // Create comic in database
-            $comic = $comicService->uploadComic(
-                $tempFile,
-                $user,
-                $title,
-                $comicMetadata['author'] ?? null,
-                $comicMetadata['publisher'] ?? null,
-                $comicMetadata['description'] ?? null,
-                $comicMetadata['tags'] ?? []
-            );
-
-            // Clean up temp directory
-            $this->cleanupTempDirectory($userChunkDir);
-
-            return $this->json([
-                'message' => 'Upload completed successfully',
-                'comic' => $this->comicSerializer->serialize($comic, $user, false),
-            ]);
         } catch (BadRequestHttpException $e) {
             // Clean up if assembly has already occurred
             if (isset($userChunkDir) && file_exists($userChunkDir)) {
@@ -1017,7 +1036,113 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Failed to complete upload'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
-    
+
+    /**
+     * Turn a fully staged upload into a comic. Runs under the upload lock.
+     */
+    private function assembleUpload(
+        string $userChunkDir,
+        string $metadataPath,
+        User $user,
+        EntityManagerInterface $entityManager,
+        ComicService $comicService
+    ): JsonResponse {
+        $metadata = json_decode((string) file_get_contents($metadataPath), true);
+        if (!is_array($metadata) || !isset($metadata['totalChunks'], $metadata['filename'])) {
+            return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $filename = $this->assertSafeFilename((string) $metadata['filename']);
+        $receivedChunks = $metadata['receivedChunks'] ?? [];
+
+        // Check if all chunks are received
+        if (count($receivedChunks) !== (int) $metadata['totalChunks']) {
+            return $this->json([
+                'message' => 'Not all chunks received',
+                'chunksReceived' => count($receivedChunks),
+                'chunksExpected' => $metadata['totalChunks']
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $totalSize = array_sum(array_map('intval', $metadata['chunkSizes'] ?? []));
+        if ($totalSize > $this->uploadMaxTotalBytes) {
+            return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        }
+
+        $currentUsage = (int) $entityManager->createQueryBuilder()
+            ->select('COALESCE(SUM(c.fileSize), 0)')
+            ->from(Comic::class, 'c')
+            ->where('c.owner = :owner')
+            ->setParameter('owner', $user)
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        if ($currentUsage + $totalSize > $this->uploadUserQuotaBytes) {
+            return $this->json(['message' => 'User storage quota exceeded'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        }
+
+        // Extract metadata. Only the title is required; the rest are optional
+        // and may legitimately be absent from the init payload. Validate before
+        // assembling so a rejected upload never leaves staged files behind: the
+        // title comes from the init payload, so retrying can never succeed.
+        $comicMetadata = is_array($metadata['metadata'] ?? null) ? $metadata['metadata'] : [];
+        $title = trim((string) ($comicMetadata['title'] ?? ''));
+        if ($title === '') {
+            $this->cleanupTempDirectory($userChunkDir);
+
+            return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        // Combine chunks into final file
+        // The client filename is metadata only. Always assemble into a
+        // server-controlled path so valid punctuation and Unicode never
+        // influence filesystem path handling.
+        $finalFilePath = $userChunkDir . '/' . self::ASSEMBLED_UPLOAD_FILENAME;
+        $finalFile = fopen($finalFilePath, 'wb');
+        
+        for ($i = 0; $i < $metadata['totalChunks']; $i++) {
+            $chunkPath = $userChunkDir . '/chunk_' . $i;
+            if (!file_exists($chunkPath)) {
+                fclose($finalFile);
+                return $this->json(['message' => 'Chunk ' . $i . ' is missing'], Response::HTTP_BAD_REQUEST);
+            }
+            
+            $chunkData = file_get_contents($chunkPath);
+            fwrite($finalFile, $chunkData);
+            unlink($chunkPath); // Delete chunk after combining
+        }
+        
+        fclose($finalFile);
+        
+        // Create a Symfony UploadedFile from the combined file
+        $tempFile = new UploadedFile(
+            $finalFilePath,
+            $filename,
+            mime_content_type($finalFilePath),
+            null,
+            true // Test mode to avoid moving the file
+        );
+
+        // Create comic in database
+        $comic = $comicService->uploadComic(
+            $tempFile,
+            $user,
+            $title,
+            $comicMetadata['author'] ?? null,
+            $comicMetadata['publisher'] ?? null,
+            $comicMetadata['description'] ?? null,
+            $comicMetadata['tags'] ?? []
+        );
+
+        // Clean up temp directory
+        $this->cleanupTempDirectory($userChunkDir);
+
+        return $this->json([
+            'message' => 'Upload completed successfully',
+            'comic' => $this->comicSerializer->serialize($comic, $user, false),
+        ]);
+    }
+
     /**
      * Helper method to clean up temporary directory after upload
      */
@@ -1044,8 +1169,13 @@ class ComicController extends AbstractController
     }
     
     #[Route('/{id}/pages/{page}', name: 'get_page', methods: ['GET'])]
-    public function getPage(int $id, int $page, Request $request, EntityManagerInterface $entityManager): Response
-    {
+    public function getPage(
+        int $id,
+        int $page,
+        Request $request,
+        EntityManagerInterface $entityManager,
+        ComicService $comicService
+    ): Response {
         // Get the current user
         $user = $this->getUser();
         if (!$user) {
@@ -1116,29 +1246,31 @@ class ComicController extends AbstractController
             }
         }
 
-        // Open CBZ file
-        $zip = new ZipArchive();
-        if ($zip->open($filePath) !== true) {
+        // The page list comes from ComicService, cached against the archive, so
+        // a reading session scans it once rather than once per page — and so
+        // the numbering here is the same numbering the stored page count was
+        // derived from. This used to be a second, unfiltered copy of that loop,
+        // which counted __MACOSX resource forks as pages and shifted every page
+        // after one of them.
+        try {
+            $imageFiles = $comicService->getPageIndex($filePath);
+        } catch (\Throwable $exception) {
+            $this->logger->error('Failed to read a comic archive.', [
+                'comic_id' => $comic->getId(),
+                'exception' => $exception,
+            ]);
+
             return $this->json(['message' => 'Failed to open comic file'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
-        // Get all image files from the archive
-        $imageFiles = [];
-        for ($i = 0; $i < $zip->numFiles; $i++) {
-            $filename = $zip->getNameIndex($i);
-            $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-            if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-                $imageFiles[] = $filename;
-            }
-        }
-
-        // Sort image files naturally (1, 2, 10 instead of 1, 10, 2)
-        usort($imageFiles, 'strnatcmp');
-
         // Check if requested page exists
         if (!isset($imageFiles[$page - 1])) {
-            $zip->close();
             return $this->json(['message' => 'Page not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($filePath) !== true) {
+            return $this->json(['message' => 'Failed to open comic file'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
         // Get page image
@@ -1308,7 +1440,10 @@ class ComicController extends AbstractController
 
 
     /**
-     * Update reading progress for a user and comic
+     * Update reading progress for a user and comic.
+     *
+     * @param bool $isRetry set once the first attempt lost the race to create
+     *                      the row; stops a pathological loop
      */
     private function updateReadingProgress(
         User $user,
@@ -1316,7 +1451,8 @@ class ComicController extends AbstractController
         int $currentPage,
         EntityManagerInterface $entityManager,
         bool $completed = false,
-        ?int $revision = null
+        ?int $revision = null,
+        bool $isRetry = false
     ): ComicReadingProgress {
         // Get existing progress or create new one
         $progress = $entityManager->getRepository(ComicReadingProgress::class)
@@ -1355,7 +1491,8 @@ class ComicController extends AbstractController
             return $progress;
         }
 
-        if (!$progress) {
+        $isNew = $progress === null;
+        if ($isNew) {
             $progress = new ComicReadingProgress();
             $progress->setUser($user);
             $progress->setComic($comic);
@@ -1372,7 +1509,50 @@ class ComicController extends AbstractController
             $progress->setCompleted(true);
         }
 
-        $entityManager->flush();
+        try {
+            $entityManager->flush();
+        } catch (UniqueConstraintViolationException $exception) {
+            // Somebody else created the row between the lookup above and this
+            // insert — a second tab, or another device. The database refused the
+            // duplicate, which is the point of the constraint; the save itself
+            // is still perfectly valid, so it is applied to the row that won
+            // rather than reported to the reader as a failure.
+            if (!$isNew || $isRetry) {
+                throw $exception;
+            }
+
+            // A failed flush closes the entity manager, so the retry needs a
+            // fresh one. The comic and user are re-fetched through it for the
+            // same reason: entities from a closed manager are not managed.
+            $this->logger->debug('Reading progress row was created concurrently; applying the save to it.', [
+                'comic_id' => $comic->getId(),
+            ]);
+            $this->managerRegistry->resetManager();
+            $freshManager = $this->managerRegistry->getManager();
+            $freshUser = $freshManager->find(User::class, $user->getId());
+            $freshComic = $freshManager->find(Comic::class, $comic->getId());
+
+            // Losing the race is recoverable; losing the comic is not. If the
+            // owner deleted it in the same instant, there is nothing left to
+            // record a position against.
+            if (!$freshManager instanceof EntityManagerInterface
+                || !$freshUser instanceof User
+                || !$freshComic instanceof Comic
+            ) {
+                throw $exception;
+            }
+
+            return $this->updateReadingProgress(
+                $freshUser,
+                $freshComic,
+                $currentPage,
+                $freshManager,
+                $completed,
+                $revision,
+                true
+            );
+        }
+
         return $progress;
     }
 

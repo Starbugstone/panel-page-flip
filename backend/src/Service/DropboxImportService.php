@@ -19,7 +19,13 @@ class DropboxImportService
 {
     public const IMPORT_TAG = 'Dropbox';
 
-    private const IMPORT_DESCRIPTION = 'Synced from Dropbox';
+    /**
+     * The description stamped on every imported comic, and the only marker of
+     * where one came from for comics predating `dropbox_path`. Public because
+     * the admin overview counts by it; keeping a second copy of the literal
+     * there is how the count and the import drift apart.
+     */
+    public const IMPORT_DESCRIPTION = 'Synced from Dropbox';
 
     public function __construct(
         private readonly ComicService $comicService,

@@ -17,6 +17,12 @@ security:
             lazy: true
             provider: app_user_provider # Changed from users_in_memory
 
+            # Rejects unverified accounts during authentication rather than
+            # after it. Checking in the success handler cannot work: the token
+            # is stored before that handler runs, so its 403 shipped alongside
+            # a working session cookie.
+            user_checker: App\Security\UserChecker
+
             # activate different ways to authenticate
             # https://symfony.com/doc/current/security.html#the-firewall
 

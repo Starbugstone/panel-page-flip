@@ -131,6 +131,19 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
+    /**
+     * Whether this account has a Dropbox connection to work with.
+     *
+     * Either credential counts. The refresh token is the durable half — an
+     * access token is short-lived and may be absent, and the client mints a new
+     * one from the refresh token on demand. Guarding on the access token alone
+     * reported an account as disconnected precisely when it was recoverable.
+     */
+    public function hasDropboxConnection(): bool
+    {
+        return ($this->dropboxAccessToken ?? '') !== '' || ($this->dropboxRefreshToken ?? '') !== '';
+    }
+
     public function getDropboxLastSyncedAt(): ?\DateTimeImmutable
     {
         return $this->dropboxLastSyncedAt;

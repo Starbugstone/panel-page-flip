@@ -10,10 +10,20 @@ use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\String\Slugger\SluggerInterface;
+use Symfony\Contracts\Cache\CacheInterface;
+use Symfony\Contracts\Cache\ItemInterface;
 use ZipArchive;
 
 class ComicService
 {
+    /**
+     * How long a page index is kept. Long enough that a reading session never
+     * re-scans the same archive, short enough that an entry evicted by hand
+     * cannot be remembered indefinitely. The key already changes with the file,
+     * so this only bounds how long a dead entry occupies the pool.
+     */
+    private const PAGE_INDEX_TTL = 86_400;
+
     public function __construct(
         private readonly string $comicsDirectory,
         private readonly EntityManagerInterface $entityManager,
@@ -21,7 +31,8 @@ class ComicService
         private readonly LoggerInterface $logger,
         private readonly FileQuarantineService $fileQuarantine,
         private readonly int $uploadMaxTotalBytes,
-        private readonly int $uploadUserQuotaBytes
+        private readonly int $uploadUserQuotaBytes,
+        private readonly CacheInterface $pageIndexCache
     ) {
     }
 
@@ -251,6 +262,44 @@ class ComicService
     }
 
     /**
+     * The pages of an archive, in reading order, cached against the file.
+     *
+     * Reading a comic is the hot path: without this, serving page 40 of 200
+     * walked all 200 entries and natural-sorted them, and then did it again for
+     * page 41. The answer only changes when the archive does, so it is cached
+     * under the path, modification time and size — an archive replaced by hand
+     * produces a different key rather than a stale index.
+     *
+     * @return list<string>
+     */
+    public function getPageIndex(string $cbzPath): array
+    {
+        $modifiedAt = @filemtime($cbzPath);
+        $size = @filesize($cbzPath);
+
+        if ($modifiedAt === false || $size === false) {
+            return $this->getImageFilesFromArchive($cbzPath);
+        }
+
+        $key = 'comic_pages.' . hash('xxh128', $cbzPath . '|' . $modifiedAt . '|' . $size);
+
+        return $this->pageIndexCache->get($key, function (ItemInterface $item) use ($cbzPath): array {
+            $item->expiresAfter(self::PAGE_INDEX_TTL);
+
+            return $this->getImageFilesFromArchive($cbzPath);
+        });
+    }
+
+    /**
+     * Every image entry in the archive, in reading order.
+     *
+     * The `__MACOSX` and dot-file exclusions are what make this the single
+     * definition of "the pages of this comic". The page-serving endpoint used to
+     * carry its own unfiltered copy of this loop, so an archive zipped on a Mac
+     * had resource forks counted as pages there but not in the stored page
+     * count — the reader served the wrong image for every page after the first
+     * fork, and ran off the end of the comic.
+     *
      * @return list<string>
      */
     private function getImageFilesFromArchive(string $cbzPath): array

@@ -8,6 +8,7 @@ use App\Entity\User;
 use App\Repository\AdminAuditLogRepository;
 use App\Service\AdminAuditService;
 use App\Service\ComicCleanupService;
+use App\Service\DropboxImportService;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -83,31 +84,36 @@ class AdminController extends AbstractController
     {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
+        // Either credential counts, matching User::hasDropboxConnection() and the
+        // guards on the actions offered for each row. Listing only accounts with
+        // a live access token hid the ones whose token had been cleared but
+        // which the refresh token can still recover — and then offered
+        // force-sync and disconnect for accounts that were not in the list.
         $users = $entityManager->getRepository(User::class)->createQueryBuilder('u')
-            ->where('u.dropboxAccessToken IS NOT NULL')
-            ->andWhere('u.dropboxAccessToken != :empty')
+            ->where('COALESCE(u.dropboxAccessToken, :empty) != :empty')
+            ->orWhere('COALESCE(u.dropboxRefreshToken, :empty) != :empty')
             ->setParameter('empty', '')
             ->orderBy('u.email', 'ASC')
             ->getQuery()
             ->getResult();
 
-        return $this->json([
-            'users' => array_map(function (User $user): array {
-                $dropboxComicCount = 0;
-                foreach ($user->getComics() as $comic) {
-                    if ($comic->getDescription() === 'Synced from Dropbox') {
-                        $dropboxComicCount++;
-                    }
-                }
+        // One grouped count rather than walking every user's whole comic
+        // collection in PHP. The old loop lazy-loaded each connected user's
+        // entire library — every row, every column — to compare one string, so
+        // opening this page hydrated the comic table once per Dropbox user.
+        $comicCounts = $entityManager->getRepository(Comic::class)->countByOwnerWithDescription(
+            array_map(static fn (User $user): int => $user->getId(), $users),
+            DropboxImportService::IMPORT_DESCRIPTION
+        );
 
-                return [
-                    'id' => $user->getId(),
-                    'email' => $user->getEmail(),
-                    'name' => $user->getName(),
-                    'lastSyncedAt' => $user->getDropboxLastSyncedAt()?->format('c'),
-                    'dropboxComicCount' => $dropboxComicCount,
-                ];
-            }, $users),
+        return $this->json([
+            'users' => array_map(static fn (User $user): array => [
+                'id' => $user->getId(),
+                'email' => $user->getEmail(),
+                'name' => $user->getName(),
+                'lastSyncedAt' => $user->getDropboxLastSyncedAt()?->format('c'),
+                'dropboxComicCount' => $comicCounts[$user->getId()] ?? 0,
+            ], $users),
         ]);
     }
 
@@ -116,7 +122,7 @@ class AdminController extends AbstractController
     {
         $admin = $this->getAdminUser();
         $targetUser = $entityManager->getRepository(User::class)->find($id);
-        if (!$targetUser || !$targetUser->getDropboxAccessToken()) {
+        if (!$targetUser || !$targetUser->hasDropboxConnection()) {
             return $this->json(['message' => 'Dropbox user not found'], Response::HTTP_NOT_FOUND);
         }
 
@@ -139,7 +145,7 @@ class AdminController extends AbstractController
     {
         $admin = $this->getAdminUser();
         $targetUser = $entityManager->getRepository(User::class)->find($id);
-        if (!$targetUser || !$targetUser->getDropboxAccessToken()) {
+        if (!$targetUser || !$targetUser->hasDropboxConnection()) {
             return $this->json(['message' => 'Dropbox user not found'], Response::HTTP_NOT_FOUND);
         }
 

@@ -365,18 +365,14 @@ class TagController extends AbstractController
             return $this->json(['tags' => []]);
         }
 
-        // Search for tags by name
+        // The visibility scope goes into the query rather than a filter over its
+        // result: outside the admin table the caller only ever sees global tags
+        // and their own, and loading everybody else's to discard them made one
+        // keystroke proportional to the size of the whole install.
+        /** @var TagRepository $tagRepository */
         $tagRepository = $entityManager->getRepository(Tag::class);
-        $tags = $tagRepository->findByNameLike($query);
-        
-        // Filter tags based on context
-        // Only show all tags if explicitly in admin context and user is an admin
-        if (!($isAdminContext && $this->isGranted('ROLE_ADMIN'))) {
-            // Regular user or admin in personal dashboard: show only user's tags
-            $tags = array_filter($tags, function($tag) use ($user) {
-                return $tag->isGlobal() || $tag->getCreator()?->getId() === $user->getId();
-            });
-        }
+        $isAdminSearch = $isAdminContext && $this->isGranted('ROLE_ADMIN');
+        $tags = $tagRepository->findByNameLike($query, $isAdminSearch ? null : $user);
 
         // Transform tags to array
         $tagsArray = [];

@@ -127,7 +127,7 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        $connected = !empty($user->getDropboxAccessToken());
+        $connected = $user->hasDropboxConnection();
         $dropboxUser = null;
         $lastSync = null;
 
@@ -137,7 +137,11 @@ class DropboxController extends AbstractController
                 $dropboxUser = $account['name']['display_name'] ?? $account['email'] ?? 'Unknown';
                 $lastSync = $user->getDropboxLastSyncedAt()?->format('c');
             } catch (\Throwable $e) {
-                // Token expired or revoked: report as disconnected so the UI offers to reconnect.
+                // Reported as disconnected so the UI offers to reconnect. A
+                // token Dropbox merely retired has already been refreshed and
+                // retried by the client before reaching here, so what is left
+                // is a revoked grant or Dropbox being unreachable — and neither
+                // leaves anything for this endpoint to repair.
                 $this->logger->info('Dropbox status check failed, treating account as disconnected.', [
                     'user_id' => $user->getId(),
                     'exception' => $e,
@@ -174,7 +178,7 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        if (!$user->getDropboxAccessToken()) {
+        if (!$user->hasDropboxConnection()) {
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -208,7 +212,7 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        if (!$user->getDropboxAccessToken()) {
+        if (!$user->hasDropboxConnection()) {
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -270,7 +274,7 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        if (!$user->getDropboxAccessToken()) {
+        if (!$user->hasDropboxConnection()) {
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
         }
 

@@ -15,5 +15,11 @@ framework:
         #app: cache.adapter.apcu
 
         # Namespaced pools use the above "app" backend by default
-        #pools:
-            #my.dedicated.cache: null
+        pools:
+            # The sorted list of image entries inside each comic archive, keyed
+            # by path, mtime and size. Its own pool so that reading comics can
+            # never evict application data, and so the whole index can be
+            # cleared without touching anything else.
+            comic.page_index.cache:
+                adapter: cache.app
+                default_lifetime: 86400

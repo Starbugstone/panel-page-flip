@@ -172,7 +172,6 @@ if [ "$DO_BACKEND" = "1" ]; then
         --exclude='/public/uploads/' \
         --exclude='/public/error.php' \
         --exclude='/public/index.html' \
-        --exclude='/public/comic.png' \
         --exclude='/public/placeholder.svg' \
         --exclude='/public/robots.txt' \
         --exclude='/public/favicon.ico' \
@@ -183,6 +182,10 @@ if [ "$DO_BACKEND" = "1" ]; then
         --exclude='/compose.yaml' \
         --exclude='/compose.override.yaml' \
         "$REPO_ROOT/backend/" "$RELEASE_DIR/backend/"
+
+    # public/comic.png is deliberately kept: ComicController serves it as the
+    # cover placeholder when a comic's own cover file is missing. Excluding it
+    # turned that fallback into a 404 and a broken image in the library.
 
     # Recreate var/ structure expected by Symfony.
     mkdir -p "$RELEASE_DIR/backend/var/cache" "$RELEASE_DIR/backend/var/log"
