@@ -220,6 +220,10 @@ if [ "$DO_BACKEND" = "1" ]; then
         printf '%s="%s"\n' "$key" "$escaped" >> "$PROD_ENV_FILE"
     }
 
+    if [ "${PROD_SECURITY_ALERTS_ENABLED:-0}" != "0" ] && [ -z "${PROD_MAILER_DSN:-}" ]; then
+        fail "PROD_MAILER_DSN must be set when PROD_SECURITY_ALERTS_ENABLED is enabled."
+    fi
+
     write_dotenv APP_ENV prod
     write_dotenv APP_DEBUG 0
     write_dotenv APP_SECRET "$PROD_APP_SECRET"
@@ -227,6 +231,7 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv APP_URL "${PUBLIC_URL%/}"
     write_dotenv DATABASE_URL "$PROD_DATABASE_URL"
     write_dotenv CORS_ALLOW_ORIGIN "${PROD_CORS_ALLOW_ORIGIN:-^https://.*$}"
+    write_dotenv TRUSTED_PROXIES "${PROD_TRUSTED_PROXIES:-}"
     write_dotenv MAILER_DSN "${PROD_MAILER_DSN:-null://null}"
     write_dotenv MAILER_FROM_ADDRESS "${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}"
     write_dotenv MAILER_FROM_NAME "${PROD_MAILER_FROM_NAME:-Comic Reader}"
@@ -234,7 +239,16 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv PRIVACY_EMAIL "${PROD_PRIVACY_EMAIL:-${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}}"
     write_dotenv MAILER_TRANSPORT "${PROD_MAILER_TRANSPORT:-smtp}"
     write_dotenv MESSENGER_TRANSPORT_DSN "${PROD_MESSENGER_TRANSPORT_DSN:-doctrine://default?auto_setup=0}"
+    write_dotenv LOCK_DSN "${PROD_LOCK_DSN:-flock}"
     write_dotenv MAX_CONCURRENT_UPLOADS "${PROD_MAX_CONCURRENT_UPLOADS:-3}"
+    write_dotenv APP_LOG_RETENTION_DAYS "${PROD_APP_LOG_RETENTION_DAYS:-30}"
+    write_dotenv SECURITY_LOG_RETENTION_DAYS "${PROD_SECURITY_LOG_RETENTION_DAYS:-365}"
+    write_dotenv AUDIT_LOG_RETENTION_DAYS "${PROD_AUDIT_LOG_RETENTION_DAYS:-365}"
+    write_dotenv SECURITY_ALERTS_ENABLED "${PROD_SECURITY_ALERTS_ENABLED:-0}"
+    write_dotenv SECURITY_ALERT_EMAILS "${PROD_SECURITY_ALERT_EMAILS:-}"
+    write_dotenv SECURITY_ALERT_WINDOW_MINUTES "${PROD_SECURITY_ALERT_WINDOW_MINUTES:-15}"
+    write_dotenv SECURITY_ALERT_FAILED_LOGIN_THRESHOLD "${PROD_SECURITY_ALERT_FAILED_LOGIN_THRESHOLD:-10}"
+    write_dotenv SECURITY_ALERT_AUTHZ_THRESHOLD "${PROD_SECURITY_ALERT_AUTHZ_THRESHOLD:-10}"
     write_dotenv DROPBOX_APP_KEY "${PROD_DROPBOX_APP_KEY:-}"
     write_dotenv DROPBOX_APP_SECRET "${PROD_DROPBOX_APP_SECRET:-}"
     write_dotenv DROPBOX_REDIRECT_URI "${PROD_DROPBOX_REDIRECT_URI:-${PUBLIC_URL%/}/api/dropbox/callback}"
