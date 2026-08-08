@@ -151,6 +151,23 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             ->getSingleScalarResult();
     }
 
+    /**
+     * Every administrator account, for the security-alert fallback recipient
+     * list. Ordered so the recipients of one alert are the recipients of the
+     * next, rather than whatever the database returned this time.
+     *
+     * @return list<User>
+     */
+    public function findAdmins(): array
+    {
+        return $this->createQueryBuilder('u')
+            ->where('u.roles LIKE :adminRole')
+            ->setParameter('adminRole', '%ROLE_ADMIN%')
+            ->orderBy('u.id', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
     public function lockAdministrators(): void
     {
         $this->createQueryBuilder('u')

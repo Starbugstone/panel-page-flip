@@ -5,14 +5,18 @@ namespace App\Tests\Functional\Controller;
 use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\Tag;
+use App\Service\SecurityAuditLogger;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\TagFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use App\Tests\Functional\SecurityLogAssertions;
 use Doctrine\ORM\EntityManagerInterface;
 
 final class ComicBulkControllerTest extends AbstractApiTestCase
 {
+    use SecurityLogAssertions;
+
     public function testSingleAndMultipleEditsUseTheSameBatchContract(): void
     {
         $owner = $this->createAndLoginUser();
@@ -134,6 +138,51 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
         self::assertNull($repository->find($first->getId()));
         self::assertNull($repository->find($second->getId()));
         self::assertNotNull($repository->find($kept->getId()));
+    }
+
+    /**
+     * A sweep large enough to look like a compromised account raises an alarm
+     * as well as leaving a trail, and the two are separate records on separate
+     * channels. Sharing one event name would make a single deletion appear
+     * twice to anything counting occurrences — which is exactly what the
+     * thresholds behind the alerts do.
+     */
+    public function testAnUnusuallyLargeBulkDeleteAlarmsSeparatelyFromItsAuditTrail(): void
+    {
+        $owner = $this->createAndLoginUser();
+        $comics = ComicFactory::new()->ownedBy($owner)->many(25)->create();
+        $comicIds = array_map(static fn ($comic): int => $comic->object()->getId(), $comics);
+
+        $this->deleteJson('/api/comics', [
+            'comicIds' => $comicIds,
+            'confirmOrphaned' => true,
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $audited = $this->assertLoggedAuditEvent(SecurityAuditLogger::COMICS_BULK_DELETED);
+        self::assertSame(25, $audited->context['count']);
+        // The trail is a record of what happened, never an alarm.
+        $this->assertNoSecurityEvent(SecurityAuditLogger::COMICS_BULK_DELETED);
+
+        $alarm = $this->assertLoggedSecurityEvent(SecurityAuditLogger::COMIC_BULK_DELETE_UNUSUAL);
+        self::assertSame($owner->getId(), $alarm->context['actor_user_id']);
+        self::assertCount(1, $this->alertsAbout(SecurityAuditLogger::COMIC_BULK_DELETE_UNUSUAL));
+    }
+
+    public function testAnOrdinaryBulkDeleteIsAuditedWithoutAlarmingAnybody(): void
+    {
+        $owner = $this->createAndLoginUser();
+        $comics = ComicFactory::new()->ownedBy($owner)->many(2)->create();
+
+        $this->deleteJson('/api/comics', [
+            'comicIds' => array_map(static fn ($comic): int => $comic->object()->getId(), $comics),
+            'confirmOrphaned' => true,
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $this->assertLoggedAuditEvent(SecurityAuditLogger::COMICS_BULK_DELETED);
+        $this->assertNoSecurityEvent(SecurityAuditLogger::COMIC_BULK_DELETE_UNUSUAL);
+        self::assertSame([], $this->alertsAbout(SecurityAuditLogger::COMIC_BULK_DELETE_UNUSUAL));
     }
 
     public function testBulkDeleteRequiresConfirmationForMissingComicFiles(): void

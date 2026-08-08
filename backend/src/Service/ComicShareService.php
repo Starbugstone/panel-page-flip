@@ -48,6 +48,7 @@ class ComicShareService
         private readonly MailerInterface $mailer,
         private readonly Environment $twig,
         private readonly LoggerInterface $logger,
+        private readonly SecurityAuditLogger $auditLogger,
         private readonly RateLimiterFactory $shareInvitationLimiter,
         private readonly PublicUrl $publicUrl,
         #[Autowire('%mailer_from_address%')]
@@ -138,7 +139,34 @@ class ComicShareService
         // here and keeps the timestamp it already has.
         $share->acceptSenderResponsibility();
 
-        return $this->issueInvitation($share, $comic, $owner);
+        $invitation = $this->issueInvitation($share, $comic, $owner);
+
+        // After the send, so nothing is recorded as shared that was rolled back
+        // when the email failed.
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_CREATED, [
+            'actor_user_id' => $owner->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $comic->getId(),
+            'recipient_user_id' => $share->getRecipientUser()?->getId(),
+            'explicit_content' => $comic->isExplicitContent(),
+        ]);
+
+        // Its own record rather than a field on the one above, because this is
+        // the acknowledgement's audit trail and somebody looking for it should
+        // not have to know that shares are created with one attached. Ids only:
+        // the canonical evidence is ComicShare::senderResponsibilityAcceptedAt,
+        // and the title of an explicit comic is the thing the gate withholds.
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_SENDER_RESPONSIBILITY_ACCEPTED, [
+            'actor_user_id' => $owner->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $comic->getId(),
+            'recipient_user_id' => $share->getRecipientUser()?->getId(),
+            'accepted_at' => $share->getSenderResponsibilityAcceptedAt()?->format(DATE_ATOM),
+        ]);
+
+        return $invitation;
     }
 
     /**
@@ -218,7 +246,7 @@ class ComicShareService
         // the link they need once they have answered it.
         $share = $token->getComicShare();
         $this->assertRecipient($share, $recipient);
-        $this->assertAdultConfirmed($share);
+        $this->assertAdultConfirmed($share, $recipient);
         $token->markUsed();
 
         return $this->acceptShare($share, $recipient);
@@ -254,12 +282,21 @@ class ComicShareService
         // Accepting is what puts a comic in somebody's collection, so an
         // unconfirmed explicit share must not get that far however the request
         // was made.
-        $this->assertAdultConfirmed($share);
+        $this->assertAdultConfirmed($share, $recipient);
 
         $share->markAccepted($recipient)->refreshSnapshots();
         // Every link that was issued for this invitation is spent now.
         $this->revokeOutstandingTokens($share);
         $this->entityManager->flush();
+
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_ACCEPTED, [
+            'actor_user_id' => $recipient->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $share->getComic()?->getId(),
+            'owner_user_id' => $share->getOwner()?->getId(),
+            'explicit_content' => $share->isExplicitContent(),
+        ]);
 
         return $share;
     }
@@ -275,6 +312,14 @@ class ComicShareService
         $share->markDeclined($recipient);
         $this->revokeOutstandingTokens($share);
         $this->entityManager->flush();
+
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_DECLINED, [
+            'actor_user_id' => $recipient->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $share->getComic()?->getId(),
+            'owner_user_id' => $share->getOwner()?->getId(),
+        ]);
 
         return $share;
     }
@@ -322,6 +367,18 @@ class ComicShareService
         $share->confirmAdult();
         $this->entityManager->flush();
 
+        // Audit, not security, and deliberately not alertable: somebody
+        // declaring their age is the feature working. Ids and the server's
+        // timestamp only — the canonical evidence is ComicShare::adultConfirmedAt,
+        // and nothing about what the comic contains belongs here.
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_ADULT_CONFIRMED, [
+            'actor_user_id' => $recipient->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $share->getComic()?->getId(),
+            'confirmed_at' => $share->getAdultConfirmedAt()?->format(DATE_ATOM),
+        ]);
+
         return $share;
     }
 
@@ -362,6 +419,15 @@ class ComicShareService
         $share->refreshSnapshots()->markRevoked();
         $this->revokeOutstandingTokens($share);
         $this->entityManager->flush();
+
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_REVOKED, [
+            'actor_user_id' => $share->getOwner()?->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $share->getComic()?->getId(),
+            'recipient_user_id' => $share->getRecipientUser()?->getId(),
+            'scope' => 'single',
+        ]);
     }
 
     /**
@@ -377,6 +443,21 @@ class ComicShareService
             $this->revokeOutstandingTokens($share);
         }
         $this->entityManager->flush();
+
+        // One record for the whole sweep, with a count. Per-share entries would
+        // say the same thing many times and bury the fact that this was a single
+        // deliberate act. Nothing at all when the sweep found nothing: a record
+        // saying "revoked 0" reports an operation that did not happen.
+        if ($shares !== []) {
+            $this->auditLogger->audit(SecurityAuditLogger::SHARE_REVOKED, [
+                'actor_user_id' => $comic->getOwner()?->getId(),
+                'target_type' => 'comic',
+                'target_id' => $comic->getId(),
+                'comic_id' => $comic->getId(),
+                'count' => count($shares),
+                'scope' => 'all_recipients',
+            ]);
+        }
 
         return count($shares);
     }
@@ -436,6 +517,12 @@ class ComicShareService
             $share->markUnavailable($reason);
         }
 
+        // Nothing is recorded here. This runs inside a transaction the caller
+        // owns and has not committed, so an audit line written now would claim a
+        // deletion that a rollback could still undo — and an audit stream that
+        // reports operations which did not happen is worse than one that is
+        // quiet. The callers log once their commit has returned, and the count
+        // this returns is what they put in that record.
         return $accepted;
     }
 
@@ -471,6 +558,13 @@ class ComicShareService
 
         if ($removed > 0) {
             $this->entityManager->flush();
+
+            $this->auditLogger->audit(SecurityAuditLogger::SHARES_CLEARED, [
+                'actor_user_id' => $recipient->getId(),
+                'target_type' => 'share',
+                'count' => $removed,
+                'selective' => $shareIds !== null,
+            ]);
         }
 
         return $removed;
@@ -588,6 +682,22 @@ class ComicShareService
             || $share->getRecipientUser()?->getId() === $user->getId();
 
         if (!$isRecipient) {
+            // Somebody signed in as one account acting on an invitation
+            // addressed to another. Usually a forwarded link opened by the wrong
+            // person in the household; repeatedly, from one account, it is
+            // somebody working through share ids to see what opens.
+            $this->auditLogger->suspicious(
+                SecurityAuditLogger::SHARE_WRONG_RECIPIENT,
+                'user:' . $user->getId(),
+                [
+                    'actor_user_id' => $user->getId(),
+                    'target_type' => 'share',
+                    'target_id' => $share->getId(),
+                    'explicit_content' => $share->isExplicitContent(),
+                ],
+                5
+            );
+
             throw new ShareException('This invitation was sent to a different account.', 403);
         }
     }
@@ -621,9 +731,28 @@ class ComicShareService
     /**
      * @throws ShareException
      */
-    private function assertAdultConfirmed(ComicShare $share): void
+    private function assertAdultConfirmed(ComicShare $share, User $actor): void
     {
         if ($share->requiresAdultConfirmation()) {
+            // The UI cannot reach this: it shows the declaration first and only
+            // then the accept button. Arriving here means the accept call was
+            // made directly, which is the age gate being tested rather than
+            // used — so it is a security record and not an audit one, and
+            // repetition from one account is worth telling an administrator
+            // about.
+            $this->auditLogger->suspicious(
+                SecurityAuditLogger::ADULT_GATE_BYPASS_ATTEMPT,
+                'user:' . $actor->getId(),
+                [
+                    'actor_user_id' => $actor->getId(),
+                    'target_type' => 'share',
+                    'target_id' => $share->getId(),
+                    'comic_id' => $share->getComic()?->getId(),
+                    'reason' => 'accept_without_adult_confirmation',
+                ],
+                5
+            );
+
             throw new ShareException(
                 'You must confirm that you are 18 or older to access this shared comic.',
                 403,

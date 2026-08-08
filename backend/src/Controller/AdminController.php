@@ -10,6 +10,7 @@ use App\Service\AdminAuditService;
 use App\Service\ComicCleanupService;
 use App\Service\DropboxImportService;
 use App\Service\Pagination\PaginationRequest;
+use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -118,8 +119,12 @@ class AdminController extends AbstractController
     }
 
     #[Route('/dropbox-users/{id}/sync', name: 'dropbox_user_sync', methods: ['POST'])]
-    public function forceDropboxSync(int $id, EntityManagerInterface $entityManager, AdminAuditService $auditService): JsonResponse
-    {
+    public function forceDropboxSync(
+        int $id,
+        EntityManagerInterface $entityManager,
+        AdminAuditService $auditService,
+        SecurityAuditLogger $securityLogger
+    ): JsonResponse {
         $admin = $this->getAdminUser();
         $targetUser = $entityManager->getRepository(User::class)->find($id);
         if (!$targetUser || !$targetUser->hasDropboxConnection()) {
@@ -131,6 +136,22 @@ class AdminController extends AbstractController
         $process->run();
 
         if (!$process->isSuccessful()) {
+            // The command's own output is not carried into the log: it names
+            // Dropbox paths and can echo an API URL with a credential in it.
+            // What matters here is that an import an administrator asked for
+            // did not happen, and which account's library may now be partial.
+            $securityLogger->security(
+                SecurityAuditLogger::DATA_INTEGRITY_FAILURE,
+                [
+                    'actor_user_id' => $admin->getId(),
+                    'target_user_id' => $targetUser->getId(),
+                    'target_type' => 'user',
+                    'operation' => 'dropbox_force_sync',
+                    'exit_code' => $process->getExitCode(),
+                ],
+                result: SecurityAuditLogger::RESULT_FAILED
+            );
+
             return $this->json(['message' => 'Dropbox sync failed', 'output' => $process->getErrorOutput()], Response::HTTP_BAD_GATEWAY);
         }
 
@@ -141,8 +162,12 @@ class AdminController extends AbstractController
     }
 
     #[Route('/dropbox-users/{id}/disconnect', name: 'dropbox_user_disconnect', methods: ['POST'])]
-    public function disconnectDropboxUser(int $id, EntityManagerInterface $entityManager, AdminAuditService $auditService): JsonResponse
-    {
+    public function disconnectDropboxUser(
+        int $id,
+        EntityManagerInterface $entityManager,
+        AdminAuditService $auditService,
+        SecurityAuditLogger $securityLogger
+    ): JsonResponse {
         $admin = $this->getAdminUser();
         $targetUser = $entityManager->getRepository(User::class)->find($id);
         if (!$targetUser || !$targetUser->hasDropboxConnection()) {
@@ -153,6 +178,14 @@ class AdminController extends AbstractController
         $targetUser->setDropboxRefreshToken(null);
         $auditService->log($admin, 'dropbox_disconnect', 'user', $targetUser->getId(), ['email' => $targetUser->getEmail()]);
         $entityManager->flush();
+
+        $securityLogger->audit(SecurityAuditLogger::INTEGRATION_DISCONNECTED, [
+            'actor_user_id' => $admin->getId(),
+            'target_user_id' => $targetUser->getId(),
+            'target_type' => 'user',
+            'integration' => 'dropbox',
+            'disconnected_by_admin' => true,
+        ]);
 
         return $this->json(['message' => 'Dropbox disconnected']);
     }
@@ -166,12 +199,45 @@ class AdminController extends AbstractController
     }
 
     #[Route('/cleanup/apply', name: 'cleanup_apply', methods: ['POST'])]
-    public function cleanupApply(ComicCleanupService $cleanupService, AdminAuditService $auditService, EntityManagerInterface $entityManager): JsonResponse
-    {
+    public function cleanupApply(
+        ComicCleanupService $cleanupService,
+        AdminAuditService $auditService,
+        EntityManagerInterface $entityManager,
+        SecurityAuditLogger $securityLogger
+    ): JsonResponse {
         $admin = $this->getAdminUser();
         $result = $cleanupService->apply();
         $auditService->log($admin, 'quarantine_orphan_files', 'filesystem', null, $result['quarantined'] ?? null);
         $entityManager->flush();
+
+        $found = (int) ($result['totals']['orphanedComics'] ?? 0) + (int) ($result['totals']['orphanedCovers'] ?? 0);
+        $moved = (int) ($result['quarantined']['orphanedComics'] ?? 0) + (int) ($result['quarantined']['orphanedCovers'] ?? 0);
+
+        $securityLogger->audit(SecurityAuditLogger::STORAGE_ORPHAN_QUARANTINE, [
+            'actor_user_id' => $admin->getId(),
+            'target_type' => 'filesystem',
+            'files_found' => $found,
+            'files_quarantined' => $moved,
+        ]);
+
+        // A file the scan identified and the move could not take is the case
+        // worth waking somebody for: the library and the disk now disagree, and
+        // the next scan will report the same file again without saying why.
+        if ($moved < $found) {
+            $securityLogger->critical(
+                SecurityAuditLogger::DATA_INTEGRITY_FAILURE,
+                [
+                    'actor_user_id' => $admin->getId(),
+                    'target_type' => 'filesystem',
+                    'operation' => 'orphan_quarantine',
+                    'files_found' => $found,
+                    'files_quarantined' => $moved,
+                    'reason' => 'orphaned files could not be moved to quarantine',
+                ],
+                SecurityAuditLogger::RESULT_FAILED,
+                'storage'
+            );
+        }
 
         return $this->json(['cleanup' => $result]);
     }

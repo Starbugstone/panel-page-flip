@@ -17,6 +17,7 @@ use App\Service\ComicShareService;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicService;
 use App\Service\Pagination\PaginationRequest;
+use App\Service\SecurityAuditLogger;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
@@ -38,6 +39,16 @@ class ComicController extends AbstractController
 {
     private const FILE_ID_REGEX = '/^[A-Za-z0-9\-]{8,64}$/';
     private const ASSEMBLED_UPLOAD_FILENAME = 'assembled.cbz';
+
+    /**
+     * How many comics one request may remove before an administrator is told.
+     *
+     * Above a handful, a bulk delete stops looking like housekeeping. It is not
+     * refused — it is the owner's library — but it is the shape a compromised
+     * account leaves behind, and it is worth somebody knowing while the files
+     * are still in quarantine.
+     */
+    private const BULK_DELETE_ALERT_THRESHOLD = 25;
 
     /**
      * A stored cover filename carries a uniqid suffix, so its URL changes
@@ -303,7 +314,8 @@ class ComicController extends AbstractController
     public function batchUpdate(
         Request $request,
         EntityManagerInterface $entityManager,
-        ComicShareService $shareService
+        ComicShareService $shareService,
+        SecurityAuditLogger $securityLogger
     ): JsonResponse {
         $user = $this->getUser();
         if (!$user instanceof User) {
@@ -351,6 +363,10 @@ class ComicController extends AbstractController
             return $tagsByName[$tagKey] = $tag;
         };
 
+        // Collected during the loop and written after the flush, so a batch that
+        // fails to save does not leave audit entries claiming it did.
+        $reclassifications = [];
+
         foreach ($updates as $update) {
             $comic = $comicsById[$update['id']];
             $changes = $update['changes'];
@@ -372,8 +388,22 @@ class ComicController extends AbstractController
                 // Same rule as the single-comic update: newly explicit means
                 // every live share loses its confirmation and the recipient has
                 // to make the declaration again.
+                $regated = 0;
                 if (!$wasExplicit && $changes['explicitContent']) {
-                    $shareService->regateSharesForComic($comic);
+                    $regated = $shareService->regateSharesForComic($comic);
+                }
+
+                if ($wasExplicit !== $comic->isExplicitContent()) {
+                    $reclassifications[] = [
+                        'actor_user_id' => $user->getId(),
+                        'target_type' => 'comic',
+                        'target_id' => $comic->getId(),
+                        'comic_id' => $comic->getId(),
+                        'owner_user_id' => $comic->getOwner()?->getId(),
+                        'explicit_before' => $wasExplicit,
+                        'explicit_after' => $comic->isExplicitContent(),
+                        'shares_regated' => $regated,
+                    ];
                 }
             }
 
@@ -392,6 +422,13 @@ class ComicController extends AbstractController
         }
         $entityManager->flush();
 
+        foreach ($reclassifications as $reclassification) {
+            $securityLogger->audit(
+                SecurityAuditLogger::COMIC_EXPLICIT_CLASSIFICATION_CHANGED,
+                $reclassification
+            );
+        }
+
         return $this->json([
             'message' => sprintf('%d comic(s) updated', count($comics)),
             'updatedComicIds' => $comicIds,
@@ -403,7 +440,8 @@ class ComicController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager,
         ComicService $comicService,
-        ComicShareService $shareService
+        ComicShareService $shareService,
+        SecurityAuditLogger $securityLogger
     ): JsonResponse {
         $user = $this->getUser();
         if (!$user instanceof User) {
@@ -445,12 +483,13 @@ class ComicController extends AbstractController
         }
 
         $quarantinedFiles = [];
+        $tombstonedShares = 0;
         try {
             $entityManager->beginTransaction();
             foreach ($comics as $comic) {
                 // Same contract as the single delete: recipients are told why
                 // the comic went away, in the transaction that removes it.
-                $shareService->tombstoneSharesForComic($comic, ComicShare::REASON_OWNER_DELETED);
+                $tombstonedShares += $shareService->tombstoneSharesForComic($comic, ComicShare::REASON_OWNER_DELETED);
                 array_push($quarantinedFiles, ...$comicService->quarantineComicFiles($comic));
                 $entityManager->remove($comic);
             }
@@ -471,7 +510,50 @@ class ComicController extends AbstractController
             }
 
             $this->logger->error('Bulk comic deletion failed.', ['exception' => $exception, 'comic_ids' => $comicIds]);
+
+            $securityLogger->critical(
+                SecurityAuditLogger::DATA_INTEGRITY_FAILURE,
+                [
+                    'actor_user_id' => $user->getId(),
+                    'target_type' => 'comic',
+                    'operation' => 'comic_bulk_delete',
+                    'count' => count($comicIds),
+                    'reason' => 'bulk deletion rolled back',
+                ],
+                SecurityAuditLogger::RESULT_FAILED,
+                'user:' . $user->getId()
+            );
+
             return $this->json(['message' => 'Bulk deletion failed. No database records were deleted.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        // After the commit, so the record describes a deletion that actually
+        // landed — and it carries the tombstone count, because "how many people
+        // lost access" is the part of a deletion nobody else records.
+        $securityLogger->audit(SecurityAuditLogger::COMICS_BULK_DELETED, [
+            'actor_user_id' => $user->getId(),
+            'target_type' => 'comic',
+            'count' => count($comics),
+            'comic_ids' => $comicIds,
+            'orphaned_entries' => count($orphanedComics),
+            'shares_tombstoned' => $tombstonedShares,
+        ]);
+
+        // A large sweep is either somebody clearing out their own library or an
+        // account somebody else is now in control of. The threshold makes the
+        // second one visible without an email for every tidy-up.
+        if (count($comics) >= self::BULK_DELETE_ALERT_THRESHOLD) {
+            $securityLogger->critical(
+                SecurityAuditLogger::COMIC_BULK_DELETE_UNUSUAL,
+                [
+                    'actor_user_id' => $user->getId(),
+                    'target_type' => 'comic',
+                    'count' => count($comics),
+                    'reason' => 'bulk deletion above the alert threshold',
+                ],
+                SecurityAuditLogger::RESULT_SUCCESS,
+                'user:' . $user->getId()
+            );
         }
 
         return $this->json([
@@ -574,11 +656,12 @@ class ComicController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager,
         AdminAuditService $auditService,
-        ComicShareService $shareService
+        ComicShareService $shareService,
+        SecurityAuditLogger $securityLogger
     ): JsonResponse {
         // Get the current user
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -668,8 +751,9 @@ class ComicController extends AbstractController
         // otherwise. Done before the flush so the re-gate and the reclassification
         // land together — a crash between the two would leave recipients reading
         // a comic nobody had confirmed for.
+        $regated = 0;
         if (!$metadataBefore['explicitContent'] && $comic->isExplicitContent()) {
-            $shareService->regateSharesForComic($comic);
+            $regated = $shareService->regateSharesForComic($comic);
         }
 
         if (in_array('ROLE_ADMIN', $user->getRoles(), true) && $comic->getOwner()?->getId() !== $user->getId()) {
@@ -689,6 +773,23 @@ class ComicController extends AbstractController
         // Save changes
         $entityManager->flush();
 
+        // Both directions are auditable. Turning the flag off is the one that
+        // opens something up, and it is the change nobody would think to look
+        // for unless it were recorded. No title, no tags, no cover — the record
+        // is the classification and the shares it moved.
+        if ($metadataBefore['explicitContent'] !== $comic->isExplicitContent()) {
+            $securityLogger->audit(SecurityAuditLogger::COMIC_EXPLICIT_CLASSIFICATION_CHANGED, [
+                'actor_user_id' => $user->getId(),
+                'target_type' => 'comic',
+                'target_id' => $comic->getId(),
+                'comic_id' => $comic->getId(),
+                'owner_user_id' => $comic->getOwner()?->getId(),
+                'explicit_before' => $metadataBefore['explicitContent'],
+                'explicit_after' => $comic->isExplicitContent(),
+                'shares_regated' => $regated,
+            ]);
+        }
+
         return $this->json([
             'message' => 'Comic updated successfully',
             'comic' => [
@@ -703,10 +804,11 @@ class ComicController extends AbstractController
         int $id,
         EntityManagerInterface $entityManager,
         ComicService $comicService,
-        ComicShareService $shareService
+        ComicShareService $shareService,
+        SecurityAuditLogger $securityLogger
     ): JsonResponse {
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -719,6 +821,10 @@ class ComicController extends AbstractController
         if (!$this->isGranted(ComicVoter::DELETE, $comic)) {
             return $this->json(['message' => 'You do not have permission to delete this comic'], Response::HTTP_FORBIDDEN);
         }
+
+        $comicId = $comic->getId();
+        $ownerId = $comic->getOwner()?->getId();
+        $liveShares = $shareService->countLiveShares($comic);
 
         $quarantinedFiles = [];
         try {
@@ -740,6 +846,15 @@ class ComicController extends AbstractController
 
             $entityManager->commit();
 
+            $securityLogger->audit(SecurityAuditLogger::COMIC_DELETED, [
+                'actor_user_id' => $user->getId(),
+                'target_type' => 'comic',
+                'target_id' => $comicId,
+                'comic_id' => $comicId,
+                'owner_user_id' => $ownerId,
+                'shares_tombstoned' => $liveShares,
+            ]);
+
             return $this->json(['message' => 'Comic deleted successfully']);
         } catch (\Throwable) {
             // Rollback the transaction if anything fails
@@ -750,11 +865,28 @@ class ComicController extends AbstractController
             try {
                 $comicService->restoreQuarantinedFiles($quarantinedFiles);
             } catch (\Throwable) {
+                // The row survived and the file did not come back. That is the
+                // library and the disk disagreeing, which nothing in the normal
+                // flow will notice or repair, so an administrator is told at
+                // once rather than finding out from a reader.
+                $securityLogger->critical(
+                    SecurityAuditLogger::DATA_INTEGRITY_FAILURE,
+                    [
+                        'actor_user_id' => $user->getId(),
+                        'target_type' => 'comic',
+                        'target_id' => $comicId,
+                        'operation' => 'comic_delete_rollback',
+                        'reason' => 'quarantined files could not be restored after a failed deletion',
+                    ],
+                    SecurityAuditLogger::RESULT_FAILED,
+                    'storage'
+                );
+
                 return $this->json([
                     'message' => 'Failed to delete the comic and restore its files. An administrator must inspect the quarantine.',
                 ], Response::HTTP_INTERNAL_SERVER_ERROR);
             }
-            
+
             return $this->json(['message' => 'Failed to delete comic. No files were lost.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }

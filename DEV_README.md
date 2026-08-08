@@ -63,6 +63,16 @@ This document provides detailed information for developers working on the projec
 - **GenerateSampleDataCommand**: Generates sample data for testing (`app:generate-sample-data`)
 - **TestApiEndpointsCommand**: Tests API endpoints for registration and login (`app:test-api-endpoints`)
 - **DropboxSyncCommand**: Syncs comics from Dropbox for all connected users (`app:dropbox-sync`)
+- **CleanupLogsCommand**: Deletes daily log files past their retention period (`app:cleanup-logs`)
+
+#### ✅ Security and Audit Logging
+- **Dedicated channels**: `app_security` for refusals and suspected abuse, `app_audit` for successful state changes, both separate from `main`. They are not called `security`/`audit` because `security` is Symfony's own channel and its authenticator logs the submitted address there.
+- **Daily files**: `var/log/app/YYYY-MM-DD.log`, plus `var/log/security/YYYY/MM/` and `var/log/audit/YYYY/MM/` for the long-retention streams
+- **SensitiveDataProcessor**: recursively redacts credentials on every channel, and rewrites secrets embedded in strings (`?token=`, `Bearer …`) — a backstop, not a substitute for passing identifiers
+- **SecurityAlertService**: administrator email alerts with per-source thresholds and a deduplication window; off by default, and a send failure can never break the operation that reported the event
+- **Reads are never logged** — no comic view, page turn or cover fetch
+
+Full guide, including retention, alert thresholds and the rules for adding an event: [docs/security-logging.md](docs/security-logging.md).
 
 ### Frontend (React)
 

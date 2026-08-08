@@ -1,0 +1,108 @@
+{# Deliberately identifiers only. This message lands in an inbox, gets
+   forwarded, and is indexed by whatever the recipient's mail provider indexes,
+   so it carries enough to find the event in the security log and nothing that
+   would be a loss on its own. The caller has already filtered the context down
+   to the reportable keys; nothing here reaches for anything else. #}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security alert - Comic Reader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #6d28d9;
+        }
+        .alert {
+            background-color: #fef2f2;
+            border-left: 4px solid #ef4444;
+            padding: 10px 15px;
+            margin: 20px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            text-align: left;
+            padding: 8px 10px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 14px;
+            vertical-align: top;
+        }
+        th {
+            width: 40%;
+            color: #6b7280;
+            font-weight: normal;
+        }
+        .footer {
+            font-size: 12px;
+            color: #6b7280;
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">Comic Reader</div>
+    </div>
+
+    <div class="alert">
+        <strong>{{ severity|upper }}</strong> &mdash; {{ event }}
+    </div>
+
+    <p>
+        {% if count > 1 %}
+            {{ count }} occurrences were recorded in the last {{ windowMinutes }} minutes.
+        {% else %}
+            This was recorded at {{ occurredAt|date('Y-m-d H:i:s T') }}.
+        {% endif %}
+    </p>
+
+    {% if details is not empty %}
+        <table>
+            <tbody>
+            {% for key, value in details %}
+                <tr>
+                    <th>{{ key|replace({'_': ' '})|capitalize }}</th>
+                    <td>{{ value }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    <p>
+        The full record is in the security log for
+        {{ occurredAt|date('Y-m-d') }}. Administrator actions are also listed at
+        <a href="{{ auditUrl }}">{{ auditUrl }}</a>.
+    </p>
+
+    <div class="footer">
+        <p>
+            You are receiving this because your address is configured to receive
+            security alerts for this instance. Repeat occurrences of the same
+            event are grouped: at most one message per {{ windowMinutes }} minutes.
+        </p>
+    </div>
+</body>
+</html>

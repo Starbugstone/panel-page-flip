@@ -27,7 +27,8 @@ class ResetPasswordService
         private readonly UserPasswordHasherInterface $passwordHasher,
         private readonly string $mailerFromAddress,
         private readonly string $mailerFromName,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly SecurityAuditLogger $auditLogger
     ) {
     }
 
@@ -42,18 +43,39 @@ class ResetPasswordService
         // If user not found, we still return true for security reasons
         // (to not reveal whether an email exists in the system)
         if (!$user) {
+            // Recorded, but without the address that was typed. A reset form is
+            // open to anybody, and writing every submitted address into the
+            // security log would build exactly the list of addresses an attacker
+            // came here with.
+            $this->auditLogger->audit(SecurityAuditLogger::USER_PASSWORD_RESET_REQUESTED, [
+                'actor_user_id' => null,
+                'account_resolved' => false,
+            ]);
+
             return true;
         }
-        
+
         // Invalidate any existing tokens for this user
         $this->tokenRepository->invalidateAllTokensForUser($user);
-        
-        // Create a new token
-        [$token, $plainToken] = $this->createToken($user);
-        
+
+        // Create a new token. Only the plaintext is wanted here — the entity is
+        // already persisted, and holding a reference to it invites somebody to
+        // pass the stored hash somewhere it should not go.
+        [, $plainToken] = $this->createToken($user);
+
         // Send the email
         $this->sendEmail($user, $plainToken);
-        
+
+        // The token itself never appears here, and the processor would strip it
+        // if a later edit put it in: the record is that a reset was asked for,
+        // not what would let somebody complete it.
+        $this->auditLogger->audit(SecurityAuditLogger::USER_PASSWORD_RESET_REQUESTED, [
+            'actor_user_id' => $user->getId(),
+            'target_user_id' => $user->getId(),
+            'target_type' => 'user',
+            'account_resolved' => true,
+        ]);
+
         return true;
     }
     
@@ -72,11 +94,22 @@ class ResetPasswordService
     public function resetPassword(string $token, string $newPassword): bool
     {
         $resetToken = $this->tokenRepository->findValidToken($token);
-        
+
         if (!$resetToken) {
+            // Repeatedly presenting reset links that are not valid is somebody
+            // guessing at them. Scoped to the address because a reset link is
+            // used before anybody is signed in, so there is no account to
+            // attribute it to.
+            $this->auditLogger->suspicious(
+                SecurityAuditLogger::AUTHENTICATION_FAILED,
+                'reset:' . $this->auditLogger->clientIp(),
+                ['reason' => 'invalid_or_expired_reset_token'],
+                $this->auditLogger->failedLoginThreshold()
+            );
+
             return false;
         }
-        
+
         $user = $resetToken->getUser();
         
         // Hash the new password
@@ -87,10 +120,23 @@ class ResetPasswordService
         $resetToken->setIsUsed(true);
         
         $this->entityManager->flush();
-        
+
+        $this->auditLogger->audit(SecurityAuditLogger::USER_PASSWORD_RESET_COMPLETED, [
+            'actor_user_id' => $user->getId(),
+            'target_user_id' => $user->getId(),
+            'target_type' => 'user',
+        ]);
+
+        $this->auditLogger->audit(SecurityAuditLogger::USER_PASSWORD_CHANGED, [
+            'actor_user_id' => $user->getId(),
+            'target_user_id' => $user->getId(),
+            'target_type' => 'user',
+            'via' => 'password_reset',
+        ]);
+
         // Send a notification email that the password was changed
         $this->sendPasswordChangedEmail($user);
-        
+
         return true;
     }
     

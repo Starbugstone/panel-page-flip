@@ -1,5 +1,19 @@
 monolog:
     channels:
+        # Security events, refusals and suspected abuse. Written by
+        # App\Service\SecurityAuditLogger and nothing else.
+        #
+        # Not called `security`, deliberately. That channel already belongs to
+        # Symfony's security component, which logs its own authenticator tracing
+        # to it — including a UserNotFoundException whose message quotes the
+        # address that was submitted. Reusing the name would put every address
+        # an attacker typed into the login form straight into the file this
+        # feature is careful never to write one to, and would bury the events
+        # that matter under per-request framework chatter.
+        - app_security
+        # Successful state changes worth reconstructing later. Kept apart from
+        # the security channel so the trail is not read through the alarms.
+        - app_audit
         - deprecation # Deprecations are logged in the dedicated "deprecation" channel when it exists
 
 when@dev:
@@ -9,7 +23,21 @@ when@dev:
                 type: stream
                 path: "%kernel.logs_dir%/%kernel.environment%.log"
                 level: debug
-                channels: ["!event"]
+                # The two dedicated channels have their own files below. Without
+                # this they would also land here, which is the mixing the split
+                # exists to avoid.
+                channels: ["!event", "!app_security", "!app_audit"]
+            # The same layout development gets as production, so the retention
+            # command and the folder structure are exercised while they are cheap
+            # to change rather than first tried on a live instance.
+            security:
+                type: service
+                id: app.monolog.security_handler
+                channels: [app_security]
+            audit:
+                type: service
+                id: app.monolog.audit_handler
+                channels: [app_audit]
             # uncomment to get logging in your browser
             # you may have to allow bigger header sizes in your Web server configuration
             #firephp:
@@ -21,7 +49,7 @@ when@dev:
             console:
                 type: console
                 process_psr_3_messages: false
-                channels: ["!event", "!doctrine", "!console"]
+                channels: ["!event", "!doctrine", "!console", "!app_security", "!app_audit"]
 
 when@test:
     monolog:
@@ -31,11 +59,22 @@ when@test:
                 action_level: error
                 handler: nested
                 excluded_http_codes: [404, 405]
-                channels: ["!event"]
+                channels: ["!event", "!app_security", "!app_audit"]
             nested:
                 type: stream
                 path: "%kernel.logs_dir%/%kernel.environment%.log"
                 level: debug
+            # In-memory handlers the functional tests read back, so what a test
+            # asserts on is what a handler would really have been given —
+            # processors included, which is the point for redaction.
+            security:
+                type: service
+                id: app.monolog.test_security_handler
+                channels: [app_security]
+            audit:
+                type: service
+                id: app.monolog.test_audit_handler
+                channels: [app_audit]
 
 when@prod:
     monolog:
@@ -43,20 +82,43 @@ when@prod:
             main:
                 type: fingers_crossed
                 action_level: error
-                handler: nested
+                handler: grouped_main
                 excluded_http_codes: [404, 405]
                 buffer_size: 50 # How many messages should be saved? Prevent memory leaks
+                channels: ["!app_security", "!app_audit"]
+            # Both destinations for ordinary logs: stderr for whatever collects
+            # container output, and a dated file so a host without a collector
+            # still has something to read. See docs/security-logging.md for which
+            # is authoritative in a given deployment.
+            grouped_main:
+                type: group
+                members: [nested, app_file]
             nested:
                 type: stream
                 path: php://stderr
                 level: debug
                 formatter: monolog.formatter.json
+            app_file:
+                type: service
+                id: app.monolog.app_handler
             console:
                 type: console
                 process_psr_3_messages: false
-                channels: ["!event", "!doctrine"]
+                channels: ["!event", "!doctrine", "!app_security", "!app_audit"]
             deprecation:
                 type: stream
                 channels: [deprecation]
                 path: php://stderr
                 formatter: monolog.formatter.json
+            # Not behind fingers_crossed. That handler holds everything back
+            # until an error arrives and then dumps the buffer, which is right
+            # for debugging a failure and wrong for an audit trail: a successful
+            # role change would never be written at all.
+            security:
+                type: service
+                id: app.monolog.security_handler
+                channels: [app_security]
+            audit:
+                type: service
+                id: app.monolog.audit_handler
+                channels: [app_audit]

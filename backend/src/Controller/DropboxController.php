@@ -6,6 +6,7 @@ use App\Entity\User;
 use App\Service\DropboxClientFactory;
 use App\Service\DropboxImportService;
 use App\Service\PublicUrl;
+use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -159,8 +160,11 @@ class DropboxController extends AbstractController
     }
 
     #[Route('/disconnect', name: 'dropbox_disconnect', methods: ['POST'])]
-    public function disconnect(#[CurrentUser] ?User $user, EntityManagerInterface $entityManager): Response
-    {
+    public function disconnect(
+        #[CurrentUser] ?User $user,
+        EntityManagerInterface $entityManager,
+        SecurityAuditLogger $securityLogger
+    ): Response {
         if (!$user) {
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
@@ -168,6 +172,14 @@ class DropboxController extends AbstractController
         $user->setDropboxAccessToken(null);
         $user->setDropboxRefreshToken(null);
         $entityManager->flush();
+
+        $securityLogger->audit(SecurityAuditLogger::INTEGRATION_DISCONNECTED, [
+            'actor_user_id' => $user->getId(),
+            'target_user_id' => $user->getId(),
+            'target_type' => 'user',
+            'integration' => 'dropbox',
+            'disconnected_by_admin' => false,
+        ]);
 
         return $this->json(['message' => 'Dropbox disconnected successfully']);
     }

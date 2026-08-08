@@ -3,7 +3,9 @@
 namespace App\Security;
 
 use App\Entity\User;
+use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LogLevel;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -12,8 +14,10 @@ use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerI
 
 class AuthenticationSuccessHandler implements AuthenticationSuccessHandlerInterface
 {
-    public function __construct(private readonly EntityManagerInterface $entityManager)
-    {
+    public function __construct(
+        private readonly EntityManagerInterface $entityManager,
+        private readonly SecurityAuditLogger $auditLogger,
+    ) {
     }
 
     public function onAuthenticationSuccess(Request $request, TokenInterface $token): Response
@@ -27,6 +31,21 @@ class AuthenticationSuccessHandler implements AuthenticationSuccessHandlerInterf
         // which rejects unverified accounts during authentication instead.
         $user->setLastLoginAt(new \DateTimeImmutable());
         $this->entityManager->flush();
+
+        // Info rather than warning: a login is not a problem. It is here so that
+        // a failed-login burst can be read against the successful one that
+        // followed it, which is the difference between a blocked attack and a
+        // successful one.
+        $this->auditLogger->security(
+            SecurityAuditLogger::AUTHENTICATION_SUCCEEDED,
+            [
+                'actor_user_id' => $user->getId(),
+                'is_admin' => in_array('ROLE_ADMIN', $user->getRoles(), true),
+                'user_agent' => $request->headers->get('User-Agent'),
+            ],
+            LogLevel::INFO,
+            SecurityAuditLogger::RESULT_SUCCESS
+        );
 
         // Return a JSON response with user information
         return new JsonResponse([
