@@ -16,7 +16,7 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
  *
  * This command performs a sequence of automated tests against the API:
  * 1. Attempts to register a new unique user.
- * 2. Attempts to log in using the credentials of the newly registered user.
+ * 2. Confirms that the new, unverified account cannot log in yet.
  * 3. Attempts to log in using incorrect credentials for the newly registered user.
  *
  * Probe URLs (HTTP requests from this CLI process) use, in order:
@@ -59,19 +59,23 @@ class TestApiEndpointsCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $testUserEmail = 'testuser_' . uniqid() . '@example.com';
         $testUserPassword = 'Password123!';
+        $baseUrlOption = $input->getOption('base-url');
+        $baseUrlOverride = is_string($baseUrlOption) ? $baseUrlOption : null;
+        $failed = false;
 
         $io->section('Testing API Endpoints');
 
         // 1. Test Registration
         $io->writeln('Attempting to register new user: ' . $testUserEmail);
-        $registerUrl = $this->probeUrl('api_register', $input->getOption('base-url'));
+        $registerUrl = $this->probeUrl('api_register', $baseUrlOverride);
         $io->writeln('[DEBUG] Generated registration URL: ' . $registerUrl);
         
         try {
             $response = $this->client->request('POST', $registerUrl, [
                 'json' => [
                     'email' => $testUserEmail,
-                    'password' => $testUserPassword, // Using password instead of plainPassword to match controller
+                    'password' => $testUserPassword,
+                    'agreeTerms' => true,
                 ],
                 'headers' => [
                     'Content-Type' => 'application/json',
@@ -83,19 +87,19 @@ class TestApiEndpointsCommand extends Command
                 $io->success('Registration successful (Status 201).');
                 $io->writeln('Response: ' . $response->getContent(false)); // false to not throw on non-2xx
             } else {
+                $failed = true;
                 $io->warning(sprintf('Registration failed. Status: %d', $response->getStatusCode()));
                 $io->writeln('Response: ' . $response->getContent(false));
             }
         } catch (\Exception $e) {
+            $failed = true;
             $io->error('Registration request failed: ' . $e->getMessage());
         }
         $io->newLine();
 
-        // 2. Test Login with correct credentials
-        $io->writeln('Attempting to login with correct credentials for: ' . $testUserEmail);
-        // For json_login, the check_path is /api/login. We construct it based on the registration URL's base.
-        $baseUrl = preg_replace('/\/api\/register$/', '', $registerUrl);
-        $loginUrl = $baseUrl . '/api/login';
+        // 2. Correct credentials must still be refused until email verification.
+        $io->writeln('Confirming an unverified account cannot log in: ' . $testUserEmail);
+        $loginUrl = $this->probeUrl('api_login', $baseUrlOverride);
         $io->writeln('[DEBUG] Generated login URL: ' . $loginUrl);
 
         try {
@@ -110,16 +114,18 @@ class TestApiEndpointsCommand extends Command
                 ]
             ]);
 
-            // Symfony's JsonLoginAuthenticator by default returns 200 on success
-            if ($response->getStatusCode() === 200) {
-                $io->success('Login successful (Status 200).');
+            $body = json_decode($response->getContent(false), true);
+            if ($response->getStatusCode() === 403 && ($body['requiresVerification'] ?? false) === true) {
+                $io->success('Unverified login refused as expected (Status 403).');
                 $io->writeln('Response: ' . $response->getContent(false));
             } else {
-                $io->warning(sprintf('Login failed. Status: %d', $response->getStatusCode()));
+                $failed = true;
+                $io->warning(sprintf('Unverified login gave unexpected response. Status: %d', $response->getStatusCode()));
                 $io->writeln('Response: ' . $response->getContent(false));
             }
         } catch (\Exception $e) {
-            $io->error('Login request failed: ' . $e->getMessage());
+            $failed = true;
+            $io->error('Unverified login request failed: ' . $e->getMessage());
         }
         $io->newLine();
 
@@ -142,15 +148,17 @@ class TestApiEndpointsCommand extends Command
                 $io->success('Login failed as expected (Status 401).');
                 $io->writeln('Response: ' . $response->getContent(false));
             } else {
+                $failed = true;
                 $io->warning(sprintf('Login with incorrect credentials gave unexpected status: %d', $response->getStatusCode()));
                 $io->writeln('Response: ' . $response->getContent(false));
             }
         } catch (\Exception $e) {
+            $failed = true;
             $io->error('Login request with incorrect credentials failed: ' . $e->getMessage());
         }
 
         $io->section('API Endpoint Tests Completed.');
-        return Command::SUCCESS;
+        return $failed ? Command::FAILURE : Command::SUCCESS;
     }
 
     private function probeUrl(string $route, ?string $baseUrlOverride): string

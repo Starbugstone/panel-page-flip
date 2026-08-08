@@ -13,7 +13,7 @@
     "audit:production": "node scripts/audit-production.mjs",
     "build:tools": "node scripts/build-conversion-tools.mjs",
     "check:tools": "node scripts/build-conversion-tools.mjs --check",
-    "check:routes": "node ../scripts/generate-nginx-routes.mjs > /dev/null",
+    "check:routes": "node ../scripts/generate-nginx-routes.mjs --index-html ./index.html > /dev/null",
     "check:seo": "node scripts/check-seo-build.mjs",
     "lint": "eslint .",
     "test": "vitest run",

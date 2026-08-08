@@ -10,6 +10,7 @@ const appUrl = (process.env.APP_URL || "http://localhost:8080").replace(/\/$/, "
 
 if (index.includes("__APP_URL__")) throw new Error("The production index still contains the APP_URL placeholder.");
 if (!index.includes(`<link rel="canonical" href="${appUrl}/" />`)) throw new Error("The landing canonical does not use APP_URL.");
+if (!index.includes(`<meta property="og:url" content="${appUrl}/" />`)) throw new Error("The landing Open Graph URL does not use APP_URL.");
 if (!robots.includes(`Sitemap: ${appUrl}/sitemap.xml`)) throw new Error("robots.txt does not advertise the generated sitemap.");
 
 const locations = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]);

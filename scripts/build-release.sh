@@ -124,8 +124,8 @@ if [ "$DO_FRONTEND" = "1" ]; then
     log "Building frontend with node:${NODE_VERSION}-alpine"
     # The development container can leave generated dist files owned by root.
     # Remove only that disposable build output before switching to the host UID.
-    # Mount only the non-secret script the frontend build may invoke.
-    # Do not bind-mount scripts/ (it can contain .env.deploy with FTP/prod secrets).
+    # Do not bind-mount scripts/ here: it can contain .env.deploy with
+    # FTP/production secrets, and the Vite build only needs the route manifest.
     docker run --rm \
         -v "$REPO_ROOT/frontend":/app \
         -w /app \
@@ -133,9 +133,7 @@ if [ "$DO_FRONTEND" = "1" ]; then
         sh -c 'rm -rf dist'
     docker run --rm \
         -v "$REPO_ROOT/frontend":/app \
-        -v "$REPO_ROOT/scripts/generate-nginx-routes.mjs":/scripts/generate-nginx-routes.mjs:ro \
         -v "$REPO_ROOT/backend/config/frontend-routes.json":/backend/config/frontend-routes.json:ro \
-        -v "$REPO_ROOT/frontend/index.html":/frontend/index.html:ro \
         -w /app \
         -u "$(id -u):$(id -g)" \
         -e APP_URL="$PUBLIC_URL" \

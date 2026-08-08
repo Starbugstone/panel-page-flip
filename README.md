@@ -21,7 +21,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ co
 
 | Layer | Stack |
 | --- | --- |
-| Frontend | React 18, Vite 5, React Router, TanStack Query, Tailwind CSS, Radix UI |
+| Frontend | React 18, Vite 8, React Router, TanStack Query, Tailwind CSS, Radix UI |
 | Backend | PHP 8.2, Symfony 6.4, Doctrine ORM |
 | Data | MySQL 8 and filesystem-backed CBZ storage |
 | Development | Docker Compose, Nginx, PHP-FPM, Mailpit, Adminer |
@@ -79,12 +79,7 @@ Add `-v` only when you intentionally want to delete the local MySQL volume.
 
 ### Local configuration
 
-Docker service names, versions, ports, and development database credentials are configured in the root `.env`. Symfony defaults are in `backend/.env` and `backend/.env.dev`.
-
-Keep `APP_URL` the same in both places that consume it:
-
-1. Root `.env` — used by Docker Compose, the Vite/SEO build, and nginx image builds
-2. `backend/.env.local` (gitignored) — used by Symfony for email/OAuth absolute URLs
+Docker service names, versions, ports, development database credentials, and the public `APP_URL` are configured in the root `.env`. Docker passes that same `APP_URL` to Symfony, the Vite/SEO build, and the nginx image build, so it is changed in one place.
 
 Use `backend/.env.local` for machine-specific values and secrets:
 
@@ -93,10 +88,9 @@ APP_SECRET=replace-with-a-random-value
 APP_DATA_KEY=replace-with-a-persistent-random-value
 DATABASE_URL="mysql://cbz_user:cbz_password@database:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4"
 MAILER_DSN=smtp://mailpit:1025
-APP_URL=http://localhost:8080
 ```
 
-If you change the public origin, update root `.env` and `backend/.env.local` together so backend links and frontend SEO metadata stay aligned.
+Only when running Symfony directly outside Docker, override `APP_URL` in `backend/.env.local`; Docker development reads it from the root `.env`.
 
 Generate suitable local secrets with `openssl rand -hex 32` for `APP_SECRET` and `openssl rand -base64 32` for `APP_DATA_KEY`.
 
@@ -105,7 +99,7 @@ Important configuration variables:
 - `APP_SECRET` — Symfony application secret
 - `APP_DATA_KEY` — encrypts persisted integration credentials; do not rotate it without migrating existing data
 - `DATABASE_URL` — Doctrine connection string
-- `APP_URL` — the one public same-origin URL used in email/OAuth links and generated SEO metadata (set in root `.env` and `backend/.env.local`)
+- `APP_URL` — the one public same-origin URL used in email/OAuth links and generated SEO metadata
 - `CORS_ALLOW_ORIGIN` — allowed browser origins
 - `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
 - `PRIVACY_OPERATOR`, `PRIVACY_EMAIL` — public data-controller name and privacy contact

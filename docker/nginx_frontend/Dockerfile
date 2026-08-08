@@ -12,11 +12,6 @@ ENV FRONTEND_ROUTES_FILE=/backend/config/frontend-routes.json
 
 COPY scripts/generate-nginx-routes.mjs /scripts/generate-nginx-routes.mjs
 COPY backend/config/frontend-routes.json /backend/config/frontend-routes.json
-COPY frontend/index.html /frontend/index.html
-RUN node /scripts/generate-nginx-routes.mjs \
-      --manifest "$FRONTEND_ROUTES_FILE" \
-      --index-html /frontend/index.html \
-      --output /tmp/spa-routes.conf
 
 # Copy frontend's package.json and lock file to /app/
 COPY frontend/package.json frontend/package-lock.json* ./
@@ -31,6 +26,14 @@ COPY frontend/. .
 # Build the application
 # This will create the 'dist' folder (default for Vite)
 RUN npm run build
+
+# Generate route handling only after Vite has produced the exact HTML Nginx
+# will serve. This makes the sub_filter source validation meaningful even if a
+# future Vite version rewrites or minifies the metadata tags.
+RUN node /scripts/generate-nginx-routes.mjs \
+      --manifest "$FRONTEND_ROUTES_FILE" \
+      --index-html /app/dist/index.html \
+      --output /tmp/spa-routes.conf
 
 # Stage 2: Serve the application with Nginx
 # ARG NGINX_VERSION is now declared globally
