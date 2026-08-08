@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,7 +27,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
-import { ShareComicModal } from "@/components/ShareComicModal";
+import { ShareComicsDialog } from "@/components/ShareComicsDialog";
 import { useSharingLists } from "@/hooks/use-sharing";
 import { useComicLibrary } from "@/hooks/use-comic-library";
 import {
@@ -90,7 +90,7 @@ export default function Sharing() {
   // The two dialogs act on a comic or on the whole history rather than on one
   // share, so they get their own flag instead of borrowing a share id.
   const [isDialogBusy, setIsDialogBusy] = useState(false);
-  const [inviteTarget, setInviteTarget] = useState(null);
+  const [shareDialog, setShareDialog] = useState(null);
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [stopSharingTarget, setStopSharingTarget] = useState(null);
 
@@ -125,6 +125,11 @@ export default function Sharing() {
     }
   };
 
+  const refreshAfterShare = async () => {
+    await reload();
+    await loadLibrary();
+  };
+
   const cleanupCopy = describeDeadShareCleanup(dead.length);
 
   /**
@@ -147,10 +152,20 @@ export default function Sharing() {
       return (
         <>
           {responsibilityReminder}
-          <p className="py-12 text-center text-muted-foreground">
-            You have not shared any comics yet. Use the share action on a comic in{" "}
-            <Link to="/dashboard" className="text-primary hover:underline">your library</Link>.
-          </p>
+          <div className="py-12 text-center text-muted-foreground">
+            <p>You have not shared any comics yet.</p>
+            <p className="mt-1 text-sm">
+              Share comics privately with someone you know. They must accept the invitation before
+              they can read anything.
+            </p>
+            <Button
+              className="mt-4"
+              onClick={() => setShareDialog({ recipient: "", comicIds: [] })}
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              Share comics
+            </Button>
+          </div>
         </>
       );
     }
@@ -183,7 +198,7 @@ export default function Sharing() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setInviteTarget({ id: group.comicId, title: group.title })}
+                      onClick={() => setShareDialog({ recipient: "", comicIds: [group.comicId] })}
                     >
                       <UserPlus className="mr-2 h-4 w-4" />
                       Invite someone
@@ -215,10 +230,21 @@ export default function Sharing() {
                           <span className="text-xs text-muted-foreground">Invitation expired</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         <Badge variant={STATUS_VARIANTS[recipient.status] || "outline"}>
                           {SHARE_STATUS_LABELS[recipient.status] || recipient.status}
                         </Badge>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setShareDialog({
+                            recipient: recipient.recipientEmail,
+                            comicIds: [],
+                          })}
+                        >
+                          <UserPlus className="h-4 w-4" />
+                          <span className="ml-2 hidden md:inline">Share another comic</span>
+                        </Button>
                         {recipient.canResend && (
                           <Button
                             size="sm"
@@ -490,9 +516,15 @@ export default function Sharing() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="mb-8 flex items-center gap-3">
-        <Share2Icon className="h-6 w-6 text-comic-purple" />
-        <h1 className="font-comic text-3xl">Sharing</h1>
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Share2Icon className="h-6 w-6 text-comic-purple" />
+          <h1 className="font-comic text-3xl">Sharing</h1>
+        </div>
+        <Button onClick={() => setShareDialog({ recipient: "", comicIds: [] })}>
+          <UserPlus className="mr-2 h-4 w-4" />
+          Share comics
+        </Button>
       </div>
 
       <p className="mb-6 max-w-3xl text-sm text-muted-foreground">
@@ -528,13 +560,17 @@ export default function Sharing() {
         </Tabs>
       )}
 
-      <ShareComicModal
-        isOpen={inviteTarget !== null}
-        onClose={() => setInviteTarget(null)}
-        comicId={inviteTarget?.id}
-        comicTitle={inviteTarget?.title}
-        onShared={reload}
-      />
+      {shareDialog && (
+        <ShareComicsDialog
+          key={`${shareDialog.recipient}:${shareDialog.comicIds.join(",")}`}
+          isOpen
+          onClose={() => setShareDialog(null)}
+          sharedByMe={sharedByMe}
+          initialRecipient={shareDialog.recipient}
+          initialComicIds={shareDialog.comicIds}
+          onShared={refreshAfterShare}
+        />
+      )}
 
       <Dialog open={confirmingCleanup} onOpenChange={setConfirmingCleanup}>
         <DialogContent>
