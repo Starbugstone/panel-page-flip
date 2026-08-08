@@ -116,4 +116,37 @@ describe("ShareComicsDialog", () => {
     await waitFor(() => expect(onShared).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("closes after a successful share even if refreshing the sharing list fails", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onShared = vi.fn().mockRejectedValue(new Error("refresh failed"));
+    vi.mocked(api.post).mockResolvedValue({
+      created: 1,
+      total: 1,
+      results: [{ comicId: 1, status: "created" }],
+    });
+
+    render(
+      <ShareComicsDialog
+        isOpen
+        onClose={onClose}
+        initialRecipient="jane@example.com"
+        initialComicIds={[1]}
+        sharedByMe={[]}
+        onShared={onShared}
+      />
+    );
+
+    await screen.findByRole("checkbox", { name: "Select Batman #1" });
+    await user.click(screen.getByRole("checkbox", { name: "I understand" }));
+    await user.click(screen.getByRole("button", { name: "Send invitation" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Invitation sent",
+      description: expect.stringContaining("could not refresh"),
+    }));
+  });
 });
