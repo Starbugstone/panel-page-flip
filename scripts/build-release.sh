@@ -220,6 +220,10 @@ if [ "$DO_BACKEND" = "1" ]; then
         printf '%s="%s"\n' "$key" "$escaped" >> "$PROD_ENV_FILE"
     }
 
+    if [ "${PROD_SECURITY_ALERTS_ENABLED:-0}" != "0" ] && [ -z "${PROD_MAILER_DSN:-}" ]; then
+        fail "PROD_MAILER_DSN must be set when PROD_SECURITY_ALERTS_ENABLED is enabled."
+    fi
+
     write_dotenv APP_ENV prod
     write_dotenv APP_DEBUG 0
     write_dotenv APP_SECRET "$PROD_APP_SECRET"
