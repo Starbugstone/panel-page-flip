@@ -45,6 +45,9 @@ jobs:
       - name: Test
         run: npm run test
 
+      - name: Validate shared frontend route manifest
+        run: npm run check:routes
+
       # The tool zips and their checksums are committed, so nothing rebuilds
       # them on the way to production. Without this, editing a script under
       # scripts/comic-conversion/ would ship a download that no longer matches
@@ -55,8 +58,14 @@ jobs:
       - name: Build production frontend
         run: npm run build
         env:
+          APP_URL: https://comics.starbugstone.com
           VITE_BUILD_ID: ${{ github.run_id }}
           VITE_BUILD_TIME: ${{ github.event.head_commit.timestamp }}
+
+      - name: Validate generated sitemap, robots and canonical metadata
+        run: npm run check:seo
+        env:
+          APP_URL: https://comics.starbugstone.com
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7

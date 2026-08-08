@@ -119,7 +119,9 @@ export default function UserSettings() {
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(url);
+      // Chromium can consume the object URL after click() returns. Revoking it
+      // in the same task intermittently cancels the download.
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
       toast({ title: "Data export downloaded" });
     } catch (error) {
       toast({ title: "Could not export your data", description: error.message, variant: "destructive" });
