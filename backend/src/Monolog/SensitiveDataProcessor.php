@@ -20,10 +20,13 @@ use Monolog\Processor\ProcessorInterface;
  * `Authorization: Bearer` line copied out of a request dump — are rewritten in
  * place, so the surrounding text survives for diagnosis and the secret does not.
  *
- * Exception objects are left alone. The formatter renders class, message and
- * trace from them; their string message goes through the value pass like any
- * other, but the object itself is not walked, so nothing here can turn a
- * `Throwable` into something a handler cannot format.
+ * Exception objects are passed through untouched, message included. Rewriting
+ * one means constructing a different exception — losing its class, its previous
+ * chain and anything a formatter or handler reads off it — and a redaction step
+ * that can break how a fatal error is reported is a bad trade. So a `Throwable`
+ * is the formatter's business, and this is a real boundary rather than an
+ * oversight: an exception built from a URL with a token in it will carry that
+ * token into the log. Do not log one.
  */
 final class SensitiveDataProcessor implements ProcessorInterface
 {

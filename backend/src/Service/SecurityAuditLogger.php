@@ -155,12 +155,19 @@ class SecurityAuditLogger
      */
     public function critical(string $event, array $context = [], string $result = self::RESULT_SUCCESS, ?string $scope = null): void
     {
-        $this->contain($event, function () use ($event, $context, $result, $scope): void {
-            $enriched = $this->enrich($event, $context, $result);
+        $enriched = $this->enrich($event, $context, $result);
 
-            $this->securityLogger->critical($event, $enriched);
-            $this->alerts->alert($event, SecurityAlertService::SEVERITY_CRITICAL, $enriched, $scope);
-        });
+        // Two boundaries, not one. Sharing a single catch would mean an
+        // unwritable log file also cancelled the email — and a role change that
+        // could not be written down is exactly the moment somebody most needs
+        // telling about it. The two are independent, so they fail independently.
+        $this->contain($event, fn () => $this->securityLogger->critical($event, $enriched));
+        $this->contain($event, fn () => $this->alerts->alert(
+            $event,
+            SecurityAlertService::SEVERITY_CRITICAL,
+            $enriched,
+            $scope
+        ));
     }
 
     /**

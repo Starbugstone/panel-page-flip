@@ -7,6 +7,7 @@ use App\Service\SecurityAuditLogger;
 use Monolog\Handler\TestHandler;
 use Monolog\Logger;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 use App\Tests\Support\ThrowingLogger;
 use Symfony\Component\HttpFoundation\RequestStack;
 
@@ -47,12 +48,19 @@ final class SecurityAuditLoggerContainmentTest extends TestCase
         $this->assertReportedOnTheFallbackChannel(SecurityAuditLogger::AUTHENTICATION_FAILED);
     }
 
+    /**
+     * The channels write fine here and only the alert throws, so the failure
+     * reaching the fallback can only have come from the alert path. With a
+     * throwing channel as well, the log failure alone would satisfy the
+     * assertion and the alert would never be reached.
+     */
     public function testAFailingAlertCheckDoesNotReachTheCaller(): void
     {
         $alerts = $this->createMock(SecurityAlertService::class);
         $alerts->method('alertOnThreshold')->willThrowException(new \RuntimeException('cache is gone'));
 
-        $this->logger($alerts)->suspicious(SecurityAuditLogger::ADULT_GATE_BYPASS_ATTEMPT, 'user:1');
+        $this->logger($alerts, channelsWork: true)
+            ->suspicious(SecurityAuditLogger::ADULT_GATE_BYPASS_ATTEMPT, 'user:1');
 
         $this->assertReportedOnTheFallbackChannel(SecurityAuditLogger::ADULT_GATE_BYPASS_ATTEMPT);
     }
@@ -61,6 +69,24 @@ final class SecurityAuditLoggerContainmentTest extends TestCase
     {
         $alerts = $this->createMock(SecurityAlertService::class);
         $alerts->method('alert')->willThrowException(new \RuntimeException('mail server is gone'));
+
+        $this->logger($alerts, channelsWork: true)
+            ->critical(SecurityAuditLogger::ADMIN_ROLE_CHANGED, ['target_user_id' => 2]);
+
+        $this->assertReportedOnTheFallbackChannel(SecurityAuditLogger::ADMIN_ROLE_CHANGED);
+    }
+
+    /**
+     * The log and the alert fail independently.
+     *
+     * A role change that could not be written down is exactly the moment
+     * somebody most needs telling about it, so an unwritable security log must
+     * not also cancel the email.
+     */
+    public function testAnUnwritableSecurityLogStillSendsTheCriticalAlert(): void
+    {
+        $alerts = $this->createMock(SecurityAlertService::class);
+        $alerts->expects(self::once())->method('alert');
 
         $this->logger($alerts)->critical(SecurityAuditLogger::ADMIN_ROLE_CHANGED, ['target_user_id' => 2]);
 
@@ -101,11 +127,15 @@ final class SecurityAuditLoggerContainmentTest extends TestCase
         self::assertSame($event, $records[0]->context['event']);
     }
 
-    private function logger(?SecurityAlertService $alerts = null): SecurityAuditLogger
+    private function logger(?SecurityAlertService $alerts = null, bool $channelsWork = false): SecurityAuditLogger
     {
+        $channel = static fn (string $name): LoggerInterface => $channelsWork
+            ? new Logger($name, [new TestHandler()])
+            : new ThrowingLogger();
+
         return new SecurityAuditLogger(
-            new ThrowingLogger(),
-            new ThrowingLogger(),
+            $channel('app_security'),
+            $channel('app_audit'),
             new Logger('fallback', [$this->fallbackHandler]),
             $alerts ?? $this->createMock(SecurityAlertService::class),
             new RequestStack(),

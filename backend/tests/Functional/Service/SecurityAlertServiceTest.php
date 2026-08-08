@@ -194,6 +194,33 @@ final class SecurityAlertServiceTest extends KernelTestCase
         self::assertTrue($this->logHandler->hasErrorThatContains('Failed to send a security alert email'));
     }
 
+    /**
+     * A claimed cooldown that nothing was delivered under is the worst of both
+     * worlds: nobody was told, and nobody will be told for the rest of the
+     * window either. A mail server down for thirty seconds must not silence an
+     * attack in progress for fifteen minutes.
+     */
+    public function testAFailedSendGivesTheCooldownBackSoTheNextOccurrenceRetries(): void
+    {
+        $mailer = new RecordingMailer();
+        $failing = new FailingMailer();
+
+        // One service, one cache: the first attempt fails, the second uses a
+        // working mailer and has to get through.
+        $cache = new ArrayAdapter();
+        $broken = $this->service($failing, cache: $cache);
+        $working = $this->service($mailer, cache: $cache);
+
+        self::assertFalse($broken->alert('security.admin_role.changed', SecurityAlertService::SEVERITY_CRITICAL));
+        self::assertTrue($working->alert('security.admin_role.changed', SecurityAlertService::SEVERITY_CRITICAL));
+        self::assertCount(1, $mailer->messages);
+
+        // And the successful one does claim the cooldown, so the throttle still
+        // works once something actually got out.
+        self::assertFalse($working->alert('security.admin_role.changed', SecurityAlertService::SEVERITY_CRITICAL));
+        self::assertCount(1, $mailer->messages);
+    }
+
     public function testNoConfiguredRecipientsAndNoAdministratorsIsReportedRatherThanIgnored(): void
     {
         $mailer = new RecordingMailer();
@@ -210,13 +237,14 @@ final class SecurityAlertServiceTest extends KernelTestCase
         MailerInterface $mailer,
         bool $enabled = true,
         string $recipients = 'ops@example.test',
+        ?ArrayAdapter $cache = null,
     ): SecurityAlertService {
         $container = static::getContainer();
 
         return new SecurityAlertService(
             $mailer,
             $container->get(Environment::class),
-            new ArrayAdapter(),
+            $cache ?? new ArrayAdapter(),
             $container->get(LockFactory::class),
             $container->get(UserRepository::class),
             new Logger('test', [$this->logHandler]),

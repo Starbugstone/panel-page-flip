@@ -447,15 +447,18 @@ class ComicShareService
 
         // One record for the whole sweep, with a count. Per-share entries would
         // say the same thing many times and bury the fact that this was a single
-        // deliberate act.
-        $this->auditLogger->audit(SecurityAuditLogger::SHARE_REVOKED, [
-            'actor_user_id' => $comic->getOwner()?->getId(),
-            'target_type' => 'comic',
-            'target_id' => $comic->getId(),
-            'comic_id' => $comic->getId(),
-            'count' => count($shares),
-            'scope' => 'all_recipients',
-        ]);
+        // deliberate act. Nothing at all when the sweep found nothing: a record
+        // saying "revoked 0" reports an operation that did not happen.
+        if ($shares !== []) {
+            $this->auditLogger->audit(SecurityAuditLogger::SHARE_REVOKED, [
+                'actor_user_id' => $comic->getOwner()?->getId(),
+                'target_type' => 'comic',
+                'target_id' => $comic->getId(),
+                'comic_id' => $comic->getId(),
+                'count' => count($shares),
+                'scope' => 'all_recipients',
+            ]);
+        }
 
         return count($shares);
     }

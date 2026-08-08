@@ -111,7 +111,7 @@ class SecurityAlertService
             return false;
         }
 
-        return $this->send($event, $severity, $context, $count);
+        return $this->deliver($event, $severity, $context, $count, $scope);
     }
 
     /**
@@ -170,7 +170,35 @@ class SecurityAlertService
             return false;
         }
 
-        return $this->send($event, $severity, $context, $decision['count']);
+        return $this->deliver($event, $severity, $context, $decision['count'], $scope);
+    }
+
+    /**
+     * Send, and give the cooldown back if nothing left the building.
+     *
+     * The cooldown is claimed before sending, because the claim is what stops
+     * two concurrent requests from both sending. But a claim that survives a
+     * failed send is the worst of both worlds: nobody was told, and nobody will
+     * be told for the rest of the window either. A mail server that is down for
+     * thirty seconds would otherwise silence an attack in progress for fifteen
+     * minutes.
+     *
+     * Releasing it lets the next occurrence try again. For a thresholded alert
+     * that means the next crossing rather than the next event, since the count
+     * was reset on the way in — which is the right amount of back-pressure
+     * against a mail server that is genuinely gone.
+     *
+     * @param array<string, mixed> $context
+     */
+    private function deliver(string $event, string $severity, array $context, int $count, ?string $scope): bool
+    {
+        $sent = $this->send($event, $severity, $context, $count);
+
+        if (!$sent) {
+            $this->releaseCooldown($event, $scope);
+        }
+
+        return $sent;
     }
 
     /**
@@ -247,6 +275,11 @@ class SecurityAlertService
         $this->securityAlertCache->save($item);
 
         return $count;
+    }
+
+    private function releaseCooldown(string $event, ?string $scope): void
+    {
+        $this->securityAlertCache->deleteItem($this->key('cooldown', $event, $scope ?? 'global'));
     }
 
     private function resetCount(string $event, string $scope): void
