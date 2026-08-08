@@ -12,12 +12,6 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class DropboxClientFactory
 {
-    /**
-     * Refresh this long before the token actually lapses, so a call that starts
-     * just inside the window does not finish just outside it.
-     */
-    private const EXPIRY_SKEW_SECONDS = 300;
-
     public function __construct(
         private readonly string $dropboxAppKey,
         private readonly string $dropboxAppSecret,
@@ -27,87 +21,39 @@ class DropboxClientFactory
     ) {
     }
 
+    /**
+     * A Dropbox client for this user, refreshing its token only when Dropbox
+     * rejects it.
+     *
+     * The client is given a token *provider* rather than a token string. That is
+     * what lets the stored access token be used as-is and swapped out only on a
+     * rejection: this used to refresh before every single call, putting a
+     * blocking round trip to Dropbox in front of every status check, listing,
+     * import and sync — for a token good for hours.
+     */
     public function createForUser(User $user): DropboxClient
     {
-        // Only when the stored token has actually run out. This used to refresh
-        // unconditionally, which put a blocking round trip to Dropbox in front
-        // of every status check, file listing, import and sync — for a token
-        // that is valid for hours.
-        if ($user->getDropboxRefreshToken() && $this->needsRefresh($user)) {
-            $this->refreshAccessToken($user);
-        }
-
-        $accessToken = $user->getDropboxAccessToken();
-        if (!$accessToken) {
+        if (!$user->getDropboxAccessToken() && !$user->getDropboxRefreshToken()) {
             throw new \RuntimeException('Dropbox is not connected.');
         }
 
-        return new DropboxClient($accessToken);
+        // A connection with only a refresh token — one whose access token was
+        // cleared, or which has not been used since it was granted — needs one
+        // up front, because there is nothing for the provider to present.
+        if (!$user->getDropboxAccessToken() && !$this->refreshAccessToken($user)) {
+            throw new \RuntimeException('Dropbox is not connected.');
+        }
+
+        return new DropboxClient(new DropboxTokenProvider($user, $this));
     }
 
     /**
-     * Force the next {@see createForUser()} to mint a fresh access token.
+     * Exchange the refresh token for a new access token and store it.
      *
-     * For callers that discover the token is dead before it was due to expire —
-     * a grant revoked from Dropbox's side, or a clock that disagreed.
-     *
-     * Only for those. Clearing the expiry after a timeout or a Dropbox outage
-     * would put the refresh back in front of every later request, which is the
-     * cost this expiry exists to avoid; {@see isCredentialRejection()} is how
-     * callers tell the two apart.
+     * Returns whether it worked, because the caller is usually deciding whether
+     * to retry a request rather than handling an error.
      */
-    public function invalidateAccessToken(User $user): void
-    {
-        $user->setDropboxTokenExpiresAt(null);
-        $this->entityManager->flush();
-    }
-
-    /**
-     * Whether a failed Dropbox call means "this token is no good" rather than
-     * "Dropbox could not be reached".
-     *
-     * A rejected token is 401 `invalid_access_token`. Dropbox also answers 400
-     * for a malformed one, which the Spatie client turns into a BadRequest
-     * carrying the tag. A transport error, a 5xx or a timeout says nothing about
-     * the credential and must leave the recorded expiry alone.
-     */
-    public function isCredentialRejection(\Throwable $exception): bool
-    {
-        // Our own signal that the refresh token itself was refused. The access
-        // token is already past its expiry in that case, so this is belt and
-        // braces rather than the main path.
-        if ($exception instanceof \RuntimeException
-            && str_contains($exception->getMessage(), 'Dropbox token refresh failed')
-        ) {
-            return true;
-        }
-
-        if ($exception instanceof BadRequest) {
-            return in_array($exception->dropboxCode, ['invalid_access_token', 'expired_access_token'], true);
-        }
-
-        if ($exception instanceof BadResponseException) {
-            return $exception->getResponse()->getStatusCode() === 401;
-        }
-
-        return false;
-    }
-
-    private function needsRefresh(User $user): bool
-    {
-        if (!$user->getDropboxAccessToken()) {
-            return true;
-        }
-
-        $expiresAt = $user->getDropboxTokenExpiresAt();
-
-        // Unknown expiry means an account connected before the expiry was
-        // recorded: refresh once, which stores one and settles it.
-        return $expiresAt === null
-            || $expiresAt <= new \DateTimeImmutable(sprintf('+%d seconds', self::EXPIRY_SKEW_SECONDS));
-    }
-
-    private function refreshAccessToken(User $user): void
+    public function refreshAccessToken(User $user): bool
     {
         try {
             $response = $this->httpClient->request('POST', 'https://api.dropboxapi.com/oauth2/token', [
@@ -123,34 +69,44 @@ class DropboxClientFactory
                 throw new \RuntimeException('Dropbox token refresh failed.');
             }
 
-            $data = $response->toArray(false);
-            $accessToken = $data['access_token'] ?? null;
-            if (!$accessToken) {
+            $accessToken = $response->toArray(false)['access_token'] ?? null;
+            if (!is_string($accessToken) || $accessToken === '') {
                 throw new \RuntimeException('Dropbox token refresh response did not include an access token.');
             }
 
             $user->setDropboxAccessToken($accessToken);
-            $user->setDropboxTokenExpiresAt($this->expiryFrom($data['expires_in'] ?? null));
             $this->entityManager->flush();
+
+            return true;
         } catch (\Throwable $e) {
-            $this->logger->warning('Dropbox access token refresh failed.', ['user_id' => $user->getId(), 'exception' => $e]);
-            throw new \RuntimeException('Dropbox token refresh failed.');
+            $this->logger->warning('Dropbox access token refresh failed.', [
+                'user_id' => $user->getId(),
+                'exception' => $e,
+            ]);
+
+            return false;
         }
     }
 
     /**
-     * Turn Dropbox's `expires_in` into an absolute moment.
+     * Whether a failed Dropbox call means "this token is no good" rather than
+     * "Dropbox could not be reached".
      *
-     * A missing or nonsensical value yields null, which {@see needsRefresh()}
-     * reads as "expired" — so a malformed response costs an extra refresh next
-     * time rather than pinning a token that has actually lapsed.
+     * A rejected token is 401 `invalid_access_token`. Dropbox also answers 400
+     * for a malformed one, which the Spatie client turns into a BadRequest
+     * carrying the tag. A transport error, a 5xx or a rate limit says nothing
+     * about the credential and must not cost a refresh.
      */
-    public function expiryFrom(mixed $expiresIn): ?\DateTimeImmutable
+    public function isCredentialRejection(\Throwable $exception): bool
     {
-        if (!is_numeric($expiresIn) || (int) $expiresIn <= 0) {
-            return null;
+        if ($exception instanceof BadRequest) {
+            return in_array($exception->dropboxCode, ['invalid_access_token', 'expired_access_token'], true);
         }
 
-        return new \DateTimeImmutable(sprintf('+%d seconds', (int) $expiresIn));
+        if ($exception instanceof BadResponseException) {
+            return $exception->getResponse()->getStatusCode() === 401;
+        }
+
+        return false;
     }
 }

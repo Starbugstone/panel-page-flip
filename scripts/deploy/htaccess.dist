@@ -69,21 +69,6 @@ DirectoryIndex index.php
 # Hardening
 # =============================================================================
 
-# The /uploads/ denial again, this time without depending on mod_rewrite.
-#
-# The RewriteRule at the top of this file is the primary block, but it does
-# nothing on a host where mod_rewrite is absent — and such a host still serves
-# the app through the mod_alias fallback above, so the tree would be readable
-# with the rewrite protection silently gone. mod_alias is what the fallback
-# already relies on, so this holds exactly when the rewrite does not.
-#
-# Cover images are the reason: they are ordinary .jpg/.png files under
-# uploads/comics/<ownerId>/covers/<comicId>/, and serving one directly skips the
-# COMIC_VIEW check and the 18+ gate that /api/comics/cover/... applies.
-<IfModule mod_alias.c>
-    RedirectMatch 403 ^/uploads(?:/|$)
-</IfModule>
-
 # Belt and braces for anything that lands outside /uploads/: file types that
 # must never be served from anywhere in the document root, whatever the rewrite
 # rules do.

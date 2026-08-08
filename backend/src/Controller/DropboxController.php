@@ -108,11 +108,6 @@ class DropboxController extends AbstractController
 
             $user->setDropboxAccessToken($accessToken);
             $user->setDropboxRefreshToken($tokenData['refresh_token'] ?? null);
-            // Recorded here so the very first API call after connecting uses
-            // the token it was just given instead of immediately refreshing it.
-            $user->setDropboxTokenExpiresAt(
-                $this->dropboxClientFactory->expiryFrom($tokenData['expires_in'] ?? null)
-            );
             $entityManager->flush();
 
             return new RedirectResponse(rtrim($this->frontendBaseUrl, '/') . '/dropbox-sync?status=connected');
@@ -142,18 +137,15 @@ class DropboxController extends AbstractController
                 $dropboxUser = $account['name']['display_name'] ?? $account['email'] ?? 'Unknown';
                 $lastSync = $user->getDropboxLastSyncedAt()?->format('c');
             } catch (\Throwable $e) {
-                // Token expired or revoked: report as disconnected so the UI offers to reconnect.
+                // Reported as disconnected so the UI offers to reconnect. A
+                // token Dropbox merely retired has already been refreshed and
+                // retried by the client before reaching here, so what is left
+                // is a revoked grant or Dropbox being unreachable — and neither
+                // leaves anything for this endpoint to repair.
                 $this->logger->info('Dropbox status check failed, treating account as disconnected.', [
                     'user_id' => $user->getId(),
                     'exception' => $e,
                 ]);
-                // Only when Dropbox actually rejected the credential. Clearing
-                // the expiry after a timeout or a Dropbox outage would put a
-                // refresh back in front of every later request — the cost the
-                // recorded expiry exists to avoid — for a token that was fine.
-                if ($this->dropboxClientFactory->isCredentialRejection($e)) {
-                    $this->dropboxClientFactory->invalidateAccessToken($user);
-                }
                 $connected = false;
             }
         }
