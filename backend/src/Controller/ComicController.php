@@ -544,7 +544,7 @@ class ComicController extends AbstractController
         // second one visible without an email for every tidy-up.
         if (count($comics) >= self::BULK_DELETE_ALERT_THRESHOLD) {
             $securityLogger->critical(
-                SecurityAuditLogger::COMICS_BULK_DELETED,
+                SecurityAuditLogger::COMIC_BULK_DELETE_UNUSUAL,
                 [
                     'actor_user_id' => $user->getId(),
                     'target_type' => 'comic',

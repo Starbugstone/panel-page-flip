@@ -35,9 +35,11 @@ final class SensitiveDataProcessor implements ProcessorInterface
     /**
      * Matched against the whole key, case-insensitively, with separators
      * ignored — so `access_token`, `accessToken` and `ACCESS-TOKEN` are one
-     * pattern, and a key merely containing the word (`password_changed_at`)
-     * still matches, because guessing which halves of a name are safe is how
-     * secrets get through.
+     * pattern, and a key merely containing the word (`dropbox_refresh_token`,
+     * `user_password_field`) still matches, because guessing which halves of a
+     * name are safe is how secrets get through. The one exception is a key
+     * whose last word says it holds a count or a time; see
+     * {@see METADATA_SUFFIXES}.
      *
      * @var list<string>
      */
@@ -60,20 +62,28 @@ final class SensitiveDataProcessor implements ProcessorInterface
     ];
 
     /**
-     * Keys that contain one of the patterns above but hold no secret — a count,
-     * a boolean, a server-generated timestamp. Without these the audit records
-     * that exist to prove *when* something happened would redact the proof.
+     * Endings that mean a key describes a secret rather than holding one — a
+     * count, a tally, a server-generated timestamp. `reset_tokens_deleted` is a
+     * number and `reset_token` is a credential, and without this the retention
+     * record that exists to prove the promise was kept would say `[redacted]`
+     * exactly where the proof belongs.
+     *
+     * Matched against the key's final *word*, not anywhere inside it. As a
+     * substring this would let `token_count_value` through; as a whole-key
+     * allowlist it would need revising every time a caller worded one
+     * differently, which is how the two keys above came to be redacted in the
+     * first place.
      *
      * @var list<string>
      */
-    private const ALLOWED_KEYS = [
-        'tokencount',
-        'tokensrevoked',
-        'resettokens',
-        'verificationtokens',
-        'passwordchangedat',
-        'hashalgorithm',
-        'invalidtokenattempts',
+    private const METADATA_SUFFIXES = [
+        'count',
+        'deleted',
+        'remaining',
+        'revoked',
+        'attempts',
+        'algorithm',
+        'at',
     ];
 
     /** @var list<non-empty-string> */
@@ -162,11 +172,11 @@ final class SensitiveDataProcessor implements ProcessorInterface
 
     private function isSensitiveKey(string $key): bool
     {
-        $normalised = strtolower(str_replace(['_', '-', '.', ' '], '', $key));
-
-        if (in_array($normalised, self::ALLOWED_KEYS, true)) {
+        if (in_array($this->lastWordOf($key), self::METADATA_SUFFIXES, true)) {
             return false;
         }
+
+        $normalised = strtolower(str_replace(['_', '-', '.', ' '], '', $key));
 
         foreach (self::SENSITIVE_KEY_PATTERNS as $pattern) {
             if (str_contains($normalised, $pattern)) {
@@ -175,5 +185,21 @@ final class SensitiveDataProcessor implements ProcessorInterface
         }
 
         return false;
+    }
+
+    /**
+     * The final word of a key, reading `snake_case`, `kebab-case` and
+     * `camelCase` the same way — the same indifference to spelling the
+     * sensitive patterns already have.
+     */
+    private function lastWordOf(string $key): string
+    {
+        $words = preg_split('/[_\-. ]+|(?<=[a-z0-9])(?=[A-Z])/', $key, -1, PREG_SPLIT_NO_EMPTY);
+
+        if ($words === false || $words === []) {
+            return '';
+        }
+
+        return strtolower((string) end($words));
     }
 }

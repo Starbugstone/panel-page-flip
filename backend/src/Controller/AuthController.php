@@ -83,7 +83,6 @@ class AuthController extends AbstractController
             'target_type' => 'user',
         ]);
 
-
         // Programmatically invalidate the current user session
         $logoutEvent = new LogoutEvent($requestStack->getCurrentRequest(), $tokenStorage->getToken());
         $eventDispatcher->dispatch($logoutEvent);

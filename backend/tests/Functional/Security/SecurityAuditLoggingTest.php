@@ -163,6 +163,24 @@ final class SecurityAuditLoggingTest extends AbstractApiTestCase
         self::assertSame([], $this->alertsAbout(SecurityAuditLogger::ADMIN_ACCESS_DENIED));
     }
 
+    /**
+     * A sub-route of an administrator surface is still that surface. Somebody
+     * marking accounts verified is doing an administrator's job, and a refusal
+     * there belongs on the tight count with the rest of them.
+     */
+    public function testAnAdminSubRouteCountsAsAnAdminSurface(): void
+    {
+        $this->createAndLoginUser(['email' => 'sub-prober@test.local']);
+        $target = UserFactory::createOne(['email' => 'verify-target@test.local'])->object();
+
+        $this->postJson('/api/users/' . $target->getId() . '/verify');
+        self::assertResponseStatusCodeSame(403);
+
+        $record = $this->assertLoggedSecurityEvent(SecurityAuditLogger::ADMIN_ACCESS_DENIED);
+        self::assertTrue($record->context['admin_surface']);
+        $this->assertNoSecurityEvent(SecurityAuditLogger::AUTHORIZATION_DENIED);
+    }
+
     public function testAPasswordChangeIsAuditedWithoutTheValueOrTheHash(): void
     {
         $admin = $this->createAndLoginAdmin(['email' => 'operator@test.local']);

@@ -130,6 +130,54 @@ final class SensitiveDataProcessorTest extends TestCase
     }
 
     /**
+     * A key can name a credential and still hold a number.
+     *
+     * The retention record's whole purpose is to show that expired tokens were
+     * removed, so redacting the counts would strike out the proof and leave a
+     * line that says nothing. These are the shapes the application actually
+     * writes — every one of them was redacted before.
+     */
+    public function testKeepsCountsAndTimestampsThatMerelyNameACredential(): void
+    {
+        $context = $this->process([
+            'verification_tokens_deleted' => 1,
+            'reset_tokens_deleted' => 4,
+            'tokensRevoked' => 2,
+            'invalid_token_attempts' => 9,
+            'password_changed_at' => '2026-08-08T10:00:00+00:00',
+            'passwordChangedAt' => '2026-08-08T10:00:00+00:00',
+            'hashAlgorithm' => 'argon2id',
+        ]);
+
+        self::assertSame(1, $context['verification_tokens_deleted']);
+        self::assertSame(4, $context['reset_tokens_deleted']);
+        self::assertSame(2, $context['tokensRevoked']);
+        self::assertSame(9, $context['invalid_token_attempts']);
+        self::assertSame('2026-08-08T10:00:00+00:00', $context['password_changed_at']);
+        self::assertSame('2026-08-08T10:00:00+00:00', $context['passwordChangedAt']);
+        self::assertSame('argon2id', $context['hashAlgorithm']);
+    }
+
+    /**
+     * The counting rule reads the final word and nothing else, so a key that
+     * merely contains one of those words is still a key that holds the secret.
+     */
+    public function testTheCountingRuleDoesNotOpenTheDoorForTheCredentialItself(): void
+    {
+        $context = $this->process([
+            'reset_token' => self::FAKE_CREDENTIAL,
+            'token_count_value' => self::FAKE_CREDENTIAL,
+            'deleted_account_password' => 'hunter2',
+            'client_secret_format' => self::FAKE_CREDENTIAL,
+        ]);
+
+        self::assertSame(SensitiveDataProcessor::REDACTED, $context['reset_token']);
+        self::assertSame(SensitiveDataProcessor::REDACTED, $context['token_count_value']);
+        self::assertSame(SensitiveDataProcessor::REDACTED, $context['deleted_account_password']);
+        self::assertSame(SensitiveDataProcessor::REDACTED, $context['client_secret_format']);
+    }
+
+    /**
      * Key matching cannot catch a secret embedded in a sentence, and those
      * arrive constantly: an exception message quoting the URL it called, a
      * request line copied into a debug log.

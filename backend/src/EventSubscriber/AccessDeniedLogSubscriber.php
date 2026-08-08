@@ -102,12 +102,19 @@ final class AccessDeniedLogSubscriber implements EventSubscriberInterface
      * Matched on the path rather than the route, because a request refused
      * before routing has no route — and a probe that never resolves to a
      * controller is exactly the kind worth counting.
+     *
+     * Prefixes rather than an enumeration of the endpoints that exist today.
+     * Every route under these two is an administrator's, apart from a user
+     * editing their own record — and a 403 on that one means they aimed at
+     * somebody else's, which is the thing being counted. A pattern that listed
+     * the paths would quietly demote each new sub-route to the ordinary
+     * threshold until somebody remembered to add it.
      */
     private function isAdminSurface(Request $request): bool
     {
         $path = $request->getPathInfo();
 
         return str_starts_with($path, '/api/admin')
-            || preg_match('#^/api/users(/\d+)?$#', $path) === 1;
+            || str_starts_with($path, '/api/users');
     }
 }

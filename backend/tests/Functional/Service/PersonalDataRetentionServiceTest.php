@@ -73,14 +73,32 @@ final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
     public function testTheCleanupLeavesAnAuditTrailOfItsOwn(): void
     {
         $now = new \DateTimeImmutable('2026-08-05 12:00:00+00:00');
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $staleUser = UserFactory::new()->unverified()->create(['createdAt' => $now->modify('-31 days')])->object();
         $staleUserId = $staleUser->getId();
+
+        $tokenOwner = UserFactory::createOne()->object();
+        $entityManager->persist((new EmailVerificationToken($tokenOwner))->setExpiresAt($now->modify('-1 minute')));
+        $entityManager->persist(
+            (new ResetPasswordToken())
+                ->setToken('another-expired-reset-token')
+                ->setUser($tokenOwner)
+                ->setExpiresAt($now->modify('-1 minute'))
+        );
+        $entityManager->flush();
 
         static::getContainer()->get(PersonalDataRetentionService::class)->clean($now);
 
         $summary = $this->assertLoggedAuditEvent(SecurityAuditLogger::RETENTION_CLEANUP);
         self::assertSame(1, $summary->context['unverified_accounts_deleted']);
         self::assertSame(0, $summary->context['errors']);
+
+        // Counts, not credentials. These keys name a token and hold a number,
+        // and the redaction processor has to be able to tell the difference —
+        // otherwise the record that proves the retention promise was kept says
+        // "[redacted]" exactly where the proof would be.
+        self::assertSame(1, $summary->context['verification_tokens_deleted']);
+        self::assertSame(1, $summary->context['reset_tokens_deleted']);
 
         // And the account itself is named, once, by id — which is all that is
         // left of it and all that should be.

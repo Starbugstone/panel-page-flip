@@ -33,7 +33,14 @@ final class AccountDeletionService
     {
         // Read before the removal, because afterwards the entity has no id and
         // an audit record that cannot name what it deleted is not one.
+        //
+        // The actor for the same reason, and not only the target: on the
+        // self-service path the actor *is* the account being removed, so
+        // reading its id after the flush would report the one deletion somebody
+        // asked for themselves as having no actor at all — indistinguishable
+        // from the retention sweep, which is the one case where nobody asked.
         $userId = $user->getId();
+        $actorId = $actor?->getId();
         $wasAdmin = in_array('ROLE_ADMIN', $user->getRoles(), true);
 
         $quarantinedFiles = [];
@@ -130,11 +137,11 @@ final class AccountDeletionService
         // now — that is the point of the operation — and the id is what the
         // remaining anonymised rows are keyed on anyway.
         $this->auditLogger->audit(SecurityAuditLogger::USER_ACCOUNT_DELETED, [
-            'actor_user_id' => $actor?->getId(),
+            'actor_user_id' => $actorId,
             'target_user_id' => $userId,
             'target_type' => 'user',
             'target_was_admin' => $wasAdmin,
-            'self_service' => $actor !== null && $actor->getId() === $userId,
+            'self_service' => $actorId !== null && $actorId === $userId,
             'comics_quarantined' => count($quarantinedFiles),
             'shares_tombstoned' => $tombstonedShares,
         ]);

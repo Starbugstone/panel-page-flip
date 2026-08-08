@@ -134,6 +134,13 @@ channel and removes context entries whose key names a secret — `password`,
 and so on — recursively, at any depth. It also rewrites secrets embedded inside
 strings: `?token=…`, `Authorization: Bearer …`, Dropbox `sl.…` tokens.
 
+A key whose **last word** counts, times or otherwise describes something is
+left alone —
+`reset_tokens_deleted`, `token_count`, `password_changed_at`. Those name a
+credential without holding one, and redacting them would strike out the very
+numbers a retention or audit record exists to show. The exception is the final
+word only: `token_count_value` is still redacted.
+
 **Do not rely on it.** It is the backstop, not the rule. It cannot know that a
 free-text string is an invitation URL, and it deliberately does not walk
 exception objects. When adding a logger call, pass identifiers:
@@ -240,8 +247,10 @@ and a single 403 that a stale browser tab can produce.
 
 Every request is given an id and returns it as `X-Request-Id`. Security and audit
 records carry it as `request_id`, so the records from one request can be found
-together. It is **generated**, never taken from an inbound header: a correlation
-id a caller chooses can be reused to make two unrelated incidents look like one.
+together, and an alert email quotes it — the message names the day's log file,
+and this is what finds the line in it. It is **generated**, never taken from an
+inbound header: a correlation id a caller chooses can be reused to make two
+unrelated incidents look like one.
 
 ## Adding a new event
 

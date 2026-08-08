@@ -43,6 +43,10 @@ class SecurityAlertService
      * @var list<string>
      */
     private const REPORTABLE_KEYS = [
+        // First, because it is the one field that turns "something happened" into
+        // a line somebody can find. The message names the day and the log file;
+        // without this the reader is left grepping the day for the event.
+        'request_id',
         'actor_user_id',
         'target_user_id',
         'target_type',

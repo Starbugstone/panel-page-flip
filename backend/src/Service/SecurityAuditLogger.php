@@ -46,6 +46,11 @@ class SecurityAuditLogger
     public const ADULT_GATE_BYPASS_ATTEMPT = 'security.share.adult_gate_bypass_attempt';
     public const SHARE_WRONG_RECIPIENT = 'security.share.wrong_recipient';
     public const DATA_INTEGRITY_FAILURE = 'security.data_integrity.failure';
+    // The alarm raised by a sweep large enough to look like a compromised
+    // account. Its own name rather than the audit event below reused: the two
+    // records describe one deletion from two sides, and sharing a name would
+    // make the same sweep appear twice to anything counting by event.
+    public const COMIC_BULK_DELETE_UNUSUAL = 'security.comic.bulk_delete_unusual';
 
     // Successful state changes worth reconstructing later.
     public const USER_LOGGED_OUT = 'audit.user.logged_out';
