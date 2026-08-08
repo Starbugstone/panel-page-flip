@@ -121,12 +121,15 @@ final class SharingWorkflowService
                     default => 'failed',
                 };
 
-                $results[] = [
+                $result = [
                     'comicId' => $comicId,
                     'status' => $status,
                     'message' => $exception->getMessage(),
-                    'code' => $exception->getCodeName(),
                 ];
+                if ($exception->getErrorCode() !== null) {
+                    $result['code'] = $exception->getErrorCode();
+                }
+                $results[] = $result;
             }
         }
 
