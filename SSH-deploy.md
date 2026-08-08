@@ -213,10 +213,7 @@ APP_SECRET=$(openssl rand -hex 32)                     # 64 hex chars
 APP_DATA_KEY=$(openssl rand -base64 32)                # generate once; preserve across every deploy
 DATABASE_URL="mysql://comics_user:STRONG_PASS@127.0.0.1:3306/cbz_reader?serverVersion=8.0.32&charset=utf8mb4" # use SELECT VERSION() for the exact value
 CORS_ALLOW_ORIGIN=^https://comics\.yourdomain\.com$
-FRONTEND_URL=https://comics.yourdomain.com
-FRONTEND_HOST=comics.yourdomain.com
-FRONTEND_SCHEME=https
-FRONTEND_PORT=443
+APP_URL=https://comics.yourdomain.com
 MAILER_DSN=smtp://smtp_user:smtp_pass@smtp.yourdomain.com:587
 MAILER_TRANSPORT=smtp
 MAILER_FROM_ADDRESS=noreply@yourdomain.com
@@ -745,8 +742,8 @@ in `php.ini` so PHP picks up changes automatically (slightly slower runtime).
 
 ### "Mixed content" warnings in the browser after enabling HTTPS
 
-Production uses HTTPS but `FRONTEND_URL` in `backend/.env.prod.local` still
-says `http://`. Update it and redeploy.
+Production uses HTTPS but `APP_URL` in `backend/.env.prod.local` still says
+`http://`. Update it and redeploy.
 
 ### React app shows a blank page
 

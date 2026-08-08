@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, BookOpen, Cloud, MailCheck, ShieldAlert, Tags, Trash2 } from "lucide-react";
 
@@ -35,8 +35,20 @@ import { validatePassword } from "@/lib/password-policy";
  * promotion is a role change like any other and belongs in the account form
  * below, not on a single click in a table row.
  */
+/**
+ * Remounted per account.
+ *
+ * Navigating from one user to another has to start from nothing: leaving the
+ * previous account's name and roles in the form while the next one loads means
+ * Save would post them to the new user's id. Clearing each piece of state in an
+ * effect would do it a render too late; a new instance has nothing to clear.
+ */
 export default function AdminUserDetails() {
   const { userId } = useParams();
+  return <AdminUserDetailsPage key={userId} userId={userId} />;
+}
+
+function AdminUserDetailsPage({ userId }) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
@@ -51,23 +63,28 @@ export default function AdminUserDetails() {
   const passwordErrors = form.password ? validatePassword(form.password) : [];
   const isSelf = currentUser && user && currentUser.id === user.id;
 
-  const loadUser = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const data = await api.get(`/api/users/${userId}`);
-      setUser(data.user);
-      setForm({ name: data.user.name || "", password: "", roles: [...(data.user.roles || [])] });
-      setNotFound(false);
-    } catch (error) {
-      logger.error(`Failed to load user ${userId}:`, error);
-      setNotFound(true);
-      toast({ title: "Could not load user", description: error.message, variant: "destructive" });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [toast, userId]);
+  // The account is fetched once per userId. Asking here rather than through a
+  // shared loader means the page does not render twice before the request
+  // exists, and a reply for a user we have navigated away from is ignored.
+  useEffect(() => {
+    let ignore = false;
+    api.get(`/api/users/${userId}`)
+      .then((data) => {
+        if (ignore) return;
+        setUser(data.user);
+        setForm({ name: data.user.name || "", password: "", roles: [...(data.user.roles || [])] });
+        setNotFound(false);
+      })
+      .catch((error) => {
+        if (ignore) return;
+        logger.error(`Failed to load user ${userId}:`, error);
+        setNotFound(true);
+        toast({ title: "Could not load user", description: error.message, variant: "destructive" });
+      })
+      .finally(() => { if (!ignore) setIsLoading(false); });
 
-  useEffect(() => { loadUser(); }, [loadUser]);
+    return () => { ignore = true; };
+  }, [toast, userId]);
 
   const saveAccount = async () => {
     const payload = {};

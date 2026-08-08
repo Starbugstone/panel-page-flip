@@ -12,6 +12,13 @@ services:
     container_name: cbz_reader_php
     volumes:
       - ./backend:/var/www/html
+      # Symfony's cache is kept off the bind-mounted source tree. Rebuilding the
+      # container renames the old directory aside and removes it, and on a
+      # Windows or macOS bind mount that intermittently fails with "Directory
+      # not empty" — which surfaces as a random functional test erroring out in
+      # Kernel::initializeContainer() rather than as anything to do with the
+      # test. A container-local volume gives it ordinary filesystem semantics.
+      - php_cache:/var/www/html/var/cache
       - ./docker/php/setup.sh:/usr/local/bin/setup.sh
     depends_on:
       - database
@@ -19,6 +26,10 @@ services:
       - MYSQL_USER=${MYSQL_USER:-cbz_user}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-cbz_password}
       - MYSQL_DATABASE=${MYSQL_DATABASE:-cbz_reader}
+      # One public origin from the root .env drives both Symfony and frontend SEO.
+      - APP_URL=${APP_URL:-http://localhost:8080}
+      # Reachable from inside the PHP container (APP_URL is the public/host URL).
+      - APP_INTERNAL_URL=http://nginx
     entrypoint: ["sh", "-c", "chmod +x /usr/local/bin/setup.sh && /usr/local/bin/setup.sh && php-fpm"]
     networks:
       - app_network
@@ -31,6 +42,7 @@ services:
       args:
         - NODE_VERSION=${NODE_VERSION:-22}
         - NGINX_VERSION=${NGINX_VERSION:-1.25}
+        - APP_URL=${APP_URL:-http://localhost:8080}
     container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_nginx
     ports:
       - "${NGINX_PORT:-8080}:80"
@@ -82,6 +94,10 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
     volumes:
       - ./frontend:/app
+      # Only the route generator, not all of scripts/: that directory can hold
+      # .env.deploy with production FTP/SSH secrets.
+      - ./scripts/generate-nginx-routes.mjs:/scripts/generate-nginx-routes.mjs:ro
+      - ./backend/config/frontend-routes.json:/backend/config/frontend-routes.json:ro
       - /app/node_modules
     working_dir: /app
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --force"
@@ -93,8 +109,11 @@ services:
       - nginx
     environment:
       - NODE_ENV=development
+      - APP_URL=${APP_URL:-http://localhost:8080}
+      - FRONTEND_ROUTES_FILE=/backend/config/frontend-routes.json
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
 
 volumes:
   db_data:
+  php_cache:

@@ -63,7 +63,11 @@ export function useAdminList({
 
   const [items, setItems] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: params.limit, totalItems: 0, totalPages: 1 });
-  const [isLoading, setIsLoading] = useState(true);
+  // Which request has finished, rather than a flag raised before each one and
+  // lowered after it. Loading is then "the request these parameters describe
+  // has not answered yet", which is true on the very first render without
+  // anything having to set it.
+  const [settledRequest, setSettledRequest] = useState(null);
   const [payload, setPayload] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -117,25 +121,34 @@ export function useAdminList({
   }, [params.search]);
 
   const filterQuery = JSON.stringify(filters);
-  const lastFilterQuery = useRef(filterQuery);
-  const pageRef = useRef(params.page);
-  pageRef.current = params.page;
 
   // A changed filter is a different result set, so the page number from the old
   // one means nothing: picking an action filter while on page 3 of the audit log
   // would otherwise land on page 3 of the filtered results, which is usually
   // empty. Same reasoning as the search and page-size resets above.
+  //
+  // In an effect, not during render. setPage writes to the URL through
+  // setSearchParams when this list is URL-backed, and updating the router while
+  // rendering updates a different component mid-render - React warns, and the
+  // navigation lands in an undefined order. Adjusting state during render is
+  // only safe for state this component owns, which the query string is not.
+  const lastFilterQuery = useRef(filterQuery);
   useEffect(() => {
     if (lastFilterQuery.current === filterQuery) return;
     lastFilterQuery.current = filterQuery;
-    if (pageRef.current !== 1) setPage(1);
-  }, [filterQuery, setPage]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see above: a router update during render is worse
+    if (params.page !== 1) setPage(1);
+  }, [filterQuery, params.page, setPage]);
+
+  // Identifies the request these parameters describe, so a render can tell
+  // whether the data on screen is the answer to the current question.
+  const requestKey = `${basePath}|${JSON.stringify(params)}|${filterQuery}|${reloadToken}`;
+  const isLoading = settledRequest !== requestKey;
 
   useEffect(() => {
     let cancelled = false;
     const requested = { page: params.page, limit: params.limit };
 
-    setIsLoading(true);
     api.get(buildAdminListUrl(basePath, params, JSON.parse(filterQuery)))
       .then((data) => {
         if (cancelled) return;
@@ -151,10 +164,10 @@ export function useAdminList({
         setItems([]);
         setPagination({ ...requested, totalItems: 0, totalPages: 1 });
       })
-      .finally(() => { if (!cancelled) setIsLoading(false); });
+      .finally(() => { if (!cancelled) setSettledRequest(requestKey); });
 
     return () => { cancelled = true; };
-  }, [basePath, errorTitle, filterQuery, itemsKey, params, reloadToken, toast]);
+  }, [basePath, errorTitle, filterQuery, itemsKey, params, reloadToken, requestKey, toast]);
 
   return {
     items,

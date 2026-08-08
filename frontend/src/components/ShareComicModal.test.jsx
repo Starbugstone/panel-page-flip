@@ -118,4 +118,45 @@ describe("ShareComicModal", () => {
     expect(acknowledgement()).not.toBeChecked();
     expect(sendButton()).toBeDisabled();
   });
+  it("unticks the acknowledgement when the same comic is shared again", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderModal();
+
+    await user.click(acknowledgement());
+    expect(acknowledgement()).toBeChecked();
+
+    const at = (isOpen) => (
+      <MemoryRouter>
+        <ShareComicModal isOpen={isOpen} onClose={() => {}} comicId={7} comicTitle="Sandman" />
+      </MemoryRouter>
+    );
+
+    // Closing and immediately reopening for the *same* comic is the case the
+    // old delayed wipe could not cover: it cleared the fields 300ms after the
+    // close, and reopening first cancelled that timer, leaving the agreement
+    // ticked for a share nobody had agreed to. Reopening is a new form now, so
+    // there is no timer left to lose the race.
+    rerender(at(false));
+    rerender(at(true));
+
+    expect(acknowledgement()).not.toBeChecked();
+    expect(sendButton()).toBeDisabled();
+  });
+
+  it("does not carry a typed recipient into the next share", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderModal();
+
+    await user.type(screen.getByLabelText(/email/i), "someone@example.test");
+
+    const at = (isOpen) => (
+      <MemoryRouter>
+        <ShareComicModal isOpen={isOpen} onClose={() => {}} comicId={7} comicTitle="Sandman" />
+      </MemoryRouter>
+    );
+    rerender(at(false));
+    rerender(at(true));
+
+    expect(screen.getByLabelText(/email/i)).toHaveValue("");
+  });
 });

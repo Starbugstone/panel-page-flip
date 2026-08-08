@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\User;
 use App\Service\DropboxClientFactory;
 use App\Service\DropboxImportService;
+use App\Service\PublicUrl;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -30,7 +31,7 @@ class DropboxController extends AbstractController
         RequestStack $requestStack,
         private readonly HttpClientInterface $httpClient,
         private readonly LoggerInterface $logger,
-        private readonly string $frontendBaseUrl,
+        private readonly PublicUrl $publicUrl,
         private readonly DropboxClientFactory $dropboxClientFactory,
         private readonly DropboxImportService $dropboxImport,
         private readonly int $dropboxSyncLimit
@@ -110,7 +111,7 @@ class DropboxController extends AbstractController
             $user->setDropboxRefreshToken($tokenData['refresh_token'] ?? null);
             $entityManager->flush();
 
-            return new RedirectResponse(rtrim($this->frontendBaseUrl, '/') . '/dropbox-sync?status=connected');
+            return new RedirectResponse($this->publicUrl->to('/dropbox-sync').'?status=connected');
         } catch (TransportExceptionInterface $e) {
             $this->logger->warning('Network error during Dropbox token exchange.', ['exception' => $e]);
             return $this->json(['error' => 'Network error while connecting to Dropbox.'], Response::HTTP_SERVICE_UNAVAILABLE);

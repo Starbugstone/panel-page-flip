@@ -18,7 +18,7 @@ framework:
         log: true
 
     router:
-        default_uri: '%env(APP_SCHEME)%://%env(APP_HOST)%:%env(APP_PORT)%'
+        default_uri: '%env(APP_URL)%'
         utf8: true
 
     # Behind a reverse proxy or CDN, REMOTE_ADDR is the proxy rather than the

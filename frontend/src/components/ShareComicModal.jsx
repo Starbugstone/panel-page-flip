@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +23,31 @@ import {
   canSendInvitation,
 } from "@/lib/sharing";
 
-export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, onShared }) {
+/**
+ * Every opening gets a new form.
+ *
+ * The contents used to be wiped by an effect 300ms after closing, so the dialog
+ * could animate out with them still on screen, and that timer was cancelled if
+ * it reopened first. The responsibility acknowledgement was therefore one
+ * cancelled timer away from surviving into the next share — and it is an
+ * agreement about this comic going to this person, so it has to be unticked for
+ * every share, including a second one opened straight after the first.
+ *
+ * Remounting per opening makes that structural rather than something a timer
+ * has to get right. The cost is that the dialog fades out already empty.
+ */
+export function ShareComicModal({ isOpen, comicId, ...props }) {
+  return (
+    <ShareComicModalForm
+      key={isOpen ? `open-${comicId}` : "closed"}
+      isOpen={isOpen}
+      comicId={comicId}
+      {...props}
+    />
+  );
+}
+
+function ShareComicModalForm({ isOpen, onClose, comicId, comicTitle, onShared }) {
   const [recipientEmail, setRecipientEmail] = useState("");
   const [responsibilityAccepted, setResponsibilityAccepted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,31 +55,6 @@ export function ShareComicModal({ isOpen, onClose, comicId, comicTitle, onShared
   const [invitationUrl, setInvitationUrl] = useState(null);
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
-
-  useEffect(() => {
-    if (!isOpen) {
-      // Allow the close animation to finish before wiping the contents.
-      const timeout = setTimeout(() => {
-        setRecipientEmail("");
-        setResponsibilityAccepted(false);
-        setIsLoading(false);
-        setError(null);
-        setInvitationUrl(null);
-        setCopied(false);
-      }, 300);
-
-      return () => clearTimeout(timeout);
-    }
-
-    setError(null);
-    setInvitationUrl(null);
-    setCopied(false);
-    // Unticked for every share, including a second one opened straight after
-    // the first. The acknowledgement is about this comic going to this person,
-    // so carrying it over would record an agreement nobody made.
-    setResponsibilityAccepted(false);
-    return undefined;
-  }, [isOpen, comicId]);
 
   const handleShare = async () => {
     if (!canSendInvitation({ email: recipientEmail, responsibilityAccepted })) {

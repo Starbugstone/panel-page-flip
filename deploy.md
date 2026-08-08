@@ -112,9 +112,9 @@ This file is **gitignored**. Fill in:
 | Group           | Variables                                                                                                | Notes |
 | --------------- | -------------------------------------------------------------------------------------------------------- | ----- |
 | FTP target      | `FTP_HOST`, `FTP_USER`, `FTP_PASSWORD`, `FTP_PROTOCOL`, `FTP_PORT`, `FTP_VERIFY_CERTIFICATE`, `FTP_REMOTE_ROOT`, `FTP_PARALLEL` | Use `ftps` with certificate verification whenever the host supports it. |
-| Public URL      | `PUBLIC_URL`                                                                                             | Used by `post-deploy.sh` to call the migration runner. |
+| Public URL      | `PUBLIC_URL`                                                                                             | Single public origin used by post-deploy calls, backend links, canonical metadata, robots.txt, and sitemap.xml. |
 | Post-deploy     | `POST_DEPLOY_TOKEN`                                                                                      | Run `openssl rand -hex 32`. **Same value** is baked into `backend/.env.local.php` as `DEPLOY_TOKEN` and used as the `X-Deploy-Token` header. |
-| Symfony secrets | `PROD_APP_SECRET`, `PROD_APP_DATA_KEY`, `PROD_DATABASE_URL`, `PROD_FRONTEND_URL`, `PROD_CORS_ALLOW_ORIGIN`, `PROD_MAILER_*` | These are baked into `release/backend/.env.prod.local`, then consolidated into `backend/.env.local.php`. Preserve `PROD_APP_DATA_KEY` permanently or encrypted Dropbox credentials become unreadable. |
+| Symfony secrets | `PROD_APP_SECRET`, `PROD_APP_DATA_KEY`, `PROD_DATABASE_URL`, `PROD_CORS_ALLOW_ORIGIN`, `PROD_MAILER_*` | These are baked into `release/backend/.env.prod.local`, then consolidated into `backend/.env.local.php`. `PUBLIC_URL` is the single public origin for both the build and backend. Preserve `PROD_APP_DATA_KEY` permanently or encrypted Dropbox credentials become unreadable. |
 | Dropbox (opt)   | `PROD_DROPBOX_*`                                                                                         | Skip if you don't use Dropbox sync. |
 
 Generate strong tokens:

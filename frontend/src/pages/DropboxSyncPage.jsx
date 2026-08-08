@@ -214,28 +214,33 @@ function DropboxSyncPage() {
     }
   }, [toast]);
 
-  const checkConnectionStatus = useCallback(async () => {
-    try {
-      const data = await api.get('/api/dropbox/status');
-      setIsConnected(data.connected);
-      setDropboxUser(data.user);
-      setLastSync(data.lastSync);
-      if (data.connected) await fetchDropboxFiles(false);
-    } catch (error) {
-      logger.error('Error checking Dropbox status:', error);
-    } finally {
-      setLoading(false);
-    }
+  // The connection is checked once, and a reply that arrives after leaving the
+  // page is dropped rather than applied to a component that has gone.
+  useEffect(() => {
+    let ignore = false;
+    api.get('/api/dropbox/status')
+      .then(async (data) => {
+        if (ignore) return;
+        setIsConnected(data.connected);
+        setDropboxUser(data.user);
+        setLastSync(data.lastSync);
+        if (data.connected) await fetchDropboxFiles(false);
+      })
+      .catch((error) => {
+        logger.error('Error checking Dropbox status:', error);
+      })
+      .finally(() => { if (!ignore) setLoading(false); });
+
+    return () => { ignore = true; };
   }, [fetchDropboxFiles]);
 
   useEffect(() => {
-    checkConnectionStatus();
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('status') === 'connected') {
       toast({ title: "Dropbox Connected!", description: "Your Dropbox account has been successfully connected." });
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, [checkConnectionStatus, toast]);
+  }, [toast]);
 
   const handleConnectDropbox = () => {
     setConnecting(true);

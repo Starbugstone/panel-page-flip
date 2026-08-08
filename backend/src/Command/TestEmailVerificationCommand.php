@@ -4,6 +4,7 @@ namespace App\Command;
 
 use App\Entity\User;
 use App\Repository\UserRepository;
+use App\Service\PublicUrl;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\DBAL\Exception as DBALException;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -45,6 +46,7 @@ class TestEmailVerificationCommand extends Command
     private UrlGeneratorInterface $urlGenerator;
     private Environment $twig;
     private ParameterBagInterface $params;
+    private PublicUrl $publicUrl;
 
     public function __construct(
         EntityManagerInterface $entityManager,
@@ -52,7 +54,8 @@ class TestEmailVerificationCommand extends Command
         MailerInterface $mailer,
         UrlGeneratorInterface $urlGenerator,
         Environment $twig,
-        ParameterBagInterface $params
+        ParameterBagInterface $params,
+        PublicUrl $publicUrl
     ) {
         parent::__construct();
         $this->entityManager = $entityManager;
@@ -61,6 +64,7 @@ class TestEmailVerificationCommand extends Command
         $this->urlGenerator = $urlGenerator;
         $this->twig = $twig;
         $this->params = $params;
+        $this->publicUrl = $publicUrl;
     }
 
     protected function configure(): void
@@ -146,13 +150,8 @@ class TestEmailVerificationCommand extends Command
             $io->section('API Verification URL');
             $io->writeln($apiVerificationUrl);
             
-            // Get the frontend URL from parameters for display purposes
-            $frontendUrl = $this->params->get('frontend_url');
-            // Make sure the frontend URL doesn't have a trailing slash
-            $frontendUrl = rtrim($frontendUrl, '/');
-            
-            $frontendVerificationUrl = sprintf('%s/email-verification?status=verification-pending&token=%s', 
-                $frontendUrl, 
+            $frontendVerificationUrl = sprintf('%s?status=verification-pending&token=%s',
+                $this->publicUrl->to('/email-verification'),
                 $token
             );
             
@@ -162,9 +161,7 @@ class TestEmailVerificationCommand extends Command
             // Send verification email
             $io->section('Sending verification email...');
             
-            // Get the frontend URL from parameters
-            $frontendUrl = $this->params->get('frontend_url');
-            $io->note("Using frontend URL: {$frontendUrl}");
+            $io->note('Using application URL: '.$this->publicUrl->base());
             
             // Get the mailer configuration
             $fromEmail = $this->params->has('mailer_from_address') ? $this->params->get('mailer_from_address') : 'noreply@comicreader.example.com';

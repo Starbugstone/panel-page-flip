@@ -42,7 +42,18 @@ else
     echo "Symfony project already exists, skipping installation."
 fi
 
-# Set proper permissions
-chown -R www-data:www-data /var/www/html
+# Runtime directories must be writable by PHP-FPM. Do not take ownership of
+# the bind-mounted source checkout: doing so prevents the host user from
+# editing their own files after Docker starts.
+mkdir -p \
+  /var/www/html/var/cache \
+  /var/www/html/var/log \
+  /var/www/html/var/quarantine/comics \
+  /var/www/html/public/uploads
+chown -R www-data:www-data \
+  /var/www/html/var/cache \
+  /var/www/html/var/log \
+  /var/www/html/var/quarantine \
+  /var/www/html/public/uploads
 
 echo "Setup completed!"

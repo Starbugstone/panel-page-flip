@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\User;
 use App\Repository\UserRepository;
 use App\Service\ApiRateLimiter;
+use App\Service\PublicUrl;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -16,6 +17,10 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 #[Route('/api/email-verification')]
 class EmailVerificationController extends AbstractController
 {
+    public function __construct(private readonly PublicUrl $publicUrl)
+    {
+    }
+
     #[Route('/verify/{token}', name: 'app_email_verification_verify', methods: ['GET'])]
     public function verify(
         string $token,
@@ -125,13 +130,8 @@ class EmailVerificationController extends AbstractController
 
     private function redirectToFrontend(string $status, string $message): Response
     {
-        $frontendUrl = $this->getParameter('frontend_url');
-        
-        // Make sure the frontend URL doesn't have a trailing slash
-        $frontendUrl = rtrim($frontendUrl, '/');
-        
-        $redirectUrl = sprintf('%s/email-verification?status=%s&message=%s', 
-            $frontendUrl, 
+        $redirectUrl = sprintf('%s?status=%s&message=%s',
+            $this->publicUrl->to('/email-verification'),
             urlencode($status), 
             urlencode($message)
         );
