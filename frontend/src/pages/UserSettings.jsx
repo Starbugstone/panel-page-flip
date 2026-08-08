@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Edit, FileArchive, Plus, ShieldAlert, Tags, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -41,20 +41,23 @@ export default function UserSettings() {
     }
   };
 
-  const loadTags = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await api.get("/api/tags");
-      setTags((data.tags || []).filter((tag) => !tag.isGlobal));
-    } catch (error) {
-      logger.error("Failed to load personal tags:", error);
-      toast({ title: "Could not load tags", description: error.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+  // Fetched once. Adding, renaming and deleting all update the list from the
+  // response they already get back, so there is nothing here to re-run.
+  useEffect(() => {
+    let ignore = false;
+    api.get("/api/tags")
+      .then((data) => {
+        if (!ignore) setTags((data.tags || []).filter((tag) => !tag.isGlobal));
+      })
+      .catch((error) => {
+        if (ignore) return;
+        logger.error("Failed to load personal tags:", error);
+        toast({ title: "Could not load tags", description: error.message, variant: "destructive" });
+      })
+      .finally(() => { if (!ignore) setLoading(false); });
 
-  useEffect(() => { loadTags(); }, [loadTags]);
+    return () => { ignore = true; };
+  }, [toast]);
 
   const openDialog = (mode, tag = null) => {
     setDialogMode(mode);

@@ -41,8 +41,21 @@ export function TagCombobox({
   autoFocus = false,
 }) {
   const listId = useId();
-  const [isOpen, setIsOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
+  const [isOpenRequested, setIsOpen] = useState(false);
+  // A disabled combobox is closed, whatever was last asked for. Deriving it
+  // means re-enabling the field does not reopen a list nobody asked to see.
+  const isOpen = isOpenRequested && !disabled;
+  // The highlight belongs to the list that was on screen when it was set, so a
+  // new query drops it instead of leaving Enter pointing at a suggestion the
+  // user is no longer looking at.
+  const [highlight, setHighlight] = useState({ forValue: value, index: -1 });
+  const activeIndex = highlight.forValue === value ? highlight.index : -1;
+  const setActiveIndex = useCallback((next) => {
+    setHighlight((current) => {
+      const base = current.forValue === value ? current.index : -1;
+      return { forValue: value, index: typeof next === "function" ? next(base) : next };
+    });
+  }, [value]);
   const [remoteTags, setRemoteTags] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const containerRef = useRef(null);
@@ -97,14 +110,6 @@ export function TagCombobox({
     };
   }, [adminContext, searchTags, value]);
 
-  // Reset the highlight whenever the list underneath it changes, so Enter never
-  // picks a suggestion the user is no longer looking at.
-  useEffect(() => { setActiveIndex(-1); }, [value]);
-
-  useEffect(() => {
-    if (disabled) setIsOpen(false);
-  }, [disabled]);
-
   useEffect(() => {
     const handlePointerDown = (event) => {
       if (!containerRef.current?.contains(event.target)) setIsOpen(false);
@@ -124,7 +129,7 @@ export function TagCombobox({
     onSubmit(result.name, result);
     // Adding tags is repetitive work; keep the caret where the next one goes.
     inputRef.current?.focus();
-  }, [allowCreate, applied, availableTags, onSubmit]);
+  }, [allowCreate, applied, availableTags, onSubmit, setActiveIndex]);
 
   const handleKeyDown = (event) => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -197,7 +202,7 @@ export function TagCombobox({
         />
       )}
 
-      {isOpen && !disabled && (suggestions.length > 0 || canCreate || value.trim() !== "") && (
+      {isOpen && (suggestions.length > 0 || canCreate || value.trim() !== "") && (
         <div
           id={listId}
           role="listbox"

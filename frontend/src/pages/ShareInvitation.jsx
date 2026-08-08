@@ -36,20 +36,16 @@ export default function ShareInvitation() {
   const { loadLibrary } = useComicLibrary();
 
   const [invitation, setInvitation] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(true);
   const [isAnswering, setIsAnswering] = useState(false);
-  const [error, setError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   const [accepted, setAccepted] = useState(null);
 
   const loadInvitation = useCallback(async () => {
-    if (!token) {
-      setError("This link does not contain an invitation.");
-      setIsLoading(false);
-      return;
-    }
+    if (!token) return;
 
-    setIsLoading(true);
-    setError(null);
+    setIsFetching(true);
+    setLoadError(null);
     try {
       const data = await api.get(`/api/shares/invitations/${token}`, {
         // A signed-out visitor is expected here — the preview is public so an
@@ -60,15 +56,36 @@ export default function ShareInvitation() {
       setInvitation(data.invitation);
     } catch (err) {
       logger.error("Failed to load invitation:", err);
-      setError(err.message || "This invitation could not be loaded.");
+      setLoadError(err.message || "This invitation could not be loaded.");
     } finally {
-      setIsLoading(false);
+      setIsFetching(false);
     }
   }, [token]);
 
+  // loadInvitation is re-run after answering, where showing the spinner
+  // straight away is right. Mounting asks directly so the preview does not
+  // render twice before the request exists.
   useEffect(() => {
-    loadInvitation();
-  }, [loadInvitation]);
+    if (!token) return undefined;
+
+    let ignore = false;
+    api.get(`/api/shares/invitations/${token}`, { notifyUnauthorized: false })
+      .then((data) => { if (!ignore) setInvitation(data.invitation); })
+      .catch((err) => {
+        if (ignore) return;
+        logger.error("Failed to load invitation:", err);
+        setLoadError(err.message || "This invitation could not be loaded.");
+      })
+      .finally(() => { if (!ignore) setIsFetching(false); });
+
+    return () => { ignore = true; };
+  }, [token]);
+
+  // A link with no token is already an error, not something to wait for, so
+  // both of these follow from the token rather than being written alongside it.
+  const missingToken = !token;
+  const isLoading = !missingToken && isFetching;
+  const error = missingToken ? "This link does not contain an invitation." : loadError;
 
   /**
    * Make the age declaration, then redisplay whatever the server chooses to
@@ -80,12 +97,12 @@ export default function ShareInvitation() {
    */
   const confirmAdult = async () => {
     setIsAnswering(true);
-    setError(null);
+    setLoadError(null);
     try {
       await api.post(`/api/shares/invitations/${token}/confirm-adult`, { adultConfirmed: true });
       await loadInvitation();
     } catch (err) {
-      setError(err.message || "Your age could not be confirmed.");
+      setLoadError(err.message || "Your age could not be confirmed.");
     } finally {
       setIsAnswering(false);
     }
@@ -93,7 +110,7 @@ export default function ShareInvitation() {
 
   const answer = async (decision) => {
     setIsAnswering(true);
-    setError(null);
+    setLoadError(null);
     try {
       const data = await api.post(`/api/shares/invitations/${token}/${decision}`, {});
       await refreshSummary();
@@ -111,7 +128,7 @@ export default function ShareInvitation() {
         description: `${data.share?.comicTitle || "The comic"} is now in your collection.`,
       });
     } catch (err) {
-      setError(err.message || "The invitation could not be answered.");
+      setLoadError(err.message || "The invitation could not be answered.");
     } finally {
       setIsAnswering(false);
     }

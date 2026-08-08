@@ -23,9 +23,22 @@ export function AdminDropbox() {
     }
   }, [toast]);
 
+  // loadUsers is for the actions below, where flipping the spinner on before
+  // the request is exactly right. Mounting asks directly instead, so the first
+  // render is not immediately followed by a second, and a response that arrives
+  // after this list is gone is dropped rather than applied.
   useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+    let ignore = false;
+    api.get("/api/admin/dropbox-users")
+      .then((data) => { if (!ignore) setUsers(data.users || []); })
+      .catch((error) => {
+        if (ignore) return;
+        toast({ title: "Failed to load Dropbox users", description: error.message, variant: "destructive" });
+      })
+      .finally(() => { if (!ignore) setIsLoading(false); });
+
+    return () => { ignore = true; };
+  }, [toast]);
 
   const runAction = async (userId, action) => {
     setBusyUserId(userId);
