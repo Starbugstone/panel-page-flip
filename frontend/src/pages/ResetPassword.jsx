@@ -13,8 +13,8 @@ export default function ResetPassword() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [validatingToken, setValidatingToken] = useState(true);
-  const [tokenValid, setTokenValid] = useState(false);
+  // null while the check is in flight; "valid" or "invalid" once it answers.
+  const [validation, setValidation] = useState(null);
   const [resetComplete, setResetComplete] = useState(false);
   
   const { token } = useParams();
@@ -24,29 +24,28 @@ export default function ResetPassword() {
 
   // Validate token on component mount
   useEffect(() => {
-    const validateToken = async () => {
-      try {
-        await api.get(`/api/reset-password/validate/${token}`, { notifyUnauthorized: false });
-        setTokenValid(true);
-      } catch {
-        setTokenValid(false);
+    if (!token) return undefined;
+
+    let ignore = false;
+    api.get(`/api/reset-password/validate/${token}`, { notifyUnauthorized: false })
+      .then(() => { if (!ignore) setValidation("valid"); })
+      .catch(() => {
+        if (ignore) return;
+        setValidation("invalid");
         toast({
           title: "Validation Error",
           description: "Could not validate reset token. Please try again.",
           variant: "destructive",
         });
-      } finally {
-        setValidatingToken(false);
-      }
-    };
+      });
 
-    if (token) {
-      validateToken();
-    } else {
-      setValidatingToken(false);
-      setTokenValid(false);
-    }
+    return () => { ignore = true; };
   }, [token, toast]);
+
+  // A missing token is not something to wait for — it is already invalid — so
+  // these follow from the state above rather than being set alongside it.
+  const validatingToken = Boolean(token) && validation === null;
+  const tokenValid = validation === "valid";
 
   const handleSubmit = async (event) => {
     event.preventDefault();

@@ -6,6 +6,8 @@ import { logger } from '@/lib/logger';
 const SharingContext = createContext(undefined);
 
 const EMPTY_SUMMARY = { pendingInvitations: 0, deadShares: 0 };
+// Stable identity so a signed-out render does not hand consumers a new array.
+const EMPTY_LIST = [];
 
 /**
  * Holds the sharing counts the header badge and the dashboard alert both read.
@@ -54,11 +56,39 @@ export function SharingProvider({ children }) {
     }
   }, [isAuthenticated]);
 
+  // refreshSummary is what consumers call after an action, where clearing the
+  // counts synchronously is fine. Mounting issues the request directly instead,
+  // so the provider does not render twice before anything has been asked for,
+  // and the signed-out counts are derived below rather than written.
   useEffect(() => {
-    refreshSummary();
-  }, [refreshSummary]);
+    if (!isAuthenticated) return undefined;
 
-  const value = useMemo(() => ({ summary, refreshSummary }), [summary, refreshSummary]);
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    let ignore = false;
+    api.get('/api/shares/summary')
+      .then((data) => {
+        if (ignore || requestIdRef.current !== requestId) return;
+        setSummary({
+          pendingInvitations: data.pendingInvitations || 0,
+          deadShares: data.deadShares || 0,
+        });
+      })
+      .catch((error) => {
+        // A badge is not worth a toast; see refreshSummary above.
+        logger.error('Failed to load sharing summary:', error);
+      });
+
+    return () => { ignore = true; };
+  }, [isAuthenticated]);
+
+  const visibleSummary = isAuthenticated ? summary : EMPTY_SUMMARY;
+
+  const value = useMemo(
+    () => ({ summary: visibleSummary, refreshSummary }),
+    [visibleSummary, refreshSummary]
+  );
 
   return <SharingContext.Provider value={value}>{children}</SharingContext.Provider>;
 }
@@ -82,7 +112,10 @@ export function useSharing() {
 export function useSharingLists() {
   const [sharedByMe, setSharedByMe] = useState([]);
   const [sharedWithMe, setSharedWithMe] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // "Has an answer arrived" rather than "is a request outstanding": the second
+  // has to be set true before every request and false after every outcome, and
+  // the first render happens before any of that.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
   const { isAuthenticated } = useAuth();
   const { refreshSummary } = useSharing();
@@ -91,7 +124,7 @@ export function useSharingLists() {
     if (!isAuthenticated) {
       setSharedByMe([]);
       setSharedWithMe([]);
-      setIsLoading(false);
+      setLoaded(true);
       return;
     }
 
@@ -107,16 +140,52 @@ export function useSharingLists() {
       logger.error('Failed to load sharing lists:', err);
       setError(err.message || 'Could not load your shared comics.');
     } finally {
-      setIsLoading(false);
+      setLoaded(true);
       // The counts come from the same records, so refreshing them here keeps
       // the badge honest without another round of coordination.
       refreshSummary();
     }
   }, [isAuthenticated, refreshSummary]);
 
+  // As above: reload is for the page's own actions, the mount path asks
+  // directly so nothing is set before the request exists.
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (!isAuthenticated) return undefined;
 
-  return { sharedByMe, sharedWithMe, isLoading, error, reload };
+    let ignore = false;
+    Promise.all([
+      api.get('/api/shares/shared-by-me'),
+      api.get('/api/shares/shared-with-me'),
+    ])
+      .then(([byMe, withMe]) => {
+        if (ignore) return;
+        setSharedByMe(byMe.sharedByMe || []);
+        setSharedWithMe(withMe.sharedWithMe || []);
+        setError(null);
+      })
+      .catch((err) => {
+        if (ignore) return;
+        logger.error('Failed to load sharing lists:', err);
+        setError(err.message || 'Could not load your shared comics.');
+      })
+      .finally(() => {
+        if (ignore) return;
+        setLoaded(true);
+        refreshSummary();
+      });
+
+    return () => { ignore = true; };
+  }, [isAuthenticated, refreshSummary]);
+
+  // Nothing to wait for when signed out, and the lists are empty regardless of
+  // what the previous session left behind.
+  const isLoading = isAuthenticated && !loaded;
+
+  return {
+    sharedByMe: isAuthenticated ? sharedByMe : EMPTY_LIST,
+    sharedWithMe: isAuthenticated ? sharedWithMe : EMPTY_LIST,
+    isLoading,
+    error,
+    reload,
+  };
 }

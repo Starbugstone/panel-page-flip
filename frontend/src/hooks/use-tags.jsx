@@ -8,6 +8,9 @@ import { fuzzyFilter } from '@/lib/fuzzy-search';
 // Create the context
 const TagContext = createContext(undefined);
 
+// Stable identity so a signed-out render does not produce a new context value.
+const EMPTY_TAGS = [];
+
 export function TagProvider({ children }) {
   const [tags, setTags] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -119,36 +122,67 @@ export function TagProvider({ children }) {
     });
   }, []);
 
-  // Load tags on initial mount and when user changes
+  // Prefetch on mount and when the user changes.
+  //
+  // fetchTags is the right thing for a consumer to call from an event handler,
+  // but not from here: it flips isLoading synchronously, so mounting the
+  // provider rendered twice before a request had even left. This path issues
+  // the request directly and applies the result once it arrives, and ignores a
+  // response that lands after the account changed.
   useEffect(() => {
-    if (user) {
-      // Only fetch tags on specific pages where they're needed
-      const path = window.location.pathname;
-      if (path.startsWith('/dashboard') || path.startsWith('/admin') || path.startsWith('/upload')) {
-        fetchTags();
-      }
-    } else {
-      tagsRef.current = [];
-      lastFetchedRef.current = null;
-      lastFetchedAdminContextRef.current = null;
-      setTags([]);
-      setLastFetched(null);
+    if (!user) return undefined;
+
+    const path = window.location.pathname;
+    if (!(path.startsWith('/dashboard') || path.startsWith('/admin') || path.startsWith('/upload'))) {
+      return undefined;
     }
-  }, [user, fetchTags]);
+
+    let ignore = false;
+    api.get('/api/tags')
+      .then((data) => {
+        if (ignore) return;
+        const fetchedTags = data.tags || [];
+        const fetchedAt = Date.now();
+        tagsRef.current = fetchedTags;
+        lastFetchedRef.current = fetchedAt;
+        lastFetchedAdminContextRef.current = false;
+        setTags(fetchedTags);
+        setLastFetched(fetchedAt);
+      })
+      .catch((error) => {
+        logger.error('Error fetching tags:', error);
+      });
+
+    return () => { ignore = true; };
+  }, [user]);
+
+  // Logging out empties the cache. The refs are the cache itself, so they are
+  // cleared here; what is handed to consumers is derived below rather than
+  // being a third copy that has to be set back to empty in step.
+  useEffect(() => {
+    if (user) return;
+    tagsRef.current = [];
+    lastFetchedRef.current = null;
+    lastFetchedAdminContextRef.current = null;
+  }, [user]);
 
   // The context value
   const isAdminContext = useCallback(() => window.location.pathname.startsWith('/admin'), []);
 
+  // Signed out means no tags, whatever the last account left behind.
+  const visibleTags = user ? tags : EMPTY_TAGS;
+  const visibleLastFetched = user ? lastFetched : null;
+
   const value = useMemo(() => ({
-    tags,
+    tags: visibleTags,
     isLoading,
     fetchTags,
     searchTags,
     addTagToCache,
-    lastFetched,
+    lastFetched: visibleLastFetched,
     // Helper function to determine if we're in admin context
     isAdminContext,
-  }), [addTagToCache, fetchTags, isAdminContext, isLoading, lastFetched, searchTags, tags]);
+  }), [addTagToCache, fetchTags, isAdminContext, isLoading, visibleLastFetched, searchTags, visibleTags]);
 
   return <TagContext.Provider value={value}>{children}</TagContext.Provider>;
 }

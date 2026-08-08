@@ -3,40 +3,42 @@ import { useAuth } from '@/hooks/use-auth';
 import { api } from '@/lib/api';
 import { logger } from '@/lib/logger';
 
+const DEFAULT_CONFIG = {
+  upload: {
+    maxConcurrentUploads: 5 // Matches the backend default
+  }
+};
+
 export function useConfig() {
-  const [config, setConfig] = useState({
-    upload: {
-      maxConcurrentUploads: 5 // Default value - matches backend default
-    }
-  });
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
   const { user } = useAuth();
+  // One piece of state for the whole outcome, tagged with the user it belongs
+  // to. Loading is then something to derive rather than a third flag to keep in
+  // step, and a response that arrives after the account changed is ignored
+  // instead of being shown as the new user's configuration.
+  const [result, setResult] = useState(null);
 
   useEffect(() => {
-    // Only fetch config if user is authenticated
-    if (!user) {
-      setIsLoading(false);
-      return;
-    }
+    if (!user) return undefined;
 
-    const fetchConfig = async () => {
-      try {
-        setIsLoading(true);
-        const data = await api.get('/api/config');
+    let ignore = false;
+    api.get('/api/config')
+      .then((data) => {
         logger.log('Config received from server:', data);
-        setConfig(data);
-        setError(null);
-      } catch (err) {
+        if (!ignore) setResult({ forUser: user, config: data, error: null });
+      })
+      .catch((err) => {
         logger.error('Error fetching configuration:', err);
-        setError(err.message);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+        if (!ignore) setResult({ forUser: user, config: null, error: err.message });
+      });
 
-    fetchConfig();
+    return () => { ignore = true; };
   }, [user]);
 
-  return { config, isLoading, error };
+  const current = result?.forUser === user ? result : null;
+
+  return {
+    config: current?.config ?? DEFAULT_CONFIG,
+    isLoading: Boolean(user) && current === null,
+    error: current?.error ?? null
+  };
 }
