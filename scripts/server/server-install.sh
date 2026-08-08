@@ -83,10 +83,7 @@ APP_DATA_KEY=REPLACE_WITH_openssl_rand_-base64_32
 DATABASE_URL="mysql://USER:PASSWORD@127.0.0.1:3306/cbz_reader?serverVersion=8.0.32&charset=utf8mb4"
 
 CORS_ALLOW_ORIGIN=^https://comics\.yourdomain\.com$
-FRONTEND_URL=https://comics.yourdomain.com
-FRONTEND_SCHEME=https
-FRONTEND_HOST=comics.yourdomain.com
-FRONTEND_PORT=443
+APP_URL=https://comics.yourdomain.com
 
 MAILER_DSN=smtp://user:pass@smtp.yourdomain.com:587
 MAILER_TRANSPORT=smtp

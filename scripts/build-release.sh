@@ -103,7 +103,7 @@ REQUIRED_PROD_VARS=(
     PROD_APP_SECRET
     PROD_APP_DATA_KEY
     PROD_DATABASE_URL
-    PROD_FRONTEND_URL
+    PUBLIC_URL
     POST_DEPLOY_TOKEN
 )
 for v in "${REQUIRED_PROD_VARS[@]}"; do
@@ -126,13 +126,19 @@ if [ "$DO_FRONTEND" = "1" ]; then
     # Remove only that disposable build output before switching to the host UID.
     docker run --rm \
         -v "$REPO_ROOT/frontend":/app \
+        -v "$REPO_ROOT/scripts":/scripts:ro \
+        -v "$REPO_ROOT/backend/config/frontend-routes.json":/backend/config/frontend-routes.json:ro \
         -w /app \
         "node:${NODE_VERSION}-alpine" \
         sh -c 'rm -rf dist'
     docker run --rm \
         -v "$REPO_ROOT/frontend":/app \
+        -v "$REPO_ROOT/scripts":/scripts:ro \
+        -v "$REPO_ROOT/backend/config/frontend-routes.json":/backend/config/frontend-routes.json:ro \
         -w /app \
         -u "$(id -u):$(id -g)" \
+        -e APP_URL="$PUBLIC_URL" \
+        -e FRONTEND_ROUTES_FILE=/backend/config/frontend-routes.json \
         -e VITE_BUILD_ID="$(date -u +%Y%m%d-%H%M%S)" \
         -e VITE_BUILD_TIME="$(date -u +%FT%TZ)" \
         "node:${NODE_VERSION}-alpine" \
@@ -218,15 +224,9 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv APP_DEBUG 0
     write_dotenv APP_SECRET "$PROD_APP_SECRET"
     write_dotenv APP_DATA_KEY "$PROD_APP_DATA_KEY"
-    write_dotenv APP_SCHEME "${PROD_FRONTEND_SCHEME:-https}"
-    write_dotenv APP_HOST "${PROD_FRONTEND_HOST:-localhost}"
-    write_dotenv APP_PORT "${PROD_FRONTEND_PORT:-443}"
+    write_dotenv APP_URL "${PUBLIC_URL%/}"
     write_dotenv DATABASE_URL "$PROD_DATABASE_URL"
     write_dotenv CORS_ALLOW_ORIGIN "${PROD_CORS_ALLOW_ORIGIN:-^https://.*$}"
-    write_dotenv FRONTEND_URL "$PROD_FRONTEND_URL"
-    write_dotenv FRONTEND_SCHEME "${PROD_FRONTEND_SCHEME:-https}"
-    write_dotenv FRONTEND_HOST "${PROD_FRONTEND_HOST:-localhost}"
-    write_dotenv FRONTEND_PORT "${PROD_FRONTEND_PORT:-443}"
     write_dotenv MAILER_DSN "${PROD_MAILER_DSN:-null://null}"
     write_dotenv MAILER_FROM_ADDRESS "${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}"
     write_dotenv MAILER_FROM_NAME "${PROD_MAILER_FROM_NAME:-Comic Reader}"
@@ -237,7 +237,7 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv MAX_CONCURRENT_UPLOADS "${PROD_MAX_CONCURRENT_UPLOADS:-3}"
     write_dotenv DROPBOX_APP_KEY "${PROD_DROPBOX_APP_KEY:-}"
     write_dotenv DROPBOX_APP_SECRET "${PROD_DROPBOX_APP_SECRET:-}"
-    write_dotenv DROPBOX_REDIRECT_URI "${PROD_DROPBOX_REDIRECT_URI:-${PROD_FRONTEND_URL}/api/dropbox/callback}"
+    write_dotenv DROPBOX_REDIRECT_URI "${PROD_DROPBOX_REDIRECT_URI:-${PUBLIC_URL%/}/api/dropbox/callback}"
     write_dotenv DROPBOX_APP_FOLDER "${PROD_DROPBOX_APP_FOLDER:-/}"
     write_dotenv DROPBOX_SYNC_LIMIT "${PROD_DROPBOX_SYNC_LIMIT:-10}"
     write_dotenv DROPBOX_RATE_LIMIT "${PROD_DROPBOX_RATE_LIMIT:-60}"

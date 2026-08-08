@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Search, Plus, Trash, Edit, Globe2, EyeOff } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -230,6 +230,7 @@ export function AdminTagsList({ creatorId, embedded = false }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Tag</DialogTitle>
+            <DialogDescription>Create a global tag that can be used by every account.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <Input
@@ -265,6 +266,7 @@ export function AdminTagsList({ creatorId, embedded = false }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Tag</DialogTitle>
+            <DialogDescription>Change this tag's name and default library visibility.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <Input

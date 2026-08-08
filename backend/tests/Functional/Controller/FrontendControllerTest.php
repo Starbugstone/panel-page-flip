@@ -19,6 +19,11 @@ class FrontendControllerTest extends WebTestCase
 
         if ($shouldBeIndexed) {
             self::assertResponseHeaderNotSame('X-Robots-Tag', 'noindex, follow');
+            $canonicalPath = $path === '/' ? '/' : $path;
+            self::assertStringContainsString(
+                sprintf('<link rel="canonical" href="http://localhost:8080%s" />', $canonicalPath),
+                (string) $client->getResponse()->getContent()
+            );
         } else {
             self::assertResponseHeaderSame('X-Robots-Tag', 'noindex, follow');
         }
@@ -43,6 +48,11 @@ class FrontendControllerTest extends WebTestCase
         yield 'login' => ['/login', false];
         yield 'dashboard' => ['/dashboard', false];
         yield 'settings' => ['/settings', false];
+        yield 'upload' => ['/upload', false];
+        yield 'bulk upload' => ['/upload/bulk', false];
+        yield 'admin' => ['/admin', false];
+        yield 'admin user' => ['/admin/users/123', false];
+        yield 'dropbox sync' => ['/dropbox-sync', false];
         yield 'comic reader' => ['/read/123', false];
         yield 'password-reset token' => ['/reset-password/example-token', false];
         yield 'sharing page' => ['/sharing', false];

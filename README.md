@@ -88,7 +88,7 @@ APP_SECRET=replace-with-a-random-value
 APP_DATA_KEY=replace-with-a-persistent-random-value
 DATABASE_URL="mysql://cbz_user:cbz_password@database:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4"
 MAILER_DSN=smtp://mailpit:1025
-FRONTEND_URL=http://localhost:3001
+APP_URL=http://localhost:8080
 ```
 
 Generate suitable local secrets with `openssl rand -hex 32` for `APP_SECRET` and `openssl rand -base64 32` for `APP_DATA_KEY`.
@@ -98,7 +98,7 @@ Important configuration variables:
 - `APP_SECRET` — Symfony application secret
 - `APP_DATA_KEY` — encrypts persisted integration credentials; do not rotate it without migrating existing data
 - `DATABASE_URL` — Doctrine connection string
-- `FRONTEND_URL` — base URL used in email and share links
+- `APP_URL` — the one public same-origin URL used in email/OAuth links and generated SEO metadata
 - `CORS_ALLOW_ORIGIN` — allowed browser origins
 - `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
 - `PRIVACY_OPERATOR`, `PRIVACY_EMAIL` — public data-controller name and privacy contact

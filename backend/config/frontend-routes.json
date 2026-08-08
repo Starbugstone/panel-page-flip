@@ -1,0 +1,26 @@
+{
+  "indexable": [
+    { "path": "/", "changefreq": "monthly", "priority": "1.0" },
+    { "path": "/privacy", "changefreq": "yearly", "priority": "0.3" },
+    { "path": "/terms", "changefreq": "yearly", "priority": "0.3" },
+    { "path": "/cookies", "changefreq": "yearly", "priority": "0.3" }
+  ],
+  "noindex": [
+    "/login",
+    "/forgot-password",
+    "/email-verification",
+    "/dashboard",
+    "/upload",
+    "/upload/bulk",
+    "/settings",
+    "/admin",
+    "/dropbox-sync",
+    "/sharing"
+  ],
+  "noindexPatterns": [
+    "^/admin/users/[^/]+$",
+    "^/reset-password/[^/]+$",
+    "^/read/[^/]+$",
+    "^/share/invitation/[^/]+$"
+  ]
+}

@@ -32,14 +32,14 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
  * 2. Running locally (if you have PHP and Composer installed directly on your machine and are in the `backend` directory):
  *    php bin/console app:test-api-endpoints
  *
- *    Ensure your local environment is configured, especially the .env variables for APP_SCHEME, APP_HOST,
- *    and APP_PORT, so the command can generate correct absolute URLs to your application.
+ *    Ensure APP_URL is configured so the command can generate correct
+ *    absolute URLs to your application.
  *    The application's web server should be running and accessible at the configured address (e.g., http://localhost:8000 or http://localhost:80 if run inside docker targeting itself).
  *
  * Important Considerations:
  * - This command makes live HTTP requests to your application. Ensure your application (web server) is running.
  * - It generates a unique email for each run to avoid conflicts with existing users during registration tests.
- * - The command relies on the correct setup of `APP_SCHEME`, `APP_HOST`, and `APP_PORT` in your .env file
+ * - The command relies on the correct setup of `APP_URL` in your .env file
  *   (or equivalent Symfony configuration) for the `UrlGeneratorInterface` to build correct absolute URLs,
  *   especially when run from the CLI.
  * - The output will indicate the success or failure of each test step and show response status codes and content.

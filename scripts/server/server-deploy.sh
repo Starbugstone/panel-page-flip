@@ -26,6 +26,8 @@
 #                        (use scripts/server/backup-comics.sh)
 #
 # Optional env vars:
+#   APP_URL              public same-origin URL; required unless
+#                        SKIP_FRONTEND=1
 #   WEB_USER             www-data | nginx | http (default www-data)
 #   WEB_GROUP            web user's group (default = WEB_USER)
 #   SKIP_FRONTEND=1      don't run npm build, assume backend/public/ already has
@@ -83,12 +85,14 @@ fi
 # 2) Frontend
 # =============================================================================
 if [ "$SKIP_FRONTEND" != "1" ]; then
+    : "${APP_URL:?APP_URL must be set when building the frontend (e.g. https://comics.example.com)}"
     if [ -d "$APP_DIR/frontend" ] && command -v npm >/dev/null 2>&1; then
         log "npm ci && npm run build"
         cd "$APP_DIR/frontend"
         npm ci --no-audit --no-fund
         rm -rf dist
-        npm run build
+        APP_URL="$APP_URL" npm run build
+        APP_URL="$APP_URL" npm run check:seo
 
         log "Installing frontend build while preserving uploads and rollback assets"
         public_dir="$APP_DIR/backend/public"
