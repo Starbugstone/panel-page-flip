@@ -48,13 +48,23 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
         self::assertSame($owner->getId(), $created->context['actor_user_id']);
         self::assertSame($comic->getId(), $created->context['comic_id']);
 
+        $shareId = $this->shareIdFor($comic);
+
         $acknowledged = $this->assertLoggedAuditEvent(SecurityAuditLogger::SHARE_SENDER_RESPONSIBILITY_ACCEPTED);
         self::assertSame($owner->getId(), $acknowledged->context['actor_user_id']);
         self::assertSame($comic->getId(), $acknowledged->context['comic_id']);
-        self::assertNotNull($acknowledged->context['target_id']);
-        // Server-generated, and matching the timestamp on the share, which is
-        // what would actually be produced if anybody asked for evidence.
-        self::assertNotNull($acknowledged->context['accepted_at']);
+        self::assertSame($shareId, $acknowledged->context['target_id']);
+
+        // The record has to agree with the share row, not merely carry a
+        // timestamp of its own. The row is the canonical evidence — that is the
+        // whole reason the log is not — so a log line quoting a different moment
+        // than the thing it points at would be worse than no log line at all.
+        $stored = $this->managedShare($shareId)->getSenderResponsibilityAcceptedAt();
+        self::assertNotNull($stored);
+        self::assertSame(
+            $stored->format(\DateTimeInterface::ATOM),
+            $acknowledged->context['accepted_at']
+        );
     }
 
     public function testTheAcknowledgementRecordCarriesNoTokenTitleOrAddress(): void
@@ -88,7 +98,13 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
         $record = $this->assertLoggedAuditEvent(SecurityAuditLogger::SHARE_ADULT_CONFIRMED);
         self::assertSame($recipient->getId(), $record->context['actor_user_id']);
         self::assertSame($shareId, $record->context['target_id']);
-        self::assertNotNull($record->context['confirmed_at']);
+
+        // Same rule as the sender's acknowledgement: the record must quote the
+        // moment the share row holds, which is the evidence anybody would
+        // actually be shown.
+        $stored = $this->managedShare($shareId)->getAdultConfirmedAt();
+        self::assertNotNull($stored);
+        self::assertSame($stored->format(\DateTimeInterface::ATOM), $record->context['confirmed_at']);
 
         // A recipient declaring their age is the feature working as designed.
         // Mailing an administrator about it would be surveillance dressed as
@@ -141,6 +157,12 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
         self::assertCount(1, $this->alertsAbout(SecurityAuditLogger::ADULT_GATE_BYPASS_ATTEMPT));
 
         // And the sixth is logged in silence.
+        //
+        // Empty means "this request sent nothing", not "nothing was ever sent":
+        // the mailer's message logger is reset between requests, so a second
+        // alert raised by this one would be sitting right here. The log records,
+        // by contrast, accumulate — see AccumulatingTestHandler — which is why
+        // one assertion counts up and the other expects nothing.
         $this->postJson('/api/shares/' . $shareId . '/accept');
         self::assertCount(6, $this->securityRecords(SecurityAuditLogger::ADULT_GATE_BYPASS_ATTEMPT));
         self::assertSame([], $this->alertsAbout(SecurityAuditLogger::ADULT_GATE_BYPASS_ATTEMPT));
@@ -306,6 +328,15 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
         $this->clearSecurityLog();
 
         return $comic;
+    }
+
+    /** The stored share, read back through the container's entity manager. */
+    private function managedShare(int $shareId): ComicShare
+    {
+        $share = static::getContainer()->get(ComicShareRepository::class)->find($shareId);
+        self::assertInstanceOf(ComicShare::class, $share);
+
+        return $share;
     }
 
     private function shareIdFor(Comic $comic): int
