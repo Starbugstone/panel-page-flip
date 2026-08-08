@@ -75,8 +75,6 @@ export function ShareComicsDialog({
     if (!isOpen) return undefined;
 
     let ignore = false;
-    setIsLoading(true);
-    setError(null);
 
     Promise.all([
       api.get("/api/comics?ownership=mine"),
@@ -287,7 +285,7 @@ export function ShareComicsDialog({
                   return (
                     <label
                       key={comic.id}
-                      className="flex cursor-pointer items-center gap-3 p-3 has-[[data-disabled]]:cursor-not-allowed has-[[data-disabled]]:opacity-60"
+                      className={`flex items-center gap-3 p-3 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
                     >
                       <Checkbox
                         checked={checked}
