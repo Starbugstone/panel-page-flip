@@ -101,7 +101,7 @@ describe("ShareComicsDialog", () => {
       />
     );
 
-    await screen.findByText("Batman #1");
+    await screen.findByRole("checkbox", { name: "Select Batman #1" });
     await user.click(screen.getByRole("checkbox", { name: "I understand" }));
     await user.click(screen.getByRole("button", { name: "Send 2 invitations" }));
 
