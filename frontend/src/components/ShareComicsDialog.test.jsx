@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ShareComicsDialog } from "./ShareComicsDialog";
 import { api } from "@/lib/api";
 
-const toast = vi.fn();
+const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn() } }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn() } }));
