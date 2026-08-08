@@ -181,6 +181,37 @@ final class SecurityAuditLoggingTest extends AbstractApiTestCase
         $this->assertNoSecurityEvent(SecurityAuditLogger::AUTHORIZATION_DENIED);
     }
 
+    /**
+     * The other half of the rule above. Reading somebody else's account is a
+     * refusal an ordinary user reaches by accident — a stale link, a bookmark
+     * kept after a demotion — and the account routes are not administrators-only
+     * the way their sub-routes are. Counting those three at the probing
+     * threshold would mail an administrator a high-severity report accusing a
+     * user who clicked a dead link three times.
+     */
+    public function testReadingAnotherAccountIsNotCountedAsAdminProbing(): void
+    {
+        $this->createAndLoginUser(['email' => 'stale-link@test.local']);
+        $other = UserFactory::createOne(['email' => 'somebody-else@test.local'])->object();
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $this->getJson('/api/users/' . $other->getId());
+            self::assertResponseStatusCodeSame(403);
+        }
+
+        // Recorded in full, as an ordinary refusal.
+        $record = $this->assertLoggedSecurityEvent(SecurityAuditLogger::AUTHORIZATION_DENIED);
+        self::assertFalse($record->context['admin_surface']);
+        self::assertCount(3, $this->securityRecords(SecurityAuditLogger::AUTHORIZATION_DENIED));
+
+        // Nothing here claims an administrator surface was probed. Both
+        // thresholds happen to be three in the test environment — in production
+        // the ordinary one is ten — so what separates the two paths is the event
+        // that gets escalated, not the count that escalates it.
+        $this->assertNoSecurityEvent(SecurityAuditLogger::ADMIN_ACCESS_DENIED);
+        self::assertSame([], $this->alertsAbout(SecurityAuditLogger::ADMIN_ACCESS_DENIED));
+    }
+
     public function testAPasswordChangeIsAuditedWithoutTheValueOrTheHash(): void
     {
         $admin = $this->createAndLoginAdmin(['email' => 'operator@test.local']);

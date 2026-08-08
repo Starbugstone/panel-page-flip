@@ -108,13 +108,13 @@ class SecurityAlertService
             return false;
         }
 
-        $claimed = $this->serialised($event, $scope ?? 'global', fn (): bool => $this->claimCooldown($event, $scope));
+        $claim = $this->serialised($event, $scope ?? 'global', fn (): ?string => $this->claimCooldown($event, $scope));
 
-        if (!$claimed) {
+        if ($claim === null) {
             return false;
         }
 
-        return $this->deliver($event, $severity, $context, $count, $scope);
+        return $this->deliver($event, $severity, $context, $count, $scope, $claim);
     }
 
     /**
@@ -143,7 +143,7 @@ class SecurityAlertService
             $count = $this->increment($event, $scope);
 
             if ($count < $threshold) {
-                return ['crossed' => false, 'count' => $count, 'claimed' => false];
+                return ['crossed' => false, 'count' => $count, 'claim' => null];
             }
 
             $this->resetCount($event, $scope);
@@ -151,7 +151,7 @@ class SecurityAlertService
             return [
                 'crossed' => true,
                 'count' => $count,
-                'claimed' => $this->enabled && $this->claimCooldown($event, $scope),
+                'claim' => $this->enabled ? $this->claimCooldown($event, $scope) : null,
             ];
         });
 
@@ -169,11 +169,11 @@ class SecurityAlertService
             return false;
         }
 
-        if (!$decision['claimed']) {
+        if ($decision['claim'] === null) {
             return false;
         }
 
-        return $this->deliver($event, $severity, $context, $decision['count'], $scope);
+        return $this->deliver($event, $severity, $context, $decision['count'], $scope, $decision['claim']);
     }
 
     /**
@@ -191,14 +191,24 @@ class SecurityAlertService
      * was reset on the way in — which is the right amount of back-pressure
      * against a mail server that is genuinely gone.
      *
+     * Only ever this caller's own claim. Sending happens outside the lock, and a
+     * transport that hangs can outlive the window it claimed: by the time it
+     * fails, the claim has expired and another request may hold a fresh one. A
+     * blind delete would take that one with it and let the very next occurrence
+     * send a duplicate — the failure this cooldown exists to prevent.
+     *
      * @param array<string, mixed> $context
      */
-    private function deliver(string $event, string $severity, array $context, int $count, ?string $scope): bool
+    private function deliver(string $event, string $severity, array $context, int $count, ?string $scope, string $claim): bool
     {
         $sent = $this->send($event, $severity, $context, $count);
 
         if (!$sent) {
-            $this->releaseCooldown($event, $scope);
+            $this->serialised(
+                $event,
+                $scope ?? 'global',
+                fn () => $this->releaseCooldown($event, $scope, $claim)
+            );
         }
 
         return $sent;
@@ -241,19 +251,26 @@ class SecurityAlertService
     /**
      * Take the cooldown for this event class, or report that somebody already
      * has it.
+     *
+     * The stored value is a token identifying this claim rather than the time it
+     * was taken, so a later release can tell its own claim from a newer one that
+     * replaced it. Nothing reads the timestamp back — the expiry does that work.
+     *
+     * @return string|null the claim token, or null if somebody else holds it
      */
-    private function claimCooldown(string $event, ?string $scope): bool
+    private function claimCooldown(string $event, ?string $scope): ?string
     {
         $item = $this->securityAlertCache->getItem($this->key('cooldown', $event, $scope ?? 'global'));
 
         if ($item->isHit()) {
-            return false;
+            return null;
         }
 
-        $item->set((new \DateTimeImmutable())->format(DATE_ATOM))->expiresAfter($this->windowSeconds());
+        $claim = bin2hex(random_bytes(8));
+        $item->set($claim)->expiresAfter($this->windowSeconds());
         $this->securityAlertCache->save($item);
 
-        return true;
+        return $claim;
     }
 
     /**
@@ -280,9 +297,23 @@ class SecurityAlertService
         return $count;
     }
 
-    private function releaseCooldown(string $event, ?string $scope): void
+    /**
+     * Give back a cooldown, but only if it is still the one that was claimed.
+     *
+     * Compare-and-delete rather than delete: see {@see deliver()}. Callers run
+     * this inside {@see serialised()} so the read and the delete cannot
+     * interleave with another request's claim.
+     */
+    private function releaseCooldown(string $event, ?string $scope, string $claim): void
     {
-        $this->securityAlertCache->deleteItem($this->key('cooldown', $event, $scope ?? 'global'));
+        $key = $this->key('cooldown', $event, $scope ?? 'global');
+        $item = $this->securityAlertCache->getItem($key);
+
+        if (!$item->isHit() || $item->get() !== $claim) {
+            return;
+        }
+
+        $this->securityAlertCache->deleteItem($key);
     }
 
     private function resetCount(string $event, string $scope): void

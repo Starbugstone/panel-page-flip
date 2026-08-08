@@ -103,18 +103,40 @@ final class AccessDeniedLogSubscriber implements EventSubscriberInterface
      * before routing has no route — and a probe that never resolves to a
      * controller is exactly the kind worth counting.
      *
-     * Prefixes rather than an enumeration of the endpoints that exist today.
-     * Every route under these two is an administrator's, apart from a user
-     * editing their own record — and a 403 on that one means they aimed at
-     * somebody else's, which is the thing being counted. A pattern that listed
-     * the paths would quietly demote each new sub-route to the ordinary
-     * threshold until somebody remembered to add it.
+     * A prefix for `/api/admin`, rather than an enumeration of the endpoints
+     * that exist today: a pattern listing them would quietly demote each new
+     * sub-route to the ordinary threshold until somebody remembered to add it.
+     *
+     * `/api/users` cannot be a prefix, because it is three surfaces wearing one
+     * path. The collection is administrators-only — listing accounts and
+     * creating one both refuse anybody else. So is every sub-route of an
+     * account, such as marking one verified. The account itself is not: every
+     * user may read and update their own record.
+     *
+     * That middle case is why the whole prefix cannot take the tighter count. A
+     * 403 on `/api/users/{someoneElse}` means an ordinary user aimed at another
+     * account, which a stale link or a bookmark kept after a demotion explains
+     * just as well as probing does. On the admin threshold of three, that would
+     * raise a high-severity "administrator probing" alert naming them. It is
+     * still recorded and still counted — on the ordinary authorization
+     * threshold, where one-off refusals belong.
      */
     private function isAdminSurface(Request $request): bool
     {
         $path = $request->getPathInfo();
 
-        return str_starts_with($path, '/api/admin')
-            || str_starts_with($path, '/api/users');
+        if (str_starts_with($path, '/api/admin')) {
+            return true;
+        }
+
+        if ($path !== '/api/users' && !str_starts_with($path, '/api/users/')) {
+            return false;
+        }
+
+        // '' is the collection, 'id' is somebody's own record, and 'id/anything'
+        // is an administrator's action on it.
+        $remainder = trim(substr($path, strlen('/api/users')), '/');
+
+        return $remainder === '' || str_contains($remainder, '/');
     }
 }

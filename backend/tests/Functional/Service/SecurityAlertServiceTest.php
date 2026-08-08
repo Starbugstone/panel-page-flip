@@ -8,6 +8,7 @@ use App\Service\SecurityAlertService;
 use App\Service\SecurityAuditLogger;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Support\FailingMailer;
+use App\Tests\Support\InterferingMailer;
 use App\Tests\Support\RecordingMailer;
 use Monolog\Handler\TestHandler;
 use Monolog\Logger;
@@ -220,6 +221,43 @@ final class SecurityAlertServiceTest extends KernelTestCase
         // works once something actually got out.
         self::assertFalse($working->alert('security.admin_role.changed', SecurityAlertService::SEVERITY_CRITICAL));
         self::assertCount(1, $mailer->messages);
+    }
+
+    /**
+     * Giving the cooldown back must only ever give back your own.
+     *
+     * Sending happens outside the lock, so a transport that hangs can outlive
+     * the window it claimed. By the time it fails, another request may hold a
+     * fresh claim and have already sent under it. Deleting blindly would take
+     * that claim with it and let the very next occurrence send a duplicate —
+     * which is the failure the cooldown exists to prevent.
+     */
+    public function testAStaleFailedSendDoesNotReleaseSomebodyElsesCooldown(): void
+    {
+        $cache = new ArrayAdapter();
+        $recording = new RecordingMailer();
+        $second = $this->service($recording, cache: $cache);
+
+        // While the first send is blocked: its window elapses (the cache loses
+        // the claim) and a second request claims a fresh one and gets a message
+        // out under it.
+        $stalled = $this->service(
+            new InterferingMailer(function () use ($cache, $second): void {
+                $cache->clear();
+                self::assertTrue(
+                    $second->alert('security.admin_role.changed', SecurityAlertService::SEVERITY_CRITICAL)
+                );
+            }),
+            cache: $cache
+        );
+
+        self::assertFalse($stalled->alert('security.admin_role.changed', SecurityAlertService::SEVERITY_CRITICAL));
+        self::assertCount(1, $recording->messages);
+
+        // The second request's cooldown survived the first one's release, so
+        // this is still throttled rather than sending a duplicate.
+        self::assertFalse($second->alert('security.admin_role.changed', SecurityAlertService::SEVERITY_CRITICAL));
+        self::assertCount(1, $recording->messages);
     }
 
     public function testNoConfiguredRecipientsAndNoAdministratorsIsReportedRatherThanIgnored(): void
