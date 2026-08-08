@@ -35,8 +35,20 @@ import { validatePassword } from "@/lib/password-policy";
  * promotion is a role change like any other and belongs in the account form
  * below, not on a single click in a table row.
  */
+/**
+ * Remounted per account.
+ *
+ * Navigating from one user to another has to start from nothing: leaving the
+ * previous account's name and roles in the form while the next one loads means
+ * Save would post them to the new user's id. Clearing each piece of state in an
+ * effect would do it a render too late; a new instance has nothing to clear.
+ */
 export default function AdminUserDetails() {
   const { userId } = useParams();
+  return <AdminUserDetailsPage key={userId} userId={userId} />;
+}
+
+function AdminUserDetailsPage({ userId }) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user: currentUser } = useAuth();

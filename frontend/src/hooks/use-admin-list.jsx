@@ -127,15 +127,18 @@ export function useAdminList({
   // would otherwise land on page 3 of the filtered results, which is usually
   // empty. Same reasoning as the search and page-size resets above.
   //
-  // Corrected while rendering rather than in an effect. The page in the URL is
-  // wrong the moment the filter changes, and an effect would let one render go
-  // out asking the server for it first. React re-runs this render before
-  // committing anything, which is exactly the intent.
-  const [pagedFilter, setPagedFilter] = useState(filterQuery);
-  if (pagedFilter !== filterQuery) {
-    setPagedFilter(filterQuery);
+  // In an effect, not during render. setPage writes to the URL through
+  // setSearchParams when this list is URL-backed, and updating the router while
+  // rendering updates a different component mid-render - React warns, and the
+  // navigation lands in an undefined order. Adjusting state during render is
+  // only safe for state this component owns, which the query string is not.
+  const lastFilterQuery = useRef(filterQuery);
+  useEffect(() => {
+    if (lastFilterQuery.current === filterQuery) return;
+    lastFilterQuery.current = filterQuery;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see above: a router update during render is worse
     if (params.page !== 1) setPage(1);
-  }
+  }, [filterQuery, params.page, setPage]);
 
   // Identifies the request these parameters describe, so a render can tell
   // whether the data on screen is the answer to the current question.

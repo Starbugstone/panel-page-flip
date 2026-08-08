@@ -23,7 +23,10 @@ export default function EmailVerification() {
   // fresh result is not masked by a stale override.
   const params = new URLSearchParams(location.search);
   const urlStatus = params.get("status") || "";
-  const urlMessage = params.get("message") ? decodeURIComponent(params.get("message")) : "";
+  // Not decoded again: URLSearchParams.get has already done it, and a second
+  // pass throws URIError on a literal % — during render, so the page would not
+  // mount at all.
+  const urlMessage = params.get("message") ?? "";
 
   const [resendResult, setResendResult] = useState(null);
   const [typedEmail, setTypedEmail] = useState(null);

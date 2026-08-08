@@ -110,42 +110,45 @@ export function useSharing() {
  * than keeping two views of the same records in step.
  */
 export function useSharingLists() {
-  const [sharedByMe, setSharedByMe] = useState([]);
-  const [sharedWithMe, setSharedWithMe] = useState([]);
-  // "Has an answer arrived" rather than "is a request outstanding": the second
-  // has to be set true before every request and false after every outcome, and
-  // the first render happens before any of that.
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState(null);
-  const { isAuthenticated } = useAuth();
+  // One piece of state for the whole answer, tagged with the account it belongs
+  // to. Loading and the lists then follow from it, so signing out and back in
+  // cannot leave the previous session's shares on screen with nothing marked as
+  // loading — the tag simply stops matching.
+  const [result, setResult] = useState(null);
+  const { isAuthenticated, user } = useAuth();
   const { refreshSummary } = useSharing();
 
   const reload = useCallback(async () => {
     if (!isAuthenticated) {
-      setSharedByMe([]);
-      setSharedWithMe([]);
-      setLoaded(true);
+      setResult({ forUser: user, byMe: EMPTY_LIST, withMe: EMPTY_LIST, error: null });
       return;
     }
 
-    setError(null);
     try {
       const [byMe, withMe] = await Promise.all([
         api.get('/api/shares/shared-by-me'),
         api.get('/api/shares/shared-with-me'),
       ]);
-      setSharedByMe(byMe.sharedByMe || []);
-      setSharedWithMe(withMe.sharedWithMe || []);
+      setResult({
+        forUser: user,
+        byMe: byMe.sharedByMe || [],
+        withMe: withMe.sharedWithMe || [],
+        error: null,
+      });
     } catch (err) {
       logger.error('Failed to load sharing lists:', err);
-      setError(err.message || 'Could not load your shared comics.');
+      setResult({
+        forUser: user,
+        byMe: EMPTY_LIST,
+        withMe: EMPTY_LIST,
+        error: err.message || 'Could not load your shared comics.',
+      });
     } finally {
-      setLoaded(true);
       // The counts come from the same records, so refreshing them here keeps
       // the badge honest without another round of coordination.
       refreshSummary();
     }
-  }, [isAuthenticated, refreshSummary]);
+  }, [isAuthenticated, refreshSummary, user]);
 
   // As above: reload is for the page's own actions, the mount path asks
   // directly so nothing is set before the request exists.
@@ -159,33 +162,36 @@ export function useSharingLists() {
     ])
       .then(([byMe, withMe]) => {
         if (ignore) return;
-        setSharedByMe(byMe.sharedByMe || []);
-        setSharedWithMe(withMe.sharedWithMe || []);
-        setError(null);
+        setResult({
+          forUser: user,
+          byMe: byMe.sharedByMe || [],
+          withMe: withMe.sharedWithMe || [],
+          error: null,
+        });
       })
       .catch((err) => {
         if (ignore) return;
         logger.error('Failed to load sharing lists:', err);
-        setError(err.message || 'Could not load your shared comics.');
+        setResult({
+          forUser: user,
+          byMe: EMPTY_LIST,
+          withMe: EMPTY_LIST,
+          error: err.message || 'Could not load your shared comics.',
+        });
       })
-      .finally(() => {
-        if (ignore) return;
-        setLoaded(true);
-        refreshSummary();
-      });
+      .finally(() => { if (!ignore) refreshSummary(); });
 
     return () => { ignore = true; };
-  }, [isAuthenticated, refreshSummary]);
+  }, [isAuthenticated, refreshSummary, user]);
 
-  // Nothing to wait for when signed out, and the lists are empty regardless of
-  // what the previous session left behind.
-  const isLoading = isAuthenticated && !loaded;
+  // Only an answer belonging to the account that is signed in now counts.
+  const current = result?.forUser === user ? result : null;
 
   return {
-    sharedByMe: isAuthenticated ? sharedByMe : EMPTY_LIST,
-    sharedWithMe: isAuthenticated ? sharedWithMe : EMPTY_LIST,
-    isLoading,
-    error,
+    sharedByMe: current?.byMe ?? EMPTY_LIST,
+    sharedWithMe: current?.withMe ?? EMPTY_LIST,
+    isLoading: isAuthenticated && current === null,
+    error: current?.error ?? null,
     reload,
   };
 }

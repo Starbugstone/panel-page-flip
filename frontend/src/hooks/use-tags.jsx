@@ -20,6 +20,11 @@ export function TagProvider({ children }) {
   const lastFetchedAdminContextRef = useRef(null);
   const { user } = useAuth();
   const { toast } = useToast();
+  // Who is signed in *now*, readable from an async callback that closed over an
+  // earlier value. Written after commit rather than during render, which is
+  // what a ref is allowed to do.
+  const userRef = useRef(user);
+  useEffect(() => { userRef.current = user; }, [user]);
 
   // Function to fetch all tags
   const fetchTags = useCallback(async (force = false, isAdminContext = false) => {
@@ -41,6 +46,10 @@ export function TagProvider({ children }) {
       return tagsRef.current;
     }
 
+    // Only the session that asked may answer. Without this a slow response for
+    // the previous account lands after another user has signed in and shows
+    // them tags that were never theirs.
+    const requestedFor = user;
     setIsLoading(true);
     try {
       // Only pass adminContext when we're explicitly in the admin section
@@ -51,6 +60,8 @@ export function TagProvider({ children }) {
       const data = await api.get(url);
       const fetchedTags = data.tags || [];
       
+      if (requestedFor !== userRef.current) return [];
+
       const fetchedAt = Date.now();
       tagsRef.current = fetchedTags;
       lastFetchedRef.current = fetchedAt;

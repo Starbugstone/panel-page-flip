@@ -61,8 +61,18 @@ final class Version20250110000000 extends AbstractMigration
         ) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB');
     }
 
+    /**
+     * Deliberately does nothing.
+     *
+     * up() adopts an existing deployment_history rather than failing on it, and
+     * nothing here can tell an adopted table from one this migration created.
+     * Dropping on the way down would therefore delete deployment history that
+     * predates this migration entirely - irreversibly, for a table no code
+     * reads. Rolling past this version leaves it in place; drop it by hand if
+     * it is genuinely unwanted.
+     */
     public function down(Schema $schema): void
     {
-        $this->addSql('DROP TABLE IF EXISTS deployment_history');
+        $this->write('deployment_history is left in place: this migration may have adopted it.');
     }
 }

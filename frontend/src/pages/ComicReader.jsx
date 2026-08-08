@@ -400,6 +400,11 @@ export default function ComicReader() {
     const cachedImage = imageCache[currentPage];
     
     let queueTimer;
+    // The promise below can resolve after this effect has been cleaned up, and
+    // the cleanup can only clear a timer that already exists. Without this flag
+    // every page turn during a load leaves a timer behind that fires against a
+    // page the reader has moved on from.
+    let cancelled = false;
     if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
       // Already cached, so the render above is already showing it. Fill in the
       // pages around it once the current one has settled.
@@ -409,7 +414,7 @@ export default function ComicReader() {
       // page in it is the whole job - there is no separate flag to raise.
       loadPageIntoCache(currentPage)
         .then(() => {
-          if (currentPageRef.current !== currentPage) return;
+          if (cancelled || currentPageRef.current !== currentPage) return;
           queueTimer = setTimeout(() => { queuePagesToLoad(); }, 100);
         })
         .catch(() => {/* the cache records the failure; see above */});
@@ -421,6 +426,7 @@ export default function ComicReader() {
     }, 2000); // Delay cleanup to avoid unnecessary operations
 
     return () => {
+      cancelled = true;
       clearTimeout(cleanupTimer);
       clearTimeout(queueTimer);
     };
@@ -541,6 +547,16 @@ export default function ComicReader() {
       logger.error("Failed to reload image");
       delete loadingPagesRef.current[pageToReload];
       failForcedLoad();
+      // Record the failure, because the reload deleted the cache entry and what
+      // the view shows is read from it: without this the page is indistinguish-
+      // able from one still on its way and the spinner never comes down. Only
+      // when nothing better has arrived in the meantime, though — the plain URL
+      // may have been fetched successfully while this busted one failed.
+      setImageCache(prev => (
+        prev[pageToReload] && prev[pageToReload] !== 'loading'
+          ? prev
+          : { ...prev, [pageToReload]: 'failed' }
+      ));
       if (currentPageRef.current !== pageToReload) return;
 
       toast({

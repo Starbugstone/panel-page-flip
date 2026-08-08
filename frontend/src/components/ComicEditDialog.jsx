@@ -27,7 +27,16 @@ import { EXPLICIT_FLAG_DESCRIPTION, EXPLICIT_FLAG_LABEL } from "@/lib/sharing.js
  * component: a caller cannot forget it and get another comic's draft.
  */
 export function ComicEditDialog({ comic, ...props }) {
-  return <ComicEditDialogForm key={comic?.id ?? "none"} comic={comic} {...props} />;
+  // Keyed on the opening, not just the comic: the dialog stays mounted while it
+  // is closed, so a cancelled edit of a comic would otherwise still be sitting
+  // in the fields the next time that same comic was opened.
+  return (
+    <ComicEditDialogForm
+      key={`${comic?.id ?? "none"}:${props.isOpen ? "open" : "closed"}`}
+      comic={comic}
+      {...props}
+    />
+  );
 }
 
 function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
