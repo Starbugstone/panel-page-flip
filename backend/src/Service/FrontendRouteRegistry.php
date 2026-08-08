@@ -17,7 +17,17 @@ final class FrontendRouteRegistry
 
     public function __construct(#[Autowire('%kernel.project_dir%/config/frontend-routes.json')] string $manifestPath)
     {
-        $manifest = json_decode((string) file_get_contents($manifestPath), true, flags: JSON_THROW_ON_ERROR);
+        $raw = is_readable($manifestPath) ? file_get_contents($manifestPath) : false;
+        if ($raw === false) {
+            throw new \RuntimeException(sprintf('Frontend route manifest not readable: %s', $manifestPath));
+        }
+
+        try {
+            $manifest = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new \RuntimeException(sprintf('Invalid frontend route manifest: %s', $manifestPath), 0, $e);
+        }
+
         $this->indexable = $manifest['indexable'] ?? [];
         $this->noindex = $manifest['noindex'] ?? [];
         $this->noindexPatterns = $manifest['noindexPatterns'] ?? [];

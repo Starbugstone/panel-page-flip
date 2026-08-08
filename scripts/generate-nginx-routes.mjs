@@ -10,7 +10,15 @@ const argument = (name) => {
   const index = process.argv.indexOf(name);
   return index === -1 ? null : process.argv[index + 1];
 };
-const manifestPath = resolve(argument("--manifest") || `${repoRoot}/backend/config/frontend-routes.json`);
+const manifestPath = resolve(
+  argument("--manifest")
+  || process.env.FRONTEND_ROUTES_FILE
+  || `${repoRoot}/backend/config/frontend-routes.json`,
+);
+const indexHtmlPath = resolve(
+  argument("--index-html")
+  || `${repoRoot}/frontend/index.html`,
+);
 const outputPath = argument("--output") ? resolve(argument("--output")) : null;
 const configuredAppUrl = new URL(process.env.APP_URL || "http://localhost:8080");
 if (
@@ -55,25 +63,42 @@ const noindexAlternation = [exactAlternation(noindex), ...patterns.map(stripAnch
   .filter(Boolean)
   .join("|");
 
+const canonicalSource = `<link rel="canonical" href="${appUrl}/" />`;
+const openGraphSource = `<meta property="og:url" content="${appUrl}/" />`;
+const indexHtml = readFileSync(indexHtmlPath, "utf8").replaceAll("__APP_URL__", appUrl);
+for (const source of [canonicalSource, openGraphSource]) {
+  if (!indexHtml.includes(source)) {
+    throw new Error(
+      `sub_filter source not found in ${indexHtmlPath}: ${source}. `
+      + "Update frontend/index.html or this generator so they stay in sync.",
+    );
+  }
+}
+
+const indexableLocations = indexable.filter((path) => path !== "/").map((path) => `location = ${path} {
+    sub_filter_once off;
+    sub_filter '${canonicalSource}' '<link rel="canonical" href="${appUrl}${path}" />';
+    sub_filter '${openGraphSource}' '<meta property="og:url" content="${appUrl}${path}" />';
+    try_files /index.html =404;
+}`).join("\n\n");
+
+const noindexBlock = noindexAlternation
+  ? `location ~ "^/(?:${noindexAlternation})$" {
+    include /etc/nginx/snippets/security-headers.conf;
+    add_header X-Robots-Tag "noindex, follow" always;
+    try_files /index.html =404;
+}
+`
+  : "";
+
 const output = `# Generated from backend/config/frontend-routes.json.
 # Do not maintain a second route list here; rebuild the image after editing the manifest.
 location = / {
     try_files /index.html =404;
 }
 
-${indexable.filter((path) => path !== "/").map((path) => `location = ${path} {
-    sub_filter_once off;
-    sub_filter '<link rel="canonical" href="${appUrl}/" />' '<link rel="canonical" href="${appUrl}${path}" />';
-    sub_filter '<meta property="og:url" content="${appUrl}/" />' '<meta property="og:url" content="${appUrl}${path}" />';
-    try_files /index.html =404;
-}`).join("\n\n")}
-
-location ~ ^/(?:${noindexAlternation})$ {
-    include /etc/nginx/snippets/security-headers.conf;
-    add_header X-Robots-Tag "noindex, follow" always;
-    try_files /index.html =404;
-}
-`;
+${indexableLocations}
+${indexableLocations && noindexBlock ? "\n" : ""}${noindexBlock}`;
 
 if (outputPath) {
   writeFileSync(outputPath, output);

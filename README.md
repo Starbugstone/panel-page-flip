@@ -81,7 +81,12 @@ Add `-v` only when you intentionally want to delete the local MySQL volume.
 
 Docker service names, versions, ports, and development database credentials are configured in the root `.env`. Symfony defaults are in `backend/.env` and `backend/.env.dev`.
 
-Use the gitignored `backend/.env.local` for machine-specific values and secrets:
+Keep `APP_URL` the same in both places that consume it:
+
+1. Root `.env` — used by Docker Compose, the Vite/SEO build, and nginx image builds
+2. `backend/.env.local` (gitignored) — used by Symfony for email/OAuth absolute URLs
+
+Use `backend/.env.local` for machine-specific values and secrets:
 
 ```dotenv
 APP_SECRET=replace-with-a-random-value
@@ -91,6 +96,8 @@ MAILER_DSN=smtp://mailpit:1025
 APP_URL=http://localhost:8080
 ```
 
+If you change the public origin, update root `.env` and `backend/.env.local` together so backend links and frontend SEO metadata stay aligned.
+
 Generate suitable local secrets with `openssl rand -hex 32` for `APP_SECRET` and `openssl rand -base64 32` for `APP_DATA_KEY`.
 
 Important configuration variables:
@@ -98,7 +105,7 @@ Important configuration variables:
 - `APP_SECRET` — Symfony application secret
 - `APP_DATA_KEY` — encrypts persisted integration credentials; do not rotate it without migrating existing data
 - `DATABASE_URL` — Doctrine connection string
-- `APP_URL` — the one public same-origin URL used in email/OAuth links and generated SEO metadata
+- `APP_URL` — the one public same-origin URL used in email/OAuth links and generated SEO metadata (set in root `.env` and `backend/.env.local`)
 - `CORS_ALLOW_ORIGIN` — allowed browser origins
 - `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
 - `PRIVACY_OPERATOR`, `PRIVACY_EMAIL` — public data-controller name and privacy contact

@@ -32,7 +32,9 @@ function LegalLayout({ title, children }) {
     const openGraphUrl = document.querySelector('meta[property="og:url"]');
     const previousCanonical = canonical?.getAttribute("href");
     const previousOpenGraphUrl = openGraphUrl?.getAttribute("content");
-    const pageUrl = `${window.location.origin}${window.location.pathname}`;
+    const configuredOrigin = (import.meta.env.VITE_APP_URL || window.location.origin).replace(/\/$/, "");
+    const path = window.location.pathname.replace(/\/+$/, "") || "/";
+    const pageUrl = `${configuredOrigin}${path === "/" ? "/" : path}`;
 
     document.title = `${title} | Panel Page Flip`;
     canonical?.setAttribute("href", pageUrl);

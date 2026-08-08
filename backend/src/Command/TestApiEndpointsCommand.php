@@ -5,6 +5,7 @@ namespace App\Command;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -18,31 +19,14 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
  * 2. Attempts to log in using the credentials of the newly registered user.
  * 3. Attempts to log in using incorrect credentials for the newly registered user.
  *
- * It provides a rudimentary way to check if the core authentication-related API endpoints
- * are functioning as expected. It uses the Symfony HTTP Client to make requests.
+ * Probe URLs (HTTP requests from this CLI process) use, in order:
+ *   --base-url → APP_INTERNAL_URL → APP_URL (via UrlGenerator ABSOLUTE_URL).
+ * Keep APP_URL as the public origin for emails/OAuth. Inside Docker Compose,
+ * APP_INTERNAL_URL=http://nginx so the PHP container can reach the web server.
  *
- * Usage Examples:
- * --------------
- *
- * 1. Running via Docker (from your project's root directory where docker-compose.yml is):
- *    docker exec panel-page-flip_php php bin/console app:test-api-endpoints
- *
- *    Replace `panel-page-flip_php` with the actual name of your PHP service container if different.
- *
- * 2. Running locally (if you have PHP and Composer installed directly on your machine and are in the `backend` directory):
- *    php bin/console app:test-api-endpoints
- *
- *    Ensure APP_URL is configured so the command can generate correct
- *    absolute URLs to your application.
- *    The application's web server should be running and accessible at the configured address (e.g., http://localhost:8000 or http://localhost:80 if run inside docker targeting itself).
- *
- * Important Considerations:
- * - This command makes live HTTP requests to your application. Ensure your application (web server) is running.
- * - It generates a unique email for each run to avoid conflicts with existing users during registration tests.
- * - The command relies on the correct setup of `APP_URL` in your .env file
- *   (or equivalent Symfony configuration) for the `UrlGeneratorInterface` to build correct absolute URLs,
- *   especially when run from the CLI.
- * - The output will indicate the success or failure of each test step and show response status codes and content.
+ * Usage:
+ *   docker compose exec php php bin/console app:test-api-endpoints
+ *   php bin/console app:test-api-endpoints --base-url=http://127.0.0.1:8080
  */
 #[AsCommand(
     name: 'app:test-api-endpoints',
@@ -60,6 +44,16 @@ class TestApiEndpointsCommand extends Command
         $this->urlGenerator = $urlGenerator;
     }
 
+    protected function configure(): void
+    {
+        $this->addOption(
+            'base-url',
+            null,
+            InputOption::VALUE_REQUIRED,
+            'Base URL for live HTTP probes (overrides APP_INTERNAL_URL / APP_URL)'
+        );
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
@@ -70,7 +64,7 @@ class TestApiEndpointsCommand extends Command
 
         // 1. Test Registration
         $io->writeln('Attempting to register new user: ' . $testUserEmail);
-        $registerUrl = $this->urlGenerator->generate('api_register', [], UrlGeneratorInterface::ABSOLUTE_URL);
+        $registerUrl = $this->probeUrl('api_register', $input->getOption('base-url'));
         $io->writeln('[DEBUG] Generated registration URL: ' . $registerUrl);
         
         try {
@@ -157,5 +151,21 @@ class TestApiEndpointsCommand extends Command
 
         $io->section('API Endpoint Tests Completed.');
         return Command::SUCCESS;
+    }
+
+    private function probeUrl(string $route, ?string $baseUrlOverride): string
+    {
+        $base = $baseUrlOverride
+            ?: (getenv('APP_INTERNAL_URL') ?: '')
+            ?: '';
+
+        if ($base !== '') {
+            return rtrim($base, '/').'/'.ltrim(
+                $this->urlGenerator->generate($route, [], UrlGeneratorInterface::ABSOLUTE_PATH),
+                '/'
+            );
+        }
+
+        return $this->urlGenerator->generate($route, [], UrlGeneratorInterface::ABSOLUTE_URL);
     }
 }

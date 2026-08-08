@@ -54,9 +54,11 @@ class FrontendController extends AbstractController
             ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
+        // Match on identifying attributes so attribute order / self-closing
+        // style changes in index.html do not silently leave stale URLs.
         $canonicalCount = 0;
         $content = preg_replace(
-            '#<link rel="canonical" href="[^"]*"\s*/>#',
+            '#<link\b[^>]*\brel=["\']canonical["\'][^>]*/?>#i',
             '<link rel="canonical" href="'.$canonicalUrl.'" />',
             $content,
             1,
@@ -64,7 +66,7 @@ class FrontendController extends AbstractController
         ) ?? $content;
         $openGraphCount = 0;
         $content = preg_replace(
-            '#<meta property="og:url" content="[^"]*"\s*/>#',
+            '#<meta\b[^>]*\bproperty=["\']og:url["\'][^>]*/?>#i',
             '<meta property="og:url" content="'.$canonicalUrl.'" />',
             $content,
             1,

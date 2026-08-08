@@ -266,7 +266,11 @@ export function AdminTagsList({ creatorId, embedded = false }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Tag</DialogTitle>
-            <DialogDescription>Change this tag's name and default library visibility.</DialogDescription>
+            <DialogDescription>
+              {currentTag?.isGlobal
+                ? "Change this tag's name and default library visibility."
+                : "Change this tag's name."}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <Input

@@ -442,14 +442,10 @@ services:
             $dropboxAppKey: '%env(DROPBOX_APP_KEY)%'
             $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
             $dropboxRedirectUri: '%env(DROPBOX_REDIRECT_URI)%'
-            $publicUrl: '@App\Service\PublicUrl'
-            $comicsDirectory: '%comics_directory%'
-            $dropboxAppFolder: '%dropbox_app_folder%'
+            $dropboxSyncLimit: '%dropbox_sync_limit%'
 
     App\Command\DropboxSyncCommand:
         arguments:
-            $comicsDirectory: '%comics_directory%'
-            $dropboxAppFolder: '%dropbox_app_folder%'
             $defaultSyncLimit: '%dropbox_sync_limit%'
 ```
 

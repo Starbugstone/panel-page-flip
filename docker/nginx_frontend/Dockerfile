@@ -12,7 +12,11 @@ ENV FRONTEND_ROUTES_FILE=/backend/config/frontend-routes.json
 
 COPY scripts/generate-nginx-routes.mjs /scripts/generate-nginx-routes.mjs
 COPY backend/config/frontend-routes.json /backend/config/frontend-routes.json
-RUN node /scripts/generate-nginx-routes.mjs --output /tmp/spa-routes.conf
+COPY frontend/index.html /frontend/index.html
+RUN node /scripts/generate-nginx-routes.mjs \
+      --manifest "$FRONTEND_ROUTES_FILE" \
+      --index-html /frontend/index.html \
+      --output /tmp/spa-routes.conf
 
 # Copy frontend's package.json and lock file to /app/
 COPY frontend/package.json frontend/package-lock.json* ./

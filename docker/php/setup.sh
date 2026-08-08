@@ -46,6 +46,9 @@ fi
 # the bind-mounted source checkout: doing so prevents the host user from
 # editing their own files after Docker starts.
 mkdir -p /var/www/html/var/cache /var/www/html/var/log /var/www/html/public/uploads
-chown -R www-data:www-data /var/www/html/var /var/www/html/public/uploads
+chown -R www-data:www-data \
+  /var/www/html/var/cache \
+  /var/www/html/var/log \
+  /var/www/html/public/uploads
 
 echo "Setup completed!"

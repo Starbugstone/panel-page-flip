@@ -57,6 +57,10 @@ export default defineConfig(({ mode }) => {
   const appUrl = normaliseAppUrl(process.env.APP_URL);
 
   return {
+  // Expose the same public origin the SEO build embeds in index.html / sitemap.
+  define: {
+    "import.meta.env.VITE_APP_URL": JSON.stringify(appUrl),
+  },
   server: {
     host: "0.0.0.0", // Ensure accessible within Docker, aligns with docker-compose command arg
     port: 3000, // Align with docker-compose.yml port mapping and README

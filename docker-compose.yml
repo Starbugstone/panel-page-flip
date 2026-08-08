@@ -19,6 +19,8 @@ services:
       - MYSQL_USER=${MYSQL_USER:-cbz_user}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-cbz_password}
       - MYSQL_DATABASE=${MYSQL_DATABASE:-cbz_reader}
+      # Reachable from inside the PHP container (APP_URL is the public/host URL).
+      - APP_INTERNAL_URL=http://nginx
     entrypoint: ["sh", "-c", "chmod +x /usr/local/bin/setup.sh && /usr/local/bin/setup.sh && php-fpm"]
     networks:
       - app_network
@@ -83,8 +85,9 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
     volumes:
       - ./frontend:/app
-      - ./scripts:/scripts:ro
+      - ./scripts/generate-nginx-routes.mjs:/scripts/generate-nginx-routes.mjs:ro
       - ./backend/config/frontend-routes.json:/backend/config/frontend-routes.json:ro
+      - ./frontend/index.html:/frontend/index.html:ro
       - /app/node_modules
     working_dir: /app
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --force"
