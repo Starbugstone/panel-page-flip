@@ -215,6 +215,7 @@ export default function Sharing() {
                         <Button
                           size="sm"
                           variant="ghost"
+                          aria-label={`Share another comic with ${recipient.recipientEmail}`}
                           onClick={() => setShareDialog({
                             recipient: recipient.recipientEmail,
                             comicIds: [],
