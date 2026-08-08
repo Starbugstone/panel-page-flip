@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const frontendDir = resolve(import.meta.dirname, "..");
-const routes = JSON.parse(readFileSync(resolve(frontendDir, "../backend/config/frontend-routes.json"), "utf8"));
+// Same resolution order as vite.config.js and scripts/generate-nginx-routes.mjs,
+// so a container that relocates the manifest only has to set it in one place.
+const routesFile = process.env.FRONTEND_ROUTES_FILE
+  || resolve(frontendDir, "../backend/config/frontend-routes.json");
+const routes = JSON.parse(readFileSync(routesFile, "utf8"));
 const index = readFileSync(resolve(frontendDir, "dist/index.html"), "utf8");
 const sitemap = readFileSync(resolve(frontendDir, "dist/sitemap.xml"), "utf8");
 const robots = readFileSync(resolve(frontendDir, "dist/robots.txt"), "utf8");

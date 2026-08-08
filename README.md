@@ -94,6 +94,8 @@ Only when running Symfony directly outside Docker, override `APP_URL` in `backen
 
 Generate suitable local secrets with `openssl rand -hex 32` for `APP_SECRET` and `openssl rand -base64 32` for `APP_DATA_KEY`.
 
+`backend/.env.example` documents every variable the application reads, with example values throughout. Use it as the reference when filling in `backend/.env.local` for development or `backend/.env.prod.local` for a bare-metal deployment.
+
 Important configuration variables:
 
 - `APP_SECRET` — Symfony application secret

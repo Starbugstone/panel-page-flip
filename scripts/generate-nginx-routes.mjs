@@ -91,6 +91,18 @@ const noindexBlock = noindexAlternation
 `
   : "";
 
+// Unknown URLs reach the SPA through `error_page 404 /index.html`, which is an
+// internal redirect and so re-enters location matching here. Without this block
+// they would inherit the server-level headers and come back indexable, while
+// Symfony (the Apache deployment) marks the same 404s noindex. The blocks above
+// serve /index.html as a file rather than a URI, so they are unaffected.
+const notFoundBlock = `location = /index.html {
+    include /etc/nginx/snippets/security-headers.conf;
+    add_header X-Robots-Tag "noindex, follow" always;
+    try_files /index.html =404;
+}
+`;
+
 const output = `# Generated from backend/config/frontend-routes.json.
 # Do not maintain a second route list here; rebuild the image after editing the manifest.
 location = / {
@@ -98,11 +110,18 @@ location = / {
 }
 
 ${indexableLocations}
-${indexableLocations && noindexBlock ? "\n" : ""}${noindexBlock}`;
+${indexableLocations ? "\n" : ""}${noindexBlock}${noindexBlock ? "\n" : ""}${notFoundBlock}`;
 
 if (outputPath) {
   writeFileSync(outputPath, output);
   console.log(`Generated ${outputPath}`);
+} else if (process.argv.includes("--check")) {
+  // Validation only. Discarding the config here rather than through a shell
+  // redirect keeps `npm run check:routes` working on Windows too.
+  console.log(
+    `Frontend route manifest is valid: ${indexable.length} indexable, `
+    + `${noindex.length} noindex, ${patterns.length} noindex patterns.`,
+  );
 } else {
   process.stdout.write(output);
 }

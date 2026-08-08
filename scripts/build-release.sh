@@ -150,6 +150,7 @@ if [ "$DO_FRONTEND" = "1" ]; then
             fi
             rm -rf dist
             npm run build
+            npm run check:seo
         '
     if [ ! -d "$REPO_ROOT/frontend/dist" ]; then
         fail "Frontend build did not produce frontend/dist/"

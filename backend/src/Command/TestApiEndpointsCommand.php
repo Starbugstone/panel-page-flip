@@ -163,9 +163,7 @@ class TestApiEndpointsCommand extends Command
 
     private function probeUrl(string $route, ?string $baseUrlOverride): string
     {
-        $base = $baseUrlOverride
-            ?: (getenv('APP_INTERNAL_URL') ?: '')
-            ?: '';
+        $base = $baseUrlOverride ?: $this->internalBaseUrl();
 
         if ($base !== '') {
             return rtrim($base, '/').'/'.ltrim(
@@ -175,5 +173,21 @@ class TestApiEndpointsCommand extends Command
         }
 
         return $this->urlGenerator->generate($route, [], UrlGeneratorInterface::ABSOLUTE_URL);
+    }
+
+    /**
+     * Symfony's Dotenv does not call putenv() by default, so a value coming from
+     * a .env file is only visible in $_SERVER / $_ENV. Real container variables
+     * (docker-compose) land in all three.
+     */
+    private function internalBaseUrl(): string
+    {
+        foreach ([$_SERVER['APP_INTERNAL_URL'] ?? null, $_ENV['APP_INTERNAL_URL'] ?? null, getenv('APP_INTERNAL_URL')] as $candidate) {
+            if (is_string($candidate) && $candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        return '';
     }
 }

@@ -39,6 +39,19 @@ class FrontendControllerTest extends WebTestCase
         self::assertStringContainsString('<div id="root">', (string) $client->getResponse()->getContent());
     }
 
+    public function testRegexMetacharactersInThePathAreNotExpandedIntoTheCanonical(): void
+    {
+        $client = static::createClient();
+        // A literal $0 in the path used to be expanded as a preg_replace
+        // backreference, splicing the matched <link> tag into its own href.
+        $client->request('GET', '/$0');
+
+        self::assertResponseStatusCodeSame(404);
+        $content = (string) $client->getResponse()->getContent();
+        self::assertStringContainsString('<link rel="canonical" href="http://localhost:8080/$0" />', $content);
+        self::assertStringNotContainsString('href="http://localhost:8080/<link', $content);
+    }
+
     public function knownRouteProvider(): iterable
     {
         yield 'public landing page' => ['/', true];

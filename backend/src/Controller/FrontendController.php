@@ -56,18 +56,23 @@ class FrontendController extends AbstractController
         );
         // Match on identifying attributes so attribute order / self-closing
         // style changes in index.html do not silently leave stale URLs.
+        // preg_replace_callback, not preg_replace: the URL carries the requested
+        // path, and a path such as /$0 would otherwise be expanded as a
+        // backreference and splice the matched tag into its own href.
+        $canonicalTag = '<link rel="canonical" href="'.$canonicalUrl.'" />';
+        $openGraphTag = '<meta property="og:url" content="'.$canonicalUrl.'" />';
         $canonicalCount = 0;
-        $content = preg_replace(
+        $content = preg_replace_callback(
             '#<link\b[^>]*\brel=["\']canonical["\'][^>]*/?>#i',
-            '<link rel="canonical" href="'.$canonicalUrl.'" />',
+            static fn (): string => $canonicalTag,
             $content,
             1,
             $canonicalCount
         ) ?? $content;
         $openGraphCount = 0;
-        $content = preg_replace(
+        $content = preg_replace_callback(
             '#<meta\b[^>]*\bproperty=["\']og:url["\'][^>]*/?>#i',
-            '<meta property="og:url" content="'.$canonicalUrl.'" />',
+            static fn (): string => $openGraphTag,
             $content,
             1,
             $openGraphCount
@@ -75,10 +80,10 @@ class FrontendController extends AbstractController
         if ($canonicalCount === 0 || $openGraphCount === 0) {
             $missingTags = [];
             if ($canonicalCount === 0) {
-                $missingTags[] = '<link rel="canonical" href="'.$canonicalUrl.'" />';
+                $missingTags[] = $canonicalTag;
             }
             if ($openGraphCount === 0) {
-                $missingTags[] = '<meta property="og:url" content="'.$canonicalUrl.'" />';
+                $missingTags[] = $openGraphTag;
             }
             $content = str_replace('</head>', "    ".implode("\n    ", $missingTags)."\n  </head>", $content);
         }

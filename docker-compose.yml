@@ -12,6 +12,13 @@ services:
     container_name: cbz_reader_php
     volumes:
       - ./backend:/var/www/html
+      # Symfony's cache is kept off the bind-mounted source tree. Rebuilding the
+      # container renames the old directory aside and removes it, and on a
+      # Windows or macOS bind mount that intermittently fails with "Directory
+      # not empty" — which surfaces as a random functional test erroring out in
+      # Kernel::initializeContainer() rather than as anything to do with the
+      # test. A container-local volume gives it ordinary filesystem semantics.
+      - php_cache:/var/www/html/var/cache
       - ./docker/php/setup.sh:/usr/local/bin/setup.sh
     depends_on:
       - database
@@ -87,7 +94,9 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
     volumes:
       - ./frontend:/app
-      - ./scripts:/scripts:ro
+      # Only the route generator, not all of scripts/: that directory can hold
+      # .env.deploy with production FTP/SSH secrets.
+      - ./scripts/generate-nginx-routes.mjs:/scripts/generate-nginx-routes.mjs:ro
       - ./backend/config/frontend-routes.json:/backend/config/frontend-routes.json:ro
       - /app/node_modules
     working_dir: /app
@@ -107,3 +116,4 @@ services:
 
 volumes:
   db_data:
+  php_cache:
