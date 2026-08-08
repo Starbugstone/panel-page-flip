@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,31 +20,39 @@ import { TagCombobox } from "@/components/TagCombobox";
 import { describeTagSubmission } from "@/lib/tag-suggestions.js";
 import { EXPLICIT_FLAG_DESCRIPTION, EXPLICIT_FLAG_LABEL } from "@/lib/sharing.js";
 
-export function ComicEditDialog({ comic, isOpen, onClose, onSave }) {
-  const [title, setTitle] = useState("");
-  const [author, setAuthor] = useState("");
-  const [publisher, setPublisher] = useState("");
-  const [description, setDescription] = useState("");
-  const [tags, setTags] = useState([]);
-  const [explicitContent, setExplicitContent] = useState(false);
+/**
+ * Editing a different comic means a different set of fields, so the form is
+ * remounted per comic rather than being reset field-by-field from an effect.
+ * Keying here rather than at the call sites keeps that guarantee with the
+ * component: a caller cannot forget it and get another comic's draft.
+ */
+export function ComicEditDialog({ comic, ...props }) {
+  // Keyed on the opening, not just the comic: the dialog stays mounted while it
+  // is closed, so a cancelled edit of a comic would otherwise still be sitting
+  // in the fields the next time that same comic was opened.
+  return (
+    <ComicEditDialogForm
+      key={`${comic?.id ?? "none"}:${props.isOpen ? "open" : "closed"}`}
+      comic={comic}
+      {...props}
+    />
+  );
+}
+
+function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
+  const [title, setTitle] = useState(comic?.title || "");
+  const [author, setAuthor] = useState(comic?.author || "");
+  const [publisher, setPublisher] = useState(comic?.publisher || "");
+  const [description, setDescription] = useState(comic?.description || "");
+  const [tags, setTags] = useState(comic?.tags || []);
+  // Taken from the comic like every other field, and never inferred from one:
+  // adding or removing a tag — including one that hides the comic from the
+  // library — must leave this exactly as the owner set it.
+  const [explicitContent, setExplicitContent] = useState(comic?.explicitContent === true);
   const [newTag, setNewTag] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const { tags: availableTags, addTagToCache } = useTags();
-
-  useEffect(() => {
-    if (comic) {
-      setTitle(comic.title || "");
-      setAuthor(comic.author || "");
-      setPublisher(comic.publisher || "");
-      setDescription(comic.description || "");
-      setTags(comic.tags || []);
-      // Restored from the comic like every other field, and never inferred from
-      // one: adding or removing a tag — including one that hides the comic from
-      // the library — must leave this exactly as the owner set it.
-      setExplicitContent(comic.explicitContent === true);
-    }
-  }, [comic]);
 
   // Resolves what is typed against the tags this user already has, so a
   // differently cased entry reuses the existing tag instead of adding a variant.

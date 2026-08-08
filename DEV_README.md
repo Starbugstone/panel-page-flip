@@ -242,7 +242,7 @@ permanent second copy the model exists to avoid.
    `ComicShare`, mints a token and emails the link — all one unit of work, so a
    send that fails rolls the invitation back rather than showing the owner a
    recipient who was never contacted
-3. The link is `{frontendUrl}/share/invitation/{token}` and is returned once in
+3. The link is `{appUrl}/share/invitation/{token}` and is returned once in
    the response for the owner to copy
 
 Sends and resends are limited per owner by the `share_invitation` rate limiter
@@ -452,14 +452,10 @@ services:
             $dropboxAppKey: '%env(DROPBOX_APP_KEY)%'
             $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
             $dropboxRedirectUri: '%env(DROPBOX_REDIRECT_URI)%'
-            $frontendBaseUrl: '%frontend_url%'
-            $comicsDirectory: '%comics_directory%'
-            $dropboxAppFolder: '%dropbox_app_folder%'
+            $dropboxSyncLimit: '%dropbox_sync_limit%'
 
     App\Command\DropboxSyncCommand:
         arguments:
-            $comicsDirectory: '%comics_directory%'
-            $dropboxAppFolder: '%dropbox_app_folder%'
             $defaultSyncLimit: '%dropbox_sync_limit%'
 ```
 

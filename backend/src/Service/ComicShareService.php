@@ -50,8 +50,7 @@ class ComicShareService
         private readonly LoggerInterface $logger,
         private readonly SecurityAuditLogger $auditLogger,
         private readonly RateLimiterFactory $shareInvitationLimiter,
-        #[Autowire('%frontend_url%')]
-        private readonly string $frontendUrl,
+        private readonly PublicUrl $publicUrl,
         #[Autowire('%mailer_from_address%')]
         private readonly string $mailerFromAddress,
         #[Autowire('%mailer_from_name%')]
@@ -641,7 +640,7 @@ class ComicShareService
             'explicitContent' => $comic->isExplicitContent(),
             'userName' => $ownerName,
             'shareLink' => $this->invitationUrl($plaintextToken),
-            'privacyUrl' => rtrim($this->frontendUrl, '/') . '/privacy',
+            'privacyUrl' => $this->publicUrl->to('/privacy'),
             'expiresAt' => $share->getExpiresAt(),
         ]);
 
@@ -657,7 +656,7 @@ class ComicShareService
 
     public function invitationUrl(string $plaintextToken): string
     {
-        return rtrim($this->frontendUrl, '/') . '/share/invitation/' . $plaintextToken;
+        return $this->publicUrl->to('/share/invitation/'.$plaintextToken);
     }
 
     /**

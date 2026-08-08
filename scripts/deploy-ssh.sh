@@ -178,6 +178,7 @@ chmod +x "$SSH_REMOTE_PATH/scripts/server/"*.sh 2>/dev/null || true
 
 # Run the server-side deploy with the right env.
 APP_DIR="$SSH_REMOTE_PATH" \\
+APP_URL="${PUBLIC_URL%/}" \\
 WEB_USER="$SSH_WEB_USER" \\
 WEB_GROUP="$SSH_WEB_GROUP" \\
 SKIP_FRONTEND="$SKIP_FRONTEND_VAR" \\

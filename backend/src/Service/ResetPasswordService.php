@@ -11,7 +11,6 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Twig\Environment;
 
 class ResetPasswordService
@@ -24,7 +23,7 @@ class ResetPasswordService
         private readonly ResetPasswordTokenRepository $tokenRepository,
         private readonly MailerInterface $mailer,
         private readonly Environment $twig,
-        private readonly UrlGeneratorInterface $urlGenerator,
+        private readonly PublicUrl $publicUrl,
         private readonly UserPasswordHasherInterface $passwordHasher,
         private readonly string $mailerFromAddress,
         private readonly string $mailerFromName,
@@ -200,15 +199,7 @@ class ResetPasswordService
     private function sendEmail(User $user, string $plainToken): void
     {
         try {
-            // Generate the base URL (scheme + host + port)
-            $baseUrl = sprintf(
-                '%s://%s',
-                $_SERVER['APP_SCHEME'] ?? 'http',
-                $_SERVER['HTTP_HOST'] ?? 'localhost:8080'
-            );
-            
-            // Create the frontend reset URL with the token
-            $resetUrl = $baseUrl . '/reset-password/' . $plainToken;
+            $resetUrl = $this->publicUrl->to('/reset-password/'.$plainToken);
             
 
             

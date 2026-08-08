@@ -29,14 +29,21 @@ function LegalLayout({ title, children }) {
   useEffect(() => {
     const previousTitle = document.title;
     const canonical = document.querySelector('link[rel="canonical"]');
+    const openGraphUrl = document.querySelector('meta[property="og:url"]');
     const previousCanonical = canonical?.getAttribute("href");
+    const previousOpenGraphUrl = openGraphUrl?.getAttribute("content");
+    const configuredOrigin = (import.meta.env.VITE_APP_URL || window.location.origin).replace(/\/$/, "");
+    const path = window.location.pathname.replace(/\/+$/, "") || "/";
+    const pageUrl = `${configuredOrigin}${path === "/" ? "/" : path}`;
 
     document.title = `${title} | Panel Page Flip`;
-    canonical?.setAttribute("href", `${window.location.origin}${window.location.pathname}`);
+    canonical?.setAttribute("href", pageUrl);
+    openGraphUrl?.setAttribute("content", pageUrl);
 
     return () => {
       document.title = previousTitle;
       if (canonical && previousCanonical) canonical.setAttribute("href", previousCanonical);
+      if (openGraphUrl && previousOpenGraphUrl) openGraphUrl.setAttribute("content", previousOpenGraphUrl);
     };
   }, [title]);
 

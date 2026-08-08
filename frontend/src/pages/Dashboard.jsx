@@ -103,9 +103,27 @@ export default function Dashboard() {
     await fetchComicsFromApi(buildLibraryUrl(tagNamesArray || []), searchQuery);
   };
 
+  // loadComics stays for "Try Again" and for clearing a search, where dropping
+  // the search state before the request is what the user just asked for. The
+  // initial load, and a change of ownership filter, go straight to the store:
+  // going through loadComics reset the search flag synchronously and rendered
+  // the empty-library copy for a frame before the results arrived.
   useEffect(() => {
-    loadComics();
-  }, [loadComics]);
+    const url = buildLibraryUrl();
+    lastComicsUrl.current = url;
+    lastSearchQuery.current = '';
+    const requestId = searchRequestId.current + 1;
+    searchRequestId.current = requestId;
+
+    let ignore = false;
+    loadLibrary({ url, fuzzyQuery: '' }).finally(() => {
+      if (ignore) return;
+      if (searchRequestId.current === requestId) setIsSearching(false);
+      setIsSearchActive(false);
+    });
+
+    return () => { ignore = true; };
+  }, [buildLibraryUrl, loadLibrary]);
 
   // Constants for input validation
   const MAX_SEARCH_QUERY_LENGTH = 100;

@@ -73,8 +73,7 @@ class SecurityAlertService
         private readonly string $mailerFromAddress,
         #[Autowire('%mailer_from_name%')]
         private readonly string $mailerFromName,
-        #[Autowire('%frontend_url%')]
-        private readonly string $frontendUrl,
+        private readonly PublicUrl $publicUrl,
         #[Autowire('%env(bool:SECURITY_ALERTS_ENABLED)%')]
         private readonly bool $enabled,
         #[Autowire('%env(string:SECURITY_ALERT_EMAILS)%')]
@@ -325,7 +324,12 @@ class SecurityAlertService
                 'occurredAt' => new \DateTimeImmutable(),
                 'windowMinutes' => $this->windowMinutes,
                 'details' => $this->reportableDetails($context),
-                'auditUrl' => rtrim($this->frontendUrl, '/') . '/admin/audit-logs',
+                // The admin dashboard, not a dedicated audit page: the audit
+                // list is a section of it. A path the frontend route manifest
+                // does not know is served as a 404, so an invented deep link
+                // would send an administrator chasing an incident to an error
+                // page.
+                'auditUrl' => $this->publicUrl->to('/admin'),
             ]);
         } catch (\Throwable $exception) {
             $this->logger->error('Failed to render a security alert email.', [

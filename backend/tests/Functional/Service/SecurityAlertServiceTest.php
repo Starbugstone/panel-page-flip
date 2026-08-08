@@ -3,6 +3,7 @@
 namespace App\Tests\Functional\Service;
 
 use App\Repository\UserRepository;
+use App\Service\PublicUrl;
 use App\Service\SecurityAlertService;
 use App\Service\SecurityAuditLogger;
 use App\Tests\Factory\UserFactory;
@@ -250,7 +251,7 @@ final class SecurityAlertServiceTest extends KernelTestCase
             new Logger('test', [$this->logHandler]),
             'noreply@example.test',
             'Panel Page Flip',
-            'https://example.test',
+            new PublicUrl('https://example.test'),
             $enabled,
             $recipients,
             15,

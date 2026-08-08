@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -10,32 +10,32 @@ import { logger } from "@/lib/logger";
 
 export default function EmailVerification() {
   const [isLoading, setIsLoading] = useState(false);
-  const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
-  const [status, setStatus] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
 
-  // Extract status and message from URL query parameters
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const statusParam = params.get("status");
-    const messageParam = params.get("message");
-    
-    if (statusParam) {
-      setStatus(statusParam);
-    }
-    
-    if (messageParam) {
-      setMessage(decodeURIComponent(messageParam));
-    }
-    
-    // Extract email from state if available (passed from login page)
-    if (location.state?.email) {
-      setEmail(location.state.email);
-    }
-  }, [location]);
+  // The URL already holds the outcome the backend redirected here with, and the
+  // login page passes the address it knows. Reading them during render keeps
+  // one source of truth; copying them into state from an effect meant the first
+  // paint always showed the neutral "please verify" card before correcting
+  // itself. Resending, and typing an address, override them from that point on
+  // — tagged with the URL they were entered against so a later redirect with a
+  // fresh result is not masked by a stale override.
+  const params = new URLSearchParams(location.search);
+  const urlStatus = params.get("status") || "";
+  // Not decoded again: URLSearchParams.get has already done it, and a second
+  // pass throws URIError on a literal % — during render, so the page would not
+  // mount at all.
+  const urlMessage = params.get("message") ?? "";
+
+  const [resendResult, setResendResult] = useState(null);
+  const [typedEmail, setTypedEmail] = useState(null);
+
+  const current = resendResult?.forSearch === location.search ? resendResult : null;
+  const status = current?.status ?? urlStatus;
+  const message = current?.message ?? urlMessage;
+  const email = typedEmail ?? location.state?.email ?? "";
+  const setEmail = setTypedEmail;
 
   const handleResendVerification = async () => {
     if (!email) {
@@ -56,8 +56,11 @@ export default function EmailVerification() {
         description: data.message || "If your email exists in our system, a verification email has been sent.",
       });
       
-      setStatus("resent");
-      setMessage("Verification email has been resent. Please check your inbox.");
+      setResendResult({
+        forSearch: location.search,
+        status: "resent",
+        message: "Verification email has been resent. Please check your inbox.",
+      });
     } catch (error) {
       logger.error("Error resending verification email:", error);
       toast({

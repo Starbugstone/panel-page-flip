@@ -17,18 +17,9 @@ parameters:
     upload_max_total_bytes: 524288000
     upload_max_total_chunks: 600
     upload_user_quota_bytes: 10737418240
-    # Frontend URL configuration with fallbacks
-    # Priority: FRONTEND_URL env var > FRONTEND_HOST/PORT/SCHEME env vars > defaults
-    frontend_scheme: '%env(default:frontend_scheme_default:FRONTEND_SCHEME)%'
-    frontend_scheme_default: 'http'
-    frontend_host: '%env(default:frontend_host_default:FRONTEND_HOST)%'
-    frontend_host_default: 'localhost'
-    frontend_port: '%env(default:frontend_port_default:FRONTEND_PORT)%'
-    frontend_port_default: '3001'
-    # Complete frontend URL (overrides individual components if set)
-    frontend_url: '%env(FRONTEND_URL)%'
-    # Constructed URL from components if FRONTEND_URL is not set
-    frontend_url_constructed: '%frontend_scheme%://%frontend_host%:%frontend_port%'
+    # The application is same-origin in production. One public URL drives
+    # absolute email/OAuth links, CLI routing and generated SEO metadata.
+    app_url: '%env(APP_URL)%'
     dropbox_app_folder: '%env(DROPBOX_APP_FOLDER)%'
     dropbox_sync_limit: '%env(int:DROPBOX_SYNC_LIMIT)%'
     dropbox_rate_limit: '%env(int:DROPBOX_RATE_LIMIT)%'
@@ -177,7 +168,6 @@ services:
             $dropboxAppKey: '%env(DROPBOX_APP_KEY)%'
             $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
             $dropboxRedirectUri: '%env(DROPBOX_REDIRECT_URI)%'
-            $frontendBaseUrl: '%frontend_url%'
             $dropboxSyncLimit: '%dropbox_sync_limit%'
 
     App\Command\DropboxSyncCommand:

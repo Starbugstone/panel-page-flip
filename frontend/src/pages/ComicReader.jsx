@@ -18,9 +18,7 @@ export default function ComicReader() {
   const [loadError, setLoadError] = useState(null);
   const [comicPages, setComicPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
-  const [isLoading, setIsLoading] = useState(true); // For overall comic data
-  const [isPageImageLoading, setIsPageImageLoading] = useState(true); // For individual page images
-  const [imageLoadedSuccessfully, setImageLoadedSuccessfully] = useState(true); // To track if image loaded
+  const [isFetchingComic, setIsFetchingComic] = useState(true); // For overall comic data
   const [imageCache, setImageCache] = useState({});
   const [showDebug, setShowDebug] = useState(false); // For debug panel
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -44,6 +42,21 @@ export default function ComicReader() {
 
   const CACHE_SIZE_FORWARD = 5;
   const CACHE_SIZE_BACKWARD = 5;
+
+  // The cache entry for the current page already says everything these used to
+  // be told: a value means it is ready, 'failed' means it is not coming, and
+  // anything else means it is still on its way. Keeping them as separate state
+  // meant every path that touched the cache had to remember to set them too,
+  // and a missed one left a spinner over a page that had already arrived.
+  const currentPageImage = imageCache[currentPage];
+  const isPageImageLoading = comicPages.length > 0
+    && (!currentPageImage || currentPageImage === 'loading');
+  const imageLoadedSuccessfully = Boolean(currentPageImage)
+    && currentPageImage !== 'loading'
+    && currentPageImage !== 'failed';
+  // Without a comic id the reader redirects instead of loading anything, so it
+  // is not waiting for a request that was never made.
+  const isLoading = Boolean(comicId) && isFetchingComic;
 
   const updateReadingProgress = useCallback(async (pageToSave) => {
     if (!comicId || !comic) return;
@@ -112,6 +125,17 @@ export default function ComicReader() {
     }
   }, [comicId, comic, toast, updateComicProgress]);
 
+  // The debug panel wants to show the load queue, which lives in a ref because
+  // the loader mutates it constantly and none of that should cause a render.
+  // Sampling it on a timer while the panel is open keeps it out of the render
+  // path entirely, and costs nothing when the panel is closed.
+  const [queueSnapshot, setQueueSnapshot] = useState([]);
+  useEffect(() => {
+    if (!showDebug) return undefined;
+    const id = setInterval(() => setQueueSnapshot([...loadQueueRef.current]), 250);
+    return () => clearInterval(id);
+  }, [showDebug]);
+
   // Track mount state so an in-flight progress save that resolves after the
   // reader closes does not try to toast onto the next screen.
   useEffect(() => {
@@ -129,7 +153,7 @@ export default function ComicReader() {
     let active = true;
 
     const loadComic = async () => {
-      setIsLoading(true);
+      setIsFetchingComic(true);
       setLoadError(null);
       setComic(null);
       setComicPages([]);
@@ -137,9 +161,6 @@ export default function ComicReader() {
         const data = await api.get(`/api/comics/${comicId}`);
         if (!active) return;
         setComic(data.comic);
-        // Reset image loading states for the new comic
-        setIsPageImageLoading(true);
-        setImageLoadedSuccessfully(false);
 
         if (data.comic && data.comic.pageCount > 0) {
           setComicPages(
@@ -183,7 +204,7 @@ export default function ComicReader() {
         }
         // navigate("/dashboard"); // Optional: navigate away on general error
       } finally {
-        if (active) setIsLoading(false);
+        if (active) setIsFetchingComic(false);
       }
     };
 
@@ -196,7 +217,6 @@ export default function ComicReader() {
         variant: "destructive",
       });
       navigate("/dashboard");
-      setIsLoading(false);
     }
 
     return () => { active = false; };
@@ -270,26 +290,35 @@ export default function ComicReader() {
   }, [imageCache, comicPages, isInCacheWindow]);
   
   // Function to process the load queue
+  //
+  // The drain step is a local function rather than the callback calling itself.
+  // Recursing through the useCallback binding means each step reaches for the
+  // identity the closure was created with, which is not necessarily the one a
+  // later render is using.
   const processLoadQueue = useCallback(() => {
-    if (isLoadingRef.current || loadQueueRef.current.length === 0) return;
-    
-    isLoadingRef.current = true;
-    const pageToLoad = loadQueueRef.current.shift();
-    
-    // Skip current page - it's handled separately
-    if (pageToLoad === currentPageRef.current) {
-      isLoadingRef.current = false;
-      processLoadQueue();
-      return;
-    }
-    
-    loadPageIntoCache(pageToLoad)
-        .catch(() => {/* Error handled in loadPageIntoCache */})
-      .finally(() => {
+    const drain = () => {
+      if (isLoadingRef.current || loadQueueRef.current.length === 0) return;
+
+      isLoadingRef.current = true;
+      const pageToLoad = loadQueueRef.current.shift();
+
+      // Skip current page - it's handled separately
+      if (pageToLoad === currentPageRef.current) {
         isLoadingRef.current = false;
-        // Continue processing the queue
-        processLoadQueue();
-      });
+        drain();
+        return;
+      }
+
+      loadPageIntoCache(pageToLoad)
+        .catch(() => {/* Error handled in loadPageIntoCache */})
+        .finally(() => {
+          isLoadingRef.current = false;
+          // Continue processing the queue
+          drain();
+        });
+    };
+
+    drain();
   }, [loadPageIntoCache]);
   
   // Function to queue pages for loading in priority order
@@ -370,47 +399,25 @@ export default function ComicReader() {
     // Check if current page is available in cache
     const cachedImage = imageCache[currentPage];
     
+    let queueTimer;
+    // The promise below can resolve after this effect has been cleaned up, and
+    // the cleanup can only clear a timer that already exists. Without this flag
+    // every page turn during a load leaves a timer behind that fires against a
+    // page the reader has moved on from.
+    let cancelled = false;
     if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
-      // Image is in cache and fully loaded - show immediately
-      setIsPageImageLoading(false);
-      setImageLoadedSuccessfully(true);
-      
-      // Queue surrounding pages after a delay
-      const queueTimer = setTimeout(() => {
-        queuePagesToLoad();
-      }, 100);
-      
-      return () => clearTimeout(queueTimer);
-    } else if (cachedImage === 'failed') {
-      // Image failed to load
-      setIsPageImageLoading(false);
-      setImageLoadedSuccessfully(false);
-    } else {
-      // Not in cache or still loading - show loading state
-      setIsPageImageLoading(true);
-      setImageLoadedSuccessfully(false);
-      
-      // Use the optimized loading function to avoid duplicate requests
+      // Already cached, so the render above is already showing it. Fill in the
+      // pages around it once the current one has settled.
+      queueTimer = setTimeout(() => { queuePagesToLoad(); }, 100);
+    } else if (cachedImage !== 'failed') {
+      // Not cached yet. The cache entry is what the view reads, so putting the
+      // page in it is the whole job - there is no separate flag to raise.
       loadPageIntoCache(currentPage)
         .then(() => {
-          // Only update UI if this is still the current page
-          if (currentPageRef.current === currentPage) {
-            setIsPageImageLoading(false);
-            setImageLoadedSuccessfully(true);
-            
-            // Queue surrounding pages after a delay
-            setTimeout(() => {
-              queuePagesToLoad();
-            }, 100);
-          }
+          if (cancelled || currentPageRef.current !== currentPage) return;
+          queueTimer = setTimeout(() => { queuePagesToLoad(); }, 100);
         })
-        .catch(() => {
-          // Only update UI if this is still the current page
-          if (currentPageRef.current === currentPage) {
-            setIsPageImageLoading(false);
-            setImageLoadedSuccessfully(false);
-          }
-        });
+        .catch(() => {/* the cache records the failure; see above */});
     }
     
     // Schedule cache cleanup after a delay
@@ -419,7 +426,9 @@ export default function ComicReader() {
     }, 2000); // Delay cleanup to avoid unnecessary operations
 
     return () => {
+      cancelled = true;
       clearTimeout(cleanupTimer);
+      clearTimeout(queueTimer);
     };
   }, [currentPage, comicPages, imageCache, queuePagesToLoad, cleanupCache, loadPageIntoCache]);
 
@@ -449,13 +458,8 @@ export default function ComicReader() {
   const goToPage = useCallback((newPage) => {
     if (newPage < 0 || newPage > comicPages.length - 1) return;
 
-    const cachedImage = imageCache[newPage];
-    const isCached = cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed';
-    setIsPageImageLoading(!isCached);
-    setImageLoadedSuccessfully(Boolean(isCached));
-
     setCurrentPage(newPage);
-  }, [imageCache, comicPages.length]);
+  }, [comicPages.length]);
 
   const handlePreviousPage = useCallback(() => {
     goToPage(currentPage - 1);
@@ -468,11 +472,19 @@ export default function ComicReader() {
   // The jump-to-page box holds raw text, not a page number: it has to survive
   // the empty and half-typed states an input passes through. It is reconciled
   // with the reader whenever the page changes by any other means.
-  const [pageInput, setPageInput] = useState("1");
+  // The draft is tagged with the page it was typed against, so turning the page
+  // by any other means simply makes it stale and the box falls back to showing
+  // the real page. Copying the page in from an effect meant a render went out
+  // with the previous page's number still in the box.
+  const [pageDraft, setPageDraft] = useState({ forPage: 0, text: "1" });
+  const pageInput = pageDraft.forPage === currentPage
+    ? pageDraft.text
+    : String(currentPage + 1);
+  const setPageInput = useCallback(
+    (text) => setPageDraft({ forPage: currentPageRef.current, text }),
+    []
+  );
 
-  useEffect(() => {
-    setPageInput(String(currentPage + 1));
-  }, [currentPage]);
 
   const commitPageInput = useCallback(() => {
     const requestedPage = parsePageNumber(pageInput, comicPages.length);
@@ -488,7 +500,7 @@ export default function ComicReader() {
     if (requestedPage !== currentPageRef.current) {
       goToPage(requestedPage);
     }
-  }, [pageInput, comicPages.length, goToPage]);
+  }, [pageInput, comicPages.length, goToPage, setPageInput]);
 
   // Force a page to come from the server again, bypassing the browser cache.
   // A unique URL is what does the bypassing: the page endpoint is cacheable, so
@@ -510,8 +522,6 @@ export default function ComicReader() {
       delete newCache[pageToReload];
       return newCache;
     });
-    setIsPageImageLoading(true);
-    setImageLoadedSuccessfully(false);
 
     const img = new Image();
     let settleForcedLoad = () => {};
@@ -526,8 +536,6 @@ export default function ComicReader() {
       // still worth keeping, but the loading state belongs to another page now.
       if (currentPageRef.current !== pageToReload) return;
 
-      setIsPageImageLoading(false);
-      setImageLoadedSuccessfully(true);
       toast({
         title: "Page reloaded",
         description: `Successfully reloaded page ${pageToReload + 1}`,
@@ -539,10 +547,18 @@ export default function ComicReader() {
       logger.error("Failed to reload image");
       delete loadingPagesRef.current[pageToReload];
       failForcedLoad();
+      // Record the failure, because the reload deleted the cache entry and what
+      // the view shows is read from it: without this the page is indistinguish-
+      // able from one still on its way and the spinner never comes down. Only
+      // when nothing better has arrived in the meantime, though — the plain URL
+      // may have been fetched successfully while this busted one failed.
+      setImageCache(prev => (
+        prev[pageToReload] && prev[pageToReload] !== 'loading'
+          ? prev
+          : { ...prev, [pageToReload]: 'failed' }
+      ));
       if (currentPageRef.current !== pageToReload) return;
 
-      setIsPageImageLoading(false);
-      setImageLoadedSuccessfully(false);
       toast({
         title: "Reload failed",
         description: "Could not reload the page. Please try again later.",
@@ -743,8 +759,6 @@ export default function ComicReader() {
                     delete newCache[currentPage];
                     return newCache;
                   });
-                  setIsPageImageLoading(true);
-                  setImageLoadedSuccessfully(false);
                 }}
               >
                 Retry
@@ -868,9 +882,9 @@ export default function ComicReader() {
               </div>
               <div className="mt-2">
                 <p className="font-semibold">Queue status:</p>
-                <p>Pages to load: {loadQueueRef.current.length}</p>
-                {loadQueueRef.current.length > 0 && (
-                  <p>Next in queue: {loadQueueRef.current[0] + 1}</p>
+                <p>Pages to load: {queueSnapshot.length}</p>
+                {queueSnapshot.length > 0 && (
+                  <p>Next in queue: {queueSnapshot[0] + 1}</p>
                 )}
               </div>
             </div>
