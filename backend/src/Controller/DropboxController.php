@@ -127,7 +127,7 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        $connected = !empty($user->getDropboxAccessToken());
+        $connected = $user->hasDropboxConnection();
         $dropboxUser = null;
         $lastSync = null;
 
@@ -178,7 +178,7 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        if (!$user->getDropboxAccessToken()) {
+        if (!$user->hasDropboxConnection()) {
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -212,7 +212,7 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        if (!$user->getDropboxAccessToken()) {
+        if (!$user->hasDropboxConnection()) {
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -274,7 +274,7 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        if (!$user->getDropboxAccessToken()) {
+        if (!$user->hasDropboxConnection()) {
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
         }
 

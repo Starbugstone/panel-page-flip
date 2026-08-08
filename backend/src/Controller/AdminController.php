@@ -84,9 +84,14 @@ class AdminController extends AbstractController
     {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
+        // Either credential counts, matching User::hasDropboxConnection() and the
+        // guards on the actions offered for each row. Listing only accounts with
+        // a live access token hid the ones whose token had been cleared but
+        // which the refresh token can still recover — and then offered
+        // force-sync and disconnect for accounts that were not in the list.
         $users = $entityManager->getRepository(User::class)->createQueryBuilder('u')
-            ->where('u.dropboxAccessToken IS NOT NULL')
-            ->andWhere('u.dropboxAccessToken != :empty')
+            ->where('COALESCE(u.dropboxAccessToken, :empty) != :empty')
+            ->orWhere('COALESCE(u.dropboxRefreshToken, :empty) != :empty')
             ->setParameter('empty', '')
             ->orderBy('u.email', 'ASC')
             ->getQuery()
@@ -117,7 +122,7 @@ class AdminController extends AbstractController
     {
         $admin = $this->getAdminUser();
         $targetUser = $entityManager->getRepository(User::class)->find($id);
-        if (!$targetUser || !$targetUser->getDropboxAccessToken()) {
+        if (!$targetUser || !$targetUser->hasDropboxConnection()) {
             return $this->json(['message' => 'Dropbox user not found'], Response::HTTP_NOT_FOUND);
         }
 
@@ -140,7 +145,7 @@ class AdminController extends AbstractController
     {
         $admin = $this->getAdminUser();
         $targetUser = $entityManager->getRepository(User::class)->find($id);
-        if (!$targetUser || !$targetUser->getDropboxAccessToken()) {
+        if (!$targetUser || !$targetUser->hasDropboxConnection()) {
             return $this->json(['message' => 'Dropbox user not found'], Response::HTTP_NOT_FOUND);
         }
 

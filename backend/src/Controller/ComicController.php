@@ -907,8 +907,14 @@ class ComicController extends AbstractController
                     return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
                 }
 
-                // Validate chunk index
-                if ($chunkIndex < 0 || $chunkIndex >= $metadata['totalChunks']) {
+                // Validate chunk index. The key is checked rather than assumed:
+                // initUpload always writes it, but a truncated or hand-edited
+                // metadata file would otherwise compare against null and take
+                // the wrong branch on a warning.
+                if (!isset($metadata['totalChunks'])
+                    || $chunkIndex < 0
+                    || $chunkIndex >= (int) $metadata['totalChunks']
+                ) {
                     return $this->json(['message' => 'Invalid chunk index'], Response::HTTP_BAD_REQUEST);
                 }
 
@@ -994,96 +1000,27 @@ class ComicController extends AbstractController
                 return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
             }
             
-            $metadata = json_decode(file_get_contents($metadataPath), true);
-            $filename = $this->assertSafeFilename((string) $metadata['filename']);
-            $receivedChunks = $metadata['receivedChunks'] ?? [];
-            
-            // Check if all chunks are received
-            if (count($receivedChunks) !== (int) $metadata['totalChunks']) {
-                return $this->json([
-                    'message' => 'Not all chunks received',
-                    'chunksReceived' => count($receivedChunks),
-                    'chunksExpected' => $metadata['totalChunks']
-                ], Response::HTTP_BAD_REQUEST);
+            // The same per-upload lock the chunk handler takes, for the same
+            // reason: this reads the staged metadata, sums it, and unlinks the
+            // chunk files as it assembles them. A chunk request overlapping any
+            // of that could have its file deleted underneath it, or write
+            // metadata that assembly has already read past. The app's own client
+            // waits for every chunk before completing, so this is the case where
+            // a client does not — but the staging area must be consistent
+            // whatever the client does.
+            $lock = $this->acquireUploadLock($userChunkDir);
+
+            try {
+                return $this->assembleUpload(
+                    $userChunkDir,
+                    $metadataPath,
+                    $user,
+                    $entityManager,
+                    $comicService
+                );
+            } finally {
+                $this->releaseUploadLock($lock);
             }
-
-            $totalSize = array_sum(array_map('intval', $metadata['chunkSizes'] ?? []));
-            if ($totalSize > $this->uploadMaxTotalBytes) {
-                return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
-            }
-
-            $currentUsage = (int) $entityManager->createQueryBuilder()
-                ->select('COALESCE(SUM(c.fileSize), 0)')
-                ->from(Comic::class, 'c')
-                ->where('c.owner = :owner')
-                ->setParameter('owner', $user)
-                ->getQuery()
-                ->getSingleScalarResult();
-
-            if ($currentUsage + $totalSize > $this->uploadUserQuotaBytes) {
-                return $this->json(['message' => 'User storage quota exceeded'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
-            }
-
-            // Extract metadata. Only the title is required; the rest are optional
-            // and may legitimately be absent from the init payload. Validate before
-            // assembling so a rejected upload never leaves staged files behind: the
-            // title comes from the init payload, so retrying can never succeed.
-            $comicMetadata = is_array($metadata['metadata'] ?? null) ? $metadata['metadata'] : [];
-            $title = trim((string) ($comicMetadata['title'] ?? ''));
-            if ($title === '') {
-                $this->cleanupTempDirectory($userChunkDir);
-
-                return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
-            }
-
-            // Combine chunks into final file
-            // The client filename is metadata only. Always assemble into a
-            // server-controlled path so valid punctuation and Unicode never
-            // influence filesystem path handling.
-            $finalFilePath = $userChunkDir . '/' . self::ASSEMBLED_UPLOAD_FILENAME;
-            $finalFile = fopen($finalFilePath, 'wb');
-            
-            for ($i = 0; $i < $metadata['totalChunks']; $i++) {
-                $chunkPath = $userChunkDir . '/chunk_' . $i;
-                if (!file_exists($chunkPath)) {
-                    fclose($finalFile);
-                    return $this->json(['message' => 'Chunk ' . $i . ' is missing'], Response::HTTP_BAD_REQUEST);
-                }
-                
-                $chunkData = file_get_contents($chunkPath);
-                fwrite($finalFile, $chunkData);
-                unlink($chunkPath); // Delete chunk after combining
-            }
-            
-            fclose($finalFile);
-            
-            // Create a Symfony UploadedFile from the combined file
-            $tempFile = new UploadedFile(
-                $finalFilePath,
-                $filename,
-                mime_content_type($finalFilePath),
-                null,
-                true // Test mode to avoid moving the file
-            );
-
-            // Create comic in database
-            $comic = $comicService->uploadComic(
-                $tempFile,
-                $user,
-                $title,
-                $comicMetadata['author'] ?? null,
-                $comicMetadata['publisher'] ?? null,
-                $comicMetadata['description'] ?? null,
-                $comicMetadata['tags'] ?? []
-            );
-
-            // Clean up temp directory
-            $this->cleanupTempDirectory($userChunkDir);
-
-            return $this->json([
-                'message' => 'Upload completed successfully',
-                'comic' => $this->comicSerializer->serialize($comic, $user, false),
-            ]);
         } catch (BadRequestHttpException $e) {
             // Clean up if assembly has already occurred
             if (isset($userChunkDir) && file_exists($userChunkDir)) {
@@ -1099,7 +1036,113 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Failed to complete upload'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
-    
+
+    /**
+     * Turn a fully staged upload into a comic. Runs under the upload lock.
+     */
+    private function assembleUpload(
+        string $userChunkDir,
+        string $metadataPath,
+        User $user,
+        EntityManagerInterface $entityManager,
+        ComicService $comicService
+    ): JsonResponse {
+        $metadata = json_decode((string) file_get_contents($metadataPath), true);
+        if (!is_array($metadata) || !isset($metadata['totalChunks'], $metadata['filename'])) {
+            return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $filename = $this->assertSafeFilename((string) $metadata['filename']);
+        $receivedChunks = $metadata['receivedChunks'] ?? [];
+
+        // Check if all chunks are received
+        if (count($receivedChunks) !== (int) $metadata['totalChunks']) {
+            return $this->json([
+                'message' => 'Not all chunks received',
+                'chunksReceived' => count($receivedChunks),
+                'chunksExpected' => $metadata['totalChunks']
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $totalSize = array_sum(array_map('intval', $metadata['chunkSizes'] ?? []));
+        if ($totalSize > $this->uploadMaxTotalBytes) {
+            return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        }
+
+        $currentUsage = (int) $entityManager->createQueryBuilder()
+            ->select('COALESCE(SUM(c.fileSize), 0)')
+            ->from(Comic::class, 'c')
+            ->where('c.owner = :owner')
+            ->setParameter('owner', $user)
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        if ($currentUsage + $totalSize > $this->uploadUserQuotaBytes) {
+            return $this->json(['message' => 'User storage quota exceeded'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        }
+
+        // Extract metadata. Only the title is required; the rest are optional
+        // and may legitimately be absent from the init payload. Validate before
+        // assembling so a rejected upload never leaves staged files behind: the
+        // title comes from the init payload, so retrying can never succeed.
+        $comicMetadata = is_array($metadata['metadata'] ?? null) ? $metadata['metadata'] : [];
+        $title = trim((string) ($comicMetadata['title'] ?? ''));
+        if ($title === '') {
+            $this->cleanupTempDirectory($userChunkDir);
+
+            return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        // Combine chunks into final file
+        // The client filename is metadata only. Always assemble into a
+        // server-controlled path so valid punctuation and Unicode never
+        // influence filesystem path handling.
+        $finalFilePath = $userChunkDir . '/' . self::ASSEMBLED_UPLOAD_FILENAME;
+        $finalFile = fopen($finalFilePath, 'wb');
+        
+        for ($i = 0; $i < $metadata['totalChunks']; $i++) {
+            $chunkPath = $userChunkDir . '/chunk_' . $i;
+            if (!file_exists($chunkPath)) {
+                fclose($finalFile);
+                return $this->json(['message' => 'Chunk ' . $i . ' is missing'], Response::HTTP_BAD_REQUEST);
+            }
+            
+            $chunkData = file_get_contents($chunkPath);
+            fwrite($finalFile, $chunkData);
+            unlink($chunkPath); // Delete chunk after combining
+        }
+        
+        fclose($finalFile);
+        
+        // Create a Symfony UploadedFile from the combined file
+        $tempFile = new UploadedFile(
+            $finalFilePath,
+            $filename,
+            mime_content_type($finalFilePath),
+            null,
+            true // Test mode to avoid moving the file
+        );
+
+        // Create comic in database
+        $comic = $comicService->uploadComic(
+            $tempFile,
+            $user,
+            $title,
+            $comicMetadata['author'] ?? null,
+            $comicMetadata['publisher'] ?? null,
+            $comicMetadata['description'] ?? null,
+            $comicMetadata['tags'] ?? []
+        );
+
+        // Clean up temp directory
+        $this->cleanupTempDirectory($userChunkDir);
+
+        return $this->json([
+            'message' => 'Upload completed successfully',
+            'comic' => $this->comicSerializer->serialize($comic, $user, false),
+        ]);
+    }
+
     /**
      * Helper method to clean up temporary directory after upload
      */
