@@ -5,7 +5,7 @@ import { uploadComicInChunks } from "@/hooks/use-chunked-upload";
 import { useAuth } from "@/hooks/use-auth";
 import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
-import { formatFileSize, generateTitleFromFilename, isCbzFile } from "@/lib/comic-upload";
+import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile } from "@/lib/comic-upload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,7 @@ export default function BulkUploadQueue() {
   const { refreshSession } = useAuth();
   const { config } = useConfig();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
+  const comicFormats = config.upload?.comicFormats || ["cbz"];
   const [rows, setRows] = useState([]);
   const [tagsInput, setTagsInput] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -54,9 +55,9 @@ export default function BulkUploadQueue() {
 
   const addFiles = (files) => {
     const candidates = Array.from(files);
-    const valid = candidates.filter(isCbzFile);
+    const valid = candidates.filter((file) => isComicFile(file, comicFormats));
     if (valid.length !== candidates.length) {
-      toast({ title: "Some files were skipped", description: "Only .cbz files can be uploaded.", variant: "destructive" });
+      toast({ title: "Some files were skipped", description: `Enabled formats: ${comicFormats.join(", ").toUpperCase()}.`, variant: "destructive" });
     }
     setRows((current) => {
       const existing = new Set(current.map((row) => row.id));
@@ -122,7 +123,7 @@ export default function BulkUploadQueue() {
     <Card className="w-full max-w-6xl">
       <CardHeader>
         <CardTitle className="text-2xl font-comic">Bulk upload comics</CardTitle>
-        <CardDescription>Add any number of CBZ files. Two comics upload at a time to protect server resources.</CardDescription>
+        <CardDescription>Add enabled comic formats ({comicFormats.join(", ").toUpperCase()}). Two comics upload at a time.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div
@@ -133,9 +134,9 @@ export default function BulkUploadQueue() {
           onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
           onDrop={(event) => { event.preventDefault(); setDragging(false); if (!running) addFiles(event.dataTransfer.files); }}
         >
-          <input ref={inputRef} type="file" multiple accept=".cbz" className="hidden" disabled={running} onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />
+          <input ref={inputRef} type="file" multiple accept={comicFileAccept(comicFormats)} className="hidden" disabled={running} onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />
           <Upload className="mx-auto mb-2 h-10 w-10 text-gray-400" />
-          <p className="font-medium">Drop CBZ files here or choose files</p>
+          <p className="font-medium">Drop supported comic files here or choose files</p>
         </div>
 
         <div className="space-y-2">

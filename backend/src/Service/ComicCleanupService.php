@@ -94,7 +94,7 @@ class ComicCleanupService
         }
 
         $rootFinder = new Finder();
-        foreach ($rootFinder->files()->name('*.cbz')->in($this->comicsDirectory)->depth(0) as $file) {
+        foreach ($rootFinder->files()->name('/\.(?:cbz|cbr|cb7|cbt|pdf)$/i')->in($this->comicsDirectory)->depth(0) as $file) {
             $files[] = [
                 'filename' => $file->getFilename(),
                 'path' => $file->getRealPath(),
@@ -109,7 +109,7 @@ class ComicCleanupService
             }
 
             $userComicsFinder = new Finder();
-            foreach ($userComicsFinder->files()->name('*.cbz')->in($userDir->getRealPath())->depth(0) as $file) {
+            foreach ($userComicsFinder->files()->name('/\.(?:cbz|cbr|cb7|cbt|pdf)$/i')->in($userDir->getRealPath())->depth(0) as $file) {
                 $files[] = [
                     'filename' => $file->getFilename(),
                     'path' => $file->getRealPath(),

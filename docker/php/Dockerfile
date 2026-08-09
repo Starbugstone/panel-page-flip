@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     zip \
     unzip \
+    p7zip-full \
+    poppler-utils \
+    qpdf \
     libzip-dev \
     libicu-dev \
     libxslt-dev \

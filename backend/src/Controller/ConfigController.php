@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Service\ComicFormatService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Routing\Attribute\Route;
@@ -11,7 +12,7 @@ use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 class ConfigController extends AbstractController
 {
     #[Route('', name: 'get', methods: ['GET'])]
-    public function getConfig(ParameterBagInterface $params): JsonResponse
+    public function getConfig(ParameterBagInterface $params, ComicFormatService $comicFormats): JsonResponse
     {
         // Get the current user
         $user = $this->getUser();
@@ -23,6 +24,7 @@ class ConfigController extends AbstractController
         return $this->json([
             'upload' => [
                 'maxConcurrentUploads' => (int)$params->get('max_concurrent_uploads'),
+                'comicFormats' => array_map(static fn ($type): string => $type->value, $comicFormats->enabled()),
             ]
         ]);
     }

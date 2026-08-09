@@ -6,7 +6,7 @@ import { useChunkedUpload } from "@/hooks/use-chunked-upload";
 import { useConfig } from "@/hooks/use-config.jsx";
 import { useTags } from "@/hooks/use-tags.jsx";
 import { useToast } from "@/hooks/use-toast";
-import { generateTitleFromFilename, isCbzFile } from "@/lib/comic-upload";
+import { comicFileAccept, generateTitleFromFilename, isComicFile } from "@/lib/comic-upload";
 import { describeTagSubmission } from "@/lib/tag-suggestions";
 import { cn } from "@/lib/utils.js";
 import { TagBadge } from "@/components/TagBadge";
@@ -32,6 +32,7 @@ export default function UploadComicForm() {
   const { config } = useConfig();
   const { tags: availableTags, addTagToCache } = useTags();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
+  const comicFormats = config.upload?.comicFormats || ["cbz"];
   const { start, cancel, status, progress } = useChunkedUpload({ concurrentChunks });
   const uploading = ["initialising", "uploading", "completing"].includes(status);
 
@@ -44,13 +45,13 @@ export default function UploadComicForm() {
   const inputRef = useRef(null);
 
   const chooseFile = useCallback((candidate) => {
-    if (!isCbzFile(candidate)) {
-      toast({ title: "Invalid file", description: "Please select a .cbz file.", variant: "destructive" });
+    if (!isComicFile(candidate, comicFormats)) {
+      toast({ title: "Invalid file", description: `Enabled formats: ${comicFormats.join(", ").toUpperCase()}.`, variant: "destructive" });
       return;
     }
     setFile(candidate);
     setTitle((current) => current.trim() || generateTitleFromFilename(candidate.name));
-  }, [toast]);
+  }, [comicFormats, toast]);
 
   // Resolves what is typed against the tags this user already has, so uploading
   // does not mint a second spelling of a tag they already use.
@@ -101,7 +102,7 @@ export default function UploadComicForm() {
       <CardContent>
         <form id="upload-form" onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="comic-file">Comic File (.cbz)</Label>
+            <Label htmlFor="comic-file">Comic File ({comicFormats.join(", ").toUpperCase()})</Label>
             <div
               className={cn(
                 "rounded-lg border-2 border-dashed p-6 text-center",
@@ -122,7 +123,7 @@ export default function UploadComicForm() {
                 ref={inputRef}
                 id="comic-file"
                 type="file"
-                accept=".cbz"
+                accept={comicFileAccept(comicFormats)}
                 className="hidden"
                 disabled={uploading}
                 onChange={(event) => chooseFile(event.target.files[0])}
@@ -139,7 +140,7 @@ export default function UploadComicForm() {
               ) : (
                 <div className="flex flex-col items-center">
                   <Upload className="mb-2 h-10 w-10 text-gray-400" />
-                  <span className="text-sm font-medium">Drag and drop or click to select a .cbz file</span>
+                  <span className="text-sm font-medium">Drag and drop or select a supported comic file</span>
                 </div>
               )}
             </div>

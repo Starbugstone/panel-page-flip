@@ -37,6 +37,10 @@ services:
         autowire: true      # Automatically injects dependencies in your services.
         autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
 
+    _instanceof:
+        App\ComicSource\ComicPageProviderInterface:
+            tags: ['app.comic_page_provider']
+
     # makes classes in src/ available to be used as services
     # this creates a service per class whose id is the fully-qualified class name
     App\:
@@ -135,6 +139,10 @@ services:
             $uploadMaxTotalBytes: '%upload_max_total_bytes%'
             $uploadUserQuotaBytes: '%upload_user_quota_bytes%'
             $pageIndexCache: '@comic.page_index.cache'
+
+    App\ComicSource\ComicPageProviderFactory:
+        arguments:
+            $providers: !tagged_iterator app.comic_page_provider
 
     App\Service\ComicCleanupService:
         arguments:

@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Enum\ComicSourceType;
 use App\Entity\Comic;
 use App\Entity\User;
 use Doctrine\ORM\EntityManagerInterface;
@@ -60,7 +61,7 @@ class DropboxImportService
                         continue;
                     }
 
-                    if ($tag !== 'file' || strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)) !== 'cbz') {
+                    if ($tag !== 'file' || !in_array(strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)), ComicSourceType::extensions(), true)) {
                         continue;
                     }
 

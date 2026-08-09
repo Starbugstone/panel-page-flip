@@ -21,6 +21,10 @@ final class ComicUploadFilenameValidatorTest extends TestCase
         yield 'ASCII spaces' => ['My Comic Issue 1.cbz'];
         yield 'non-breaking space' => ["My\u{00A0}Comic.cbz"];
         yield 'Unicode and punctuation' => ['L’épisode (2026) – numéro 1.cbz'];
+        yield 'RAR comic' => ['Issue 2.cbr'];
+        yield '7z comic' => ['Issue 3.cb7'];
+        yield 'tar comic' => ['Issue 4.cbt'];
+        yield 'PDF comic' => ['Issue 5.PDF'];
     }
 
     /**

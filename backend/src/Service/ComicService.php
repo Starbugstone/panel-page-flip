@@ -2,7 +2,10 @@
 
 namespace App\Service;
 
+use App\ComicSource\ComicPageProviderFactory;
+use App\ComicSource\PageResult;
 use App\Entity\Comic;
+use App\Enum\ComicSourceType;
 use App\Entity\Tag;
 use App\Entity\User;
 use App\Repository\TagRepository;
@@ -32,7 +35,9 @@ class ComicService
         private readonly FileQuarantineService $fileQuarantine,
         private readonly int $uploadMaxTotalBytes,
         private readonly int $uploadUserQuotaBytes,
-        private readonly CacheInterface $pageIndexCache
+        private readonly CacheInterface $pageIndexCache,
+        private readonly ComicPageProviderFactory $pageProviderFactory,
+        private readonly ComicFormatService $comicFormatService
     ) {
     }
 
@@ -53,8 +58,10 @@ class ComicService
         $originalFilename = pathinfo($originalName, PATHINFO_FILENAME);
         $extension = strtolower($file->getClientOriginalExtension());
 
-        if ($extension !== 'cbz') {
-            throw new \RuntimeException('Only CBZ files are allowed.');
+        $sourceType = ComicSourceType::tryFrom($extension)
+            ?? throw new \RuntimeException('Unsupported comic source format.');
+        if (!$this->comicFormatService->isEnabled($sourceType)) {
+            throw new \RuntimeException(sprintf('%s uploads are not enabled by the administrator.', strtoupper($sourceType->value)));
         }
 
         $incomingSize = (int) ($file->getSize() ?? filesize($file->getPathname()) ?: 0);
@@ -75,7 +82,7 @@ class ComicService
         $this->ensureDirectory($userDirectory);
 
         $safeFilename = (string) $this->slugger->slug($originalFilename);
-        $newFilename = $safeFilename . '-' . uniqid('', true) . '.cbz';
+        $newFilename = $safeFilename . '-' . uniqid('', true) . '.' . $sourceType->value;
         // TODO: Shard comic archives into nested directories before large
         // libraries put enough files in one user directory to degrade OS/filesystem performance.
         $absolutePath = $userDirectory . '/' . $newFilename;
@@ -85,23 +92,24 @@ class ComicService
                 throw new \RuntimeException('Failed to copy uploaded file.');
             }
             chmod($absolutePath, 0644);
-            $this->validateCbzArchive($absolutePath);
+            $sourceInfo = $this->pageProviderFactory->for($sourceType)->inspect($absolutePath, $sourceType);
         } catch (\Throwable $e) {
             if (file_exists($absolutePath)) {
                 unlink($absolutePath);
             }
             $this->logger->warning('Comic upload rejected.', ['reason' => $e->getMessage()]);
-            throw new \RuntimeException('Uploaded file is not a valid CBZ archive.');
+            throw new \RuntimeException('Uploaded file is not a valid or supported comic source.');
         }
 
         $fileSize = filesize($absolutePath) ?: $incomingSize;
-        $pageCount = $this->countPagesInCbz($absolutePath);
+        $pageCount = $sourceInfo->pageCount;
 
         $comic = new Comic();
         $comic->setTitle($title);
         $comic->setFilePath($newFilename);
         $comic->setFileSize($fileSize);
         $comic->setPageCount($pageCount);
+        $comic->setSourceType($sourceType);
         $comic->setOwner($user);
 
         if ($author) {
@@ -135,7 +143,7 @@ class ComicService
         $this->entityManager->flush();
 
         $baseCoverFilename = (string) $this->slugger->slug(pathinfo($originalName, PATHINFO_FILENAME));
-        $comic->setCoverImagePath($this->extractCoverImage($absolutePath, $user, $comic->getId(), $baseCoverFilename));
+        $comic->setCoverImagePath($this->storeCover($this->pageProviderFactory->for($sourceType)->readPage($absolutePath, $sourceType, 1), $user, $comic->getId(), $baseCoverFilename));
         $this->entityManager->flush();
 
         return $comic;
@@ -179,6 +187,17 @@ class ComicService
         return $this->findComicArchive($comic);
     }
 
+    public function locateComicSource(Comic $comic): ?string
+    {
+        return $this->findComicArchive($comic);
+    }
+
+    public function readPage(Comic $comic, int $page): PageResult
+    {
+        $path = $this->locateComicSource($comic) ?? throw new \RuntimeException('Comic source is missing.');
+        return $this->pageProviderFactory->for($comic->getSourceType())->readPage($path, $comic->getSourceType(), $page);
+    }
+
     /** @param list<array{originalPath: string, quarantinePath: string}> $records */
     public function restoreQuarantinedFiles(array $records): void
     {
@@ -220,6 +239,19 @@ class ComicService
         if (count($this->getImageFilesFromArchive($absolutePath)) === 0) {
             throw new \RuntimeException('Archive contains no supported image files.');
         }
+    }
+
+    private function storeCover(PageResult $cover, User $user, int $comicId, string $base): string
+    {
+        $extension = match ($cover->mimeType) { 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', default => 'jpg' };
+        $directory = $this->comicsDirectory . '/' . $user->getId() . '/covers/' . $comicId;
+        $this->ensureDirectory($directory);
+        $filename = $base . '-cover-' . bin2hex(random_bytes(8)) . '.' . $extension;
+        if (file_put_contents($directory . '/' . $filename, $cover->content, LOCK_EX) === false) {
+            throw new \RuntimeException('Failed to save cover image.');
+        }
+        chmod($directory . '/' . $filename, 0644);
+        return 'covers/' . $comicId . '/' . $filename;
     }
 
     private function extractCoverImage(string $cbzAbsPath, User $user, int $comicId, string $baseCoverFilename): ?string

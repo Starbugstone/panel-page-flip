@@ -1,5 +1,7 @@
 # Panel Page Flip
 
+Supported comic sources are CBZ, CBR, CB7, CBT, and PDF. Self-hosters should see [comic format runtime requirements](docs/comic-formats.md).
+
 Panel Page Flip is a self-hosted web application for managing and reading CBZ comic collections. It combines a responsive comic reader with per-user libraries, reading progress, sharing, bulk uploads, tagging, Dropbox imports, and administrative tools.
 
 **Live site:** [comics.starbugstone.com](https://comics.starbugstone.com/)  
