@@ -12,6 +12,7 @@ export function AdminComicFormats() {
   const { toast } = useToast();
   const [formats, setFormats] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
   const load = async (verify = false) => {
     setBusy(true);
@@ -24,7 +25,13 @@ export function AdminComicFormats() {
     } finally { setBusy(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/api/admin/comic-formats")
+      .then((result) => { if (!cancelled) setFormats(result.formats); })
+      .catch((error) => { if (!cancelled) setLoadError(error.message); });
+    return () => { cancelled = true; };
+  }, []);
 
   const toggle = (name, checked) => setFormats((current) => ({ ...current, [name]: { ...current[name], enabled: checked } }));
   const save = async () => {
@@ -43,6 +50,7 @@ export function AdminComicFormats() {
     <Card>
       <CardHeader><CardTitle>Comic formats</CardTitle><CardDescription>CBZ is always enabled. Verify this server before enabling formats that require external tools.</CardDescription></CardHeader>
       <CardContent className="space-y-5">
+        {loadError && <p className="text-sm text-destructive">{loadError}</p>}
         {!formats ? <p>Checking format support…</p> : Object.entries(formats).map(([name, status]) => (
           <div key={name} className="flex items-start justify-between rounded-md border p-4">
             <div className="flex items-start gap-3">
