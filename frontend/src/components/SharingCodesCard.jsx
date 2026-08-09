@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, KeyRound, Loader2, XCircle } from "lucide-react";
+import { Check, Copy, KeyRound, Loader2, RefreshCw, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
@@ -41,6 +49,8 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
   const [redeemError, setRedeemError] = useState(null);
   const [handedOut, setHandedOut] = useState([]);
   const [withdrawingId, setWithdrawingId] = useState(null);
+  const [confirmingRotation, setConfirmingRotation] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
   const { toast } = useToast();
 
   // Fetches without touching state, so both the effect below and the withdraw
@@ -82,6 +92,29 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
 
     return () => { ignore = true; };
   }, [fetchHandedOut, reloadKey]);
+
+  const rotate = async () => {
+    setIsRotating(true);
+
+    try {
+      const data = await api.post("/api/shares/my-code/rotate", {});
+      setMyCode(data);
+      setConfirmingRotation(false);
+      toast({
+        title: "Sharing code replaced",
+        description: "The old code no longer works. Send the new one to anyone who needs it.",
+      });
+    } catch (err) {
+      logger.error("Rotating the sharing code failed:", err);
+      toast({
+        title: "Could not replace the code",
+        description: err.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRotating(false);
+    }
+  };
 
   const withdraw = async (code) => {
     setWithdrawingId(code.id);
@@ -199,6 +232,17 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
             >
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!myCode || isRotating}
+              onClick={() => setConfirmingRotation(true)}
+              aria-label="Replace your sharing code"
+            >
+              {isRotating
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <RefreshCw className="h-4 w-4" />}
+            </Button>
           </div>
         </div>
 
@@ -271,6 +315,28 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
           </div>
         )}
       </CardContent>
+
+      {/* A confirmation rather than a plain button: rotating is one click that
+          silently breaks the code in every conversation it was pasted into, and
+          that consequence has to be stated before it happens rather than
+          explained afterwards. */}
+      <Dialog open={confirmingRotation} onOpenChange={setConfirmingRotation}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Replace your sharing code?</DialogTitle>
+            <DialogDescription>{SHARING_CODE_COPY.rotate}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmingRotation(false)} disabled={isRotating}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={rotate} disabled={isRotating}>
+              {isRotating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Replace my code
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

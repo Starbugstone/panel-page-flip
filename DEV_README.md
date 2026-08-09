@@ -105,7 +105,8 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 #### ✅ Comic Sharing
 - **Sharing Page**: `Sharing.jsx` at `/sharing` — where shares are both started and managed, with "Shared with me" and "Shared by me" tabs for invitations, access and tombstones
 - **Share Comics Dialog**: `ShareComicsDialog.jsx` is the multi-comic flow behind **Share comics** and **Share another comic** — an owned-only picker with search, previously used recipients, and one grouped invitation email per action. Step 2 offers three ways to name a recipient: an email address, their sharing code, or no one at all (a claim code anybody can redeem). It lists no registered users and searches none
-- **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's own permanent receiver code with a copy action, the field for redeeming a code somebody sent, and the list of codes handed out with a **Withdraw** action on each live one
+- **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's own receiver code with copy and **Replace** actions (the latter behind a confirmation, since the old code breaks everywhere at once), the field for redeeming a code somebody sent, and the list of codes handed out with a **Withdraw** action on each live one
+- **Admin Sharing Code Rotation**: `AdminUserDetails.jsx` can replace a user's receiver code on their behalf, behind a confirmation. The new code is never shown to the administrator — the user reads it off their own Sharing page
 - **Share Comic Modal**: `ShareComicModal.jsx` is the one-comic shortcut from a comic card, and the only path that shows the invitation link once, since only its hash is stored
 - **Invitation Preview**: `ShareInvitation.jsx` at `/share/invitation/:token` loads the invitation through a safe `GET` and only accepts or declines on a button press
 - **Pending Shares Alert**: `PendingSharesAlert.jsx`, now a one-line prompt on the dashboard rather than a card per invitation
@@ -246,6 +247,22 @@ permanent second copy the model exists to avoid.
    `ComicShare`, mints a token and emails the link — all one unit of work, so a
    send that fails rolls the invitation back rather than showing the owner a
    recipient who was never contacted
+
+   > **The limit of that guarantee.** An SMTP call is not a participant in a
+   > database transaction and no arrangement of this code makes it one. What
+   > holds is one direction: a failed send leaves no invitation behind. The
+   > reverse does not — if the send succeeds and the commit then fails, the
+   > recipient holds links to relationships that no longer exist and will be
+   > told the invitation is not valid. Ordering it the other way trades that for
+   > invitations nobody was told about, recoverable by resending but happening
+   > on every transport hiccup rather than on the rarer commit failure. Making
+   > both impossible needs a transactional outbox — shares and a pending
+   > notification committed together, a worker sending after the commit — which
+   > is a change to how the whole application delivers mail rather than to this
+   > path. `ComicShareService::inviteMany()` will not convert a send failure
+   > into per-comic results when a caller owns the transaction, because nothing
+   > was rolled back and that caller's commit would otherwise persist rows
+   > already reported as failed.
 3. The link is `{appUrl}/share/invitation/{token}` and is returned once in
    the response for the owner to copy
 
@@ -341,22 +358,45 @@ anything on its own.
 
 #### The receiver code — "this is me, share with me"
 
-One per account, on `user.sharing_code`, issued the first time it is asked for
-and **permanent** from that moment. Nothing changes it: not a profile edit, not
-an admin screen, and there is no regenerate endpoint to add one to. An address
-book entry that rotates is one that stops working in every conversation it was
-ever pasted into.
+One per account, on `user.sharing_code`, issued the first time it is asked for.
+It is stored **in the clear**, unlike an invitation token, precisely because it
+is an address rather than a capability — its owner has to be able to read it
+back and hand it out again. It authenticates nobody, and the worst a stranger
+holding it can do is offer you a comic you decline.
 
-That permanence is a trade, and it is only affordable because the code is so
-weak: it authenticates nobody, and the worst a stranger holding it can do is
-offer you a comic you decline. It is stored **in the clear**, unlike an
-invitation token, precisely because it is an address rather than a capability —
-its owner has to be able to read it back and hand it out again.
+**Stable, but not permanent.** A code lives in chats, forums and group threads,
+which is exactly the kind of place a thing escapes from, and an identifier its
+owner cannot retire after that is one they are stuck with. Rotation is theirs to
+trigger, and an administrator's on their behalf when they ask support for it.
+Nothing rotates it on its own, because everybody holding the old one has to be
+told the new one.
 
 | Endpoint | Answers |
 |---|---|
 | `GET /api/shares/my-code` | this account's code and display name |
 | `POST /api/shares/resolve-code` | the display name behind a code — nothing else |
+| `POST /api/shares/my-code/rotate` | retires the current code and returns a new one |
+| `POST /api/users/{id}/sharing-code/rotate` | the same, admin-only, and does **not** return the new code |
+
+Rotation changes the identifier and nothing else. Every share already made
+through the old code is a relationship, not an address: pending invitations stay
+pending, accepted ones stay accepted, and nobody loses a comic. It is rate
+limited (`sharing_code_rotation`) — not for load, but so a script or a stuck
+retry cannot quietly make somebody uncontactable — and audited with ids only.
+Neither the old code nor the new one is ever written to a log; a code somebody
+rotated *because* it leaked is the last thing to write down.
+
+**What rotation means for stored codes.** `comic_share.recipient_sharing_code`
+records how a relationship began and goes stale the moment the recipient
+rotates. Nothing treats it as a live handle. The owner's Sharing page and their
+recent-recipient list both resolve the recipient's *current* code through
+`ComicShare::recipientUser` — which is why a share made by code links the
+account immediately rather than waiting for acceptance. A recipient whose
+account has gone keeps their name and loses the code rather than falling back to
+the address, because falling back would hand over the one thing the code existed
+to withhold. That lookup is the single place this feature joins `User`, and it
+is allowed because the rows are already restricted to people the owner shares
+with: it resolves a known correspondent, it does not search the directory.
 
 Sharing by code is the ordinary bulk invitation with the recipient named
 differently: `POST /api/shares/invitations/bulk` takes `sharingCode` in place of
@@ -375,13 +415,22 @@ one:
 
 - **Hashed at rest**, like an invitation token. The plaintext is returned once,
   when it is created, and nothing can reproduce it afterwards
-- **Unique**, checked against both `share_claim_code.code_hash` and
-  `user.sharing_code` before one is kept, so no code of either kind is ever
-  issued twice. The unique index is the authority behind that check
+- **Unique across both kinds.** `SharingCodeService::allocateUniqueCode()` is the
+  only place either kind is generated, and it checks `user.sharing_code` *and*
+  `share_claim_code.code_hash` before a candidate is kept. Two unique indexes
+  cannot enforce uniqueness across two tables, so each is authoritative inside
+  its own table and this allocator is what upholds the invariant between them
 - **Dead in a day.** A code pasted into a group chat is out of its owner's hands
   the moment it is sent
 - **Spent as it is used**, between 1 and 10 times, chosen when it is made, so the
-  owner decides up front how far it may travel
+  owner decides up front how far it may travel. A use means *a person*, not a
+  request: `share_claim_code_redemption` records which account claimed which
+  code, with a unique index on the pair, so one recipient submitting the same
+  code ten times spends one use and a repeat is answered idempotently. Without
+  it, one person could exhaust an offer advertised to ten, and the owner's
+  "claimed 10 of 10" would be counting requests rather than the audience it
+  names. The rows are never exposed to the owner — they are told how many people
+  took the offer up, which is what they asked
 - **Withdrawable at any point** before that, from the Sharing page. Withdrawing
   takes effect on the next redemption attempt and does not touch the shares the
   code already produced
@@ -410,11 +459,27 @@ are ordinary relationships and outlive it entirely.
 | `DELETE /api/shares/claim-codes/{id}` | withdraw one |
 | `POST /api/shares/claim-codes/redeem` | claim the comics behind one |
 
-Redeeming is the recipient's own deliberate act, so it stands in for accepting an
-invitation — with one exception it cannot wave through. **An explicit comic is
-left pending behind the age gate**, decided before the share is accepted rather
-than undone afterwards, so there is no moment where an unconfirmed recipient
-holds an accepted share. Everything downstream is the ordinary model: the same
+Redemption goes through `ComicShareService::claimFromCode()`, not through a
+second copy of the share lifecycle. **One service owns what a `ComicShare` is
+and how it changes**, whatever transport created it — a transport that grew its
+own transitions would drift from the canonical rules, and the acknowledgement
+timestamp being recreated at redemption time is exactly the bug that follows.
+Claiming emits the same `SHARE_CREATED` and `SHARE_ACCEPTED` audit records an
+emailed invitation does, tagged `via: claim_code`, alongside the aggregate
+`SHARE_CLAIM_CODE_REDEEMED`.
+
+It differs from an emailed invitation in three deliberate ways: no token and no
+email, because the recipient is right there; redeeming counts as accepting,
+because typing a code somebody gave you is an affirmative act; and the sender's
+acknowledgement is **inherited from the code, not stamped now** — the owner
+acknowledged responsibility when they created it, possibly hours earlier, and
+`ComicShare::senderResponsibilityAcceptedAt` is the canonical evidence of when
+they did.
+
+The one rule redemption cannot wave through is the age gate. **An explicit comic
+is left pending**, decided before the share is accepted rather than undone
+afterwards, so there is no moment where an unconfirmed recipient holds an
+accepted share. Everything downstream is the ordinary model: the same
 `ComicShare`, the same revocation, the same tombstones. Withdrawing a code does
 not touch the shares it already produced; those are ordinary relationships now.
 
@@ -443,6 +508,13 @@ Minting claim codes has its own `share_claim_code` allowance, because it sends n
 mail and the invitation limiter would never see it.
 
 #### Still out of scope
+
+There is no **admin management surface** for issued claim codes: no list, no
+filters, no forced revocation, and no way to run the retention cleanup from the
+UI. Operators have the CLI (`app:cleanup-expired-shares`) and the audit stream.
+That is a gap worth closing, but it is an operations feature rather than a
+defect in the sharing model, so it is tracked separately rather than held
+against this work.
 
 Consent-based **sharing contacts** — where an accepted recipient lets the sender
 remember them by name without an address — remain future work. They need their

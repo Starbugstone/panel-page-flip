@@ -3,12 +3,11 @@
 namespace App\Service;
 
 use App\Entity\Comic;
-use App\Entity\ComicShare;
 use App\Entity\ShareClaimCode;
+use App\Entity\ShareClaimCodeRedemption;
 use App\Entity\User;
-use App\Repository\ComicShareRepository;
+use App\Repository\ShareClaimCodeRedemptionRepository;
 use App\Repository\ShareClaimCodeRepository;
-use App\Repository\UserRepository;
 use App\Security\Voter\ComicVoter;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\LockMode;
@@ -43,8 +42,7 @@ final class ShareClaimCodeService
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly ShareClaimCodeRepository $claimCodeRepository,
-        private readonly ComicShareRepository $shareRepository,
-        private readonly UserRepository $userRepository,
+        private readonly ShareClaimCodeRedemptionRepository $redemptionRepository,
         private readonly ComicShareService $shareService,
         private readonly AuthorizationCheckerInterface $authorizationChecker,
         private readonly SecurityAuditLogger $auditLogger,
@@ -121,7 +119,9 @@ final class ShareClaimCodeService
         // allowance rather than the invitation limiter's.
         $this->reserveIssueAllowance($owner);
 
-        $plaintext = $this->mintUniqueCode();
+        // Both kinds of code come out of the same allocator, so one visible
+        // code always means one thing.
+        $plaintext = $this->sharingCodes->allocateUniqueCode();
         $code = new ShareClaimCode(
             $owner,
             SharingCodeFormat::hash($plaintext),
@@ -234,65 +234,44 @@ final class ShareClaimCodeService
             throw new ShareException('This is your own sharing code.', 409);
         }
 
+        // One account, at most one use. Without this a recipient could submit
+        // the same code ten times and exhaust an offer advertised to ten
+        // people — and the owner's "claimed 10 of 10" would be counting
+        // requests rather than the audience it says it counts.
+        $alreadyRedeemed = $this->redemptionRepository->findFor($code, $redeemer) !== null;
+
         $results = [];
         $claimed = 0;
 
         foreach ($code->getComics() as $comic) {
-            $comicId = (int) $comic->getId();
-
-            $existing = $this->shareRepository->findForComicAndRecipient(
+            // The share lifecycle belongs to ComicShareService, wherever a
+            // share comes from. A transport that grew its own copy of these
+            // transitions would drift from the canonical rules.
+            $outcome = $this->shareService->claimFromCode(
                 $comic,
-                ComicShare::normaliseEmail((string) $redeemer->getEmail())
+                $owner,
+                $redeemer,
+                // The owner acknowledged responsibility when they created the
+                // code, not now — and the field this lands in is the canonical
+                // evidence of when they did.
+                $code->getSenderResponsibilityAcceptedAt()
             );
 
-            if ($existing !== null && ($existing->getStatus() === ComicShare::STATUS_ACCEPTED || $existing->isPending())) {
-                $results[] = [
-                    'comicId' => $comicId,
-                    'status' => 'already_yours',
-                    'message' => 'You already have this comic.',
-                ];
-                continue;
+            $results[] = ['comicId' => (int) $comic->getId()] + $outcome;
+
+            if ($outcome['status'] !== 'already_yours') {
+                ++$claimed;
             }
-
-            $share = $existing ?? new ComicShare($comic, $owner, (string) $redeemer->getEmail());
-            if ($existing === null) {
-                $this->entityManager->persist($share);
-            } else {
-                $share->setOwner($owner)->refreshSnapshots()->resetAdultConfirmation();
-            }
-
-            // The *code* expires in a day; the relationship it produces does
-            // not inherit that. An explicit comic left pending behind the age
-            // gate gets the same two months any other invitation would, because
-            // the recipient answering it is a separate act from the redemption.
-            $share->markPending(new \DateTimeImmutable(ComicShareService::INVITATION_TTL))->refreshSnapshots();
-            // The owner's acknowledgement travels with the code rather than
-            // being asked for again: they made it when they created the offer,
-            // and the person redeeming is not the sender.
-            $share->acceptSenderResponsibility();
-
-            // Redeeming is the recipient's own deliberate act, so it stands in
-            // for accepting an invitation — with one exception this cannot wave
-            // through. An explicit comic is left pending so it is answered
-            // behind the age gate on the Sharing page, exactly as an emailed
-            // invitation would be. Decided before the share is accepted rather
-            // than undone afterwards, so there is no moment where an
-            // unconfirmed recipient holds an accepted share.
-            if ($share->requiresAdultConfirmation()) {
-                $results[] = [
-                    'comicId' => $comicId,
-                    'status' => 'awaiting_age_confirmation',
-                    'message' => 'Confirm your age on the Sharing page to open this one.',
-                ];
-            } else {
-                $share->markAccepted($redeemer);
-                $results[] = ['comicId' => $comicId, 'status' => 'claimed'];
-            }
-
-            ++$claimed;
         }
 
-        $code->spendUse();
+        // Spent only for an account that did not already hold a use. Repeating
+        // the same redemption is idempotent: it re-reports what they have and
+        // takes nothing from anybody else.
+        if (!$alreadyRedeemed) {
+            $this->entityManager->persist(new ShareClaimCodeRedemption($code, $redeemer));
+            $code->spendUse();
+        }
+
         $this->entityManager->flush();
 
         $this->auditLogger->audit(SecurityAuditLogger::SHARE_CLAIM_CODE_REDEEMED, [
@@ -301,43 +280,16 @@ final class ShareClaimCodeService
             'target_id' => $code->getId(),
             'owner_user_id' => $owner->getId(),
             'claimed' => $claimed,
+            'repeat' => $alreadyRedeemed,
             'uses_remaining' => $code->getUsesRemaining(),
         ]);
 
         return [
             'results' => $results,
             'claimed' => $claimed,
+            'alreadyRedeemed' => $alreadyRedeemed,
             'ownerName' => $owner->getName() ?: 'A Panel Page Flip reader',
         ];
-    }
-
-    /**
-     * A code no other code is using, of either kind.
-     *
-     * The unique index on `code_hash` already makes two claim codes impossible;
-     * this makes the guarantee whole. A claim code and a receiver code are
-     * pasted into different fields and could not actually be confused, but
-     * "your code is yours" is a rule that is much easier to trust when it has
-     * no exceptions, and one extra indexed lookup is a cheap way to have none.
-     *
-     * @throws ShareException when no free code turns up, which should not happen
-     */
-    private function mintUniqueCode(): string
-    {
-        for ($attempt = 0; $attempt < 5; ++$attempt) {
-            $candidate = SharingCodeFormat::generate();
-
-            $takenByClaimCode = $this->claimCodeRepository
-                ->findOneBy(['codeHash' => SharingCodeFormat::hash($candidate)]) !== null;
-            $takenByReceiver = $this->userRepository
-                ->findOneBy(['sharingCode' => $candidate]) !== null;
-
-            if (!$takenByClaimCode && !$takenByReceiver) {
-                return $candidate;
-            }
-        }
-
-        throw new ShareException('A sharing code could not be created. Please try again.', 500);
     }
 
     /** @return list<ShareClaimCode> */

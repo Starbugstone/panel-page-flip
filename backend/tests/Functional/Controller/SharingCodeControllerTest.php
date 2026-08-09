@@ -577,6 +577,235 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         self::assertNotNull($entityManager->getRepository(Comic::class)->find($comic->getId()));
     }
 
+    /* ---------------------------------------------------------------------- */
+    /* Rotation                                                               */
+    /* ---------------------------------------------------------------------- */
+
+    public function testRotatingRetiresTheOldCodeAndIssuesANewOne(): void
+    {
+        $recipient = $this->createAndLoginUser(['email' => 'rotator@example.com', 'name' => 'Rotator']);
+        $original = $this->getJson('/api/shares/my-code')['sharingCode'];
+
+        $rotated = $this->postJson('/api/shares/my-code/rotate', []);
+        self::assertResponseIsSuccessful();
+        self::assertNotSame($original, $rotated['sharingCode']);
+        self::assertSame('Rotator', $rotated['name']);
+
+        // Read back the same new one, not a third.
+        self::assertSame($rotated['sharingCode'], $this->getJson('/api/shares/my-code')['sharingCode']);
+
+        $this->createAndLoginUser(['email' => 'holder-of-old@example.com']);
+        // The old code is gone for everybody who was given it, which is the
+        // entire point.
+        $this->postJson('/api/shares/resolve-code', ['sharingCode' => $original]);
+        self::assertResponseStatusCodeSame(404);
+
+        $resolved = $this->postJson('/api/shares/resolve-code', ['sharingCode' => $rotated['sharingCode']]);
+        self::assertResponseIsSuccessful();
+        self::assertSame('Rotator', $resolved['recipient']['name']);
+        self::assertNotNull($recipient->getId());
+    }
+
+    public function testRotatingLeavesExistingSharesUntouched(): void
+    {
+        $recipient = UserFactory::createOne(['email' => 'keeps-comics@example.com', 'name' => 'Keeper'])->object();
+        $this->loginAs($recipient);
+        $original = $this->getJson('/api/shares/my-code')['sharingCode'];
+
+        $owner = $this->createAndLoginUser(['email' => 'gave-comics@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Still Mine'])->object();
+        $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
+            'sharingCode' => $original,
+            'senderResponsibilityAccepted' => true,
+        ]);
+        self::assertResponseStatusCodeSame(201);
+
+        $this->loginAs($recipient);
+        $newCode = $this->postJson('/api/shares/my-code/rotate', [])['sharingCode'];
+
+        // Rotation replaces an address, not a relationship.
+        $received = $this->getJson('/api/shares/shared-with-me')['sharedWithMe'];
+        self::assertCount(1, $received);
+        self::assertSame(ComicShare::STATUS_PENDING, $received[0]['status']);
+
+        // And the sender is offered the new code, never the retired one — a
+        // stale snapshot in the picker would put the withdrawn code straight
+        // back into circulation.
+        $this->loginAs($owner);
+        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        self::assertSame($newCode, $entry['recipientSharingCode']);
+        self::assertNull($entry['recipientEmail']);
+
+        $recipients = $this->getJson('/api/shares/recent-recipients')['recipients'];
+        self::assertSame([$newCode], array_column($recipients, 'sharingCode'));
+        self::assertStringNotContainsString(
+            str_replace('-', '', $original),
+            str_replace('-', '', (string) $this->browser()->getResponse()->getContent())
+        );
+    }
+
+    public function testAnAdminCanRotateSomebodyElsesCodeWithoutSeeingIt(): void
+    {
+        $target = UserFactory::createOne(['email' => 'needs-help@example.com'])->object();
+        $this->loginAs($target);
+        $original = $this->getJson('/api/shares/my-code')['sharingCode'];
+
+        $this->createAndLoginAdmin(['email' => 'support@example.com']);
+        $payload = $this->postJson(sprintf('/api/users/%d/sharing-code/rotate', $target->getId()), []);
+
+        self::assertResponseIsSuccessful();
+        // Support has no reason to hold somebody's contact handle; the user
+        // reads the new one off their own page.
+        self::assertArrayNotHasKey('sharingCode', $payload);
+        self::assertStringNotContainsString(
+            str_replace('-', '', $original),
+            str_replace('-', '', (string) $this->browser()->getResponse()->getContent())
+        );
+
+        $this->loginAs($target);
+        self::assertNotSame($original, $this->getJson('/api/shares/my-code')['sharingCode']);
+    }
+
+    public function testAnOrdinaryUserCannotRotateSomebodyElsesCode(): void
+    {
+        $target = UserFactory::createOne(['email' => 'not-yours@example.com'])->object();
+        $this->loginAs($target);
+        $original = $this->getJson('/api/shares/my-code')['sharingCode'];
+
+        $this->createAndLoginUser(['email' => 'meddling-user@example.com']);
+        $this->postJson(sprintf('/api/users/%d/sharing-code/rotate', $target->getId()), []);
+        self::assertResponseStatusCodeSame(403);
+
+        $this->loginAs($target);
+        self::assertSame($original, $this->getJson('/api/shares/my-code')['sharingCode']);
+    }
+
+    public function testRotationIsRateLimited(): void
+    {
+        $this->createAndLoginUser(['email' => 'spinner@example.com']);
+        $this->getJson('/api/shares/my-code');
+
+        // Rotated until it is refused rather than exactly N times: the limiter
+        // is cache-backed while the database rolls back between tests, so a
+        // user id can arrive at a key an earlier test already spent from. What
+        // matters is that the allowance is finite and says so.
+        $refused = null;
+        for ($attempt = 0; $attempt < 6 && $refused === null; ++$attempt) {
+            $payload = $this->postJson('/api/shares/my-code/rotate', []);
+
+            if ($this->browser()->getResponse()->getStatusCode() === 429) {
+                $refused = $payload;
+            }
+        }
+
+        self::assertNotNull($refused, 'Rotation should run out of allowance.');
+        self::assertStringContainsString('too many times', $refused['message']);
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /* Redemption identity                                                    */
+    /* ---------------------------------------------------------------------- */
+
+    /**
+     * "Ten uses" has to mean ten people. Charging per request lets one
+     * recipient exhaust an offer made to everybody else.
+     */
+    public function testOneAccountSpendsAtMostOneUseHoweverOftenItRedeems(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'ten-uses@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $created = $this->postJson('/api/shares/claim-codes', [
+            'comicIds' => [$comic->getId()],
+            'maxUses' => 10,
+            'senderResponsibilityAccepted' => true,
+        ]);
+        $code = $created['code'];
+
+        $this->createAndLoginUser(['email' => 'eager@example.com']);
+        for ($i = 0; $i < 6; ++$i) {
+            $payload = $this->postJson('/api/shares/claim-codes/redeem', ['code' => $code]);
+            self::assertResponseIsSuccessful();
+            if ($i > 0) {
+                self::assertTrue($payload['alreadyRedeemed'], 'A repeat redemption should say so.');
+            }
+        }
+
+        $this->loginAs($owner);
+        $listed = $this->getJson('/api/shares/claim-codes')['codes'][0];
+        self::assertSame(1, $listed['timesUsed'], 'One account is one use, however many requests.');
+        self::assertSame(9, $listed['usesRemaining']);
+    }
+
+    public function testDistinctAccountsEachSpendOneUseUntilTheCodeRunsOut(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'party@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $code = $this->postJson('/api/shares/claim-codes', [
+            'comicIds' => [$comic->getId()],
+            'maxUses' => 3,
+            'senderResponsibilityAccepted' => true,
+        ])['code'];
+
+        for ($i = 0; $i < 3; ++$i) {
+            $this->createAndLoginUser(['email' => sprintf('guest%d@example.com', $i)]);
+            $this->postJson('/api/shares/claim-codes/redeem', ['code' => $code]);
+            self::assertResponseIsSuccessful(sprintf('Guest %d should be able to claim.', $i));
+        }
+
+        $this->createAndLoginUser(['email' => 'fourth@example.com']);
+        $this->postJson('/api/shares/claim-codes/redeem', ['code' => $code]);
+        self::assertResponseStatusCodeSame(404);
+
+        $this->loginAs($owner);
+        self::assertSame(3, $this->getJson('/api/shares/claim-codes')['codes'][0]['timesUsed']);
+    }
+
+    /**
+     * The canonical evidence of the sender's acknowledgement has to say when
+     * the sender acknowledged, not when somebody else consumed the code.
+     */
+    public function testAClaimedShareInheritsTheOwnersAcknowledgementTimestamp(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'acknowledger@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $code = $this->postJson('/api/shares/claim-codes', [
+            'comicIds' => [$comic->getId()],
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ])['code'];
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $claimCode = $entityManager->getRepository(ShareClaimCode::class)->findOneBy([]);
+        $acknowledgedAt = $claimCode->getSenderResponsibilityAcceptedAt();
+
+        // Redeemed later, by somebody the owner was not present for.
+        $entityManager->getConnection()->executeStatement(
+            'UPDATE share_claim_code SET sender_responsibility_accepted_at = :then, created_at = :then WHERE id = :id',
+            [
+                'then' => $acknowledgedAt->modify('-8 hours')->format('Y-m-d H:i:s'),
+                'id' => $claimCode->getId(),
+            ]
+        );
+        $entityManager->clear();
+
+        $expected = $acknowledgedAt->modify('-8 hours')->format('Y-m-d H:i:s');
+
+        $this->createAndLoginUser(['email' => 'much-later@example.com']);
+        $this->postJson('/api/shares/claim-codes/redeem', ['code' => $code]);
+        self::assertResponseIsSuccessful();
+
+        $share = $entityManager->getRepository(ComicShare::class)->findOneBy([
+            'recipientEmailNormalized' => 'much-later@example.com',
+        ]);
+
+        self::assertSame(
+            $expected,
+            $share->getSenderResponsibilityAcceptedAt()?->format('Y-m-d H:i:s'),
+            'The share must record when the owner acknowledged, not when the code was redeemed.'
+        );
+    }
+
     public function testEveryCodeEndpointRequiresAuthentication(): void
     {
         $accept = ['HTTP_ACCEPT' => 'application/json', 'CONTENT_TYPE' => 'application/json'];

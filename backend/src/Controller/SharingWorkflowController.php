@@ -61,6 +61,33 @@ final class SharingWorkflowController extends AbstractController
     }
 
     /**
+     * Retire this account's code and take a new one.
+     *
+     * A receiver code lives in chats, forums and group threads, so it is
+     * exactly the kind of thing that escapes further than intended. This is the
+     * way back from that. It changes nothing but the identifier: every share
+     * already made through the old code is a relationship, not an address, and
+     * survives untouched.
+     */
+    #[Route('/my-code/rotate', name: 'app_shares_rotate_my_code', methods: ['POST'])]
+    public function rotateMyCode(#[CurrentUser] ?User $user): JsonResponse
+    {
+        if (!$user) {
+            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        try {
+            $this->sharingCodes->rotateCode($user);
+        } catch (ShareException $exception) {
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
+        }
+
+        return $this->json([
+            'message' => 'Your sharing code has been replaced. The old one no longer works.',
+        ] + $this->sharingCodes->describe($user));
+    }
+
+    /**
      * Who a receiver code belongs to, so a sender can check they have the right
      * person before handing anything over.
      *
@@ -139,6 +166,7 @@ final class SharingWorkflowController extends AbstractController
 
             $email = ComicShare::normaliseEmail((string) $recipient->getEmail());
             $viaSharingCode = new SharingCodeRecipient(
+                $recipient,
                 (string) $recipient->getSharingCode(),
                 $recipient->getName()
             );

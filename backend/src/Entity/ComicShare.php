@@ -232,6 +232,25 @@ class ComicShare
     }
 
     /**
+     * Attach the account this share is for, before they have answered.
+     *
+     * Normally the link is made on acceptance, because an invitation may be
+     * addressed to somebody who has no account yet. A share made through a
+     * receiver code is the exception: the code *is* an account, so the
+     * relationship knows who it is for from the start.
+     *
+     * That link is what survives a rotation. `recipientSharingCode` records how
+     * this relationship began and goes stale the moment the recipient replaces
+     * their code; anything that needs their current handle asks the account.
+     */
+    public function linkRecipientUser(User $recipient): self
+    {
+        $this->recipientUser = $recipient;
+
+        return $this;
+    }
+
+    /**
      * Stop hiding the address, because the owner supplied it themselves.
      *
      * Re-inviting reuses the row, so a relationship that began with a receiver
@@ -381,6 +400,28 @@ class ComicShare
     public function acceptSenderResponsibility(): self
     {
         $this->senderResponsibilityAcceptedAt = new \DateTimeImmutable();
+
+        return $this;
+    }
+
+    /**
+     * Carry an acknowledgement the owner already made onto this share.
+     *
+     * A share created by redeeming a claim code is not a moment the owner was
+     * present for: they acknowledged responsibility when they created the code,
+     * possibly hours earlier. Stamping "now" would put a timestamp in the
+     * canonical audit field for an act the audited party did not perform then —
+     * and an audit trail that records the wrong moment is worse than one that
+     * records nothing.
+     *
+     * Takes the timestamp rather than generating one, and is deliberately
+     * separate from {@see acceptSenderResponsibility()} so nothing can pass a
+     * request-supplied value in by accident: the only caller hands it the
+     * server-generated timestamp already stored on the claim code.
+     */
+    public function inheritSenderResponsibility(\DateTimeImmutable $acknowledgedAt): self
+    {
+        $this->senderResponsibilityAcceptedAt = $acknowledgedAt;
 
         return $this;
     }

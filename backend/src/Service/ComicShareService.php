@@ -123,9 +123,10 @@ class ComicShareService
      *   put in somebody's inbox — is exactly what it protected before bulk
      *   sharing existed.
      *
-     * All or nothing on the send: the grouped email is the only notice the
-     * recipient gets, so a failed send must not leave behind invitations nobody
-     * will ever hear about.
+     * A failed send leaves nothing behind: the grouped email is the only notice
+     * the recipient gets, so invitations nobody will ever hear about are worse
+     * than no invitations. See {@see deliver()} for what that guarantee does
+     * and does not cover.
      *
      * The caller is responsible for having checked {@see ComicVoter::SHARE} on
      * every comic it passes in.
@@ -185,14 +186,27 @@ class ComicShareService
             // told it — going on hiding it would withhold something they
             // already hold.
             if ($viaSharingCode !== null) {
-                $prepared[$comicId]->share->hideRecipientBehindSharingCode(
-                    $viaSharingCode->sharingCode,
-                    $viaSharingCode->name
-                );
+                $prepared[$comicId]->share
+                    ->hideRecipientBehindSharingCode(
+                        $viaSharingCode->sharingCode,
+                        $viaSharingCode->name
+                    )
+                    // A code is an account, so this relationship knows who it is
+                    // for before they answer — and that link, not the stored
+                    // code, is what still points at them after a rotation.
+                    ->linkRecipientUser($viaSharingCode->user);
             } else {
                 $prepared[$comicId]->share->revealRecipientAddressToOwner();
             }
         }
+
+        // Whether this call is the one that would roll the batch back. Reporting
+        // a failed send as a per-comic result is only truthful when the rows
+        // actually went away; inside a transaction somebody else owns, they did
+        // not, and that caller's commit would then persist relationships this
+        // method had already reported as failed. So the exception is left to
+        // travel up to whoever can undo it.
+        $ownsTransaction = !$this->entityManager->getConnection()->isTransactionActive();
 
         try {
             $this->deliver(
@@ -200,7 +214,11 @@ class ComicShareService
                 fn () => $this->sendGroupedInvitationEmail(array_values($prepared), $owner)
             );
         } catch (ShareException $exception) {
-            // The rollback already undid every relationship in the batch, so the
+            if (!$ownsTransaction) {
+                throw $exception;
+            }
+
+            // The rollback did undo every relationship in the batch, so the
             // whole group reports the same failure rather than the request
             // looking partly successful.
             foreach (array_keys($prepared) as $comicId) {
@@ -220,6 +238,102 @@ class ComicShareService
         }
 
         return $outcomes;
+    }
+
+    /**
+     * Open one relationship because the recipient redeemed a claim code.
+     *
+     * The third way a {@see ComicShare} comes into existence, and it lives here
+     * with the other two so there is one place that owns what a share is and
+     * how it changes. A transport that grew its own copy of these transitions
+     * would drift from them — the acknowledgement timestamp being recreated at
+     * redemption time is exactly the kind of bug that follows.
+     *
+     * It differs from an emailed invitation in three ways, all deliberate:
+     *
+     * - no token and no email. The recipient is right here; there is nothing to
+     *   send them a link to
+     * - **redeeming counts as accepting.** Typing a code somebody gave you is
+     *   an affirmative act, so an ordinary comic lands in the collection rather
+     *   than waiting to be accepted a second time
+     * - the acknowledgement is inherited, not made. The owner acknowledged
+     *   responsibility when they created the code
+     *
+     * Everything else is the ordinary model. The age gate in particular is not
+     * negotiable: an explicit comic is left pending, decided *before* the share
+     * is accepted so there is no instant in which an unconfirmed recipient
+     * holds an accepted share.
+     *
+     * Does not flush. The caller owns the transaction, because spending a use
+     * of the code and creating the shares it paid for have to land together.
+     *
+     * @param \DateTimeImmutable $acknowledgedAt when the owner accepted
+     *                                          responsibility, from the code
+     *
+     * @return array{status: string, message?: string} the outcome for this comic
+     */
+    public function claimFromCode(
+        Comic $comic,
+        User $owner,
+        User $recipient,
+        \DateTimeImmutable $acknowledgedAt
+    ): array {
+        $email = ComicShare::normaliseEmail((string) $recipient->getEmail());
+        $share = $this->shareRepository->findForComicAndRecipient($comic, $email);
+
+        // Already theirs, or already offered and still open. Redeeming does not
+        // restart either.
+        if ($share !== null && ($share->getStatus() === ComicShare::STATUS_ACCEPTED || $share->isPending())) {
+            return ['status' => 'already_yours', 'message' => 'You already have this comic.'];
+        }
+
+        if ($share === null) {
+            $share = new ComicShare($comic, $owner, $email);
+            $this->entityManager->persist($share);
+        } else {
+            // Declined, revoked or lapsed. Reused rather than duplicated, and
+            // the old age declaration does not carry over — this is a fresh
+            // offer of the comic as it is now.
+            $share->setOwner($owner)->refreshSnapshots()->resetAdultConfirmation();
+        }
+
+        $share
+            ->markPending(new \DateTimeImmutable(self::INVITATION_TTL))
+            ->refreshSnapshots()
+            ->linkRecipientUser($recipient)
+            ->inheritSenderResponsibility($acknowledgedAt);
+
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_CREATED, [
+            'actor_user_id' => $owner->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $comic->getId(),
+            'recipient_user_id' => $recipient->getId(),
+            'explicit_content' => $comic->isExplicitContent(),
+            'via' => 'claim_code',
+        ]);
+
+        if ($share->requiresAdultConfirmation()) {
+            return [
+                'status' => 'awaiting_age_confirmation',
+                'message' => 'Confirm your age on the Sharing page to open this one.',
+            ];
+        }
+
+        $share->markAccepted($recipient)->refreshSnapshots();
+        $this->revokeOutstandingTokens($share);
+
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_ACCEPTED, [
+            'actor_user_id' => $recipient->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $comic->getId(),
+            'owner_user_id' => $owner->getId(),
+            'explicit_content' => $comic->isExplicitContent(),
+            'via' => 'claim_code',
+        ]);
+
+        return ['status' => 'claimed'];
     }
 
     /**
@@ -752,6 +866,20 @@ class ComicShareService
      * The send is inside the transaction on purpose: a send that fails rolls the
      * invitations back, so nobody is shown a recipient who was never actually
      * contacted.
+     *
+     * That is the guarantee, and it is worth being exact about its limit,
+     * because an SMTP call is not a participant in a database transaction and
+     * no arrangement of this code can make it one. What holds is one direction:
+     * **a failed send leaves no invitation behind.** The reverse does not — if
+     * the send succeeds and the commit then fails, the recipient is holding
+     * links to relationships that no longer exist, and they will find the
+     * invitation is not valid. Ordering it the other way round trades that for
+     * invitations nobody was told about, which is recoverable by resending but
+     * happens on every transport hiccup rather than on the rarer commit
+     * failure. Making both impossible needs a transactional outbox: the shares
+     * and a pending-notification row committed together, and a worker sending
+     * after the commit. That is a change to how this application delivers
+     * everything, not to this method.
      *
      * @param list<PreparedInvitation> $prepared for the failure log only
      * @param callable(): void         $send

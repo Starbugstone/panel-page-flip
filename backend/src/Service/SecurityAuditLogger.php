@@ -82,6 +82,7 @@ class SecurityAuditLogger
     // that commit — where the deletion events above already carry the count of
     // recipients who lost access.
     public const SHARES_CLEARED = 'audit.share.dead_records_cleared';
+    public const SHARING_CODE_ROTATED = 'audit.share.sharing_code_rotated';
     public const SHARE_CLAIM_CODE_CREATED = 'audit.share.claim_code_created';
     public const SHARE_CLAIM_CODE_REDEEMED = 'audit.share.claim_code_redeemed';
     public const SHARE_CLAIM_CODE_REVOKED = 'audit.share.claim_code_revoked';

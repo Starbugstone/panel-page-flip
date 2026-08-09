@@ -249,8 +249,11 @@ export function isValidSharingCode(value) {
 
 /** How the two kinds of code are described wherever they are offered. */
 export const SHARING_CODE_COPY = {
-  mine: "Give this to someone so they can share comics with you. It never changes, "
-    + "and it only ever shows them your name — never your email address.",
+  mine: "Give this to someone so they can share comics with you. It only ever shows them "
+    + "your name — never your email address.",
+  rotate: "Replace your code if it has ended up somewhere you did not intend. The old one stops "
+    + "working immediately, and anyone who still has it will need the new one. Comics already "
+    + "shared with you are not affected.",
   recipient: "Share with someone by their code instead of their email address. "
     + "You will see their name to check you have the right person.",
   claim: "Create a code instead of naming anyone. Anyone you give it to can claim these "

@@ -54,45 +54,72 @@ final class SharingWorkflowService
 
         $rows = $this->entityManager->createQueryBuilder()
             ->select('s.recipientEmailNormalized AS email')
-            ->addSelect('s.recipientSharingCode AS sharingCode')
-            ->addSelect('s.recipientAliasName AS name')
+            // Whether this relationship was made by code, not which code. The
+            // stored one is a note about how it began and goes stale the moment
+            // the recipient rotates; offering it back would put a retired code
+            // straight into the picker and defeat the rotation.
+            ->addSelect('s.recipientSharingCode AS historicalCode')
+            // The recipient's handle as it is now. Joining User is forbidden
+            // everywhere else in this service, and allowed here for one reason:
+            // the rows are already restricted to people this owner has an
+            // existing sharing relationship with, so nothing is learned that
+            // sharing with them did not already establish. It is a lookup of a
+            // known correspondent, not a search of the directory.
+            ->addSelect('ru.sharingCode AS currentCode')
+            ->addSelect('ru.name AS currentName')
             ->addSelect('MAX(s.id) AS HIDDEN lastShareId')
             ->from(ComicShare::class, 's')
+            ->leftJoin('s.recipientUser', 'ru')
             ->andWhere('s.owner = :owner')
             ->andWhere('s.recipientEmailNormalized <> :empty')
             ->setParameter('owner', $owner)
             ->setParameter('empty', '')
-            // Grouped by all three so a person the owner has reached both ways
-            // appears once per way of reaching them, rather than one entry
-            // silently carrying the other's label.
+            // Grouped so a person the owner has reached both ways appears once
+            // per way of reaching them, rather than one entry silently carrying
+            // the other's label.
             ->groupBy('s.recipientEmailNormalized')
             ->addGroupBy('s.recipientSharingCode')
-            ->addGroupBy('s.recipientAliasName')
+            ->addGroupBy('ru.sharingCode')
+            ->addGroupBy('ru.name')
             ->orderBy('lastShareId', 'DESC')
             ->setMaxResults($safeLimit)
             ->getQuery()
             ->getArrayResult();
 
-        return array_map(
-            static function (array $row): array {
-                $sharingCode = $row['sharingCode'] === null ? null : (string) $row['sharingCode'];
-                $name = $row['name'] === null ? null : (string) $row['name'];
+        $recipients = [];
+        foreach ($rows as $row) {
+            $byCode = $row['historicalCode'] !== null;
+            $currentCode = $row['currentCode'] === null ? null : (string) $row['currentCode'];
+            $name = $row['currentName'] === null ? null : (string) $row['currentName'];
 
-                return [
-                    // Withheld for a code recipient, so the picker cannot put
-                    // back on screen the address the sender never learned.
-                    'email' => $sharingCode === null ? (string) $row['email'] : null,
-                    'sharingCode' => $sharingCode === null
-                        ? null
-                        : SharingCodeFormat::forDisplay($sharingCode),
-                    'name' => $name,
-                    'label' => $sharingCode === null
-                        ? (string) $row['email']
-                        : ($name ?: SharingCodeFormat::forDisplay($sharingCode)),
+            if (!$byCode) {
+                $recipients[] = [
+                    'email' => (string) $row['email'],
+                    'sharingCode' => null,
+                    'name' => null,
+                    'label' => (string) $row['email'],
                 ];
-            },
-            $rows
-        );
+                continue;
+            }
+
+            // A code recipient whose account can no longer be resolved, or who
+            // has no code right now, is simply not offered. The alternative —
+            // falling back to the address — would hand over the one thing the
+            // code existed to withhold.
+            if ($currentCode === null) {
+                continue;
+            }
+
+            $display = SharingCodeFormat::forDisplay($currentCode);
+            $recipients[] = [
+                'email' => null,
+                'sharingCode' => $display,
+                'name' => $name,
+                'label' => $name ?: $display,
+            ];
+        }
+
+        return $recipients;
     }
 
     /**

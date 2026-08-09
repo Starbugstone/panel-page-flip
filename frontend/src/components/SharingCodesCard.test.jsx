@@ -45,15 +45,44 @@ describe("SharingCodesCard", () => {
     stubGets();
   });
 
-  it("shows the account's own permanent code and never offers to change it", async () => {
+  it("shows the account's own code", async () => {
     renderCard();
 
     expect(await screen.findByText("7RFX-KP3M-Q82D")).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith("/api/shares/my-code");
-    // The code is an address, not a credential. Rotating it would break every
-    // conversation it was ever pasted into, so nothing here offers to.
-    expect(screen.queryByRole("button", { name: /generate|regenerate|new code/i }))
-      .not.toBeInTheDocument();
+  });
+
+  it("asks before replacing a code, because the old one breaks everywhere at once", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({ name: "Test Reader", sharingCode: "83AY-GXKP-SNSY" });
+
+    renderCard();
+    await screen.findByText("7RFX-KP3M-Q82D");
+
+    await user.click(screen.getByRole("button", { name: /replace your sharing code/i }));
+
+    // The consequence is stated before it happens, not explained afterwards.
+    expect(await screen.findByText(/The old one stops working immediately/)).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Replace my code" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/shares/my-code/rotate", {}));
+    // The new code replaces the old one on screen without a reload.
+    expect(await screen.findByText("83AY-GXKP-SNSY")).toBeInTheDocument();
+    expect(screen.queryByText("7RFX-KP3M-Q82D")).not.toBeInTheDocument();
+  });
+
+  it("keeps the old code when the rotation is cancelled", async () => {
+    const user = userEvent.setup();
+    renderCard();
+    await screen.findByText("7RFX-KP3M-Q82D");
+
+    await user.click(screen.getByRole("button", { name: /replace your sharing code/i }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.getByText("7RFX-KP3M-Q82D")).toBeInTheDocument();
   });
 
   it("lets the owner withdraw a live code before it would have expired", async () => {
