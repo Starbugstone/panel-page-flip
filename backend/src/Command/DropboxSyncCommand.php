@@ -207,6 +207,9 @@ class DropboxSyncCommand extends Command
             case 'failed':
                 $io->error("  ✗ Failed to import {$file['name']}: " . $context['exception']->getMessage());
                 break;
+            case 'aborted':
+                $io->warning('Stopped this user early after a database failure. The remaining files are untouched and the next run will retry them.');
+                break;
         }
     }
 }

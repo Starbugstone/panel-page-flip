@@ -347,7 +347,7 @@ function DropboxSyncPage() {
               Sync your comic collection with Dropbox for easy access across devices.
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Connecting authorizes Panel Page Flip to read file names and import enabled comic formats
+              Connecting authorizes Panel Page Flip to read file names and import files in enabled comic formats
               files from its Dropbox app folder. Tokens are encrypted locally and can
               be disconnected at any time.{" "}
               <Link className="underline" to="/privacy">Privacy information</Link>

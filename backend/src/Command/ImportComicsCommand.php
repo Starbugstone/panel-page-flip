@@ -148,6 +148,15 @@ class ImportComicsCommand extends Command
             } catch (\Exception $e) {
                 $io->error(sprintf('Error importing "%s": %s', $file->getRelativePathname(), $e->getMessage()));
                 $errorCount++;
+
+                // Doctrine closes the entity manager when a flush fails, and
+                // nothing reopens it here. Carrying on would report every
+                // remaining file as broken when the only thing broken is the
+                // connection, so stop while the summary still means something.
+                if (!$this->entityManager->isOpen()) {
+                    $io->error('The entity manager closed after that failure; stopping so the remaining files are not all reported as errors.');
+                    break;
+                }
             }
         }
         

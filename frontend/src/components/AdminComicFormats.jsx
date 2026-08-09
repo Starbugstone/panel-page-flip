@@ -11,7 +11,7 @@ const LABELS = { cbz: "CBZ (ZIP)", cbr: "CBR (RAR)", cb7: "CB7 (7z)", cbt: "CBT 
 export function AdminComicFormats() {
   const { toast } = useToast();
   const [formats, setFormats] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
   const load = async (verify = false) => {
@@ -19,17 +19,22 @@ export function AdminComicFormats() {
     try {
       const result = verify ? await api.post("/api/admin/comic-formats/verify", {}) : await api.get("/api/admin/comic-formats");
       setFormats(result.formats);
+      setLoadError(null);
       if (verify) toast({ title: "Verification complete", description: "Server format dependencies were checked." });
     } catch (error) {
       toast({ title: "Format check failed", description: error.message, variant: "destructive" });
     } finally { setBusy(false); }
   };
 
+  // The initial load holds `busy`, so verification cannot start alongside it.
+  // Otherwise the slower of the two settles last, and a stale availability
+  // snapshot would quietly replace the one the admin just asked for.
   useEffect(() => {
     let cancelled = false;
     api.get("/api/admin/comic-formats")
-      .then((result) => { if (!cancelled) setFormats(result.formats); })
-      .catch((error) => { if (!cancelled) setLoadError(error.message); });
+      .then((result) => { if (!cancelled) { setFormats(result.formats); setLoadError(null); } })
+      .catch((error) => { if (!cancelled) setLoadError(error.message); })
+      .finally(() => { if (!cancelled) setBusy(false); });
     return () => { cancelled = true; };
   }, []);
 

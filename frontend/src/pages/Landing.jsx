@@ -14,7 +14,7 @@ export default function Landing() {
             Panel Page Flip: Your Personal Comic Book Reader
           </h1>
           <p className="text-xl md:text-2xl mb-8 text-muted-foreground max-w-3xl mx-auto">
-            Upload, organize, and enjoy CBZ, CBR, CB7, CBT, and PDF comics anywhere. Pick up right where you left off.
+            Upload, organize, and enjoy your comics anywhere, in whichever of CBZ, CBR, CB7, CBT, and PDF this server has enabled. Pick up right where you left off.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link to="/login">
@@ -44,8 +44,8 @@ export default function Landing() {
               <p>Automatically saves your reading position so you can pick up where you left off</p>
             </div>
             <div className="bg-card p-6 rounded-lg shadow-sm">
-              <h3 className="font-bold text-xl mb-3">Multi-format support</h3>
-              <p>Read CBZ, CBR, CB7, CBT, and PDF sources through one protected reader</p>
+              <h3 className="font-bold text-xl mb-3">Configurable multi-format support</h3>
+              <p>Read CBZ, CBR, CB7, CBT, and PDF sources through one protected reader. CBZ is always available; the rest are up to the server administrator</p>
             </div>
           </div>
         </div>
