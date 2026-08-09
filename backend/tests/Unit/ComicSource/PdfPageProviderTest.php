@@ -304,7 +304,7 @@ final class PdfPageProviderTest extends TestCase
         }
 
         $objects[2] = sprintf('<< /Type /Pages /Kids [%s] /Count %d >>', implode(' ', $kids), count($jpegs));
-        $objects[$contents] = "<< /Length 29 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream";
+        $objects[$contents] = "<< /Length 30 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream";
 
         ksort($objects);
         $pdf = "%PDF-1.4\n";

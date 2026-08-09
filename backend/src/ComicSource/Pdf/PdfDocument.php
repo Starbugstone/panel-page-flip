@@ -631,8 +631,17 @@ final class PdfDocument
         if (!isset($this->trailer['Root'])) {
             if (preg_match_all('/trailer\s*(<<.*?>>)/s', $this->buffer, $trailers) === 1 || $trailers[1] !== []) {
                 foreach (array_reverse($trailers[1]) as $candidate) {
-                    $parser = new PdfParser($candidate);
-                    $trailer = $parser->parseValue();
+                    // The capture is non-greedy, so a trailer holding a nested
+                    // dictionary comes back truncated and fails to parse. That
+                    // is a reason to try the next candidate, never a reason to
+                    // give up on the document — the catalogue scan below still
+                    // recovers it.
+                    try {
+                        $trailer = (new PdfParser($candidate))->parseValue();
+                    } catch (PdfException) {
+                        continue;
+                    }
+
                     if (is_array($trailer) && isset($trailer['Root'])) { $this->trailer += $trailer; break; }
                 }
             }

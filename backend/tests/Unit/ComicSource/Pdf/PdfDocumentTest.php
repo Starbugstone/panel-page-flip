@@ -93,6 +93,26 @@ final class PdfDocumentTest extends TestCase
         self::assertSame($jpeg, $document->pageImage(1)?->content);
     }
 
+    /**
+     * A trailer holding a nested dictionary is captured truncated by the scan
+     * that recovers a broken file, so parsing it fails. That has to move on to
+     * the next candidate rather than reject a document the catalogue scan would
+     * have recovered.
+     */
+    public function testRecoversFromABrokenTableWhoseTrailerHasANestedDictionary(): void
+    {
+        $jpeg = $this->jpeg();
+        $pdf = $this->imagePdf([$jpeg]);
+        $pdf = str_replace('<< /Size', '<< /Info << /Producer (nested) >> /Size', $pdf);
+        $pdf = (string) preg_replace('/^\d{10} 00000 n $/m', '9999999999 00000 n ', $pdf);
+        $this->write($pdf);
+
+        $document = PdfDocument::open($this->path);
+
+        self::assertSame(1, $document->pageCount());
+        self::assertSame($jpeg, $document->pageImage(1)?->content);
+    }
+
     public function testRefusesAnEncryptedDocument(): void
     {
         $pdf = $this->imagePdf([$this->jpeg()]);
@@ -249,7 +269,7 @@ final class PdfDocumentTest extends TestCase
                 strlen($compressed),
                 $compressed
             ),
-            5 => "<< /Length 29 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream",
+            5 => "<< /Length 30 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream",
             // Referenced by the ICCBased cases: /N is what says gray or RGB.
             90 => "<< /N 3 /Length 0 >>\nstream\n\nendstream",
             91 => "<< /N 4 /Length 0 >>\nstream\n\nendstream",
@@ -294,7 +314,7 @@ final class PdfDocumentTest extends TestCase
         }
 
         $objects[2] = sprintf('<< /Type /Pages /Kids [%s] /Count %d >>', implode(' ', $kids), $count);
-        $objects[$contents] = "<< /Length 29 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream";
+        $objects[$contents] = "<< /Length 30 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream";
 
         return $this->assemble($objects);
     }
@@ -305,7 +325,7 @@ final class PdfDocumentTest extends TestCase
             1 => '<< /Type /Catalog /Pages 2 0 R >>',
             2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
             3 => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Resources << >> /Contents 4 0 R >>',
-            4 => "<< /Length 45 >>\nstream\n0 0 1 rg 10 10 100 100 re f\nendstream",
+            4 => "<< /Length 27 >>\nstream\n0 0 1 rg 10 10 100 100 re f\nendstream",
         ]);
     }
 
@@ -327,7 +347,7 @@ final class PdfDocumentTest extends TestCase
             3 => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Resources << /XObject << /Im0 4 0 R /Im1 5 0 R >> >> /Contents 6 0 R >>',
             4 => $image,
             5 => $image,
-            6 => "<< /Length 29 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream",
+            6 => "<< /Length 30 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream",
         ]);
     }
 

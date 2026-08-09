@@ -140,14 +140,18 @@ final class ComicPageDelivery
         $image = @imagecreatefromstring($source->content);
         if ($image === false) return null;
 
+        // The buffer is opened outside the try and closed in the finally, so a
+        // ValueError out of imagewebp cannot leave it open — an abandoned
+        // buffer would mix raw GD output into the next HTTP response.
+        ob_start();
+
         try {
             // Flattening is deliberate: comics have no meaningful transparency
             // and alpha costs bytes on every page.
             imagepalettetotruecolor($image);
 
-            ob_start();
             $encoded = @imagewebp($image, null, self::QUALITY);
-            $bytes = (string) ob_get_clean();
+            $bytes = (string) ob_get_contents();
 
             if ($encoded === false || $bytes === '') return null;
 
@@ -156,6 +160,7 @@ final class ComicPageDelivery
             $this->logger?->debug('Page could not be converted to WebP.', ['reason' => $exception->getMessage()]);
             return null;
         } finally {
+            ob_end_clean();
             imagedestroy($image);
         }
     }

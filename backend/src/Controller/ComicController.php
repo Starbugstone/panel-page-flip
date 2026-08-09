@@ -1369,6 +1369,15 @@ class ComicController extends AbstractController
             $filePath = $legacyPath;
         }
 
+        // Settle on one answer for "which file is this comic". The block above
+        // decides whether the comic exists and migrates a legacy copy into the
+        // owner's directory; ComicService is what the page cache keys itself
+        // on. Re-resolving here, after any migration, keeps the validator below
+        // describing the same file the cache does — otherwise a comic found by
+        // two different candidate orders gets an ETag for one file and cached
+        // pages for another.
+        $filePath = $comicService->locateComicSource($comic) ?? $filePath;
+
         // Validators taken from the archive rather than the extracted page, so a
         // revalidation can be answered without opening the CBZ at all. Reading a
         // comic is the app's hot path and every page used to be re-downloaded.

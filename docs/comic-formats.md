@@ -2,7 +2,7 @@
 
 Panel Page Flip accepts CBZ (ZIP), CBR (RAR), CB7 (7z), CBT (tar), and PDF as canonical comic sources. All are exposed to the reader through the same protected numbered-page endpoint; original sources are never public.
 
-CBZ and PDF are the two native formats: both are read with no external tooling at all, so both work on any host the application itself runs on. The CB* archive formats need `7z` present. Past the source factory nothing downstream — reader, covers, sharing, quotas, deletion — knows or cares which format a comic came from.
+CBZ and PDF are the two native formats: both are read with no external tooling, so both work on any host the application itself runs on. For PDF that covers image-based documents — one full-page image per page, which is what scanned and exported comics are; a PDF whose pages have to be drawn needs Poppler and is refused at upload without it. The CB* archive formats need `7z` present. Past the source factory nothing downstream — reader, covers, sharing, quotas, deletion — knows or cares which format a comic came from.
 
 New installations enable CBZ only. An administrator must open **Admin → Formats**, verify the installed runtime, select the available optional formats, and save. The public uploader and every backend upload path use this allow-list; a file extension alone never enables a format.
 
@@ -25,7 +25,9 @@ Two things it reports that are easy to get wrong:
 
 PDF is a first-class source alongside CBZ, and like CBZ it needs nothing installed for the documents comics actually come as.
 
-A scanned or exported comic PDF is a container holding one full-page image per page — the same thing a CBZ is, with a different wrapper. Those pages are read natively, in pure PHP: the page's own embedded JPEG is handed to the reader untouched. No subprocess, no rasterising, and no quality lost re-encoding the author's image. This is what lets PDF work on shared hosting, where `proc_open` is usually disabled and no package can be installed.
+A scanned or exported comic PDF is a container holding one full-page image per page — the same thing a CBZ is, with a different wrapper. Those pages are read natively, in pure PHP: the source provider returns the page's own embedded image without rasterising it, exactly as the CBZ provider returns an entry from the archive. No subprocess, no renderer, and no intermediate re-encode. This is what lets PDF work on shared hosting, where `proc_open` is usually disabled and no package can be installed.
+
+What reaches the browser is then whatever **Page delivery** below produces from those bytes, normally WebP — reading a page natively is about not needing a renderer, not about the response being the embedded file.
 
 Poppler extends that to the documents the native reader cannot serve — pages built from vector art or text, which have no embedded image to hand over. Where Poppler is present those pages are rendered lazily, one requested page at a time, to a maximum 2400-pixel reader image. Where it is absent such a document is refused at upload with a clear message, rather than importing and then failing at page three.
 
@@ -35,7 +37,7 @@ A PDF's page count is cached exactly as a CBZ's page index is, keyed by path, mo
 
 ## Page delivery
 
-Whatever a comic was stored as, every page leaves the server as WebP.
+Whatever a comic was stored as, a page normally leaves the server as WebP. Normally rather than always: where conversion is not possible the provider's own bytes are served instead, and the `Content-Type` says which happened.
 
 The source providers hand back whatever the page happens to be — a JPEG out of a CBZ, a PNG repacked from a PDF bitmap, a rendered page from Poppler — which would otherwise make a reader's bandwidth depend on how the uploader happened to export their comic. Each page is converted once, cached, and served from the cache afterwards.
 

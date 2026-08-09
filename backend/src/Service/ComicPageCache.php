@@ -50,8 +50,18 @@ final class ComicPageCache
         if ($path === null) return;
 
         $temporary = $path.'.'.bin2hex(random_bytes(6)).'.tmp';
-        if (@file_put_contents($temporary, $contents, LOCK_EX) === false) {
-            $this->logger?->warning('A comic page could not be cached.', ['comic_id' => $comicId]);
+
+        // A short write, not just an outright failure: a disk that fills
+        // mid-write returns a byte count rather than false, and renaming that
+        // into place would serve a truncated page for the whole life of this
+        // fingerprint.
+        $written = @file_put_contents($temporary, $contents, LOCK_EX);
+        if ($written !== strlen($contents)) {
+            $this->logger?->warning('A comic page could not be cached.', [
+                'comic_id' => $comicId,
+                'written' => $written === false ? 'failed' : $written.' of '.strlen($contents),
+            ]);
+            @unlink($temporary);
             return;
         }
 

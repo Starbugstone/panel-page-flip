@@ -36,8 +36,18 @@ final class PdfPageProvider implements ComicPageProviderInterface
     /** @var array<string, ComicSourceInfo> */
     private array $pageCounts = [];
 
-    /** @var array<string, PdfDocument|null> */
-    private array $documents = [];
+    /**
+     * Only the document last asked for, and the key it belongs to.
+     *
+     * A parsed document holds the whole file in memory. Keeping one per source
+     * is right for an HTTP request, which reads one comic, and wrong for the
+     * import command and the Dropbox sync, where a single provider instance
+     * walks a whole library in one process and would accumulate every PDF it
+     * ever opened. One entry still gives a reader turning pages the
+     * parse-once benefit, since those requests are all for the same file.
+     */
+    private ?string $documentKey = null;
+    private ?PdfDocument $document = null;
 
     public function __construct(
         private readonly LockFactory $lockFactory,
@@ -109,8 +119,14 @@ final class PdfPageProvider implements ComicPageProviderInterface
             $image = $this->document($sourcePath)?->pageImage($page);
             if ($image === null) return null;
 
+            // PageResult rejects an image past the page size limit, and an
+            // oversized embedded scan is exactly the page a render would
+            // succeed at by scaling it down. Anything this cannot hand over is
+            // a question for the renderer, not an error.
             return new PageResult($image->content, $image->mimeType);
-        } catch (PdfException $exception) {
+        } catch (\OutOfRangeException) {
+            throw new \OutOfRangeException('Page not found.');
+        } catch (\Throwable $exception) {
             $this->logger?->debug('Falling back to rendering for a PDF page.', ['reason' => $exception->getMessage()]);
             return null;
         }
@@ -214,16 +230,21 @@ final class PdfPageProvider implements ComicPageProviderInterface
     private function document(string $sourcePath): ?PdfDocument
     {
         $key = $this->sourceKey($sourcePath);
-        if (array_key_exists($key, $this->documents)) return $this->documents[$key];
+        if ($this->documentKey === $key) return $this->document;
+
+        // Release the previous document before parsing the next, so walking a
+        // library never holds two files at once.
+        $this->documentKey = $key;
+        $this->document = null;
 
         try {
-            return $this->documents[$key] = PdfDocument::open($sourcePath);
+            return $this->document = PdfDocument::open($sourcePath);
         } catch (PdfException $exception) {
             // An encrypted document has to keep its own message, since the
             // uploader is told this one.
             if (str_contains($exception->getMessage(), 'Encrypted')) throw new \RuntimeException('Encrypted PDFs are not supported.');
             $this->logger?->debug('A PDF could not be read natively.', ['reason' => $exception->getMessage()]);
-            return $this->documents[$key] = null;
+            return null;
         }
     }
 
