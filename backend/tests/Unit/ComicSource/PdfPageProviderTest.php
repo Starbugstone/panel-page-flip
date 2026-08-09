@@ -30,6 +30,58 @@ final class PdfPageProviderTest extends TestCase
         self::assertNotSame('', $page->content);
     }
 
+    /**
+     * A reader asks for the page you are on and prefetches the next one, so
+     * renders overlap during ordinary reading. Holding all but one slot still
+     * has to leave a render possible; the earlier single global lock refused
+     * the second concurrent request outright.
+     */
+    public function testRendersWhileOtherRendersHoldSlots(): void
+    {
+        $finder = new ExecutableFinder();
+        if ($finder->find('pdfinfo') === null || $finder->find('pdftocairo') === null) {
+            self::markTestSkipped('Poppler is not installed.');
+        }
+
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        file_put_contents($this->pdfPath, $this->onePagePdf());
+        $lockFactory = new LockFactory(new FlockStore(sys_get_temp_dir()));
+
+        $held = [];
+        foreach (['comic-pdf-render-0', 'comic-pdf-render-1'] as $slot) {
+            $lock = $lockFactory->createLock($slot, 35.0);
+            self::assertTrue($lock->acquire());
+            $held[] = $lock;
+        }
+
+        try {
+            $page = (new PdfPageProvider($lockFactory))->readPage($this->pdfPath, ComicSourceType::PDF, 1);
+            self::assertSame('image/jpeg', $page->mimeType);
+        } finally {
+            foreach ($held as $lock) $lock->release();
+        }
+    }
+
+    /**
+     * qpdf is the optional structural opinion, so this only asserts a rejection
+     * where qpdf is actually installed to give one.
+     */
+    public function testRejectsAStructurallyDamagedDocument(): void
+    {
+        $finder = new ExecutableFinder();
+        if ($finder->find('pdfinfo') === null || $finder->find('qpdf') === null) {
+            self::markTestSkipped('Poppler and qpdf are not both installed.');
+        }
+
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        // A valid header over a body qpdf cannot resolve into objects.
+        file_put_contents($this->pdfPath, "%PDF-1.4\n".str_repeat("\x01\x02\x03\x04", 64));
+        $provider = new PdfPageProvider(new LockFactory(new FlockStore(sys_get_temp_dir())));
+
+        $this->expectException(\RuntimeException::class);
+        $provider->inspect($this->pdfPath, ComicSourceType::PDF);
+    }
+
     private function onePagePdf(): string
     {
         $objects = [

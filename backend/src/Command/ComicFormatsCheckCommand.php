@@ -16,6 +16,11 @@ final class ComicFormatsCheckCommand extends Command
         $finder = new ExecutableFinder();
         $requirements = ['CBZ / PHP ZIP' => class_exists(\ZipArchive::class), 'CBR/CB7/CBT / 7z' => $finder->find('7z') !== null, 'PDF inspection / pdfinfo' => $finder->find('pdfinfo') !== null, 'PDF rendering / pdftocairo' => $finder->find('pdftocairo') !== null];
         foreach ($requirements as $label => $available) $output->writeln(sprintf('%s: %s', $label, $available ? '<info>yes</info>' : '<error>no</error>'));
+
+        // Reported but not counted: qpdf is the optional structural second
+        // opinion on an uploaded PDF, and its absence disables no format.
+        $output->writeln(sprintf('PDF structural check / qpdf (optional): %s', $finder->find('qpdf') !== null ? '<info>yes</info>' : '<comment>no</comment>'));
+
         return in_array(false, $requirements, true) ? Command::FAILURE : Command::SUCCESS;
     }
 }

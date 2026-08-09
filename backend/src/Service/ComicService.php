@@ -177,16 +177,13 @@ class ComicService
     }
 
     /**
-     * Absolute path of a comic's archive on disk, or null when it is missing.
+     * Absolute path of a comic's canonical source on disk, or null when it is
+     * missing. Source-neutral on purpose: a caller has no reason to know
+     * whether the file behind it is an archive or a PDF.
      *
      * Callers serve the file from here; the path itself is never handed to a
      * client.
      */
-    public function locateComicArchive(Comic $comic): ?string
-    {
-        return $this->findComicSource($comic);
-    }
-
     public function locateComicSource(Comic $comic): ?string
     {
         return $this->findComicSource($comic);

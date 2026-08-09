@@ -43,7 +43,7 @@ class DropboxImportService
      *
      * @return list<array{path: string, name: string, size: int, modified: ?string, tags: list<string>}>
      */
-    public function listCbzFiles(DropboxClient $client, ?string $path = null): array
+    public function listComicSourceFiles(DropboxClient $client, ?string $path = null): array
     {
         $path = $path ?? $this->dropboxAppFolder;
         $files = [];
@@ -58,7 +58,7 @@ class DropboxImportService
                     $tag = $entry['.tag'] ?? null;
 
                     if ($tag === 'folder') {
-                        array_push($files, ...$this->listCbzFiles($client, $entry['path_display']));
+                        array_push($files, ...$this->listComicSourceFiles($client, $entry['path_display']));
                         continue;
                     }
 
@@ -205,7 +205,7 @@ class DropboxImportService
         $notify = $report ?? static function (string $event, array $context): void {
         };
 
-        $files = $this->listCbzFiles($client);
+        $files = $this->listComicSourceFiles($client);
         $notify('listed', ['count' => count($files)]);
 
         $importedIndex = $this->getImportedIndex($user);

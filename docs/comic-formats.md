@@ -6,9 +6,11 @@ New installations enable CBZ only. An administrator must open **Admin → Format
 
 ## Runtime requirements
 
-The PHP image installs PHP ZIP, `7z`, Poppler (`pdfinfo` and `pdftocairo`), and `qpdf`. Run `php bin/console app:comic-formats:check` after deployment. A missing mandatory tool disables processing for its formats with a controlled upload/read error.
+The PHP image installs PHP ZIP, `7z`, Poppler (`pdfinfo` and `pdftocairo`), and `qpdf`. Run `php bin/console app:comic-formats:check` after deployment. A missing mandatory tool disables processing for its formats with a controlled upload/read error. `qpdf` is the one optional entry: it adds a structural check on upload, and without it PDFs are still accepted on the Poppler checks alone.
 
-PDFs are inspected with Poppler and rendered lazily, one requested page at a time, to a maximum 2400-pixel reader image. Encrypted/password-protected and malformed PDFs are rejected. Rendering has a 30-second timeout, is limited to one active render per application lock store, and uses a random, mode-0700 temporary directory that is removed after every attempt.
+PDFs are inspected with Poppler and rendered lazily, one requested page at a time, to a maximum 2400-pixel reader image. Encrypted/password-protected and malformed PDFs are rejected. The structural check runs once, when the source is imported, and never on a page turn.
+
+Rendering has a 30-second timeout and uses a random, mode-0700 temporary directory that is removed after every attempt. At most three renders run concurrently per application lock store; beyond that a request waits up to 20 seconds for a free slot before reporting the renderer as busy, so a reader that fetches the current page and prefetches the next one is never refused for it.
 
 Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed data, and 64 MiB per page. Only JPG, PNG, GIF, and WebP entries with safe, non-traversing names and matching image content become readable pages. Page names are natural-sorted and never returned by the API.
 

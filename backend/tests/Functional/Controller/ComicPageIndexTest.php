@@ -51,7 +51,7 @@ final class ComicPageIndexTest extends AbstractApiTestCase
         $this->loginAs($owner);
 
         $comicService = self::getContainer()->get(ComicService::class);
-        $archivePath = $comicService->locateComicArchive($comic);
+        $archivePath = $comicService->locateComicSource($comic);
         self::assertNotNull($archivePath);
 
         $provider = self::getContainer()->get(ZipPageProvider::class);
@@ -74,7 +74,7 @@ final class ComicPageIndexTest extends AbstractApiTestCase
         [, $comic] = $this->createComicWithNoisyArchive();
 
         $comicService = self::getContainer()->get(ComicService::class);
-        $archivePath = $comicService->locateComicArchive($comic);
+        $archivePath = $comicService->locateComicSource($comic);
         self::assertNotNull($archivePath);
         $provider = self::getContainer()->get(ZipPageProvider::class);
         self::assertCount(2, $provider->pageIndex($archivePath));
