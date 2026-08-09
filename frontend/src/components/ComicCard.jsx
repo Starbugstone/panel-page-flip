@@ -275,7 +275,7 @@ export function ComicCard({
             <DialogTitle>{isOrphaned ? "Delete orphaned comic record?" : `Delete “${comic.title}”?`}</DialogTitle>
             <DialogDescription>
               {isOrphaned
-                ? `The CBZ file for “${comic.title}” is no longer present. Do you want to remove only its orphaned library record?`
+                ? `The source file for “${comic.title}” is no longer present. Do you want to remove only its orphaned library record?`
                 : `Delete “${comic.title}” from your library? Its existing files will be moved to recoverable quarantine storage.`}
             </DialogDescription>
           </DialogHeader>

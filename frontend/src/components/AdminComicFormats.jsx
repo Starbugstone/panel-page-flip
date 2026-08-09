@@ -54,7 +54,7 @@ export function AdminComicFormats() {
         {!formats ? <p>Checking format support…</p> : Object.entries(formats).map(([name, status]) => (
           <div key={name} className="flex items-start justify-between rounded-md border p-4">
             <div className="flex items-start gap-3">
-              <Checkbox id={`format-${name}`} checked={status.enabled} disabled={name === "cbz" || !status.available || busy} onCheckedChange={(checked) => toggle(name, checked === true)} />
+              <Checkbox id={`format-${name}`} checked={status.enabled} disabled={name === "cbz" || busy || (!status.available && !status.enabled)} onCheckedChange={(checked) => toggle(name, checked === true)} />
               <div><Label htmlFor={`format-${name}`}>{LABELS[name]}</Label><p className="text-sm text-muted-foreground">Requires {status.requirements.join(" + ")}</p></div>
             </div>
             <span className={status.available ? "text-sm text-green-600" : "text-sm text-destructive"}>{status.available ? "Available" : "Unavailable"}</span>

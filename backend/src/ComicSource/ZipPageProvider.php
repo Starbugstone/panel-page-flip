@@ -3,12 +3,18 @@
 namespace App\ComicSource;
 
 use App\Enum\ComicSourceType;
+use Symfony\Contracts\Cache\CacheInterface;
+use Symfony\Contracts\Cache\ItemInterface;
 use ZipArchive;
 
 final class ZipPageProvider implements ComicPageProviderInterface
 {
-    private const MAX_ENTRIES = 10000;
-    private const MAX_UNCOMPRESSED_BYTES = 2147483648;
+    /** @var array<string, list<string>> */
+    private array $indexes = [];
+
+    public function __construct(private readonly ?CacheInterface $pageIndexCache = null)
+    {
+    }
 
     public function supports(ComicSourceType $type): bool { return $type === ComicSourceType::CBZ; }
 
@@ -19,47 +25,80 @@ final class ZipPageProvider implements ComicPageProviderInterface
 
     public function readPage(string $sourcePath, ComicSourceType $type, int $page): PageResult
     {
-        $pages = $this->pageIndex($sourcePath);
-        if ($page < 1 || !isset($pages[$page - 1])) throw new \OutOfRangeException('Page not found.');
         $zip = new ZipArchive();
         if ($zip->open($sourcePath) !== true) throw new \RuntimeException('Failed to open ZIP source.');
-        $content = $zip->getFromName($pages[$page - 1]);
-        $zip->close();
-        if ($content === false) throw new \RuntimeException('Failed to read page.');
-        return new PageResult($content, self::imageMime($pages[$page - 1]));
+
+        try {
+            $key = $this->sourceKey($sourcePath);
+            $pages = $this->indexes[$key] ??= $this->cachedPageIndex($sourcePath, $zip);
+            if ($page < 1 || !isset($pages[$page - 1])) throw new \OutOfRangeException('Page not found.');
+            $content = $zip->getFromName($pages[$page - 1]);
+            if ($content === false) throw new \RuntimeException('Failed to read page.');
+
+            return PageResult::fromImageContent($content);
+        } finally {
+            $zip->close();
+        }
     }
 
     /** @return list<string> */
     public function pageIndex(string $sourcePath): array
     {
+        $key = $this->sourceKey($sourcePath);
+        if (isset($this->indexes[$key])) return $this->indexes[$key];
+
         $zip = new ZipArchive();
         if ($zip->open($sourcePath) !== true) throw new \RuntimeException('Failed to open ZIP source.');
-        if ($zip->numFiles > self::MAX_ENTRIES) { $zip->close(); throw new \RuntimeException('Archive has too many entries.'); }
+
+        try {
+            return $this->indexes[$key] = $this->cachedPageIndex($sourcePath, $zip);
+        } finally {
+            $zip->close();
+        }
+    }
+
+    /** @return list<string> */
+    private function cachedPageIndex(string $sourcePath, ZipArchive $zip): array
+    {
+        if ($this->pageIndexCache === null) return $this->buildPageIndex($zip);
+
+        $cacheKey = 'comic_source.zip.'.hash('xxh128', $this->sourceKey($sourcePath));
+        return $this->pageIndexCache->get($cacheKey, function (ItemInterface $item) use ($zip): array {
+            $item->expiresAfter(86_400);
+            return $this->buildPageIndex($zip);
+        });
+    }
+
+    /** @return list<string> */
+    private function buildPageIndex(ZipArchive $zip): array
+    {
+        if ($zip->numFiles > ComicSourceLimits::MAX_ENTRIES) throw new \RuntimeException('Archive has too many entries.');
         $pages = []; $total = 0;
         for ($i = 0; $i < $zip->numFiles; ++$i) {
             $stat = $zip->statIndex($i); $name = $stat['name'] ?? '';
-            $total += (int) ($stat['size'] ?? 0);
-            if ($total > self::MAX_UNCOMPRESSED_BYTES) { $zip->close(); throw new \RuntimeException('Archive expands beyond the safety limit.'); }
+            $entrySize = (int) ($stat['size'] ?? 0);
+            $total += $entrySize;
+            if ($total > ComicSourceLimits::MAX_UNCOMPRESSED_BYTES) throw new \RuntimeException('Archive expands beyond the safety limit.');
+            if (self::isSafeImage($name) && $entrySize > ComicSourceLimits::MAX_PAGE_BYTES) throw new \RuntimeException('Archive contains an oversized page.');
             if (self::isSafeImage($name)) $pages[] = $name;
         }
-        $zip->close(); usort($pages, 'strnatcasecmp');
+        usort($pages, 'strnatcasecmp');
         if ($pages === []) throw new \RuntimeException('Archive contains no supported pages.');
         return $pages;
+    }
+
+    private function sourceKey(string $sourcePath): string
+    {
+        return $sourcePath.'|'.(@filemtime($sourcePath) ?: 0).'|'.(@filesize($sourcePath) ?: 0);
     }
 
     public static function isSafeImage(string $name): bool
     {
         $normal = str_replace('\\', '/', $name);
-        if ($normal === '' || str_starts_with($normal, '/') || preg_match('#(^|/)\.\.(/|$)#', $normal)
+        if ($normal === '' || str_starts_with($normal, '/') || str_starts_with($normal, '//')
+            || preg_match('/^[a-z]:\//i', $normal) || str_contains($normal, "\0")
+            || preg_match('#(^|/)\.\.(/|$)#', $normal)
             || str_starts_with($normal, '__MACOSX/') || str_starts_with(basename($normal), '.')) return false;
         return in_array(strtolower(pathinfo($normal, PATHINFO_EXTENSION)), ['jpg','jpeg','png','gif','webp'], true);
-    }
-
-    public static function imageMime(string $name): string
-    {
-        return match (strtolower(pathinfo($name, PATHINFO_EXTENSION))) {
-            'jpg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp',
-            default => 'application/octet-stream',
-        };
     }
 }

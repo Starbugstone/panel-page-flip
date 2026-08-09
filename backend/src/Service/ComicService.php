@@ -13,20 +13,9 @@ use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\String\Slugger\SluggerInterface;
-use Symfony\Contracts\Cache\CacheInterface;
-use Symfony\Contracts\Cache\ItemInterface;
-use ZipArchive;
 
 class ComicService
 {
-    /**
-     * How long a page index is kept. Long enough that a reading session never
-     * re-scans the same archive, short enough that an entry evicted by hand
-     * cannot be remembered indefinitely. The key already changes with the file,
-     * so this only bounds how long a dead entry occupies the pool.
-     */
-    private const PAGE_INDEX_TTL = 86_400;
-
     public function __construct(
         private readonly string $comicsDirectory,
         private readonly EntityManagerInterface $entityManager,
@@ -35,7 +24,6 @@ class ComicService
         private readonly FileQuarantineService $fileQuarantine,
         private readonly int $uploadMaxTotalBytes,
         private readonly int $uploadUserQuotaBytes,
-        private readonly CacheInterface $pageIndexCache,
         private readonly ComicPageProviderFactory $pageProviderFactory,
         private readonly ComicFormatService $comicFormatService
     ) {
@@ -92,7 +80,12 @@ class ComicService
                 throw new \RuntimeException('Failed to copy uploaded file.');
             }
             chmod($absolutePath, 0644);
-            $sourceInfo = $this->pageProviderFactory->for($sourceType)->inspect($absolutePath, $sourceType);
+            $provider = $this->pageProviderFactory->for($sourceType);
+            $sourceInfo = $provider->inspect($absolutePath, $sourceType);
+            if ($sourceInfo->pageCount < 1) {
+                throw new \RuntimeException('Comic source contains no pages.');
+            }
+            $cover = $provider->readPage($absolutePath, $sourceType, 1);
         } catch (\Throwable $e) {
             if (file_exists($absolutePath)) {
                 unlink($absolutePath);
@@ -104,49 +97,56 @@ class ComicService
         $fileSize = filesize($absolutePath) ?: $incomingSize;
         $pageCount = $sourceInfo->pageCount;
 
-        $comic = new Comic();
-        $comic->setTitle($title);
-        $comic->setFilePath($newFilename);
-        $comic->setFileSize($fileSize);
-        $comic->setPageCount($pageCount);
-        $comic->setSourceType($sourceType);
-        $comic->setOwner($user);
+        $connection = $this->entityManager->getConnection();
+        $coverPath = null;
 
-        if ($author) {
-            $comic->setAuthor($author);
-        }
+        try {
+            $connection->beginTransaction();
+            $comic = new Comic();
+            $comic->setTitle($title);
+            $comic->setFilePath($newFilename);
+            $comic->setFileSize($fileSize);
+            $comic->setPageCount($pageCount);
+            $comic->setSourceType($sourceType);
+            $comic->setOwner($user);
 
-        if ($publisher) {
-            $comic->setPublisher($publisher);
-        }
+            if ($author) $comic->setAuthor($author);
+            if ($publisher) $comic->setPublisher($publisher);
+            if ($description) $comic->setDescription($description);
 
-        if ($description) {
-            $comic->setDescription($description);
-        }
+            foreach ($this->normaliseTagNames($tags) as $tagName) {
+                /** @var TagRepository $tagRepository */
+                $tagRepository = $this->entityManager->getRepository(Tag::class);
+                $tag = $tagRepository->findAvailableByName($tagName, $user);
 
-        foreach ($this->normaliseTagNames($tags) as $tagName) {
-            /** @var TagRepository $tagRepository */
-            $tagRepository = $this->entityManager->getRepository(Tag::class);
-            $tag = $tagRepository->findAvailableByName($tagName, $user);
+                if (!$tag) {
+                    $tag = new Tag();
+                    $tag->setName($tagName);
+                    $tag->setCreator($user);
+                    $this->entityManager->persist($tag);
+                }
 
-            if (!$tag) {
-                $tag = new Tag();
-                $tag->setName($tagName);
-                $tag->setCreator($user);
-                $this->entityManager->persist($tag);
+                $comic->addTag($tag);
             }
 
-            $comic->addTag($tag);
+            $this->entityManager->persist($comic);
+            $this->entityManager->flush();
+
+            $comicId = $comic->getId() ?? throw new \RuntimeException('Comic identifier was not assigned.');
+            $baseCoverFilename = (string) $this->slugger->slug(pathinfo($originalName, PATHINFO_FILENAME));
+            $coverPath = $this->storeCover($cover, $user, $comicId, $baseCoverFilename);
+            $comic->setCoverImagePath($coverPath);
+            $this->entityManager->flush();
+            $connection->commit();
+
+            return $comic;
+        } catch (\Throwable $e) {
+            if ($connection->isTransactionActive()) $connection->rollBack();
+            if ($coverPath !== null) @unlink($userDirectory . '/' . ltrim($coverPath, '/'));
+            if (is_file($absolutePath)) @unlink($absolutePath);
+            $this->logger->error('Comic upload finalization failed.', ['reason' => $e->getMessage()]);
+            throw new \RuntimeException('Comic upload could not be finalized.', previous: $e);
         }
-
-        $this->entityManager->persist($comic);
-        $this->entityManager->flush();
-
-        $baseCoverFilename = (string) $this->slugger->slug(pathinfo($originalName, PATHINFO_FILENAME));
-        $comic->setCoverImagePath($this->storeCover($this->pageProviderFactory->for($sourceType)->readPage($absolutePath, $sourceType, 1), $user, $comic->getId(), $baseCoverFilename));
-        $this->entityManager->flush();
-
-        return $comic;
     }
 
     /** @return list<array{originalPath: string, quarantinePath: string}> */
@@ -159,9 +159,9 @@ class ComicService
         }
 
         $paths = [];
-        $comicArchive = $this->findComicArchive($comic);
-        if ($comicArchive !== null) {
-            $paths[] = $comicArchive;
+        $comicSource = $this->findComicSource($comic);
+        if ($comicSource !== null) {
+            $paths[] = $comicSource;
         }
 
         if ($comic->getCoverImagePath()) {
@@ -171,9 +171,9 @@ class ComicService
         return $this->fileQuarantine->quarantine($paths);
     }
 
-    public function comicArchiveExists(Comic $comic): bool
+    public function comicSourceExists(Comic $comic): bool
     {
-        return $this->findComicArchive($comic) !== null;
+        return $this->findComicSource($comic) !== null;
     }
 
     /**
@@ -184,12 +184,12 @@ class ComicService
      */
     public function locateComicArchive(Comic $comic): ?string
     {
-        return $this->findComicArchive($comic);
+        return $this->findComicSource($comic);
     }
 
     public function locateComicSource(Comic $comic): ?string
     {
-        return $this->findComicArchive($comic);
+        return $this->findComicSource($comic);
     }
 
     public function readPage(Comic $comic, int $page): PageResult
@@ -204,7 +204,7 @@ class ComicService
         $this->fileQuarantine->restore($records);
     }
 
-    private function findComicArchive(Comic $comic): ?string
+    private function findComicSource(Comic $comic): ?string
     {
         $filePath = $comic->getFilePath();
         $owner = $comic->getOwner();
@@ -228,19 +228,6 @@ class ComicService
         return null;
     }
 
-    private function validateCbzArchive(string $absolutePath): void
-    {
-        $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mime = $finfo->file($absolutePath);
-        if (!in_array($mime, ['application/zip', 'application/x-cbz', 'application/octet-stream'], true)) {
-            throw new \RuntimeException('Invalid archive MIME type.');
-        }
-
-        if (count($this->getImageFilesFromArchive($absolutePath)) === 0) {
-            throw new \RuntimeException('Archive contains no supported image files.');
-        }
-    }
-
     private function storeCover(PageResult $cover, User $user, int $comicId, string $base): string
     {
         $extension = match ($cover->mimeType) { 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', default => 'jpg' };
@@ -252,112 +239,6 @@ class ComicService
         }
         chmod($directory . '/' . $filename, 0644);
         return 'covers/' . $comicId . '/' . $filename;
-    }
-
-    private function extractCoverImage(string $cbzAbsPath, User $user, int $comicId, string $baseCoverFilename): ?string
-    {
-        $imageFiles = $this->getImageFilesFromArchive($cbzAbsPath);
-        if (empty($imageFiles)) {
-            throw new \RuntimeException('No image files found in the CBZ archive.');
-        }
-
-        $zip = new ZipArchive();
-        if ($zip->open($cbzAbsPath) !== true) {
-            throw new \RuntimeException('Failed to open CBZ file.');
-        }
-
-        $firstImageNameInZip = $imageFiles[0];
-        $coverExtension = strtolower(pathinfo($firstImageNameInZip, PATHINFO_EXTENSION));
-        $actualCoverFilename = $baseCoverFilename . '-cover-' . uniqid('', true) . '.' . $coverExtension;
-        $coverStorageDirAbs = $this->comicsDirectory . '/' . $user->getId() . '/covers/' . $comicId;
-        $this->ensureDirectory($coverStorageDirAbs);
-
-        $extractedImageData = $zip->getFromName($firstImageNameInZip);
-        $zip->close();
-
-        if ($extractedImageData === false) {
-            throw new \RuntimeException('Failed to extract cover image.');
-        }
-
-        $fullCoverPathOnDisk = $coverStorageDirAbs . '/' . $actualCoverFilename;
-        if (file_put_contents($fullCoverPathOnDisk, $extractedImageData) === false) {
-            throw new \RuntimeException('Failed to save cover image.');
-        }
-        chmod($fullCoverPathOnDisk, 0644);
-
-        return 'covers/' . $comicId . '/' . $actualCoverFilename;
-    }
-
-    private function countPagesInCbz(string $cbzPath): int
-    {
-        return count($this->getImageFilesFromArchive($cbzPath));
-    }
-
-    /**
-     * The pages of an archive, in reading order, cached against the file.
-     *
-     * Reading a comic is the hot path: without this, serving page 40 of 200
-     * walked all 200 entries and natural-sorted them, and then did it again for
-     * page 41. The answer only changes when the archive does, so it is cached
-     * under the path, modification time and size — an archive replaced by hand
-     * produces a different key rather than a stale index.
-     *
-     * @return list<string>
-     */
-    public function getPageIndex(string $cbzPath): array
-    {
-        $modifiedAt = @filemtime($cbzPath);
-        $size = @filesize($cbzPath);
-
-        if ($modifiedAt === false || $size === false) {
-            return $this->getImageFilesFromArchive($cbzPath);
-        }
-
-        $key = 'comic_pages.' . hash('xxh128', $cbzPath . '|' . $modifiedAt . '|' . $size);
-
-        return $this->pageIndexCache->get($key, function (ItemInterface $item) use ($cbzPath): array {
-            $item->expiresAfter(self::PAGE_INDEX_TTL);
-
-            return $this->getImageFilesFromArchive($cbzPath);
-        });
-    }
-
-    /**
-     * Every image entry in the archive, in reading order.
-     *
-     * The `__MACOSX` and dot-file exclusions are what make this the single
-     * definition of "the pages of this comic". The page-serving endpoint used to
-     * carry its own unfiltered copy of this loop, so an archive zipped on a Mac
-     * had resource forks counted as pages there but not in the stored page
-     * count — the reader served the wrong image for every page after the first
-     * fork, and ran off the end of the comic.
-     *
-     * @return list<string>
-     */
-    private function getImageFilesFromArchive(string $cbzPath): array
-    {
-        $zip = new ZipArchive();
-        if ($zip->open($cbzPath) !== true) {
-            throw new \RuntimeException('Failed to open CBZ file.');
-        }
-
-        $imageFiles = [];
-        for ($i = 0; $i < $zip->numFiles; $i++) {
-            $filename = $zip->getNameIndex($i);
-            if (!$filename || str_starts_with($filename, '__MACOSX/') || str_starts_with(basename($filename), '.')) {
-                continue;
-            }
-
-            $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-            if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) {
-                $imageFiles[] = $filename;
-            }
-        }
-
-        $zip->close();
-        usort($imageFiles, 'strnatcmp');
-
-        return $imageFiles;
     }
 
     private function ensureDirectory(string $directory): void

@@ -3,6 +3,8 @@
 namespace App\Tests\Unit\Service;
 
 use App\Service\ComicService;
+use App\Service\ComicFormatService;
+use App\Entity\ComicFormatConfiguration;
 use App\Service\DropboxImportService;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\TestCase;
@@ -13,11 +15,15 @@ final class DropboxImportServiceTest extends TestCase
 {
     private function service(string $appFolder = '/Apps/StarbugStoneComics'): DropboxImportService
     {
+        $formatEntityManager = $this->createMock(EntityManagerInterface::class);
+        $formatEntityManager->method('find')->willReturn(new ComicFormatConfiguration());
+
         return new DropboxImportService(
             $this->createMock(ComicService::class),
             $this->createMock(EntityManagerInterface::class),
             $this->createMock(HttpClientInterface::class),
             new NullLogger(),
+            new ComicFormatService($formatEntityManager),
             $appFolder
         );
     }

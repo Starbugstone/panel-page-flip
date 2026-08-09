@@ -244,7 +244,7 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
               {orphanedComics.length > 0 ? (
                 <span className="space-y-2">
                   <span className="block font-medium text-destructive">
-                    The CBZ file{orphanedComics.length === 1 ? " is" : "s are"} no longer present.
+                    The source file{orphanedComics.length === 1 ? " is" : "s are"} no longer present.
                   </span>
                   <span className="block">
                     {orphanedComics.map((comic) => comic.title).join(", ")}. Only the orphaned library record{orphanedComics.length === 1 ? "" : "s"} can be removed.

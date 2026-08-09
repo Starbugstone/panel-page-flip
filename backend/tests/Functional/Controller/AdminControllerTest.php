@@ -2,12 +2,41 @@
 
 namespace App\Tests\Functional\Controller;
 
+use App\Service\ComicFormatService;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 
 class AdminControllerTest extends AbstractApiTestCase
 {
+    public function testEmptyComicFormatUpdateAlwaysKeepsCbzEnabled(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $payload = $this->putJson('/api/admin/comic-formats', ['enabled' => []]);
+
+        self::assertResponseIsSuccessful();
+        self::assertTrue($payload['formats']['cbz']['enabled']);
+    }
+
+    public function testCbzFreeComicFormatUpdateAddsCbzToTheSavedConfiguration(): void
+    {
+        $this->createAndLoginAdmin();
+        $status = self::getContainer()->get(ComicFormatService::class)->status(true);
+        $optional = array_key_first(array_filter(
+            $status,
+            static fn (array $value, string $name): bool => $name !== 'cbz' && $value['available'],
+            ARRAY_FILTER_USE_BOTH
+        ));
+        if ($optional === null) self::markTestSkipped('No optional comic runtime is installed.');
+
+        $payload = $this->putJson('/api/admin/comic-formats', ['enabled' => [$optional]]);
+
+        self::assertResponseIsSuccessful();
+        self::assertTrue($payload['formats']['cbz']['enabled']);
+        self::assertTrue($payload['formats'][$optional]['enabled']);
+    }
+
     public function testRegularUserCannotReadAdminStats(): void
     {
         $this->createAndLoginUser();

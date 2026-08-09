@@ -1,6 +1,6 @@
 {
     "name": "panel-page-flip/application",
-    "description": "Self-hosted comic library and CBZ reader.",
+    "description": "Self-hosted multi-format comic library and reader.",
     "type": "project",
     "license": "MIT",
     "minimum-stability": "stable",

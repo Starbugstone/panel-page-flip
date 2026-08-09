@@ -4,6 +4,7 @@ namespace App\Tests\Functional\Controller;
 
 use App\Entity\Comic;
 use App\Entity\User;
+use App\ComicSource\ZipPageProvider;
 use App\Service\ComicService;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
@@ -53,7 +54,8 @@ final class ComicPageIndexTest extends AbstractApiTestCase
         $archivePath = $comicService->locateComicArchive($comic);
         self::assertNotNull($archivePath);
 
-        self::assertCount($comic->getPageCount(), $comicService->getPageIndex($archivePath));
+        $provider = self::getContainer()->get(ZipPageProvider::class);
+        self::assertCount($comic->getPageCount(), $provider->pageIndex($archivePath));
 
         // One past the end is a miss, not a resource fork.
         $this->browser()->request(
@@ -74,7 +76,8 @@ final class ComicPageIndexTest extends AbstractApiTestCase
         $comicService = self::getContainer()->get(ComicService::class);
         $archivePath = $comicService->locateComicArchive($comic);
         self::assertNotNull($archivePath);
-        self::assertCount(2, $comicService->getPageIndex($archivePath));
+        $provider = self::getContainer()->get(ZipPageProvider::class);
+        self::assertCount(2, $provider->pageIndex($archivePath));
 
         $zip = new \ZipArchive();
         self::assertTrue($zip->open($archivePath) === true);
@@ -85,7 +88,7 @@ final class ComicPageIndexTest extends AbstractApiTestCase
         touch($archivePath, time() + 5);
         clearstatcache(true, $archivePath);
 
-        self::assertCount(3, $comicService->getPageIndex($archivePath));
+        self::assertCount(3, $provider->pageIndex($archivePath));
     }
 
     /**

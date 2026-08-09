@@ -17,7 +17,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Syncs comics from Dropbox for all connected users.
  *
  * This command can be run manually or scheduled via cron to automatically
- * sync new CBZ files from users' Dropbox accounts.
+ * sync new enabled comic sources from users' Dropbox accounts.
  *
  * Usage Examples:
  * --------------
@@ -183,8 +183,8 @@ class DropboxSyncCommand extends Command
         switch ($event) {
             case 'listed':
                 $io->text($context['count'] === 0
-                    ? 'No CBZ files found in Dropbox'
-                    : sprintf('Found %d CBZ file(s) in Dropbox', $context['count']));
+                    ? 'No enabled comic source files found in Dropbox'
+                    : sprintf('Found %d comic source file(s) in Dropbox', $context['count']));
                 break;
             case 'skipped':
                 $io->text("Skipping {$file['name']} (already imported)");

@@ -31,4 +31,18 @@ final class ComicFormatServiceTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $service->save([ComicSourceType::from($unavailable)]);
     }
+
+    public function testSaveAlwaysPersistsCbzWithoutCreatingASecondConfiguration(): void
+    {
+        $configuration = new ComicFormatConfiguration();
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects(self::once())->method('find')->willReturn($configuration);
+        $entityManager->expects(self::once())->method('flush');
+
+        $service = new ComicFormatService($entityManager);
+        $service->save([]);
+
+        self::assertSame([ComicSourceType::CBZ], $configuration->getEnabledFormats());
+        self::assertSame([ComicSourceType::CBZ], $service->enabled());
+    }
 }

@@ -33,12 +33,13 @@ class DropboxImportService
         private readonly EntityManagerInterface $entityManager,
         private readonly HttpClientInterface $httpClient,
         private readonly LoggerInterface $logger,
+        private readonly ComicFormatService $comicFormatService,
         private readonly string $dropboxAppFolder
     ) {
     }
 
     /**
-     * Recursively collect every CBZ under the configured app folder.
+     * Recursively collect enabled comic sources under the configured app folder.
      *
      * @return list<array{path: string, name: string, size: int, modified: ?string, tags: list<string>}>
      */
@@ -61,7 +62,8 @@ class DropboxImportService
                         continue;
                     }
 
-                    if ($tag !== 'file' || !in_array(strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)), ComicSourceType::extensions(), true)) {
+                    $type = ComicSourceType::tryFrom(strtolower(pathinfo((string) ($entry['name'] ?? ''), PATHINFO_EXTENSION)));
+                    if ($tag !== 'file' || $type === null || !$this->comicFormatService->isEnabled($type)) {
                         continue;
                     }
 
@@ -160,7 +162,7 @@ class DropboxImportService
             $this->downloadFile($client, $fileInfo['path'], $stagedPath);
 
             $comic = $this->comicService->uploadComic(
-                new UploadedFile($stagedPath, $fileInfo['name'], 'application/zip', null, true),
+                new UploadedFile($stagedPath, $fileInfo['name'], ComicSourceType::fromFilename($fileInfo['name'])->mimeType(), null, true),
                 $user,
                 $this->titleFromFilename($fileInfo['name']),
                 null,
@@ -181,7 +183,7 @@ class DropboxImportService
     }
 
     /**
-     * Import every not-yet-imported CBZ for a user, up to $limit attempts.
+     * Import every not-yet-imported comic source for a user, up to $limit attempts.
      *
      * The HTTP endpoint and the CLI command both drive this; they differ only in
      * how they report progress, which is what $report is for. Successes and
@@ -303,7 +305,7 @@ class DropboxImportService
     }
 
     /**
-     * Derive a display title from a CBZ filename: "super_hero-01.cbz" -> "Super Hero 01".
+     * Derive a display title from a comic filename: "super_hero-01.cbz" -> "Super Hero 01".
      */
     public function titleFromFilename(string $filename): string
     {

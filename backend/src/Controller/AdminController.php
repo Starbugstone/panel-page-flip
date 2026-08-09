@@ -45,7 +45,7 @@ class AdminController extends AbstractController
     public function verifyComicFormats(ComicFormatService $formats): JsonResponse
     {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
-        return $this->json(['formats' => $formats->status()]);
+        return $this->json(['formats' => $formats->status(true)]);
     }
 
     #[Route('/comic-formats', name: 'comic_formats_update', methods: ['PUT'])]
@@ -57,7 +57,8 @@ class AdminController extends AbstractController
         try {
             $enabled = array_map(static fn (mixed $value): ComicSourceType => ComicSourceType::from((string) $value), $data['enabled']);
             $formats->save($enabled);
-            $auditService->log($this->getAdminUser(), 'comic_formats_updated', 'configuration', 1, ['enabled' => array_map(static fn (ComicSourceType $type): string => $type->value, $enabled)]);
+            $saved = $formats->enabled();
+            $auditService->log($this->getAdminUser(), 'comic_formats_updated', 'configuration', 1, ['enabled' => array_map(static fn (ComicSourceType $type): string => $type->value, $saved)]);
             $entityManager->flush();
         } catch (\ValueError|\RuntimeException $exception) {
             return $this->json(['message' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);

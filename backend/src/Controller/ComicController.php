@@ -470,7 +470,7 @@ class ComicController extends AbstractController
 
         $orphanedComics = [];
         foreach ($comics as $comic) {
-            if (!$comicService->comicArchiveExists($comic)) {
+            if (!$comicService->comicSourceExists($comic)) {
                 $orphanedComics[] = [
                     'id' => $comic->getId(),
                     'title' => $comic->getTitle(),
@@ -651,7 +651,7 @@ class ComicController extends AbstractController
             // server paths. The reasons a user can act on are enumerated here;
             // anything else is a server fault and reads as one.
             return $this->json([
-                'message' => 'Upload failed. Check that the file is a valid CBZ within your storage quota.',
+                'message' => 'Upload failed. Check that the file is a valid enabled comic format within your storage quota.',
             ], Response::HTTP_BAD_REQUEST);
         }
     }
@@ -1404,7 +1404,7 @@ class ComicController extends AbstractController
     }
 
     /**
-     * Download the original CBZ.
+     * Download the original comic source.
      *
      * Owners only, deliberately: this is the backup path for your own library.
      * A shared comic is read through the reader, and handing a recipient the
