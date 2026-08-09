@@ -14,13 +14,24 @@ export function AdminComicFormats() {
   const [busy, setBusy] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
-  const load = async (verify = false) => {
+  // Verification answers "what can this server do", not "what did the admin
+  // just tick". Keeping the local `enabled` values means pressing Verify to
+  // check whether a package landed does not silently discard the changes they
+  // were about to save.
+  const applyVerification = (current, incoming) => Object.fromEntries(
+    Object.entries(incoming).map(([name, status]) => [
+      name,
+      { ...status, enabled: current?.[name]?.enabled ?? status.enabled },
+    ]),
+  );
+
+  const verify = async () => {
     setBusy(true);
     try {
-      const result = verify ? await api.post("/api/admin/comic-formats/verify", {}) : await api.get("/api/admin/comic-formats");
-      setFormats(result.formats);
+      const result = await api.post("/api/admin/comic-formats/verify", {});
+      setFormats((current) => applyVerification(current, result.formats));
       setLoadError(null);
-      if (verify) toast({ title: "Verification complete", description: "Server format dependencies were checked." });
+      toast({ title: "Verification complete", description: "Server format dependencies were re-checked." });
     } catch (error) {
       toast({ title: "Format check failed", description: error.message, variant: "destructive" });
     } finally { setBusy(false); }
@@ -39,6 +50,7 @@ export function AdminComicFormats() {
   }, []);
 
   const toggle = (name, checked) => setFormats((current) => ({ ...current, [name]: { ...current[name], enabled: checked } }));
+
   const save = async () => {
     setBusy(true);
     try {
@@ -53,19 +65,49 @@ export function AdminComicFormats() {
 
   return (
     <Card>
-      <CardHeader><CardTitle>Comic formats</CardTitle><CardDescription>CBZ is always enabled. Verify this server before enabling formats that require external tools.</CardDescription></CardHeader>
+      <CardHeader>
+        <CardTitle>Comic formats</CardTitle>
+        <CardDescription>
+          What this server can read, and what it would need in order to read the rest. CBZ is always enabled.
+          Press Verify server after installing anything.
+        </CardDescription>
+      </CardHeader>
       <CardContent className="space-y-5">
         {loadError && <p className="text-sm text-destructive">{loadError}</p>}
         {!formats ? <p>Checking format support…</p> : Object.entries(formats).map(([name, status]) => (
-          <div key={name} className="flex items-start justify-between rounded-md border p-4">
-            <div className="flex items-start gap-3">
-              <Checkbox id={`format-${name}`} checked={status.enabled} disabled={name === "cbz" || busy || (!status.available && !status.enabled)} onCheckedChange={(checked) => toggle(name, checked === true)} />
-              <div><Label htmlFor={`format-${name}`}>{LABELS[name]}</Label><p className="text-sm text-muted-foreground">Requires {status.requirements.join(" + ")}</p></div>
+          <div key={name} className="rounded-md border p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id={`format-${name}`}
+                  checked={status.enabled}
+                  disabled={name === "cbz" || busy || (!status.available && !status.enabled)}
+                  onCheckedChange={(checked) => toggle(name, checked === true)}
+                />
+                <div>
+                  <Label htmlFor={`format-${name}`}>{LABELS[name]}</Label>
+                  <p className="text-sm text-muted-foreground">Requires {status.requirements.join(" + ")}</p>
+                </div>
+              </div>
+              <span className={status.available ? "text-sm text-green-600 whitespace-nowrap" : "text-sm text-destructive whitespace-nowrap"}>
+                {status.available ? "Available" : "Unavailable"}
+              </span>
             </div>
-            <span className={status.available ? "text-sm text-green-600" : "text-sm text-destructive"}>{status.available ? "Available" : "Unavailable"}</span>
+            {!status.available && status.hint && (
+              <p className="mt-3 rounded bg-muted p-3 text-sm text-muted-foreground">{status.hint}</p>
+            )}
+            {status.enabled && !status.available && (
+              <p className="mt-3 text-sm text-destructive">
+                This format is switched on but cannot be served right now. Uploads and reads for it will fail until the
+                tools above are installed, or turn it off here.
+              </p>
+            )}
           </div>
         ))}
-        <div className="flex gap-2"><Button variant="outline" disabled={busy} onClick={() => load(true)}>Verify server</Button><Button disabled={busy || !formats} onClick={save}>Save enabled formats</Button></div>
+        <div className="flex gap-2">
+          <Button variant="outline" disabled={busy} onClick={verify}>Verify server</Button>
+          <Button disabled={busy || !formats} onClick={save}>Save enabled formats</Button>
+        </div>
       </CardContent>
     </Card>
   );

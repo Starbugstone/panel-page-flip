@@ -45,7 +45,15 @@ final class SevenZipPageProvider implements ComicPageProviderInterface
     private function buildIndex(string $path, ComicSourceType $type): array
     {
         $process = new Process(['7z', 'l', '-slt', '--', $path]); $process->setTimeout(self::TIMEOUT); $process->run();
-        if (!$process->isSuccessful()) throw new \RuntimeException('Archive inspection failed. Is 7z installed?');
+        if (!$process->isSuccessful()) {
+            // "Is 7z installed?" sends an administrator looking in the wrong
+            // place for CBR, where the usual cause is a 7z built without the
+            // RAR handler rather than a missing binary. Admin → Formats reports
+            // that distinction; this message points there.
+            throw new \RuntimeException($type === ComicSourceType::CBR
+                ? 'Could not read this RAR archive. Check Admin → Formats: CBR needs a 7z built with RAR support.'
+                : sprintf('Could not read this %s archive with 7z.', strtoupper($type->value)));
+        }
         if (!preg_match('/^Type = (\S+)/mi', $process->getOutput(), $format)) throw new \RuntimeException('Archive format could not be identified.');
         $actual = strtolower($format[1]);
         $expected = match ($type) { ComicSourceType::CBR => ['rar', 'rar5'], ComicSourceType::CB7 => ['7z'], ComicSourceType::CBT => ['tar'], default => [] };

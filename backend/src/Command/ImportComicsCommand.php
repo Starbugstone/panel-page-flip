@@ -112,6 +112,7 @@ class ImportComicsCommand extends Command
         $importedCount = 0;
         $skippedCount = 0;
         $errorCount = 0;
+        $abortedEarly = false;
 
         foreach ($finder as $file) {
             $io->section(sprintf('Processing %s', $file->getRelativePathname()));
@@ -155,6 +156,7 @@ class ImportComicsCommand extends Command
                 // connection, so stop while the summary still means something.
                 if (!$this->entityManager->isOpen()) {
                     $io->error('The entity manager closed after that failure; stopping so the remaining files are not all reported as errors.');
+                    $abortedEarly = true;
                     break;
                 }
             }
@@ -166,7 +168,15 @@ class ImportComicsCommand extends Command
             sprintf('Skipped: %d comics (already exist)', $skippedCount),
             sprintf('Errors: %d comics', $errorCount),
         ]);
-        
+
+        // A run that stopped on a dead connection left files untouched that it
+        // was asked to import. Reporting success would tell cron and CI the
+        // library is up to date when it is not.
+        if ($abortedEarly) {
+            $io->error('The import stopped early and did not process every file. Re-run it once the database is healthy.');
+            return Command::FAILURE;
+        }
+
         return Command::SUCCESS;
     }
 }

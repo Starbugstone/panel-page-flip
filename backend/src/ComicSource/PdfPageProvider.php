@@ -7,6 +7,8 @@ use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\LockInterface;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
+use Symfony\Contracts\Cache\CacheInterface;
+use Symfony\Contracts\Cache\ItemInterface;
 
 final class PdfPageProvider implements ComicPageProviderInterface
 {
@@ -31,8 +33,10 @@ final class PdfPageProvider implements ComicPageProviderInterface
     /** @var array<string, ComicSourceInfo> */
     private array $pageCounts = [];
 
-    public function __construct(private readonly LockFactory $lockFactory)
-    {
+    public function __construct(
+        private readonly LockFactory $lockFactory,
+        private readonly ?CacheInterface $pageIndexCache = null,
+    ) {
     }
 
     public function supports(ComicSourceType $type): bool { return $type === ComicSourceType::PDF; }
@@ -51,14 +55,17 @@ final class PdfPageProvider implements ComicPageProviderInterface
         $key = $this->sourceKey($sourcePath);
         if (isset($this->inspections[$key])) return $this->inspections[$key];
 
-        // Signature first, so something that was never a PDF costs no subprocess
-        // at all. qpdf then gets the first look at whatever survives that: it is
-        // the hardened parser of the two, and Poppler is the one we would rather
-        // not hand a malformed document to.
+        // Order matters for the message the uploader sees. Signature first, so
+        // something that was never a PDF costs no subprocess. Then Poppler,
+        // which is what distinguishes "encrypted" from "broken" — qpdf cannot
+        // decrypt either, so running it first labelled every password-protected
+        // comic as damaged. The structural check goes last, on documents that
+        // are already known to be readable and unencrypted.
         $this->assertPdfSignature($sourcePath);
+        $info = $this->pageCount($sourcePath);
         $this->assertStructurallySound($sourcePath);
 
-        return $this->inspections[$key] = $this->pageCount($sourcePath);
+        return $this->inspections[$key] = $info;
     }
 
     public function readPage(string $sourcePath, ComicSourceType $type, int $page): PageResult
@@ -115,14 +122,30 @@ final class PdfPageProvider implements ComicPageProviderInterface
     {
         $key = $this->sourceKey($sourcePath);
         if (isset($this->pageCounts[$key])) return $this->pageCounts[$key];
+        if ($this->pageIndexCache === null) return $this->pageCounts[$key] = $this->probePageCount($sourcePath);
 
+        // The same treatment a CBZ's page index gets. Without it every page a
+        // reader asks for pays for pdfinfo re-parsing the whole document to
+        // re-learn a number that cannot change while the file is unchanged —
+        // the key is path, mtime and size, so a replaced file re-probes.
+        $cacheKey = 'comic_source.pdf.'.hash('xxh128', $key);
+        $pages = $this->pageIndexCache->get($cacheKey, function (ItemInterface $item) use ($sourcePath): int {
+            $item->expiresAfter(86_400);
+            return $this->probePageCount($sourcePath)->pageCount;
+        });
+
+        return $this->pageCounts[$key] = new ComicSourceInfo($pages);
+    }
+
+    private function probePageCount(string $sourcePath): ComicSourceInfo
+    {
         $this->assertPdfSignature($sourcePath);
         $process = new Process(['pdfinfo', $sourcePath]); $process->setTimeout(self::INSPECT_TIMEOUT_SECONDS); $process->run();
         if (!$process->isSuccessful()) throw new \RuntimeException(str_contains(strtolower($process->getErrorOutput()), 'password') ? 'Encrypted PDFs are not supported.' : 'PDF inspection failed.');
         if (preg_match('/^Encrypted:\s+yes/im', $process->getOutput())) throw new \RuntimeException('Encrypted PDFs are not supported.');
         if (!preg_match('/^Pages:\s+(\d+)/mi', $process->getOutput(), $match)) throw new \RuntimeException('PDF page count is unavailable.');
 
-        return $this->pageCounts[$key] = new ComicSourceInfo((int) $match[1]);
+        return new ComicSourceInfo((int) $match[1]);
     }
 
     /**

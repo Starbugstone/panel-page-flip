@@ -151,6 +151,14 @@ services:
         arguments:
             $pageIndexCache: '@comic.page_index.cache'
 
+    App\ComicSource\PdfPageProvider:
+        arguments:
+            $pageIndexCache: '@comic.page_index.cache'
+
+    App\Service\ComicFormatService:
+        arguments:
+            $availabilityCache: '@comic.format_availability.cache'
+
     App\Service\ComicCleanupService:
         arguments:
             $comicsDirectory: '%comics_directory%'
