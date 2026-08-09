@@ -106,6 +106,10 @@ export default function Sharing() {
   // something new on it. Answering an invitation is what most visits are for,
   // so that stays the tab the page opens on.
   const [activeTab, setActiveTab] = useState("with-me");
+  // Bumped whenever a sharing action completes, so the codes card refetches
+  // what has been handed out. A code created from the share dialog belongs in
+  // that list straight away.
+  const [codesReloadKey, setCodesReloadKey] = useState(0);
 
   const { invitations, collection, dead } = useMemo(
     () => groupReceivedShares(sharedWithMe),
@@ -149,6 +153,7 @@ export default function Sharing() {
     // header is not left looking at "Shared with me" wondering whether anything
     // happened — even if the refresh itself fails.
     setActiveTab("by-me");
+    setCodesReloadKey((key) => key + 1);
     await reload();
     await loadLibrary();
   };
@@ -578,7 +583,7 @@ export default function Sharing() {
       {/* Above the tabs, because neither half of the page owns it: your own
           code is how people reach you, and redeeming one is how a comic arrives
           without anybody knowing your address. */}
-      <SharingCodesCard onRedeemed={refreshAfterReceiving} />
+      <SharingCodesCard onRedeemed={refreshAfterReceiving} reloadKey={codesReloadKey} />
 
       {isLoading ? (
         <div className="flex items-center gap-2 py-12 text-muted-foreground">

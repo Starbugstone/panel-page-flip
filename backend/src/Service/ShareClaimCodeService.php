@@ -8,7 +8,9 @@ use App\Entity\ShareClaimCode;
 use App\Entity\User;
 use App\Repository\ComicShareRepository;
 use App\Repository\ShareClaimCodeRepository;
+use App\Repository\UserRepository;
 use App\Security\Voter\ComicVoter;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
@@ -42,6 +44,7 @@ final class ShareClaimCodeService
         private readonly EntityManagerInterface $entityManager,
         private readonly ShareClaimCodeRepository $claimCodeRepository,
         private readonly ComicShareRepository $shareRepository,
+        private readonly UserRepository $userRepository,
         private readonly ComicShareService $shareService,
         private readonly AuthorizationCheckerInterface $authorizationChecker,
         private readonly SecurityAuditLogger $auditLogger,
@@ -118,7 +121,7 @@ final class ShareClaimCodeService
         // allowance rather than the invitation limiter's.
         $this->reserveIssueAllowance($owner);
 
-        $plaintext = SharingCodeFormat::generate();
+        $plaintext = $this->mintUniqueCode();
         $code = new ShareClaimCode(
             $owner,
             SharingCodeFormat::hash($plaintext),
@@ -128,7 +131,16 @@ final class ShareClaimCodeService
         );
 
         $this->entityManager->persist($code);
-        $this->entityManager->flush();
+
+        try {
+            $this->entityManager->flush();
+        } catch (UniqueConstraintViolationException) {
+            // The index is the authority, and it has just refused a code that
+            // was free when it was checked. At sixty bits that is not worth a
+            // recovery path — and there is no manager left to retry through,
+            // because Doctrine closes it when a flush raises this.
+            throw new ShareException('A sharing code could not be created. Please try again.', 500);
+        }
 
         $this->auditLogger->audit(SecurityAuditLogger::SHARE_CLAIM_CODE_CREATED, [
             'actor_user_id' => $owner->getId(),
@@ -299,10 +311,39 @@ final class ShareClaimCodeService
         ];
     }
 
-    /** @return list<ShareClaimCode> */
-    public function liveCodesFor(User $owner): array
+    /**
+     * A code no other code is using, of either kind.
+     *
+     * The unique index on `code_hash` already makes two claim codes impossible;
+     * this makes the guarantee whole. A claim code and a receiver code are
+     * pasted into different fields and could not actually be confused, but
+     * "your code is yours" is a rule that is much easier to trust when it has
+     * no exceptions, and one extra indexed lookup is a cheap way to have none.
+     *
+     * @throws ShareException when no free code turns up, which should not happen
+     */
+    private function mintUniqueCode(): string
     {
-        return $this->claimCodeRepository->findLiveForOwner($owner);
+        for ($attempt = 0; $attempt < 5; ++$attempt) {
+            $candidate = SharingCodeFormat::generate();
+
+            $takenByClaimCode = $this->claimCodeRepository
+                ->findOneBy(['codeHash' => SharingCodeFormat::hash($candidate)]) !== null;
+            $takenByReceiver = $this->userRepository
+                ->findOneBy(['sharingCode' => $candidate]) !== null;
+
+            if (!$takenByClaimCode && !$takenByReceiver) {
+                return $candidate;
+            }
+        }
+
+        throw new ShareException('A sharing code could not be created. Please try again.', 500);
+    }
+
+    /** @return list<ShareClaimCode> */
+    public function codesFor(User $owner): array
+    {
+        return $this->claimCodeRepository->findForOwner($owner);
     }
 
     /**

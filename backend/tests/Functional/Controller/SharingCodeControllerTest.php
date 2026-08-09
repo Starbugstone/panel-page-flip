@@ -2,6 +2,7 @@
 
 namespace App\Tests\Functional\Controller;
 
+use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\ShareClaimCode;
 use App\Entity\User;
@@ -436,13 +437,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
 
         $this->loginAs($owner);
-        $this->browser()->request(
-            'DELETE',
-            '/api/shares/claim-codes/' . $created['claimCode']['id'],
-            [],
-            [],
-            array_merge(['HTTP_ACCEPT' => 'application/json'], $this->csrfHeader())
-        );
+        $this->deleteJson('/api/shares/claim-codes/' . $created['claimCode']['id']);
         self::assertResponseIsSuccessful();
 
         // The relationship it produced is an ordinary share now, revoked from
@@ -454,6 +449,132 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         $this->createAndLoginUser(['email' => 'too-late@example.com']);
         $this->postJson('/api/shares/claim-codes/redeem', ['code' => $code]);
         self::assertResponseStatusCodeSame(404);
+    }
+
+    /**
+     * A code the owner has changed their mind about must stop working straight
+     * away, not in whatever is left of its day.
+     */
+    public function testWithdrawingACodeTakesEffectImmediately(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'quick-change@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $created = $this->postJson('/api/shares/claim-codes', [
+            'comicIds' => [$comic->getId()],
+            'maxUses' => 10,
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertTrue($created['claimCode']['isRedeemable']);
+        self::assertFalse($created['claimCode']['isExpired']);
+
+        $this->deleteJson('/api/shares/claim-codes/' . $created['claimCode']['id']);
+        self::assertResponseIsSuccessful();
+
+        // Still listed — dead codes are kept so the owner can see what happened
+        // to them — but plainly dead, and with no uses spent.
+        $listed = $this->getJson('/api/shares/claim-codes')['codes'];
+        self::assertCount(1, $listed);
+        self::assertTrue($listed[0]['isRevoked']);
+        self::assertFalse($listed[0]['isRedeemable']);
+        self::assertSame('withdrawn', $listed[0]['deadReason']);
+        self::assertSame(0, $listed[0]['timesUsed']);
+
+        $this->createAndLoginUser(['email' => 'shut-out@example.com']);
+        $this->postJson('/api/shares/claim-codes/redeem', ['code' => $created['code']]);
+        self::assertResponseStatusCodeSame(404);
+    }
+
+    public function testAnotherOwnerCannotWithdrawSomebodyElsesCode(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'code-owner@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $created = $this->postJson('/api/shares/claim-codes', [
+            'comicIds' => [$comic->getId()],
+            'maxUses' => 3,
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        $this->createAndLoginUser(['email' => 'meddler@example.com']);
+        // Reported as missing rather than forbidden, so an id cannot be probed
+        // for whether it belongs to somebody's code.
+        $this->deleteJson('/api/shares/claim-codes/' . $created['claimCode']['id']);
+        self::assertResponseStatusCodeSame(404);
+
+        $this->createAndLoginUser(['email' => 'still-welcome@example.com']);
+        $this->postJson('/api/shares/claim-codes/redeem', ['code' => $created['code']]);
+        self::assertResponseIsSuccessful();
+    }
+
+    public function testEveryIssuedCodeIsUniqueAcrossBothKinds(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'many-codes@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $seen = [$this->getJson('/api/shares/my-code')['sharingCode']];
+
+        for ($i = 0; $i < 8; ++$i) {
+            $seen[] = $this->postJson('/api/shares/claim-codes', [
+                'comicIds' => [$comic->getId()],
+                'maxUses' => 1,
+                'senderResponsibilityAccepted' => true,
+            ])['code'];
+            self::assertResponseStatusCodeSame(201);
+        }
+
+        self::assertCount(count($seen), array_unique($seen));
+
+        // And the unique index is the authority behind the check, not just the
+        // check itself.
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $hashes = $entityManager->getConnection()
+            ->fetchFirstColumn('SELECT code_hash FROM share_claim_code');
+        self::assertSame(count($hashes), count(array_unique($hashes)));
+    }
+
+    /**
+     * Dead codes are kept for a month so the owner can still see how many
+     * people took them up, then swept.
+     */
+    public function testTheCleanupKeepsADeadCodeForAMonthAndThenRemovesIt(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'housekeeping@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $this->postJson('/api/shares/claim-codes', [
+            'comicIds' => [$comic->getId()],
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $repository = $entityManager->getRepository(ShareClaimCode::class);
+        $codeId = $repository->findOneBy([])->getId();
+
+        $expireAt = static function (string $modifier) use ($entityManager, $codeId): void {
+            $entityManager->getConnection()->executeStatement(
+                'UPDATE share_claim_code SET expires_at = :when WHERE id = :id',
+                ['when' => (new \DateTimeImmutable($modifier))->format('Y-m-d H:i:s'), 'id' => $codeId]
+            );
+            $entityManager->clear();
+        };
+
+        // Expired yesterday: dead, but still the owner's record of what they
+        // handed out.
+        $expireAt('-1 day');
+        self::assertSame([], $repository->findDeletable(new \DateTimeImmutable(), 100));
+        self::assertCount(1, $this->getJson('/api/shares/claim-codes')['codes']);
+
+        // A month and a day later there is nothing left to look at.
+        $expireAt('-31 days');
+        $deletable = $repository->findDeletable(new \DateTimeImmutable(), 100);
+        self::assertCount(1, $deletable);
+
+        $entityManager->remove($deletable[0]);
+        $entityManager->flush();
+
+        // The comic is untouched by the sweep — a code is a way in, never the
+        // access itself.
+        self::assertSame([], $this->getJson('/api/shares/claim-codes')['codes']);
+        self::assertNotNull($entityManager->getRepository(Comic::class)->find($comic->getId()));
     }
 
     public function testEveryCodeEndpointRequiresAuthentication(): void

@@ -7,9 +7,33 @@ import { api } from "@/lib/api";
 
 const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
 
-vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn() } }));
+vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn() } }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast }) }));
+
+const liveCode = {
+  id: 3,
+  comicTitles: ["Batman #1"],
+  comicCount: 1,
+  maxUses: 5,
+  usesRemaining: 3,
+  timesUsed: 2,
+  expiresAt: "2026-08-10T10:00:00+00:00",
+  isExpired: false,
+  isRevoked: false,
+  isRedeemable: true,
+  deadReason: null,
+};
+
+const stubGets = (codes = []) => {
+  vi.mocked(api.get).mockImplementation((url) => {
+    if (url === "/api/shares/my-code") {
+      return Promise.resolve({ name: "Test Reader", sharingCode: "7RFX-KP3M-Q82D" });
+    }
+    if (url === "/api/shares/claim-codes") return Promise.resolve({ codes });
+    return Promise.reject(new Error(`Unexpected GET ${url}`));
+  });
+};
 
 const renderCard = (props = {}) => render(
   <SharingCodesCard onRedeemed={vi.fn().mockResolvedValue(undefined)} {...props} />
@@ -18,7 +42,7 @@ const renderCard = (props = {}) => render(
 describe("SharingCodesCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(api.get).mockResolvedValue({ name: "Test Reader", sharingCode: "7RFX-KP3M-Q82D" });
+    stubGets();
   });
 
   it("shows the account's own permanent code and never offers to change it", async () => {
@@ -30,6 +54,44 @@ describe("SharingCodesCard", () => {
     // conversation it was ever pasted into, so nothing here offers to.
     expect(screen.queryByRole("button", { name: /generate|regenerate|new code/i }))
       .not.toBeInTheDocument();
+  });
+
+  it("lets the owner withdraw a live code before it would have expired", async () => {
+    const user = userEvent.setup();
+    stubGets([liveCode]);
+    vi.mocked(api.delete).mockResolvedValue({ message: "Sharing code withdrawn." });
+
+    renderCard();
+
+    expect(await screen.findByText("Batman #1")).toBeInTheDocument();
+    expect(screen.getByText(/Claimed 2 of 5 uses/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /withdraw the code for batman #1/i }));
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith("/api/shares/claim-codes/3"));
+    // Withdrawing stops the code, not the shares it already produced.
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Sharing code withdrawn",
+      description: expect.stringContaining("already claimed a comic keeps it"),
+    }));
+  });
+
+  it("keeps a dead code listed and offers no way to withdraw it again", async () => {
+    stubGets([{
+      ...liveCode,
+      usesRemaining: 0,
+      timesUsed: 5,
+      isRedeemable: false,
+      deadReason: "used_up",
+    }]);
+
+    renderCard();
+
+    // Kept for a month after it dies, because "how many people took it up?" is
+    // asked after a code stops working, not while it still does.
+    expect(await screen.findByText("Used up")).toBeInTheDocument();
+    expect(screen.getByText(/Claimed 5 of 5 uses/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /withdraw/i })).not.toBeInTheDocument();
   });
 
   it("keeps Redeem disabled until the code is the right shape", async () => {

@@ -168,7 +168,8 @@ docker compose exec php php bin/console app:import-comics /path/to/comics user@e
 # Preview orphan cleanup without removing source files
 docker compose exec php php bin/console app:cleanup-comics --dry-run
 
-# Remove sharing invitations that expired unanswered
+# Remove sharing invitations that expired unanswered, and sharing codes that
+# have been dead for over a month
 docker compose exec php php bin/console app:cleanup-expired-shares
 
 # Clear the Symfony cache

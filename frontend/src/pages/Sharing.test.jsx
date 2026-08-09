@@ -22,6 +22,7 @@ const stubGets = (overrides = {}) => {
     if (url === "/api/shares/my-code") {
       return Promise.resolve({ name: "Test Reader", sharingCode: "AAAA-BBBB-CCCC" });
     }
+    if (url === "/api/shares/claim-codes") return Promise.resolve({ codes: [] });
     if (url === "/api/comics?ownership=mine") return Promise.resolve({ comics: [] });
     if (url === "/api/shares/recent-recipients") return Promise.resolve({ recipients: [] });
     return Promise.reject(new Error(`Unexpected GET ${url}`));

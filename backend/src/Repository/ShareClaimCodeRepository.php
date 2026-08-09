@@ -38,20 +38,44 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
     }
 
     /**
-     * The codes an owner still has out, newest first.
+     * The codes an owner has handed out, newest first.
      *
-     * Expired and spent ones are included: the owner asked what they handed
-     * out, and a code that has run out is part of that answer.
+     * Expired, spent and withdrawn ones are all included, right up until the
+     * cleanup deletes them. The owner is asking what they gave away and how
+     * many people took it up, and a code that has stopped working is part of
+     * that answer — which is the whole reason dead codes are kept for a month
+     * rather than dropped the moment they die.
      *
      * @return list<ShareClaimCode>
      */
-    public function findLiveForOwner(User $owner, int $limit = 20): array
+    public function findForOwner(User $owner, int $limit = 30): array
     {
         return $this->createQueryBuilder('c')
             ->andWhere('c.owner = :owner')
-            ->andWhere('c.revokedAt IS NULL')
             ->setParameter('owner', $owner)
             ->orderBy('c.createdAt', 'DESC')
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Codes whose retention window has passed, oldest first.
+     *
+     * Batched, so a cron job that has not run for a long time cannot hydrate
+     * every dead code and its join rows into one unit of work.
+     *
+     * @return list<ShareClaimCode>
+     */
+    public function findDeletable(\DateTimeImmutable $now, int $limit): array
+    {
+        return $this->createQueryBuilder('c')
+            // The window is measured from expiry for every dead code, withdrawn
+            // or not: a code withdrawn on its first day still has an expiry, and
+            // dating the sweep from one column keeps the rule easy to state.
+            ->andWhere('c.expiresAt < :cutoff')
+            ->setParameter('cutoff', $now->modify('-' . ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+')))
+            ->orderBy('c.expiresAt', 'ASC')
             ->setMaxResults($limit)
             ->getQuery()
             ->getResult();

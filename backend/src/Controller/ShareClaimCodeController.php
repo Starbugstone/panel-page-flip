@@ -29,7 +29,13 @@ final class ShareClaimCodeController extends AbstractController
     {
     }
 
-    /** The codes this owner still has out, without the codes themselves. */
+    /**
+     * The codes this owner has handed out, without the codes themselves.
+     *
+     * Dead ones stay in the list until the cleanup removes them a month after
+     * they expire, because "how many people took that one up?" is a question
+     * the owner asks after a code has stopped working, not while it still does.
+     */
     #[Route('', name: 'app_share_claim_codes_list', methods: ['GET'])]
     public function list(#[CurrentUser] ?User $user): JsonResponse
     {
@@ -40,7 +46,7 @@ final class ShareClaimCodeController extends AbstractController
         return $this->json([
             'codes' => array_map(
                 static fn (ShareClaimCode $code): array => $code->toOwnerPayload(),
-                $this->claimCodes->liveCodesFor($user)
+                $this->claimCodes->codesFor($user)
             ),
             'maxUses' => ShareClaimCode::MAX_USES,
             'minUses' => ShareClaimCode::MIN_USES,

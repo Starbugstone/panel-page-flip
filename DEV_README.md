@@ -45,7 +45,7 @@ This document provides detailed information for developers working on the projec
 - **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients` and `POST /api/shares/invitations/bulk` — the convenience layer behind the Sharing page's **Share comics** flow. Recipients come only from the caller's own share history and never from the user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
 - **Email Notifications**: One "Review invitation" link per invitation; the link only previews, because mail scanners follow links on the recipient's behalf. A bulk share sends one grouped email carrying a link per comic, so twenty comics are not twenty messages
-- **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered
+- **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered, and sharing codes that have been dead for over a month
 
 #### ✅ Dropbox Integration System
 - **DropboxController**: Handles OAuth flow, connection status, file listing, and individual comic import
@@ -105,7 +105,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 #### ✅ Comic Sharing
 - **Sharing Page**: `Sharing.jsx` at `/sharing` — where shares are both started and managed, with "Shared with me" and "Shared by me" tabs for invitations, access and tombstones
 - **Share Comics Dialog**: `ShareComicsDialog.jsx` is the multi-comic flow behind **Share comics** and **Share another comic** — an owned-only picker with search, previously used recipients, and one grouped invitation email per action. Step 2 offers three ways to name a recipient: an email address, their sharing code, or no one at all (a claim code anybody can redeem). It lists no registered users and searches none
-- **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's own permanent receiver code with a copy action, and the field for redeeming a code somebody sent
+- **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's own permanent receiver code with a copy action, the field for redeeming a code somebody sent, and the list of codes handed out with a **Withdraw** action on each live one
 - **Share Comic Modal**: `ShareComicModal.jsx` is the one-comic shortcut from a comic card, and the only path that shows the invitation link once, since only its hash is stored
 - **Invitation Preview**: `ShareInvitation.jsx` at `/share/invitation/:token` loads the invitation through a safe `GET` and only accepts or declines on a button press
 - **Pending Shares Alert**: `PendingSharesAlert.jsx`, now a one-line prompt on the dashboard rather than a card per invitation
@@ -375,16 +375,38 @@ one:
 
 - **Hashed at rest**, like an invitation token. The plaintext is returned once,
   when it is created, and nothing can reproduce it afterwards
+- **Unique**, checked against both `share_claim_code.code_hash` and
+  `user.sharing_code` before one is kept, so no code of either kind is ever
+  issued twice. The unique index is the authority behind that check
 - **Dead in a day.** A code pasted into a group chat is out of its owner's hands
   the moment it is sent
 - **Spent as it is used**, between 1 and 10 times, chosen when it is made, so the
   owner decides up front how far it may travel
+- **Withdrawable at any point** before that, from the Sharing page. Withdrawing
+  takes effect on the next redemption attempt and does not touch the shares the
+  code already produced
 - **Worth nothing without an account.** Redeeming requires being signed in
+
+Redemption is one unit of work with a pessimistic write lock taken on the row
+before the remaining uses are read. "Check the count, then decrement it" is a
+read followed by a write, and two redemptions arriving together would otherwise
+both see the last use — so a one-use code would let two people in, which is the
+single guarantee the count exists to make.
+
+**Retention.** A dead code — withdrawn, expired, used up or left with no comics —
+is kept for **30 days past its expiry** and then deleted by
+`app:cleanup-expired-shares`, alongside the expired invitations that command
+already sweeps. It cannot be redeemed again the moment it dies, so keeping it is
+not a risk; but its owner is still asking how many people took it up and which
+comics went with it, and that question outlives the code by rather more than a
+day. `ShareClaimCode::RETENTION_AFTER_EXPIRY` is the one place that window is
+stated. Only the code rows and their join rows go — the shares a code produced
+are ordinary relationships and outlive it entirely.
 
 | Endpoint | Does |
 |---|---|
 | `POST /api/shares/claim-codes` | mint one over comics the owner may share |
-| `GET /api/shares/claim-codes` | list live codes — never the codes themselves |
+| `GET /api/shares/claim-codes` | list codes handed out, live and dead — never the codes themselves |
 | `DELETE /api/shares/claim-codes/{id}` | withdraw one |
 | `POST /api/shares/claim-codes/redeem` | claim the comics behind one |
 

@@ -38,6 +38,18 @@ class ShareClaimCode
     /** How long an unredeemed code stays live. */
     public const TTL = '+1 day';
 
+    /**
+     * How long a dead code is kept before it is deleted.
+     *
+     * Measured from expiry, and it applies to a withdrawn code as much as to
+     * one that simply ran out. The row is worthless as a code the moment it
+     * dies — it cannot be redeemed again — but it is not worthless to its
+     * owner, who is still looking at how many people took it up and which
+     * comics went with it. A month is long enough to answer that; keeping them
+     * for ever would just be a table that only grows.
+     */
+    public const RETENTION_AFTER_EXPIRY = '+30 days';
+
     public const MIN_USES = 1;
     public const MAX_USES = 10;
 
@@ -204,11 +216,48 @@ class ShareClaimCode
         return $this;
     }
 
+    /**
+     * Withdraw the code before it would have died on its own.
+     *
+     * Idempotent, so withdrawing twice keeps the moment it actually happened.
+     * The shares it already produced are untouched: those are ordinary
+     * relationships now, revoked from the Sharing page like any other.
+     */
     public function revoke(): self
     {
         $this->revokedAt ??= new \DateTimeImmutable();
 
         return $this;
+    }
+
+    public function isRevoked(): bool
+    {
+        return $this->revokedAt !== null;
+    }
+
+    /** Why this code can no longer be used, for the owner's list. */
+    public function deadReason(): ?string
+    {
+        if ($this->revokedAt !== null) {
+            return 'withdrawn';
+        }
+        if ($this->isExpired()) {
+            return 'expired';
+        }
+        if ($this->usesRemaining <= 0) {
+            return 'used_up';
+        }
+        if ($this->comics->isEmpty()) {
+            return 'comics_removed';
+        }
+
+        return null;
+    }
+
+    /** When this row becomes rubbish worth deleting. */
+    public function deletableAfter(): \DateTimeImmutable
+    {
+        return $this->expiresAt->modify(self::RETENTION_AFTER_EXPIRY);
     }
 
     /**
@@ -235,10 +284,16 @@ class ShareClaimCode
             'comicCount' => count($titles),
             'maxUses' => $this->maxUses,
             'usesRemaining' => $this->usesRemaining,
+            // How many people took it up, which is the question the owner is
+            // actually asking when they look at this list.
+            'timesUsed' => $this->maxUses - $this->usesRemaining,
             'createdAt' => $this->createdAt->format('c'),
             'expiresAt' => $this->expiresAt->format('c'),
             'isExpired' => $this->isExpired(),
+            'isRevoked' => $this->isRevoked(),
             'isRedeemable' => $this->isRedeemable(),
+            'deadReason' => $this->deadReason(),
+            'deletableAfter' => $this->deletableAfter()->format('c'),
         ];
     }
 

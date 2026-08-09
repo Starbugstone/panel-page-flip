@@ -256,6 +256,9 @@ export const SHARING_CODE_COPY = {
   claim: "Create a code instead of naming anyone. Anyone you give it to can claim these "
     + "comics until it runs out of uses, and it expires after 24 hours.",
   redeem: "Someone sent you a code? Redeem it here to add their comics to your collection.",
+  handedOut: "Withdraw a code at any time to stop anyone else using it. Anyone who already "
+    + "claimed a comic keeps it until you revoke them. Codes that have stopped working are kept "
+    + "for a month so you can see who took them up.",
 };
 
 /**
