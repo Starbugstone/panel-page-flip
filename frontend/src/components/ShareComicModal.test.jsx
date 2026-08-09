@@ -7,8 +7,10 @@ import { ShareComicModal } from "./ShareComicModal";
 import { api } from "@/lib/api";
 import { SHARE_RESPONSIBILITY_NOTICE } from "@/lib/sharing";
 
+const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
+
 vi.mock("@/lib/api", () => ({ api: { post: vi.fn() } }));
-vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast }) }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 
 const renderModal = (props = {}) => render(
@@ -28,8 +30,30 @@ const acknowledgement = () => screen.getByRole("checkbox", { name: /i understand
 
 describe("ShareComicModal", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.post).mockResolvedValue({ invitationUrl: "https://example.test/share/invitation/abc" });
+  });
+
+  it("keeps a successful invitation distinct from a failed refresh", async () => {
+    const user = userEvent.setup();
+    const onShared = vi.fn().mockRejectedValue(new Error("refresh failed"));
+    renderModal({ onShared });
+
+    await user.type(screen.getByLabelText(/recipient email/i), "jane@example.com");
+    await user.click(acknowledgement());
+    await user.click(sendButton());
+
+    // The invitation exists, so the one-time link is still offered and nothing
+    // tells the sender to try again.
+    expect(await screen.findByDisplayValue("https://example.test/share/invitation/abc"))
+      .toBeInTheDocument();
+    expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({
+      title: "Could not share comic",
+    }));
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      description: expect.stringContaining("could not refresh"),
+    }));
   });
 
   it("states that the sender is responsible for what they share", () => {

@@ -155,7 +155,8 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'busy-sharer@example.com']);
 
-        for ($i = 0; $i < SharingWorkflowService::RECENT_RECIPIENT_LIMIT + 5; ++$i) {
+        $shared = SharingWorkflowService::RECENT_RECIPIENT_LIMIT + 5;
+        for ($i = 0; $i < $shared; ++$i) {
             $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
             $this->persistPendingShare($comic, $owner, sprintf('friend%d@example.com', $i));
         }
@@ -165,7 +166,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         self::assertCount(SharingWorkflowService::RECENT_RECIPIENT_LIMIT, $recipients);
         // Most recent first, so the cap keeps the addresses a sender is most
         // likely to want rather than the ones they have finished with.
-        self::assertSame('friend24@example.com', $recipients[0]['email']);
+        self::assertSame(sprintf('friend%d@example.com', $shared - 1), $recipients[0]['email']);
     }
 
     /**
