@@ -127,6 +127,61 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         self::assertSame(ComicShare::STATUS_PENDING, $received[0]['status']);
     }
 
+    /**
+     * Re-inviting reuses the row, so a relationship that began with a receiver
+     * code can be reopened by somebody typing the address. Going on hiding it
+     * then would withhold something the owner plainly already has.
+     */
+    public function testTypingTheAddressLaterStopsHidingIt(): void
+    {
+        $recipient = UserFactory::createOne(['email' => 'both-ways@example.com', 'name' => 'Both Ways'])->object();
+        $this->loginAs($recipient);
+        $code = $this->getJson('/api/shares/my-code')['sharingCode'];
+
+        $owner = $this->createAndLoginUser(['email' => 'switcher@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
+            'sharingCode' => $code,
+            'senderResponsibilityAccepted' => true,
+        ]);
+        self::assertResponseStatusCodeSame(201);
+
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
+        $this->postJson(sprintf('/api/shares/%d/revoke', $shareId), []);
+        self::assertResponseIsSuccessful();
+
+        // The same person, reached the other way this time.
+        $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
+            'email' => 'both-ways@example.com',
+            'senderResponsibilityAccepted' => true,
+        ]);
+        self::assertResponseStatusCodeSame(201);
+
+        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        self::assertSame('both-ways@example.com', $entry['recipientEmail']);
+        self::assertNull($entry['recipientSharingCode']);
+        self::assertSame('both-ways@example.com', $entry['recipientLabel']);
+    }
+
+    public function testAClaimCodeCannotCarryMoreComicsThanOneActionMay(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'oversized@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $this->postJson('/api/shares/claim-codes', [
+            'comicIds' => array_fill(0, 500, (int) $comic->getId()),
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        // Refused on the raw count, before any of those ids is looked up.
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame([], $this->getJson('/api/shares/claim-codes')['codes']);
+    }
+
     public function testRecentRecipientsListACodeRecipientWithoutTheirAddress(): void
     {
         $recipient = UserFactory::createOne(['email' => 'quiet@example.com', 'name' => 'Quiet Reader'])->object();

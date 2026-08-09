@@ -75,6 +75,17 @@ export function SharingCodesCard({ onRedeemed }) {
       const claimed = Number(data.claimed) || 0;
       const gated = (data.results || []).filter((r) => r.status === "awaiting_age_confirmation").length;
 
+      // A code can be spent without adding anything — every comic on it may
+      // already be shared with this account. "0 comics added" as a success
+      // toast reads like the feature working; it is not.
+      if (claimed === 0) {
+        setRedeemError(
+          (data.results || []).find((result) => result.message)?.message
+            || "That code added nothing new to your collection."
+        );
+        return;
+      }
+
       toast({
         title: claimed === 1 ? "Comic added" : `${claimed} comics added`,
         description: gated > 0

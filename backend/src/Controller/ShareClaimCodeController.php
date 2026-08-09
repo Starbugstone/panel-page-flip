@@ -7,6 +7,7 @@ use App\Entity\User;
 use App\Service\ShareClaimCodeService;
 use App\Service\ShareException;
 use App\Service\SharingCodeFormat;
+use App\Service\SharingWorkflowService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -61,6 +62,18 @@ final class ShareClaimCodeController extends AbstractController
         $rawComicIds = $data['comicIds'] ?? null;
         if (!is_array($rawComicIds) || $rawComicIds === []) {
             return $this->json(['message' => 'Select at least one comic to share.'], Response::HTTP_BAD_REQUEST);
+        }
+        // Refused on the raw count, before a single id is parsed or looked up,
+        // the same way the bulk invitation endpoint does it. Checking after the
+        // loop would mean a request carrying thousands of ids did thousands of
+        // lookups on its way to a 400.
+        if (count($rawComicIds) > SharingWorkflowService::MAX_BULK_COMICS) {
+            return $this->json([
+                'message' => sprintf(
+                    'A code can carry at most %d comics.',
+                    SharingWorkflowService::MAX_BULK_COMICS
+                ),
+            ], Response::HTTP_BAD_REQUEST);
         }
 
         $comicIds = [];

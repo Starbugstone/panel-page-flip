@@ -231,6 +231,21 @@ class ComicShare
         return $this;
     }
 
+    /**
+     * Stop hiding the address, because the owner supplied it themselves.
+     *
+     * Re-inviting reuses the row, so a relationship that began with a receiver
+     * code can be reopened by somebody typing the address — at which point
+     * withholding it would be withholding something they already have.
+     */
+    public function revealRecipientAddressToOwner(): self
+    {
+        $this->recipientSharingCode = null;
+        $this->recipientAliasName = null;
+
+        return $this;
+    }
+
     /** Whether the owner may be shown this recipient's address. */
     public function isRecipientAddressHiddenFromOwner(): bool
     {

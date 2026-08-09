@@ -105,6 +105,26 @@ describe("SharingCodesCard", () => {
     })));
   });
 
+  it("does not call a code that added nothing a success", async () => {
+    const user = userEvent.setup();
+    const onRedeemed = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.post).mockResolvedValue({
+      claimed: 0,
+      ownerName: "Alex Owner",
+      results: [{ comicId: 1, status: "already_yours", message: "You already have this comic." }],
+    });
+
+    renderCard({ onRedeemed });
+
+    await user.type(screen.getByPlaceholderText("XXXX-XXXX-XXXX"), "7RFXKP3MQ82D");
+    await user.click(screen.getByRole("button", { name: "Redeem" }));
+
+    // A spent code that changed nothing is not "0 comics added".
+    expect(await screen.findByText("You already have this comic.")).toBeInTheDocument();
+    expect(toast).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("XXXX-XXXX-XXXX")).toHaveValue("7RFX-KP3M-Q82D");
+  });
+
   it("explains a code that cannot be redeemed without clearing what was typed", async () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockRejectedValue(

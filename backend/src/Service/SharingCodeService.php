@@ -60,31 +60,37 @@ final class SharingCodeService
             return $existing;
         }
 
-        // Retried rather than trusted: the unique index is the authority on
-        // collisions, and at sixty bits a second attempt is already
-        // vanishingly unlikely to be needed.
+        // Candidates are checked against the index before one is kept, and the
+        // search for a free one is where the retrying belongs. The write itself
+        // is attempted once: Doctrine closes the EntityManager when a flush
+        // raises a constraint violation, so there is no manager left to retry
+        // with — refreshing or re-reading through it would only fail again with
+        // a less useful error. At sixty bits, losing the race between the check
+        // and the write is not something worth building a recovery path for;
+        // the caller retries by asking again on the next request.
+        $candidate = null;
         for ($attempt = 0; $attempt < 5; ++$attempt) {
-            $candidate = SharingCodeFormat::generate();
+            $generated = SharingCodeFormat::generate();
 
-            if ($this->userRepository->findOneBy(['sharingCode' => $candidate]) !== null) {
-                continue;
-            }
-
-            $user->assignSharingCode($candidate);
-
-            try {
-                $this->entityManager->flush();
-
-                return $candidate;
-            } catch (UniqueConstraintViolationException) {
-                // Somebody else took it between the check and the write. The
-                // in-memory value has to go back to null before the next try,
-                // and assignSharingCode deliberately refuses to overwrite.
-                $this->entityManager->refresh($user);
+            if ($this->userRepository->findOneBy(['sharingCode' => $generated]) === null) {
+                $candidate = $generated;
+                break;
             }
         }
 
-        throw new ShareException('A sharing code could not be issued. Please try again.', 500);
+        if ($candidate === null) {
+            throw new ShareException('A sharing code could not be issued. Please try again.', 500);
+        }
+
+        $user->assignSharingCode($candidate);
+
+        try {
+            $this->entityManager->flush();
+        } catch (UniqueConstraintViolationException) {
+            throw new ShareException('A sharing code could not be issued. Please try again.', 500);
+        }
+
+        return $candidate;
     }
 
     /**

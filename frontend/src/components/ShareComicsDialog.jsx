@@ -564,12 +564,18 @@ export function ShareComicsDialog({
                           key={recipient.sharingCode}
                           type="button"
                           size="sm"
-                          variant={sharingCode === recipient.sharingCode ? "default" : "outline"}
-                          aria-pressed={sharingCode === recipient.sharingCode}
+                          // Compared normalised: the input rewrites what it
+                          // holds through formatSharingCode, so a grouping
+                          // difference must not break the pressed state.
+                          variant={normaliseSharingCode(sharingCode) === normaliseSharingCode(recipient.sharingCode) ? "default" : "outline"}
+                          aria-pressed={normaliseSharingCode(sharingCode) === normaliseSharingCode(recipient.sharingCode)}
                           disabled={isSending}
                           onClick={() => {
-                            setSharingCode(recipient.sharingCode);
-                            setCodeRecipient({ name: recipient.name });
+                            setSharingCode(formatSharingCode(recipient.sharingCode));
+                            // The server sends no name for a recipient who had
+                            // none to snapshot, and falls back to the code in
+                            // the label — so that is what to show them as.
+                            setCodeRecipient({ name: recipient.name || recipient.label });
                           }}
                         >
                           {recipient.label}

@@ -9,6 +9,7 @@ use App\Entity\User;
 use App\Repository\ComicShareRepository;
 use App\Repository\ShareClaimCodeRepository;
 use App\Security\Voter\ComicVoter;
+use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
@@ -83,8 +84,19 @@ final class ShareClaimCodeService
             );
         }
 
+        $ids = array_unique($comicIds);
+
+        // Before the lookups, not after, so an oversized request does not do
+        // hundreds of queries on its way to being refused.
+        if (count($ids) > SharingWorkflowService::MAX_BULK_COMICS) {
+            throw new ShareException(
+                sprintf('A code can carry at most %d comics.', SharingWorkflowService::MAX_BULK_COMICS),
+                400
+            );
+        }
+
         $comics = [];
-        foreach (array_unique($comicIds) as $comicId) {
+        foreach ($ids as $comicId) {
             $comic = $this->entityManager->getRepository(Comic::class)->find($comicId);
 
             // Same silence as the bulk invitation endpoint: a comic that is
@@ -99,13 +111,6 @@ final class ShareClaimCodeService
 
         if ($comics === []) {
             throw new ShareException('Select at least one comic to share.', 400);
-        }
-
-        if (count($comics) > SharingWorkflowService::MAX_BULK_COMICS) {
-            throw new ShareException(
-                sprintf('A code can carry at most %d comics.', SharingWorkflowService::MAX_BULK_COMICS),
-                400
-            );
         }
 
         // Claimed before the code exists, so a refused request leaves nothing
@@ -154,11 +159,59 @@ final class ShareClaimCodeService
     {
         $code = $this->claimCodeRepository->findByPlaintext($plaintext);
 
+        if ($code === null) {
+            $this->rejectRedemption($redeemer, null);
+        }
+
+        // Everything from here is one unit of work, and the row is locked
+        // before its remaining uses are read. "Check the count, then decrement
+        // it" is a read followed by a write: two redemptions arriving together
+        // both see the last use, both create shares, and both write zero — so a
+        // one-use code would let two people in, which is the single guarantee
+        // the count exists to make.
+        $connection = $this->entityManager->getConnection();
+        $ownsTransaction = !$connection->isTransactionActive();
+
+        try {
+            if ($ownsTransaction) {
+                $this->entityManager->beginTransaction();
+            }
+
+            $result = $this->redeemLocked($code, $redeemer);
+
+            if ($ownsTransaction) {
+                $this->entityManager->commit();
+            }
+
+            return $result;
+        } catch (\Throwable $exception) {
+            if ($ownsTransaction && $connection->isTransactionActive()) {
+                $this->entityManager->rollback();
+            }
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * The redemption itself, with the caller holding the transaction.
+     *
+     * @return array{results: list<array<string, mixed>>, claimed: int, ownerName: string}
+     *
+     * @throws ShareException
+     */
+    private function redeemLocked(ShareClaimCode $code, User $redeemer): array
+    {
+        $this->entityManager->lock($code, LockMode::PESSIMISTIC_WRITE);
+        // Re-read behind the lock, so the count this decision is made on is the
+        // committed one rather than whatever was loaded before the wait.
+        $this->entityManager->refresh($code);
+
         // One answer for a code that never existed, one that has been revoked,
         // one that ran out and one that expired. Telling them apart would say
         // whether a guess had ever been a real code.
-        if ($code === null || !$code->isRedeemable()) {
-            $this->rejectRedemption($redeemer, $code?->getId());
+        if (!$code->isRedeemable()) {
+            $this->rejectRedemption($redeemer, $code->getId());
         }
 
         $owner = $code->getOwner();

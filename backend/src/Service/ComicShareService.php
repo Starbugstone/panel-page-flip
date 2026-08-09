@@ -178,11 +178,19 @@ class ComicShareService
             // never saw the address, so the record carries what the sender may
             // be shown in its place — and the owner-facing serializer reads
             // that instead of the address from here on.
+            //
+            // Cleared in the other direction for the same reason. openInvitation
+            // reuses a declined, revoked or lapsed row, so an owner who reaches
+            // the same person again by typing their address has plainly been
+            // told it — going on hiding it would withhold something they
+            // already hold.
             if ($viaSharingCode !== null) {
                 $prepared[$comicId]->share->hideRecipientBehindSharingCode(
                     $viaSharingCode->sharingCode,
                     $viaSharingCode->name
                 );
+            } else {
+                $prepared[$comicId]->share->revealRecipientAddressToOwner();
             }
         }
 
