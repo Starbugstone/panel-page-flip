@@ -67,8 +67,11 @@ security:
         # longer paths, which this pattern deliberately does not match.
         - { path: '^/api/shares/invitations/[^/]+$', methods: [GET], roles: PUBLIC_ACCESS }
 
-        # Admin routes (all methods)
-        - { path: ^/api/users(/[0-9]+)?$, roles: ROLE_ADMIN }
+        # Admin routes (all methods). Not anchored on the id, so sub-resources
+        # such as /api/users/{id}/verify and /api/users/{id}/sharing-code/rotate
+        # are covered by the firewall as well as by their own in-controller
+        # check, rather than falling through to plain authentication.
+        - { path: ^/api/users(/|$), roles: ROLE_ADMIN }
         - { path: ^/api/admin, roles: ROLE_ADMIN }
         
         # User routes (require authentication)

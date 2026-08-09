@@ -93,6 +93,8 @@ security and audit records. Decide which mode you are in and write it down;
 | `var/log/security/` | `SECURITY_LOG_RETENTION_DAYS` (default 365) | `app:cleanup-logs` |
 | `var/log/audit/` | `AUDIT_LOG_RETENTION_DAYS` (default 365) | `app:cleanup-logs` |
 | `admin_audit_log` table | 12 months | `app:cleanup-personal-data` |
+| Unanswered `ComicShare` invitations | Until `expiresAt` (2 months) | `app:cleanup-expired-shares` |
+| `share_claim_code` rows | 30 days past expiry | `app:cleanup-expired-shares` |
 | `ComicShare.senderResponsibilityAcceptedAt` / `adultConfirmedAt` | Lifetime of the share record | Nothing — see below |
 
 Deletion is **not** automatic. A `max_files` setting nothing enforces is how an
@@ -103,6 +105,11 @@ keeping everything forever. Schedule the command:
 # daily, deploy user
 15 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-logs --env=prod >> /var/log/comics-cleanup.log 2>&1
 ```
+
+This is one of three commands a production instance must have scheduled — the
+others apply the personal-data and sharing retention above. The full list, with
+what breaks if each is missing, is in
+[SSH-deploy.md §7](../SSH-deploy.md#7-background-jobs-cron--systemd-timers).
 
 `--dry-run` reports what would go without removing anything. Expired files are
 removed along with the month and year folders they empty; the stream root stays,

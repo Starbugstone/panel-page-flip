@@ -59,6 +59,8 @@ function AdminUserDetailsPage({ userId }) {
   const [form, setForm] = useState({ name: "", password: "", roles: [] });
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isRotateOpen, setIsRotateOpen] = useState(false);
+  const [isRotatingCode, setIsRotatingCode] = useState(false);
 
   const passwordErrors = form.password ? validatePassword(form.password) : [];
   const isSelf = currentUser && user && currentUser.id === user.id;
@@ -131,6 +133,23 @@ function AdminUserDetailsPage({ userId }) {
       toast({ title: "User verified" });
     } catch (error) {
       toast({ title: "Verification failed", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const rotateSharingCode = async () => {
+    setIsRotatingCode(true);
+
+    try {
+      await api.post(`/api/users/${userId}/sharing-code/rotate`, {});
+      toast({
+        title: "Sharing code replaced",
+        description: "The old code no longer works. The user can see the new one on their Sharing page.",
+      });
+    } catch (error) {
+      toast({ title: "Could not replace the code", description: error.message, variant: "destructive" });
+    } finally {
+      setIsRotatingCode(false);
+      setIsRotateOpen(false);
     }
   };
 
@@ -294,6 +313,31 @@ function AdminUserDetailsPage({ userId }) {
             </CardContent>
           </Card>
 
+          {/* Support's version of the button the user has on their own Sharing
+              page, for when they report the code has ended up somewhere they
+              cannot take it back from. The new code is deliberately not shown
+              here: an administrator has no reason to hold somebody's contact
+              handle, and the user reads it off their own page. */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Sharing code</CardTitle>
+              <CardDescription>
+                Replace this user&apos;s sharing code if it has been posted somewhere they did not
+                intend. The old code stops working immediately. Comics already shared with them,
+                and people they have shared with, are not affected.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                variant="outline"
+                onClick={() => setIsRotateOpen(true)}
+                disabled={isRotatingCode}
+              >
+                {isRotatingCode ? "Replacing…" : "Replace sharing code"}
+              </Button>
+            </CardContent>
+          </Card>
+
           <Card className="border-destructive/40">
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Delete account</CardTitle>
@@ -332,6 +376,27 @@ function AdminUserDetailsPage({ userId }) {
               onClick={(event) => { event.preventDefault(); deleteUser(); }}
             >
               Delete account
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={isRotateOpen} onOpenChange={setIsRotateOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace this user&apos;s sharing code?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The old code stops working immediately, and anyone who still has it will need the new
+              one. Existing shares are not affected. The user can see the new code on their own
+              Sharing page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => { event.preventDefault(); rotateSharingCode(); }}
+            >
+              Replace sharing code
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

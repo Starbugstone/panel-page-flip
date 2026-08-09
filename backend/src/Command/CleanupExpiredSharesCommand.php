@@ -2,8 +2,8 @@
 
 namespace App\Command;
 
-use App\Repository\ComicShareRepository;
-use Doctrine\ORM\EntityManagerInterface;
+use App\Entity\ShareClaimCode;
+use App\Service\ExpiredShareCleanupService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -11,14 +11,13 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
- * Delete invitations nobody answered before they expired.
+ * The scheduled retention sweep for sharing records.
  *
- * Only pending relationships are in scope. An accepted share has no expiry, and
- * a declined or revoked one is history somebody may still be looking at.
- *
- * An expired invitation is deleted rather than kept, because it holds the email
- * address of somebody who may never have had an account here and who did not
- * act on it.
+ * The work itself lives in {@see ExpiredShareCleanupService}, because an
+ * administrator can run the same sweep from the admin page and a deletion rule
+ * that exists twice is one that will eventually disagree with itself. This is
+ * the normal path; the button is the fallback for an installation whose cron is
+ * not running.
  *
  * Run periodically from cron:
  *
@@ -27,59 +26,45 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  */
 #[AsCommand(
     name: 'app:cleanup-expired-shares',
-    description: 'Deletes share invitations that expired without being answered',
+    description: 'Deletes expired share invitations and long-dead sharing codes',
 )]
 class CleanupExpiredSharesCommand extends Command
 {
-    /**
-     * Shares removed per flush. A cron job that has not run for a long time, or
-     * a bulk invitation import, would otherwise hydrate every expired share and
-     * its cascaded tokens into one unit of work — and run out of memory before
-     * deleting anything at all.
-     */
-    private const BATCH_SIZE = 200;
-
-    public function __construct(
-        private readonly EntityManagerInterface $entityManager,
-        private readonly ComicShareRepository $shareRepository,
-    ) {
+    public function __construct(private readonly ExpiredShareCleanupService $cleanup)
+    {
         parent::__construct();
     }
 
     protected function configure(): void
     {
-        $this->setHelp('Removes pending share invitations whose expiry date has passed.');
+        $this->setHelp(
+            'Removes pending share invitations whose expiry date has passed, and sharing codes that '
+            . 'expired more than ' . ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+') . ' ago.'
+        );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $io->title('Cleaning up expired share invitations');
+        $io->title('Cleaning up expired shares and sharing codes');
 
-        // Resolved once so a batch cannot pick up invitations that expire while
-        // the command is still working through the backlog.
-        $now = new \DateTimeImmutable();
-        $count = 0;
+        // Deliberately not audited. A cron job reporting its own quiet runs is
+        // noise, and what it removed is already visible in what is no longer
+        // there. The admin button audits instead, because a person deleting
+        // records from other people's accounts should be answerable for it.
+        $removed = $this->cleanup->run();
 
-        while (($expired = $this->shareRepository->findExpiredPendingShares($now, self::BATCH_SIZE)) !== []) {
-            foreach ($expired as $share) {
-                // The invitation tokens go with it: they are mapped with
-                // orphanRemoval and a cascading foreign key.
-                $this->entityManager->remove($share);
-            }
-
-            $this->entityManager->flush();
-            $this->entityManager->clear();
-            $count += count($expired);
-        }
-
-        if ($count === 0) {
-            $io->success('No expired invitations to clean up.');
+        if ($removed['invitations'] === 0 && $removed['claimCodes'] === 0) {
+            $io->success('Nothing to clean up.');
 
             return Command::SUCCESS;
         }
 
-        $io->success(sprintf('Removed %d expired invitation(s).', $count));
+        $io->success(sprintf(
+            'Removed %d expired invitation(s) and %d dead sharing code(s).',
+            $removed['invitations'],
+            $removed['claimCodes']
+        ));
 
         return Command::SUCCESS;
     }

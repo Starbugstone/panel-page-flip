@@ -5,6 +5,7 @@ import { Navigate, useSearchParams } from "react-router-dom";
 import { AdminUsersList } from "@/components/AdminUsersList";
 import { AdminComicsList } from "@/components/AdminComicsList";
 import { AdminTagsList } from "@/components/AdminTagsList";
+import { AdminSharingCodesList } from "@/components/AdminSharingCodesList";
 import { AdminOverview } from "@/components/AdminOverview";
 import { AdminDropbox } from "@/components/AdminDropbox";
 import { AdminAuditList } from "@/components/AdminAuditList";
@@ -55,6 +56,7 @@ export default function AdminDashboard() {
           <TabsTrigger value="comics">Comics</TabsTrigger>
           <TabsTrigger value="formats">Formats</TabsTrigger>
           <TabsTrigger value="tags">Tags</TabsTrigger>
+          <TabsTrigger value="sharing-codes">Sharing codes</TabsTrigger>
           <TabsTrigger value="dropbox">Dropbox</TabsTrigger>
           <TabsTrigger value="audit">Audit</TabsTrigger>
         </TabsList>
@@ -81,6 +83,10 @@ export default function AdminDashboard() {
         
         <TabsContent value="tags" className="space-y-6">
           <AdminTagsList />
+        </TabsContent>
+
+        <TabsContent value="sharing-codes" className="space-y-6">
+          <AdminSharingCodesList />
         </TabsContent>
 
         <TabsContent value="dropbox" className="space-y-6">

@@ -46,9 +46,34 @@ class ComicShareSerializer
         // Never redacted. The owner classified the comic, and owns the file; an
         // age gate protects a recipient from content they have not agreed to
         // see, not a person from their own library.
+        // The one thing an owner is not always shown. When the sender reached
+        // this person through their receiver code, the whole point was that the
+        // address never crossed over — so handing it back on the page that
+        // lists what they shared would undo the feature entirely. They get the
+        // name and the code instead, which is exactly what they were given.
+        $hidden = $share->isRecipientAddressHiddenFromOwner();
+        // The recipient's handle as it is now, never the one stored on the
+        // share. That one records how the relationship began and goes stale the
+        // moment they rotate; showing it would offer the owner a retired code
+        // and quietly undo the rotation. A recipient whose account has gone
+        // keeps their name and loses the code, rather than falling back to the
+        // address the code existed to withhold.
+        $currentCode = $hidden ? $share->getRecipientUser()?->getSharingCode() : null;
+        $currentName = $hidden
+            ? ($share->getRecipientUser()?->getName() ?: $share->getRecipientAliasName())
+            : $share->getRecipientUser()?->getName();
+
         return $this->common($share, false) + [
-            'recipientEmail' => $share->getRecipientEmailNormalized(),
-            'recipientName' => $share->getRecipientUser()?->getName(),
+            'recipientEmail' => $hidden ? null : $share->getRecipientEmailNormalized(),
+            // Grouped, because that is the only form a code is ever shown in
+            // and the sender will be pasting it back into the share dialog.
+            'recipientSharingCode' => $currentCode === null
+                ? null
+                : SharingCodeFormat::forDisplay($currentCode),
+            'recipientLabel' => $hidden
+                ? ($currentName ?: 'Shared by code')
+                : $share->getRecipientEmailNormalized(),
+            'recipientName' => $currentName,
             // Resending only makes sense while the recipient still has a choice
             // to make and there is still a comic behind the invitation.
             'canResend' => !$share->isTombstoned()
