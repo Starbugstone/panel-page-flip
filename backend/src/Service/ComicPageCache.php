@@ -78,6 +78,55 @@ final class ComicPageCache
         @rmdir($directory);
     }
 
+    /**
+     * Drop pages nobody has read since $before, and every page belonging to a
+     * comic that no longer exists.
+     *
+     * Reading a page touches its file, so a library in regular use keeps its
+     * pages and only the ones nobody opens age out.
+     *
+     * @param array<int, mixed> $knownComicIds comic ids that still exist, keyed by id
+     *
+     * @return array{stale: int, orphans: int, bytes: int}
+     */
+    public function prune(?\DateTimeImmutable $before, array $knownComicIds, bool $dryRun = false): array
+    {
+        $result = ['stale' => 0, 'orphans' => 0, 'bytes' => 0];
+        if (!is_dir($this->directory)) return $result;
+
+        $threshold = $before?->getTimestamp();
+
+        foreach (glob($this->directory.'/*', GLOB_ONLYDIR) ?: [] as $comicDirectory) {
+            $name = basename($comicDirectory);
+            if (!ctype_digit($name)) continue;
+
+            $orphaned = !array_key_exists((int) $name, $knownComicIds);
+            $remaining = 0;
+
+            foreach (glob($comicDirectory.'/*') ?: [] as $file) {
+                if (!is_file($file)) continue;
+
+                // Access time where the filesystem records it, modification
+                // time otherwise: plenty of servers mount with noatime.
+                $touched = max((int) @fileatime($file), (int) @filemtime($file));
+                $stale = $threshold !== null && $touched < $threshold;
+
+                if (!$orphaned && !$stale) {
+                    ++$remaining;
+                    continue;
+                }
+
+                $result['bytes'] += (int) @filesize($file);
+                $orphaned ? ++$result['orphans'] : ++$result['stale'];
+                if (!$dryRun) @unlink($file);
+            }
+
+            if (!$dryRun && $remaining === 0) @rmdir($comicDirectory);
+        }
+
+        return $result;
+    }
+
     private function path(int $comicId, int $page, string $fingerprint, bool $create): ?string
     {
         $directory = $this->directory.'/'.$comicId;

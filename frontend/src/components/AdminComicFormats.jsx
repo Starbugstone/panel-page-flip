@@ -11,6 +11,7 @@ const LABELS = { cbz: "CBZ (ZIP)", cbr: "CBR (RAR)", cb7: "CB7 (7z)", cbt: "CBT 
 export function AdminComicFormats() {
   const { toast } = useToast();
   const [formats, setFormats] = useState(null);
+  const [delivery, setDelivery] = useState(null);
   const [busy, setBusy] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -30,6 +31,7 @@ export function AdminComicFormats() {
     try {
       const result = await api.post("/api/admin/comic-formats/verify", {});
       setFormats((current) => applyVerification(current, result.formats));
+      setDelivery(result.delivery ?? null);
       setLoadError(null);
       toast({ title: "Verification complete", description: "Server format dependencies were re-checked." });
     } catch (error) {
@@ -43,7 +45,7 @@ export function AdminComicFormats() {
   useEffect(() => {
     let cancelled = false;
     api.get("/api/admin/comic-formats")
-      .then((result) => { if (!cancelled) { setFormats(result.formats); setLoadError(null); } })
+      .then((result) => { if (!cancelled) { setFormats(result.formats); setDelivery(result.delivery ?? null); setLoadError(null); } })
       .catch((error) => { if (!cancelled) setLoadError(error.message); })
       .finally(() => { if (!cancelled) setBusy(false); });
     return () => { cancelled = true; };
@@ -129,6 +131,25 @@ export function AdminComicFormats() {
             )}
           </div>
         ))}
+        {/* Independent of which formats are on: how pages leave the server is
+            the same question for every comic in the library. */}
+        {delivery && (
+          <div className="rounded-md border p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-medium">Page delivery</p>
+                <p className="text-sm text-muted-foreground">{delivery.summary}</p>
+              </div>
+              <span className={delivery.healthy ? "text-sm text-green-600 whitespace-nowrap" : "text-sm text-amber-600 whitespace-nowrap"}>
+                {delivery.format === "webp" ? "WebP" : "Source format"}
+              </span>
+            </div>
+            {delivery.hint && (
+              <p className="mt-3 rounded bg-muted p-3 text-sm text-muted-foreground">{delivery.hint}</p>
+            )}
+          </div>
+        )}
+
         <div className="flex gap-2">
           <Button variant="outline" disabled={busy} onClick={verify}>Verify server</Button>
           <Button disabled={busy || !formats} onClick={save}>Save enabled formats</Button>

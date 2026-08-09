@@ -9,6 +9,7 @@ use App\Repository\AdminAuditLogRepository;
 use App\Service\AdminAuditService;
 use App\Service\ComicCleanupService;
 use App\Service\ComicFormatService;
+use App\Service\ComicPageDelivery;
 use App\Enum\ComicSourceType;
 use App\Service\DropboxImportService;
 use App\Service\Pagination\PaginationRequest;
@@ -35,17 +36,17 @@ class AdminController extends AbstractController
     }
 
     #[Route('/comic-formats', name: 'comic_formats', methods: ['GET'])]
-    public function comicFormats(ComicFormatService $formats): JsonResponse
+    public function comicFormats(ComicFormatService $formats, ComicPageDelivery $delivery): JsonResponse
     {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
-        return $this->json(['formats' => $formats->status()]);
+        return $this->json(['formats' => $formats->status(), 'delivery' => $delivery->describe()]);
     }
 
     #[Route('/comic-formats/verify', name: 'comic_formats_verify', methods: ['POST'])]
-    public function verifyComicFormats(ComicFormatService $formats): JsonResponse
+    public function verifyComicFormats(ComicFormatService $formats, ComicPageDelivery $delivery): JsonResponse
     {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
-        return $this->json(['formats' => $formats->status(true)]);
+        return $this->json(['formats' => $formats->status(true), 'delivery' => $delivery->describe()]);
     }
 
     #[Route('/comic-formats', name: 'comic_formats_update', methods: ['PUT'])]

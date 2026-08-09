@@ -100,6 +100,34 @@ final class ComicPageDelivery
         return $this->webpAvailable() ? self::FORMAT_WEBP : self::FORMAT_SOURCE;
     }
 
+    /**
+     * What an administrator needs to know about page delivery on this server.
+     *
+     * Reported rather than enforced: serving source bytes is a working
+     * installation, just a more expensive one for every reader on every page,
+     * which is worth saying out loud on a host nobody configured for it.
+     *
+     * @return array{format: string, healthy: bool, summary: string, hint: string}
+     */
+    public function describe(): array
+    {
+        if ($this->webpAvailable()) {
+            return [
+                'format' => self::FORMAT_WEBP,
+                'healthy' => true,
+                'summary' => 'Pages are delivered as WebP and cached after the first read.',
+                'hint' => '',
+            ];
+        }
+
+        return [
+            'format' => self::FORMAT_SOURCE,
+            'healthy' => false,
+            'summary' => 'Pages are delivered in whatever format the comic stores them in.',
+            'hint' => 'This PHP has GD without WebP support, so pages cannot be converted or cached. Everything still works, but every page is larger and is re-read from the comic each time. Install a GD built with WebP (on Debian/Ubuntu, php-gd; from source, --with-webp).',
+        ];
+    }
+
     private function toWebp(PageResult $source): ?PageResult
     {
         if ($source->mimeType === 'image/webp') return $source;

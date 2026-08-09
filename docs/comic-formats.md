@@ -8,7 +8,11 @@ New installations enable CBZ only. An administrator must open **Admin → Format
 
 ## Runtime requirements
 
-The PHP image installs PHP ZIP, `7z`, Poppler (`pdfinfo` and `pdftocairo`), and `qpdf`. Run `php bin/console app:comic-formats:check` after deployment. A missing mandatory tool disables processing for its formats with a controlled upload/read error. `qpdf` is the one optional entry: it adds a structural check on upload, and without it PDFs are still accepted on the Poppler checks alone.
+The development Docker image installs PHP ZIP, `7z`, Poppler (`pdfinfo` and `pdftocairo`), and `qpdf`. **Production is a separate server and provides none of that by default** — see [SSH-deploy.md](../SSH-deploy.md) for a VPS or [deploy.md](../deploy.md) for shared hosting.
+
+What every host must provide is the `zip` and `zlib` PHP extensions, which read CBZ and PDF, and a GD built with JPEG and WebP for the page pipeline. Everything else is optional and only widens which formats can be offered.
+
+Run `php bin/console app:comic-formats:check` on the server after deploying. It reports formats, page delivery and what to install, and exits non-zero when an essential format is unserviceable. `qpdf` is a fully optional extra: it adds a structural check on upload, and without it PDFs are still accepted on the Poppler checks alone.
 
 The check reports what this host can do, what each format needs, and how to install it. It reads the same availability the **Admin → Formats** screen does, so the two cannot disagree, and it deliberately keeps working when the database does not — the runtime half needs nothing but the filesystem. It exits non-zero only when a format is switched on that the server cannot actually serve.
 

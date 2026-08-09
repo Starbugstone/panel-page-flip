@@ -194,7 +194,12 @@ if [ "$DO_BACKEND" = "1" ]; then
     # turned that fallback into a 404 and a broken image in the library.
 
     # Recreate var/ structure expected by Symfony.
-    mkdir -p "$RELEASE_DIR/backend/var/cache" "$RELEASE_DIR/backend/var/log"
+    #
+    # page-cache holds generated comic pages. It is shipped as an empty
+    # directory because an FTP deployment has no shell to create one, and
+    # without it every page turn regenerates the image instead of reading it
+    # back. Nothing in it is authoritative, so shipping it empty is correct.
+    mkdir -p "$RELEASE_DIR/backend/var/cache" "$RELEASE_DIR/backend/var/log" "$RELEASE_DIR/backend/var/page-cache"
 
     # Drop the .htaccess so Apache shared hosting routes to index.php.
     log "Installing public/.htaccess"

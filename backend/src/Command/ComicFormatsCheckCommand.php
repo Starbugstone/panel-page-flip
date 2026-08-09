@@ -4,6 +4,7 @@ namespace App\Command;
 
 use App\ComicSource\ComicRuntimeProbe;
 use App\Service\ComicFormatService;
+use App\Service\ComicPageDelivery;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -21,8 +22,10 @@ use Symfony\Component\Process\ExecutableFinder;
 #[AsCommand(name: 'app:comic-formats:check', description: 'Check comic source runtime dependencies')]
 final class ComicFormatsCheckCommand extends Command
 {
-    public function __construct(private readonly ComicFormatService $formats)
-    {
+    public function __construct(
+        private readonly ComicFormatService $formats,
+        private readonly ComicPageDelivery $delivery,
+    ) {
         parent::__construct();
     }
 
@@ -80,6 +83,17 @@ final class ComicFormatsCheckCommand extends Command
             'PDF structural check / qpdf (optional): %s',
             $qpdfUsable ? '<info>yes</info>' : '<comment>no</comment>'
         ));
+
+        // How pages leave the server is the same question for every comic,
+        // independent of which formats are switched on, so it is reported even
+        // when every format is healthy.
+        $delivery = $this->delivery->describe();
+        $io->writeln(sprintf(
+            'Page delivery: %s',
+            $delivery['healthy'] ? '<info>WebP, cached</info>' : '<comment>source format, uncached</comment>'
+        ));
+        if ($delivery['hint'] !== '') $io->writeln(' <comment>'.$delivery['hint'].'</comment>');
+        $io->newLine();
 
         // An essential format failing is a broken installation, not a choice.
         // It is reported before anything optional and it fails the command
