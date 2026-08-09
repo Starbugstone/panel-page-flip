@@ -45,7 +45,8 @@ This document provides detailed information for developers working on the projec
 - **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients` and `POST /api/shares/invitations/bulk` — the convenience layer behind the Sharing page's **Share comics** flow. Recipients come only from the caller's own share history and never from the user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
 - **Email Notifications**: One "Review invitation" link per invitation; the link only previews, because mail scanners follow links on the recipient's behalf. A bulk share sends one grouped email carrying a link per comic, so twenty comics are not twenty messages
-- **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered, and sharing codes that have been dead for over a month
+- **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered, and sharing codes that have been dead for over a month. The work itself is in `ExpiredShareCleanupService`, because an administrator can run the same sweep from the admin page and a deletion rule that exists twice will eventually disagree with itself
+- **Admin Sharing Codes**: `AdminShareCodeController.php` under `/api/admin/sharing-codes` — a paginated, filterable view of every issued claim code, forced revocation, and a manual run of the retention sweep. It can never show a code, take back a claimed comic, or delete a live record
 
 #### ✅ Dropbox Integration System
 - **DropboxController**: Handles OAuth flow, connection status, file listing, and individual comic import
@@ -107,6 +108,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Share Comics Dialog**: `ShareComicsDialog.jsx` is the multi-comic flow behind **Share comics** and **Share another comic** — an owned-only picker with search, previously used recipients, and one grouped invitation email per action. Step 2 offers three ways to name a recipient: an email address, their sharing code, or no one at all (a claim code anybody can redeem). It lists no registered users and searches none
 - **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's own receiver code with copy and **Replace** actions (the latter behind a confirmation, since the old code breaks everywhere at once), the field for redeeming a code somebody sent, and the list of codes handed out with a **Withdraw** action on each live one
 - **Admin Sharing Code Rotation**: `AdminUserDetails.jsx` can replace a user's receiver code on their behalf, behind a confirmation. The new code is never shown to the administrator — the user reads it off their own Sharing page
+- **Admin Sharing Codes Tab**: `AdminSharingCodesList.jsx` under **Admin → Sharing codes** — every issued claim code with status/owner/date filters and pagination, a **Withdraw** action, and a **Run cleanup** button. Both destructive actions state what they will *not* touch before they run
 - **Share Comic Modal**: `ShareComicModal.jsx` is the one-comic shortcut from a comic card, and the only path that shows the invitation link once, since only its hash is stored
 - **Invitation Preview**: `ShareInvitation.jsx` at `/share/invitation/:token` loads the invitation through a safe `GET` and only accepts or declines on a button press
 - **Pending Shares Alert**: `PendingSharesAlert.jsx`, now a one-line prompt on the dashboard rather than a card per invitation
@@ -507,14 +509,45 @@ sharing has, and it is built to be a bad one:
 Minting claim codes has its own `share_claim_code` allowance, because it sends no
 mail and the invitation limiter would never see it.
 
-#### Still out of scope
+#### Operating them
 
-There is no **admin management surface** for issued claim codes: no list, no
-filters, no forced revocation, and no way to run the retention cleanup from the
-UI. Operators have the CLI (`app:cleanup-expired-shares`) and the audit stream.
-That is a gap worth closing, but it is an operations feature rather than a
-defect in the sharing model, so it is tracked separately rather than held
-against this work.
+Claim codes are capabilities that leave the building, so **Admin → Sharing
+codes** exists to see what is outstanding and stop one without going to the
+database.
+
+| Endpoint | Does |
+|---|---|
+| `GET /api/admin/sharing-codes` | one page of issued codes, filtered by status, owner, or created/expiry range |
+| `POST /api/admin/sharing-codes/{id}/revoke` | withdraw somebody else's code |
+| `POST /api/admin/sharing-codes/cleanup` | run the retention sweep by hand |
+
+The table is paginated because it grows continuously between sweeps, and the
+status filters (`active`, `expired`, `exhausted`, `withdrawn`) are expressed as
+predicates over the row and the clock rather than read from a stored column —
+a second column saying so would be one more thing to keep in step.
+
+Three things this surface deliberately cannot do:
+
+- **show a code.** Only the hash is stored, so there is nothing to show and
+  nothing to recover, not even for an administrator
+- **take back a comic.** Withdrawing closes the way in and never the access
+  already granted, exactly as it does when the owner withdraws their own code.
+  Removing a share is moderation — a different decision, on a different screen
+- **delete a live record.** The button runs `ExpiredShareCleanupService`, the
+  same service the scheduled command runs, so it can only remove what the
+  nightly job would have removed anyway
+
+Revocation goes through `ShareClaimCodeService`, so the admin path cannot grow
+its own idea of what withdrawing means, and both it and the manual sweep are
+audited with the acting administrator, the target and the counts. The scheduled
+command is deliberately *not* audited: a cron job reporting its own quiet runs
+is noise, and what it removed is visible in what is no longer there. A person
+deleting records from other people's accounts is a different matter.
+
+Receiver codes are not managed here. Their lifecycle is rotation, which lives on
+the admin **user** page beside the account it identifies.
+
+#### Still out of scope
 
 Consent-based **sharing contacts** — where an accepted recipient lets the sender
 remember them by name without an address — remain future work. They need their

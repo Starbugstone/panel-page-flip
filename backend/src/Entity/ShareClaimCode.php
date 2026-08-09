@@ -297,6 +297,41 @@ class ShareClaimCode
         ];
     }
 
+    /**
+     * What an administrator is shown about a code somebody else issued.
+     *
+     * The owner's payload plus the operational metadata support needs to act on
+     * a report: whose code it is, and which comics are behind it named rather
+     * than redacted. The 18+ redaction the owner's view applies is for the
+     * *recipient's* benefit and has no meaning here — an administrator handling
+     * an abuse report is precisely the person who needs to know what was being
+     * handed out.
+     *
+     * Still never the code. Only its hash is stored, so there is nothing to
+     * show and nothing to recover.
+     *
+     * @return array<string, mixed>
+     */
+    public function toAdminPayload(): array
+    {
+        $comics = [];
+        foreach ($this->comics as $comic) {
+            $comics[] = [
+                'id' => $comic->getId(),
+                'title' => $comic->getTitle(),
+                'explicitContent' => $comic->isExplicitContent(),
+            ];
+        }
+
+        return $this->toOwnerPayload() + [
+            'ownerId' => $this->owner?->getId(),
+            'ownerName' => $this->owner?->getName(),
+            'ownerEmail' => $this->owner?->getEmail(),
+            'comics' => $comics,
+            'revokedAt' => $this->revokedAt?->format('c'),
+        ];
+    }
+
     /** The grouped form of a plaintext code, for the one response that shows it. */
     public static function forDisplay(string $plaintext): string
     {

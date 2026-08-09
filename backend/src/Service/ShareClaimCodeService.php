@@ -314,13 +314,54 @@ final class ShareClaimCodeService
             throw new ShareException('That sharing code was not found.', 404);
         }
 
+        $this->withdraw($code, $owner);
+    }
+
+    /**
+     * Withdraw somebody else's code, as an administrator.
+     *
+     * The reasons are operational rather than the owner changing their mind: an
+     * abuse report, a code posted publicly, a compromised account. It stops the
+     * code and nothing else — the shares already made through it stay exactly
+     * as they are, which is the same rule that applies when the owner withdraws
+     * it themselves. Taking those away would be moderation of the comics, which
+     * is a different decision with a different surface.
+     *
+     * @throws ShareException
+     */
+    public function revokeAsAdministrator(int $codeId, User $admin): ShareClaimCode
+    {
+        $code = $this->claimCodeRepository->find($codeId);
+
+        if ($code === null) {
+            throw new ShareException('That sharing code was not found.', 404);
+        }
+
+        $this->withdraw($code, $admin);
+
+        return $code;
+    }
+
+    /**
+     * The lifecycle rule itself, wherever the request came from.
+     *
+     * Both callers land here so an administrative path cannot grow its own idea
+     * of what withdrawing means.
+     */
+    private function withdraw(ShareClaimCode $code, User $actor): void
+    {
+        $ownerId = $code->getOwner()?->getId();
+        $byAdmin = $ownerId !== $actor->getId();
+
         $code->revoke();
         $this->entityManager->flush();
 
         $this->auditLogger->audit(SecurityAuditLogger::SHARE_CLAIM_CODE_REVOKED, [
-            'actor_user_id' => $owner->getId(),
+            'actor_user_id' => $actor->getId(),
             'target_type' => 'share_claim_code',
             'target_id' => $code->getId(),
+            'owner_user_id' => $ownerId,
+            'by_admin' => $byAdmin,
         ]);
     }
 

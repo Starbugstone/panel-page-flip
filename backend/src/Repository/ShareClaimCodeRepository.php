@@ -4,6 +4,8 @@ namespace App\Repository;
 
 use App\Entity\ShareClaimCode;
 use App\Entity\User;
+use App\Service\Pagination\PaginatedResult;
+use App\Service\Pagination\PaginationRequest;
 use App\Service\SharingCodeFormat;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -13,6 +15,14 @@ use Doctrine\Persistence\ManagerRegistry;
  */
 class ShareClaimCodeRepository extends ServiceEntityRepository
 {
+    /** Query alias => DQL expression, for the admin table's sort control. */
+    public const ADMIN_SORT_FIELDS = [
+        'createdAt' => 'c.createdAt',
+        'expiresAt' => 'c.expiresAt',
+        'maxUses' => 'c.maxUses',
+        'usesRemaining' => 'c.usesRemaining',
+    ];
+
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, ShareClaimCode::class);
@@ -57,6 +67,91 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
             ->setMaxResults($limit)
             ->getQuery()
             ->getResult();
+    }
+
+    /**
+     * One page of issued codes for an administrator, newest first by default.
+     *
+     * Every filter is optional and every one of them narrows: an operator
+     * arriving at this table after an abuse report is looking for one code
+     * among everything the instance has issued, and the table grows
+     * continuously between retention sweeps.
+     *
+     * The status filters are expressed here rather than read from a stored
+     * column, because "expired" and "used up" are facts about a row and a clock
+     * rather than states anything writes. A second column saying so would be
+     * one more thing to keep in step.
+     *
+     * @param array{status?: string|null, ownerId?: int|null, createdFrom?: \DateTimeImmutable|null,
+     *              createdTo?: \DateTimeImmutable|null, expiresFrom?: \DateTimeImmutable|null,
+     *              expiresTo?: \DateTimeImmutable|null} $filters
+     *
+     * @return PaginatedResult<ShareClaimCode>
+     */
+    public function findAdminPage(PaginationRequest $request, array $filters = []): PaginatedResult
+    {
+        $qb = $this->createQueryBuilder('c')->leftJoin('c.owner', 'o');
+        $now = new \DateTimeImmutable();
+
+        if (($filters['ownerId'] ?? null) !== null) {
+            $qb->andWhere('c.owner = :ownerId')->setParameter('ownerId', $filters['ownerId']);
+        }
+
+        // The owner is the only thing worth searching by. The code itself is
+        // stored as a hash and cannot be searched for even by somebody holding
+        // it, which is the point of hashing it.
+        if ($pattern = $request->searchPattern()) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(o.name) LIKE :search',
+                'LOWER(o.email) LIKE :search',
+            ))->setParameter('search', $pattern);
+        }
+
+        switch ($filters['status'] ?? null) {
+            case 'active':
+                $qb->andWhere('c.revokedAt IS NULL')
+                    ->andWhere('c.usesRemaining > 0')
+                    ->andWhere('c.expiresAt > :now')
+                    ->setParameter('now', $now);
+                break;
+            case 'withdrawn':
+                $qb->andWhere('c.revokedAt IS NOT NULL');
+                break;
+            case 'expired':
+                // Only codes that ran out of time, so an operator filtering for
+                // "expired" is not shown everything that died some other way.
+                $qb->andWhere('c.revokedAt IS NULL')
+                    ->andWhere('c.usesRemaining > 0')
+                    ->andWhere('c.expiresAt <= :now')
+                    ->setParameter('now', $now);
+                break;
+            case 'exhausted':
+                $qb->andWhere('c.revokedAt IS NULL')->andWhere('c.usesRemaining <= 0');
+                break;
+        }
+
+        foreach ([
+            'createdFrom' => ['c.createdAt >= :createdFrom', 'createdFrom'],
+            'createdTo' => ['c.createdAt <= :createdTo', 'createdTo'],
+            'expiresFrom' => ['c.expiresAt >= :expiresFrom', 'expiresFrom'],
+            'expiresTo' => ['c.expiresAt <= :expiresTo', 'expiresTo'],
+        ] as $key => [$expression, $parameter]) {
+            if (($filters[$key] ?? null) !== null) {
+                $qb->andWhere($expression)->setParameter($parameter, $filters[$key]);
+            }
+        }
+
+        $total = (int) (clone $qb)->select('COUNT(c.id)')->getQuery()->getSingleScalarResult();
+
+        $codes = $qb
+            ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)
+            ->addOrderBy('c.id', 'DESC')
+            ->setFirstResult($request->offset())
+            ->setMaxResults($request->limit)
+            ->getQuery()
+            ->getResult();
+
+        return PaginatedResult::fromRequest($codes, $total, $request);
     }
 
     /**
