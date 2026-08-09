@@ -2,6 +2,8 @@
 
 Panel Page Flip accepts CBZ (ZIP), CBR (RAR), CB7 (7z), CBT (tar), and PDF as canonical comic sources. All are exposed to the reader through the same protected numbered-page endpoint; original sources are never public.
 
+CBZ and PDF are the two native formats: both are read with no external tooling at all, so both work on any host the application itself runs on. The CB* archive formats need `7z` present. Past the source factory nothing downstream — reader, covers, sharing, quotas, deletion — knows or cares which format a comic came from.
+
 New installations enable CBZ only. An administrator must open **Admin → Formats**, verify the installed runtime, select the available optional formats, and save. The public uploader and every backend upload path use this allow-list; a file extension alone never enables a format.
 
 ## Runtime requirements
@@ -13,11 +15,19 @@ The check reports what this host can do, what each format needs, and how to inst
 Two things it reports that are easy to get wrong:
 
 - **`7z` being installed is not the same as CBR working.** Several distributions ship the RAR decoder in a separate, often non-free package (`p7zip-rar`). Without it `7z` reads 7z and tar perfectly and fails on every CBR, so availability is probed from the handlers `7z i` reports rather than from the binary existing.
-- **Shared hosting usually forbids subprocesses.** Where `proc_open` is in `disable_functions`, no format needing an external tool can work, and the check says so instead of advising a package install the admin has no way to perform. CBZ needs nothing external and keeps working there.
+- **Shared hosting usually forbids subprocesses.** Where `proc_open` is in `disable_functions`, no format needing an external tool can work, and the check says so instead of advising a package install the admin has no way to perform. CBZ and image-based PDF need nothing external and keep working there.
 
-PDFs are inspected with Poppler and rendered lazily, one requested page at a time, to a maximum 2400-pixel reader image. Encrypted/password-protected and malformed PDFs are rejected, and the two are told apart: Poppler decides that before the structural check runs, so a password-protected comic is reported as encrypted rather than as damaged. The structural check runs once, when the source is imported, and never on a page turn.
+## PDF
 
-A PDF's page count is cached exactly as a CBZ's page index is, keyed by path, modification time and size, so turning pages does not re-run `pdfinfo` against the whole document each time.
+PDF is a first-class source alongside CBZ, and like CBZ it needs nothing installed for the documents comics actually come as.
+
+A scanned or exported comic PDF is a container holding one full-page image per page — the same thing a CBZ is, with a different wrapper. Those pages are read natively, in pure PHP: the page's own embedded JPEG is handed to the reader untouched. No subprocess, no rasterising, and no quality lost re-encoding the author's image. This is what lets PDF work on shared hosting, where `proc_open` is usually disabled and no package can be installed.
+
+Poppler extends that to the documents the native reader cannot serve — pages built from vector art or text, which have no embedded image to hand over. Where Poppler is present those pages are rendered lazily, one requested page at a time, to a maximum 2400-pixel reader image. Where it is absent such a document is refused at upload with a clear message, rather than importing and then failing at page three.
+
+Encrypted and password-protected PDFs are rejected either way, and are told apart from merely damaged ones: the page-count check decides that before the structural check runs, so a password-protected comic is reported as encrypted rather than as damaged.
+
+A PDF's page count is cached exactly as a CBZ's page index is, keyed by path, modification time and size, so turning pages does not re-parse the whole document each time.
 
 Rendering has a 30-second timeout and uses a random, mode-0700 temporary directory that is removed after every attempt. At most three renders run concurrently per application lock store; beyond that a request waits up to 20 seconds for a free slot before reporting the renderer as busy, so a reader that fetches the current page and prefetches the next one is never refused for it.
 

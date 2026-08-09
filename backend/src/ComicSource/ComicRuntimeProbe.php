@@ -45,7 +45,6 @@ final class ComicRuntimeProbe
 
         $finder = new ExecutableFinder();
         $sevenZip = $canShellOut ? $finder->find('7z') : null;
-        $hasPdf = $canShellOut && $finder->find('pdfinfo') !== null && $finder->find('pdftocairo') !== null;
         $hasRar = $sevenZip !== null && $this->sevenZipReadsRar($sevenZip);
 
         $availability = [];
@@ -54,11 +53,28 @@ final class ComicRuntimeProbe
                 ComicSourceType::CBZ => class_exists(\ZipArchive::class),
                 ComicSourceType::CBR => $hasRar,
                 ComicSourceType::CB7, ComicSourceType::CBT => $sevenZip !== null,
-                ComicSourceType::PDF => $hasPdf,
+                // PDF needs nothing installed for the documents comics actually
+                // come as: one full-page image per page, read in pure PHP.
+                // Poppler widens that to pages that have to be drawn, and its
+                // absence is a limitation rather than an outage.
+                ComicSourceType::PDF => \function_exists('gzuncompress'),
             };
         }
 
         return $availability;
+    }
+
+    /**
+     * Whether pages that are not a single embedded image can be rendered.
+     * PDF works without this; fewer documents do.
+     */
+    public function hasPoppler(): bool
+    {
+        if (!self::canRunExternalTools()) return false;
+
+        $finder = new ExecutableFinder();
+
+        return $finder->find('pdfinfo') !== null && $finder->find('pdftocairo') !== null;
     }
 
     public function hasQpdf(): bool

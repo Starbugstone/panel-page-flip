@@ -7,7 +7,9 @@ use App\Enum\ComicSourceType;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\FlockStore;
+use App\Tests\Unit\ComicSource\Pdf\PdfDocumentTest;
 use Symfony\Component\Process\ExecutableFinder;
+use Symfony\Component\Process\PhpExecutableFinder;
 use Symfony\Component\Process\Process;
 
 final class PdfPageProviderTest extends TestCase
@@ -188,9 +190,136 @@ final class PdfPageProviderTest extends TestCase
         yield 'owner password only, document still opens' => [''];
     }
 
+    /**
+     * The point of native reading: an image-based comic PDF is served from its
+     * own embedded JPEGs, so the reader gets the author's bytes rather than a
+     * re-encode, and nothing is rendered.
+     */
+    public function testServesAnImagePdfFromItsEmbeddedPagesWithoutRendering(): void
+    {
+        $jpeg = $this->tinyJpeg();
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        file_put_contents($this->pdfPath, $this->imagePdf([$jpeg, $jpeg]));
+
+        $provider = new PdfPageProvider(new LockFactory(new FlockStore(sys_get_temp_dir())));
+
+        self::assertSame(2, $provider->inspect($this->pdfPath, ComicSourceType::PDF)->pageCount);
+        $page = $provider->readPage($this->pdfPath, ComicSourceType::PDF, 2);
+        self::assertSame('image/jpeg', $page->mimeType);
+        self::assertSame($jpeg, $page->content, 'The embedded JPEG should be served untouched.');
+    }
+
+    /**
+     * The whole reason for native reading: shared hosting forbids subprocesses,
+     * and PDF has to remain as usable as CBZ there. Run for real with proc_open
+     * gone, because that is the condition being claimed.
+     */
+    public function testReadsAnImagePdfOnAHostThatForbidsSubprocesses(): void
+    {
+        $php = (new PhpExecutableFinder())->find();
+        if ($php === false) self::markTestSkipped('No PHP binary to run the isolated check with.');
+
+        $jpeg = $this->tinyJpeg();
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        file_put_contents($this->pdfPath, $this->imagePdf([$jpeg, $jpeg, $jpeg]));
+
+        $script = <<<'PHP'
+            require getenv('APP_AUTOLOAD');
+            $provider = new App\ComicSource\PdfPageProvider(
+                new Symfony\Component\Lock\LockFactory(
+                    new Symfony\Component\Lock\Store\FlockStore(sys_get_temp_dir())
+                )
+            );
+            $path = getenv('APP_PDF');
+            $type = App\Enum\ComicSourceType::PDF;
+            echo json_encode([
+                'canShellOut' => App\ComicSource\ComicRuntimeProbe::canRunExternalTools(),
+                'pages' => $provider->inspect($path, $type)->pageCount,
+                'sha' => hash('sha256', $provider->readPage($path, $type, 3)->content),
+                'mime' => $provider->readPage($path, $type, 3)->mimeType,
+            ]);
+        PHP;
+
+        $process = new Process([$php, '-d', 'disable_functions=proc_open', '-r', $script]);
+        $process->setEnv([
+            'APP_AUTOLOAD' => \dirname(__DIR__, 3).'/vendor/autoload.php',
+            'APP_PDF' => $this->pdfPath,
+        ]);
+        $process->run();
+
+        if (!$process->isSuccessful()) {
+            self::fail('Reading a PDF without subprocesses failed: '.$process->getErrorOutput());
+        }
+
+        $result = json_decode($process->getOutput(), true);
+        self::assertIsArray($result, 'Unexpected output: '.$process->getOutput());
+        self::assertFalse($result['canShellOut'], 'The isolated run was supposed to have proc_open disabled.');
+        self::assertSame(3, $result['pages']);
+        self::assertSame('image/jpeg', $result['mime']);
+        self::assertSame(hash('sha256', $jpeg), $result['sha'], 'The embedded JPEG should be served untouched.');
+    }
+
     private function onePagePdf(): string
     {
         return $this->pdf([[200, 200]]);
+    }
+
+    private function tinyJpeg(): string
+    {
+        return (string) base64_decode(PdfDocumentTest::TINY_JPEG_BASE64, true);
+    }
+
+    /**
+     * One full-page DCTDecode image per page, which is what a scanned or
+     * exported comic PDF is.
+     *
+     * @param list<string> $jpegs
+     */
+    private function imagePdf(array $jpegs): string
+    {
+        $objects = [1 => '<< /Type /Catalog /Pages 2 0 R >>'];
+        $next = 3;
+        $pageNumbers = [];
+        $imageNumbers = [];
+        foreach ($jpegs as $index => $unused) $pageNumbers[$index] = $next++;
+        foreach ($jpegs as $index => $unused) $imageNumbers[$index] = $next++;
+        $contents = $next++;
+
+        $kids = [];
+        foreach ($jpegs as $index => $jpeg) {
+            $kids[] = $pageNumbers[$index].' 0 R';
+            $objects[$pageNumbers[$index]] = sprintf(
+                '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Resources << /XObject << /Im0 %d 0 R >> >> /Contents %d 0 R >>',
+                $imageNumbers[$index],
+                $contents
+            );
+            $size = getimagesizefromstring($jpeg);
+            $objects[$imageNumbers[$index]] = sprintf(
+                "<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
+                $size[0],
+                $size[1],
+                strlen($jpeg),
+                $jpeg
+            );
+        }
+
+        $objects[2] = sprintf('<< /Type /Pages /Kids [%s] /Count %d >>', implode(' ', $kids), count($jpegs));
+        $objects[$contents] = "<< /Length 29 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream";
+
+        ksort($objects);
+        $pdf = "%PDF-1.4\n";
+        $offsets = [];
+        foreach ($objects as $number => $body) {
+            $offsets[$number] = strlen($pdf);
+            $pdf .= "$number 0 obj\n$body\nendobj\n";
+        }
+
+        $highest = (int) max(array_keys($objects));
+        $xref = strlen($pdf);
+        $pdf .= sprintf("xref\n0 %d\n0000000000 65535 f \n", $highest + 1);
+        for ($number = 1; $number <= $highest; ++$number) $pdf .= sprintf("%010d 00000 n \n", $offsets[$number] ?? 0);
+
+        return $pdf.sprintf("trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", $highest + 1, $xref);
     }
 
     /**

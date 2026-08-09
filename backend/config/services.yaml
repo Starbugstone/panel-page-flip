@@ -154,6 +154,7 @@ services:
     App\ComicSource\PdfPageProvider:
         arguments:
             $pageIndexCache: '@comic.page_index.cache'
+            $logger: '@logger'
 
     App\Service\ComicFormatService:
         arguments:

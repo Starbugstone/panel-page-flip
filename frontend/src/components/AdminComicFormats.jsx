@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
-const LABELS = { cbz: "CBZ (ZIP)", cbr: "CBR (RAR)", cb7: "CB7 (7z)", cbt: "CBT (tar)", pdf: "PDF (Poppler)" };
+const LABELS = { cbz: "CBZ (ZIP)", cbr: "CBR (RAR)", cb7: "CB7 (7z)", cbt: "CBT (tar)", pdf: "PDF" };
 
 export function AdminComicFormats() {
   const { toast } = useToast();
@@ -95,6 +95,11 @@ export function AdminComicFormats() {
             </div>
             {!status.available && status.hint && (
               <p className="mt-3 rounded bg-muted p-3 text-sm text-muted-foreground">{status.hint}</p>
+            )}
+            {/* Works, but could do more — currently only PDF, which reads
+                image-based comics natively and needs Poppler for the rest. */}
+            {status.available && status.note && (
+              <p className="mt-3 rounded bg-muted p-3 text-sm text-muted-foreground">{status.note}</p>
             )}
             {status.enabled && !status.available && (
               <p className="mt-3 text-sm text-destructive">

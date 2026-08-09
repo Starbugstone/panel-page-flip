@@ -2,7 +2,10 @@
 
 namespace App\ComicSource;
 
+use App\ComicSource\Pdf\PdfDocument;
+use App\ComicSource\Pdf\PdfException;
 use App\Enum\ComicSourceType;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\LockInterface;
 use Symfony\Component\Process\ExecutableFinder;
@@ -33,9 +36,13 @@ final class PdfPageProvider implements ComicPageProviderInterface
     /** @var array<string, ComicSourceInfo> */
     private array $pageCounts = [];
 
+    /** @var array<string, PdfDocument|null> */
+    private array $documents = [];
+
     public function __construct(
         private readonly LockFactory $lockFactory,
         private readonly ?CacheInterface $pageIndexCache = null,
+        private readonly ?LoggerInterface $logger = null,
     ) {
     }
 
@@ -44,11 +51,10 @@ final class PdfPageProvider implements ComicPageProviderInterface
     /**
      * Full acceptance check, run once when a source is imported.
      *
-     * This is the expensive path — it adds qpdf's structural check on top of
-     * the Poppler inspection — and it is deliberately not what `readPage()`
-     * uses. Re-checking the structure of an already accepted document on every
-     * page turn would spend a subprocess per page to re-learn something the
-     * upload already established.
+     * This is where a document has to prove it is actually servable, because
+     * accepting one now and discovering at page three that nothing on this
+     * host can read it is the failure users notice. Page one is read here for
+     * that reason as well as for the cover.
      */
     public function inspect(string $sourcePath, ComicSourceType $type): ComicSourceInfo
     {
@@ -56,11 +62,11 @@ final class PdfPageProvider implements ComicPageProviderInterface
         if (isset($this->inspections[$key])) return $this->inspections[$key];
 
         // Order matters for the message the uploader sees. Signature first, so
-        // something that was never a PDF costs no subprocess. Then Poppler,
-        // which is what distinguishes "encrypted" from "broken" — qpdf cannot
-        // decrypt either, so running it first labelled every password-protected
-        // comic as damaged. The structural check goes last, on documents that
-        // are already known to be readable and unencrypted.
+        // something that was never a PDF costs no subprocess. Then the page
+        // count, which is what distinguishes "encrypted" from "broken" — qpdf
+        // cannot decrypt either, so running it first labelled every
+        // password-protected comic as damaged. The structural check goes last,
+        // on documents already known to be readable and unencrypted.
         $this->assertPdfSignature($sourcePath);
         $info = $this->pageCount($sourcePath);
         $this->assertStructurallySound($sourcePath);
@@ -68,11 +74,50 @@ final class PdfPageProvider implements ComicPageProviderInterface
         return $this->inspections[$key] = $info;
     }
 
+    /**
+     * Native first, Poppler second.
+     *
+     * A comic PDF is nearly always a container holding one full-page image per
+     * page, which is what a CBZ is with a different wrapper. Where that holds,
+     * the page is served by handing over the embedded image: no subprocess, no
+     * rasterising, no quality lost re-encoding the author's own JPEG, and it
+     * works on hosting that forbids running external programs at all. Poppler
+     * is then what handles the pages that genuinely need drawing.
+     */
     public function readPage(string $sourcePath, ComicSourceType $type, int $page): PageResult
     {
         $info = $this->pageCount($sourcePath);
         if ($page < 1 || $page > $info->pageCount) throw new \OutOfRangeException('Page not found.');
 
+        $embedded = $this->embeddedPage($sourcePath, $page);
+        if ($embedded !== null) return $embedded;
+
+        if (!ComicRuntimeProbe::canRunExternalTools()) {
+            throw new \RuntimeException('This page is not a single embedded image, and this server cannot run a PDF renderer. Poppler is needed to read this document.');
+        }
+
+        return $this->render($sourcePath, $page);
+    }
+
+    /**
+     * The page's own image, when the page is built that way. Never fatal: a
+     * document this cannot read is one Poppler is asked about instead.
+     */
+    private function embeddedPage(string $sourcePath, int $page): ?PageResult
+    {
+        try {
+            $image = $this->document($sourcePath)?->pageImage($page);
+            if ($image === null) return null;
+
+            return new PageResult($image->content, $image->mimeType);
+        } catch (PdfException $exception) {
+            $this->logger?->debug('Falling back to rendering for a PDF page.', ['reason' => $exception->getMessage()]);
+            return null;
+        }
+    }
+
+    private function render(string $sourcePath, int $page): PageResult
+    {
         $renderLock = $this->acquireRenderSlot();
         $directory = sys_get_temp_dir().'/comic-pdf-'.bin2hex(random_bytes(12));
         try {
@@ -140,12 +185,46 @@ final class PdfPageProvider implements ComicPageProviderInterface
     private function probePageCount(string $sourcePath): ComicSourceInfo
     {
         $this->assertPdfSignature($sourcePath);
-        $process = new Process(['pdfinfo', $sourcePath]); $process->setTimeout(self::INSPECT_TIMEOUT_SECONDS); $process->run();
-        if (!$process->isSuccessful()) throw new \RuntimeException(str_contains(strtolower($process->getErrorOutput()), 'password') ? 'Encrypted PDFs are not supported.' : 'PDF inspection failed.');
-        if (preg_match('/^Encrypted:\s+yes/im', $process->getOutput())) throw new \RuntimeException('Encrypted PDFs are not supported.');
-        if (!preg_match('/^Pages:\s+(\d+)/mi', $process->getOutput(), $match)) throw new \RuntimeException('PDF page count is unavailable.');
 
-        return new ComicSourceInfo((int) $match[1]);
+        // Poppler is asked first where it exists, because it is the better
+        // authority on a damaged or encrypted document and produces the
+        // messages the uploader should see. Where it does not exist, the native
+        // reader answers instead, which is what makes PDF work at all on
+        // hosting that cannot run external programs.
+        if (ComicRuntimeProbe::canRunExternalTools() && (new ExecutableFinder())->find('pdfinfo') !== null) {
+            $process = new Process(['pdfinfo', $sourcePath]); $process->setTimeout(self::INSPECT_TIMEOUT_SECONDS); $process->run();
+            if (!$process->isSuccessful()) throw new \RuntimeException(str_contains(strtolower($process->getErrorOutput()), 'password') ? 'Encrypted PDFs are not supported.' : 'PDF inspection failed.');
+            if (preg_match('/^Encrypted:\s+yes/im', $process->getOutput())) throw new \RuntimeException('Encrypted PDFs are not supported.');
+            if (!preg_match('/^Pages:\s+(\d+)/mi', $process->getOutput(), $match)) throw new \RuntimeException('PDF page count is unavailable.');
+
+            return new ComicSourceInfo((int) $match[1]);
+        }
+
+        $document = $this->document($sourcePath);
+        if ($document === null) throw new \RuntimeException('PDF inspection failed.');
+
+        return new ComicSourceInfo($document->pageCount());
+    }
+
+    /**
+     * The parsed document, kept for the length of the request so a reader
+     * turning pages re-reads the cross-reference table once rather than once
+     * per page.
+     */
+    private function document(string $sourcePath): ?PdfDocument
+    {
+        $key = $this->sourceKey($sourcePath);
+        if (array_key_exists($key, $this->documents)) return $this->documents[$key];
+
+        try {
+            return $this->documents[$key] = PdfDocument::open($sourcePath);
+        } catch (PdfException $exception) {
+            // An encrypted document has to keep its own message, since the
+            // uploader is told this one.
+            if (str_contains($exception->getMessage(), 'Encrypted')) throw new \RuntimeException('Encrypted PDFs are not supported.');
+            $this->logger?->debug('A PDF could not be read natively.', ['reason' => $exception->getMessage()]);
+            return $this->documents[$key] = null;
+        }
     }
 
     /**
@@ -159,6 +238,10 @@ final class PdfPageProvider implements ComicPageProviderInterface
      */
     private function assertStructurallySound(string $sourcePath): void
     {
+        // ExecutableFinder happily reports a binary this host may not run, so
+        // the subprocess check has to come first or Process throws.
+        if (!ComicRuntimeProbe::canRunExternalTools()) return;
+
         $qpdf = (new ExecutableFinder())->find('qpdf');
         if ($qpdf === null) return;
 

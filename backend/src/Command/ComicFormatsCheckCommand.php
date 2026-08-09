@@ -49,6 +49,7 @@ final class ComicFormatsCheckCommand extends Command
 
         $rows = [];
         $missing = [];
+        $notes = [];
         foreach ($report as $format => $detail) {
             $rows[] = [
                 strtoupper($format),
@@ -57,12 +58,18 @@ final class ComicFormatsCheckCommand extends Command
                 implode(' + ', $detail['requirements']),
             ];
 
-            if (!$detail['available']) {
-                $missing[$format] = $detail['hint'];
-            }
+            if (!$detail['available']) $missing[$format] = $detail['hint'];
+            if ($detail['available'] && $detail['note'] !== '') $notes[$format] = $detail['note'];
         }
 
         $io->table(['Format', 'Available', 'Enabled', 'Requires'], $rows);
+
+        // A format that works but could do more. Reported apart from the
+        // failures, because nothing here is broken.
+        foreach ($notes as $format => $note) {
+            $io->writeln(sprintf(' <comment>%s</comment>: %s', strtoupper($format), $note));
+        }
+        if ($notes !== []) $io->newLine();
 
         // Optional, and reported separately so its absence never reads as a
         // format being broken: qpdf is a second opinion on an uploaded PDF.
@@ -103,7 +110,7 @@ final class ComicFormatsCheckCommand extends Command
 
         $io->note(ComicRuntimeProbe::canRunExternalTools()
             ? 'The unavailable formats above are switched off, so nothing is broken. Install their tools if you want to offer them.'
-            : 'The unavailable formats above are switched off, so nothing is broken. This host cannot run external programs at all, so CBZ is the only format it can serve.');
+            : 'The unavailable formats above are switched off, so nothing is broken. This host cannot run external programs, which leaves CBZ and image-based PDF — the two formats that need nothing installed.');
         return Command::SUCCESS;
     }
 }

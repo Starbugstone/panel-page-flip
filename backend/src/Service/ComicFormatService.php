@@ -25,8 +25,16 @@ final class ComicFormatService
         'cbr' => ['7z with RAR support'],
         'cb7' => ['7z'],
         'cbt' => ['7z'],
-        'pdf' => ['pdfinfo', 'pdftocairo'],
+        'pdf' => ['nothing, for image-based PDFs'],
     ];
+
+    /**
+     * Said about a format that works but does less than it could. PDF is the
+     * only one with two tiers: comics arrive as one full-page image per page
+     * and are read with no external tool at all, and Poppler is what extends
+     * that to documents whose pages have to be drawn.
+     */
+    private const POPPLER_UPGRADE_NOTE = 'Reading image-based PDFs — which is what scanned and exported comics are — needs nothing installed. Install poppler-utils to also accept PDFs whose pages are drawn rather than scanned; without it those are refused at upload rather than failing later.';
 
     private const INSTALL_HINTS = [
         'cbz' => 'Rebuild the PHP image with the zip extension enabled (docker-php-ext-install zip).',
@@ -73,17 +81,20 @@ final class ComicFormatService
      * while a server is unhealthy, and a diagnostic that needs a working
      * installation to tell you the installation is broken is no diagnostic.
      *
-     * @return array<string, array{available: bool, requirements: list<string>, hint: string}>
+     * @return array<string, array{available: bool, requirements: list<string>, hint: string, note: string}>
      */
     public function runtimeReport(bool $refreshAvailability = false): array
     {
         $availability = $this->availability($refreshAvailability);
 
         $canShellOut = ComicRuntimeProbe::canRunExternalTools();
+        $hasPoppler = $this->probe->hasPoppler();
 
         $result = [];
         foreach (ComicSourceType::cases() as $type) {
-            $needsExternalTool = $type !== ComicSourceType::CBZ;
+            // PDF is excluded: its native reader is pure PHP, so a host that
+            // forbids subprocesses still serves it.
+            $needsExternalTool = $type !== ComicSourceType::CBZ && $type !== ComicSourceType::PDF;
 
             $result[$type->value] = [
                 'available' => $availability[$type->value] ?? false,
@@ -91,6 +102,7 @@ final class ComicFormatService
                 'hint' => $needsExternalTool && !$canShellOut
                     ? self::NO_SUBPROCESS_HINT
                     : (self::INSTALL_HINTS[$type->value] ?? ''),
+                'note' => $type === ComicSourceType::PDF && !$hasPoppler ? self::POPPLER_UPGRADE_NOTE : '',
             ];
         }
 
@@ -98,7 +110,7 @@ final class ComicFormatService
     }
 
     /**
-     * @return array<string, array{available: bool, enabled: bool, requirements: list<string>, hint: string}>
+     * @return array<string, array{available: bool, enabled: bool, requirements: list<string>, hint: string, note: string}>
      */
     public function status(bool $refreshAvailability = false): array
     {

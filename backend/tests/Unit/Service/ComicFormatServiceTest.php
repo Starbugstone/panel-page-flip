@@ -62,12 +62,13 @@ final class ComicFormatServiceTest extends TestCase
     }
 
     /**
-     * Shared hosting routinely puts proc_open in disable_functions, and the
-     * FTP deployment guide supports that hosting. Probing must degrade to
-     * "CBZ only" there rather than throwing out of isEnabled() and taking the
-     * upload and configuration endpoints with it.
+     * Shared hosting routinely puts proc_open in disable_functions, and the FTP
+     * deployment guide supports that hosting. Two things have to hold there:
+     * probing must not throw out of isEnabled() and take the upload and
+     * configuration endpoints with it, and the two native formats — CBZ and
+     * PDF, neither of which needs an external tool — must stay available.
      */
-    public function testDegradesToCbzOnlyWhereSubprocessesAreForbidden(): void
+    public function testKeepsTheNativeFormatsWhereSubprocessesAreForbidden(): void
     {
         $php = (new PhpExecutableFinder())->find();
         if ($php === false) self::markTestSkipped('No PHP binary to run the isolated check with.');
@@ -97,8 +98,8 @@ final class ComicFormatServiceTest extends TestCase
         self::assertIsArray($result, 'Unexpected probe output: '.$process->getOutput());
         self::assertFalse($result['canShellOut'], 'The isolated run was supposed to have proc_open disabled.');
         self::assertTrue($result['cbz'], 'CBZ needs nothing external and must survive.');
-        self::assertFalse($result['pdf'], 'PDF cannot work without a subprocess.');
-        self::assertFalse($result['cbr'], 'CBR cannot work without a subprocess.');
+        self::assertTrue($result['pdf'], 'PDF is read natively and must survive alongside CBZ.');
+        self::assertFalse($result['cbr'], 'CBR needs 7z, which cannot be run here.');
     }
 
 
