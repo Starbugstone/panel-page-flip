@@ -92,7 +92,11 @@
   /* Sits above .fullscreen-container (z-50), which otherwise paints its opaque
      background over these controls and swallows their clicks. */
   .reader-controls-fullscreen {
-    @apply fixed bottom-0 left-0 right-0 z-[60] bg-gradient-to-t from-background/90 to-transparent p-4 opacity-0 transition-opacity duration-300 hover:opacity-100 flex flex-col gap-3;
+    @apply fixed bottom-0 left-0 right-0 z-[60] bg-gradient-to-t from-background/90 to-transparent p-4 opacity-0 transition-opacity duration-300 hover:opacity-100 focus-within:opacity-100 flex flex-col gap-3;
+  }
+
+  .reader-controls-fullscreen.reader-controls-pinned {
+    @apply opacity-100;
   }
 
   .page-navigation {
@@ -108,7 +112,11 @@
   }
   
   .fullscreen-controls {
-    @apply fixed top-20 right-4 z-[60] flex gap-2 bg-card/80 p-2 rounded-md shadow-md;
+    @apply fixed top-20 right-4 z-[60] flex gap-2 bg-card/80 p-2 rounded-md shadow-md transition-opacity duration-300;
+  }
+
+  .fullscreen-controls.fullscreen-controls-auto-hide {
+    @apply opacity-0 hover:opacity-100 focus-within:opacity-100;
   }
   
   .fullscreen-reader-controls {
