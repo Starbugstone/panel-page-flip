@@ -10,6 +10,23 @@ import { EXPLICIT_GATE_TITLE, SHARING_PAGE_RESPONSIBILITY_REMINDER } from "@/lib
 const lists = { sharedByMe: [], sharedWithMe: [], isLoading: false, error: null, reload: vi.fn() };
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
+
+/**
+ * The page asks for the account's own sharing code as soon as it mounts, and
+ * the picker asks for the library. Neither is what most of these tests are
+ * about, so they answer emptily unless a test says otherwise.
+ */
+const stubGets = (overrides = {}) => {
+  vi.mocked(api.get).mockImplementation((url) => {
+    if (url in overrides) return Promise.resolve(overrides[url]);
+    if (url === "/api/shares/my-code") {
+      return Promise.resolve({ name: "Test Reader", sharingCode: "AAAA-BBBB-CCCC" });
+    }
+    if (url === "/api/comics?ownership=mine") return Promise.resolve({ comics: [] });
+    if (url === "/api/shares/recent-recipients") return Promise.resolve({ recipients: [] });
+    return Promise.reject(new Error(`Unexpected GET ${url}`));
+  });
+};
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock("@/hooks/use-sharing", () => ({
@@ -54,6 +71,7 @@ const openSharedByMe = async (user) => {
 describe("Sharing page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    stubGets();
     lists.sharedByMe = [];
     lists.sharedWithMe = [];
     lists.isLoading = false;
@@ -175,12 +193,6 @@ describe("Sharing page", () => {
       explicitContent: false,
       recipients: [{ id: 1, recipientEmail: "jane@example.com", status: "accepted" }],
     }];
-    vi.mocked(api.get).mockImplementation((url) => {
-      if (url === "/api/comics?ownership=mine") return Promise.resolve({ comics: [] });
-      if (url === "/api/shares/recent-recipients") return Promise.resolve({ recipients: [] });
-      return Promise.reject(new Error(`Unexpected GET ${url}`));
-    });
-
     renderPage();
     await openSharedByMe(user);
     await user.click(screen.getByRole("button", { name: /share another comic with jane@example.com/i }));
@@ -192,6 +204,37 @@ describe("Sharing page", () => {
     expect(api.get).toHaveBeenCalledWith("/api/comics?ownership=mine");
     expect(api.get).toHaveBeenCalledWith("/api/shares/recent-recipients");
     expect(vi.mocked(api.get).mock.calls.every(([url]) => !url.startsWith("/api/users"))).toBe(true);
+  });
+
+  it("names a code recipient instead of showing an address the sender never had", async () => {
+    const user = userEvent.setup();
+    lists.sharedByMe = [{
+      comicId: 5,
+      title: "Sandman",
+      author: "Neil Gaiman",
+      coverImagePath: null,
+      explicitContent: false,
+      recipients: [{
+        id: 1,
+        // What the server sends for somebody reached by their code: no address,
+        // because withholding it was the whole point.
+        recipientEmail: null,
+        recipientLabel: "Jane Reader",
+        recipientSharingCode: "7RFX-KP3M-Q82D",
+        status: "accepted",
+      }],
+    }];
+
+    renderPage();
+    await openSharedByMe(user);
+
+    expect(screen.getByText("Jane Reader")).toBeInTheDocument();
+    expect(screen.getByText("Sharing code 7RFX-KP3M-Q82D")).toBeInTheDocument();
+
+    // Sharing again reaches them the same way, by code rather than by address.
+    await user.click(screen.getByRole("button", { name: /share another comic with jane reader/i }));
+    expect(await screen.findByLabelText(/their sharing code/i)).toHaveValue("7RFX-KP3M-Q82D");
+    expect(screen.queryByLabelText(/recipient email/i)).not.toBeInTheDocument();
   });
 
   it("leaves a non-explicit share entirely alone", () => {

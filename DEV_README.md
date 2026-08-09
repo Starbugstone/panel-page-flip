@@ -41,6 +41,7 @@ This document provides detailed information for developers working on the projec
 - **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored. One link per invitation, good for a single claim within two months; accepting spends it and revokes every other token for that share, and resending mints a new one and retires the old link
 - **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
 - **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup
+- **Sharing Codes**: `SharingCodeService.php` issues and resolves the permanent per-account receiver code; `ShareClaimCodeService.php` mints and redeems the disposable owner-issued claim code. See [Sharing codes](#sharing-codes)
 - **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients` and `POST /api/shares/invitations/bulk` — the convenience layer behind the Sharing page's **Share comics** flow. Recipients come only from the caller's own share history and never from the user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
 - **Email Notifications**: One "Review invitation" link per invitation; the link only previews, because mail scanners follow links on the recipient's behalf. A bulk share sends one grouped email carrying a link per comic, so twenty comics are not twenty messages
@@ -103,7 +104,8 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 
 #### ✅ Comic Sharing
 - **Sharing Page**: `Sharing.jsx` at `/sharing` — where shares are both started and managed, with "Shared with me" and "Shared by me" tabs for invitations, access and tombstones
-- **Share Comics Dialog**: `ShareComicsDialog.jsx` is the multi-comic flow behind **Share comics** and **Share another comic** — an owned-only picker with search, previously used recipients, and one grouped invitation email per action. It lists no registered users and searches none
+- **Share Comics Dialog**: `ShareComicsDialog.jsx` is the multi-comic flow behind **Share comics** and **Share another comic** — an owned-only picker with search, previously used recipients, and one grouped invitation email per action. Step 2 offers three ways to name a recipient: an email address, their sharing code, or no one at all (a claim code anybody can redeem). It lists no registered users and searches none
+- **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's own permanent receiver code with a copy action, and the field for redeeming a code somebody sent
 - **Share Comic Modal**: `ShareComicModal.jsx` is the one-comic shortcut from a comic card, and the only path that shows the invitation link once, since only its hash is stored
 - **Invitation Preview**: `ShareInvitation.jsx` at `/share/invitation/:token` loads the invitation through a safe `GET` and only accepts or declines on a button press
 - **Pending Shares Alert**: `PendingSharesAlert.jsx`, now a one-line prompt on the dashboard rather than a card per invitation
@@ -326,10 +328,104 @@ search is worthless if the API answers anyway.
   endpoint cannot be used to enumerate accounts. The UI behaves the same in both
   cases: the recipient may simply have to register before they can accept
 
-Private opaque **Sharing IDs** are a possible future phase. If they are built,
-they must stay an address-book identifier — high-entropy, revocable, rate limited
-on resolution, granting nothing on their own — and must never become a public
-searchable username.
+### Sharing codes
+
+Two codes, in opposite directions. Both are written in the same format —
+`SharingCodeFormat`, twelve characters of Crockford base32 shown as
+`XXXX-XXXX-XXXX` — because somebody copying one out of a chat window should not
+have to know which kind they were given. What a code *means* is decided by the
+field it is pasted into.
+
+Neither is a login. Neither reveals an email address. Neither grants access to
+anything on its own.
+
+#### The receiver code — "this is me, share with me"
+
+One per account, on `user.sharing_code`, issued the first time it is asked for
+and **permanent** from that moment. Nothing changes it: not a profile edit, not
+an admin screen, and there is no regenerate endpoint to add one to. An address
+book entry that rotates is one that stops working in every conversation it was
+ever pasted into.
+
+That permanence is a trade, and it is only affordable because the code is so
+weak: it authenticates nobody, and the worst a stranger holding it can do is
+offer you a comic you decline. It is stored **in the clear**, unlike an
+invitation token, precisely because it is an address rather than a capability —
+its owner has to be able to read it back and hand it out again.
+
+| Endpoint | Answers |
+|---|---|
+| `GET /api/shares/my-code` | this account's code and display name |
+| `POST /api/shares/resolve-code` | the display name behind a code — nothing else |
+
+Sharing by code is the ordinary bulk invitation with the recipient named
+differently: `POST /api/shares/invitations/bulk` takes `sharingCode` in place of
+`email`, resolves it server-side, and addresses the invitation to the account it
+found. **The sender never learns the address.** `comic_share` carries
+`recipient_alias_name` and `recipient_sharing_code` for exactly that reason, and
+the owner-facing serializer returns `recipientEmail: null` with a `recipientLabel`
+in its place. Recent recipients list such a person by name and code too — putting
+the withheld address back on the picker would undo the feature.
+
+#### The claim code — "these are mine, come and get them"
+
+`ShareClaimCode`, for when the owner does not know and should not have to ask for
+the other person's address. This one *is* a capability, so it is treated like
+one:
+
+- **Hashed at rest**, like an invitation token. The plaintext is returned once,
+  when it is created, and nothing can reproduce it afterwards
+- **Dead in a day.** A code pasted into a group chat is out of its owner's hands
+  the moment it is sent
+- **Spent as it is used**, between 1 and 10 times, chosen when it is made, so the
+  owner decides up front how far it may travel
+- **Worth nothing without an account.** Redeeming requires being signed in
+
+| Endpoint | Does |
+|---|---|
+| `POST /api/shares/claim-codes` | mint one over comics the owner may share |
+| `GET /api/shares/claim-codes` | list live codes — never the codes themselves |
+| `DELETE /api/shares/claim-codes/{id}` | withdraw one |
+| `POST /api/shares/claim-codes/redeem` | claim the comics behind one |
+
+Redeeming is the recipient's own deliberate act, so it stands in for accepting an
+invitation — with one exception it cannot wave through. **An explicit comic is
+left pending behind the age gate**, decided before the share is accepted rather
+than undone afterwards, so there is no moment where an unconfirmed recipient
+holds an accepted share. Everything downstream is the ordinary model: the same
+`ComicShare`, the same revocation, the same tombstones. Withdrawing a code does
+not touch the shares it already produced; those are ordinary relationships now.
+
+A code whose comics have all been deleted stops being redeemable on its own —
+the join table cascades on both sides and `isRedeemable()` requires at least one
+comic — so there is no second piece of state to keep in step with a deletion.
+
+#### Why this is not a user directory
+
+Resolving a code is the only place in the application where an identifier
+somebody typed is turned into a person, so it is the only enumeration surface
+sharing has, and it is built to be a bad one:
+
+- **60 bits of entropy** over an alphabet with no ambiguous characters
+- **One generic answer** for every code that does not resolve — malformed, spent,
+  expired, revoked or imaginary alike. Telling them apart would say whether a
+  guess had ever been real
+- **A `sharing_code_lookup` allowance** charged only for lookups that find
+  nothing, so pasting a code never meets it and grinding through candidates does.
+  Exhausting it raises `security.share.sharing_code_enumeration_attempt`
+- **Name only** on success. Not the address, not the id, not whether the account
+  is verified, active or an administrator. Somebody holding a code is entitled to
+  know they reached the right person; everything past that is the account's own
+
+Minting claim codes has its own `share_claim_code` allowance, because it sends no
+mail and the invitation limiter would never see it.
+
+#### Still out of scope
+
+Consent-based **sharing contacts** — where an accepted recipient lets the sender
+remember them by name without an address — remain future work. They need their
+own design for consent, removal, blocking, account deletion and export, and must
+not be implemented implicitly on top of recent recipients.
 
 #### Answering
 1. The email carries a single **Review invitation** link, good for one claim

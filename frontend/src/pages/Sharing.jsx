@@ -29,6 +29,7 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { ShareComicModal } from "@/components/ShareComicModal";
 import { ShareComicsDialog } from "@/components/ShareComicsDialog";
+import { SharingCodesCard } from "@/components/SharingCodesCard";
 import { useSharingLists } from "@/hooks/use-sharing";
 import { useComicLibrary } from "@/hooks/use-comic-library";
 import {
@@ -41,6 +42,8 @@ import {
   describeDeadShareCleanup,
   describeReceivedShare,
   groupReceivedShares,
+  recipientLabel,
+  recipientTarget,
   requiresAdultConfirmation,
   shareDisplayTitle,
   summariseRecipients,
@@ -150,6 +153,17 @@ export default function Sharing() {
     await loadLibrary();
   };
 
+  /**
+   * The mirror of the above, for comics arriving rather than leaving. Redeeming
+   * a code puts them under **Shared with me**, which is already the tab the page
+   * opens on, so this only reloads.
+   */
+  const refreshAfterReceiving = async () => {
+    setActiveTab("with-me");
+    await reload();
+    await loadLibrary();
+  };
+
   const cleanupCopy = describeDeadShareCleanup(dead.length);
 
   /**
@@ -180,7 +194,7 @@ export default function Sharing() {
             </p>
             <Button
               className="mt-4"
-              onClick={() => setShareDialog({ recipient: "", comicIds: [] })}
+              onClick={() => setShareDialog({ email: "", sharingCode: "", comicIds: [] })}
             >
               <UserPlus className="mr-2 h-4 w-4" />
               Share comics
@@ -243,9 +257,17 @@ export default function Sharing() {
                     >
                       {/* Every share here belongs to a comic the owner still
                           has — a deleted one leaves this list entirely — so the
-                          only state worth calling out is a lapsed invitation. */}
+                          only state worth calling out is a lapsed invitation.
+                          Somebody reached by their sharing code is named rather
+                          than addressed: the point of the code was that the
+                          sender never learned the address. */}
                       <div className="min-w-0">
-                        <span className="block truncate text-sm">{recipient.recipientEmail}</span>
+                        <span className="block truncate text-sm">{recipientLabel(recipient)}</span>
+                        {recipient.recipientSharingCode && (
+                          <span className="text-xs text-muted-foreground">
+                            Sharing code {recipient.recipientSharingCode}
+                          </span>
+                        )}
                         {recipient.status === SHARE_STATUS.PENDING && recipient.isExpired && (
                           <span className="text-xs text-muted-foreground">Invitation expired</span>
                         )}
@@ -257,9 +279,9 @@ export default function Sharing() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          aria-label={`Share another comic with ${recipient.recipientEmail}`}
+                          aria-label={`Share another comic with ${recipientLabel(recipient)}`}
                           onClick={() => setShareDialog({
-                            recipient: recipient.recipientEmail,
+                            ...recipientTarget(recipient),
                             comicIds: [],
                           })}
                         >
@@ -542,7 +564,7 @@ export default function Sharing() {
           <Share2Icon className="h-6 w-6 text-comic-purple" />
           <h1 className="font-comic text-3xl">Sharing</h1>
         </div>
-        <Button onClick={() => setShareDialog({ recipient: "", comicIds: [] })}>
+        <Button onClick={() => setShareDialog({ email: "", sharingCode: "", comicIds: [] })}>
           <UserPlus className="mr-2 h-4 w-4" />
           Share comics
         </Button>
@@ -552,6 +574,11 @@ export default function Sharing() {
         Sharing gives someone permission to read your comic. The file stays yours — nothing is
         copied — and you can withdraw access at any time.
       </p>
+
+      {/* Above the tabs, because neither half of the page owns it: your own
+          code is how people reach you, and redeeming one is how a comic arrives
+          without anybody knowing your address. */}
+      <SharingCodesCard onRedeemed={refreshAfterReceiving} />
 
       {isLoading ? (
         <div className="flex items-center gap-2 py-12 text-muted-foreground">
@@ -586,11 +613,12 @@ export default function Sharing() {
           selection or a stale "already shared" marking. */}
       {shareDialog && (
         <ShareComicsDialog
-          key={`${shareDialog.recipient}:${shareDialog.comicIds.join(",")}`}
+          key={`${shareDialog.email}:${shareDialog.sharingCode}:${shareDialog.comicIds.join(",")}`}
           isOpen
           onClose={() => setShareDialog(null)}
           sharedByMe={sharedByMe}
-          initialRecipient={shareDialog.recipient}
+          initialRecipient={shareDialog.email}
+          initialSharingCode={shareDialog.sharingCode}
           initialComicIds={shareDialog.comicIds}
           onShared={refreshAfterShare}
         />

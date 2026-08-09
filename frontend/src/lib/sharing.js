@@ -202,6 +202,82 @@ export function isValidShareEmail(email) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Sharing codes                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Mirrors SharingCodeFormat on the server: twelve characters from Crockford's
+ * alphabet, shown in threes. No I, L, O or U, so a code read off one screen and
+ * typed into another survives the trip.
+ */
+export const SHARING_CODE_LENGTH = 12;
+
+const SHARING_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/**
+ * What somebody typed, reduced to the form the server compares.
+ *
+ * Lowercase, spaces, missing dashes and the letters the alphabet leaves out are
+ * all somebody transcribing a code by hand rather than holding the wrong one,
+ * so they are corrected here exactly as they are on the server.
+ */
+export function normaliseSharingCode(value) {
+  if (typeof value !== "string") return "";
+
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .replace(/I|L/g, "1")
+    .replace(/O/g, "0")
+    .replace(/U/g, "V")
+    .slice(0, SHARING_CODE_LENGTH);
+}
+
+/** The grouped form, which is the only form anybody is shown. */
+export function formatSharingCode(value) {
+  const normalised = normaliseSharingCode(value);
+
+  return (normalised.match(/.{1,4}/g) || []).join("-");
+}
+
+export function isValidSharingCode(value) {
+  const normalised = normaliseSharingCode(value);
+
+  return normalised.length === SHARING_CODE_LENGTH
+    && [...normalised].every((character) => SHARING_CODE_ALPHABET.includes(character));
+}
+
+/** How the two kinds of code are described wherever they are offered. */
+export const SHARING_CODE_COPY = {
+  mine: "Give this to someone so they can share comics with you. It never changes, "
+    + "and it only ever shows them your name — never your email address.",
+  recipient: "Share with someone by their code instead of their email address. "
+    + "You will see their name to check you have the right person.",
+  claim: "Create a code instead of naming anyone. Anyone you give it to can claim these "
+    + "comics until it runs out of uses, and it expires after 24 hours.",
+  redeem: "Someone sent you a code? Redeem it here to add their comics to your collection.",
+};
+
+/**
+ * What an owner is shown against a recipient.
+ *
+ * A recipient reached by code has no address to show — that was the point —
+ * so the server sends a label instead and this prefers it wherever it exists.
+ */
+export function recipientLabel(recipient) {
+  return recipient?.recipientLabel || recipient?.recipientEmail || "Shared by code";
+}
+
+/** Whether this recipient can be reached again, and how. */
+export function recipientTarget(recipient) {
+  if (recipient?.recipientSharingCode) {
+    return { sharingCode: recipient.recipientSharingCode, email: "" };
+  }
+
+  return { sharingCode: "", email: recipient?.recipientEmail || "" };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Explicit content                                                            */
 /* -------------------------------------------------------------------------- */
 
