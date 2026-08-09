@@ -447,7 +447,11 @@ single guarantee the count exists to make.
 **Retention.** A dead code — withdrawn, expired, used up or left with no comics —
 is kept for **30 days past its expiry** and then deleted by
 `app:cleanup-expired-shares`, alongside the expired invitations that command
-already sweeps. It cannot be redeemed again the moment it dies, so keeping it is
+already sweeps. That command has to be **scheduled on the server**; nothing runs
+it on its own, and an instance without the cron keeps every dead code for ever
+(see [SSH-deploy.md §7](SSH-deploy.md#7-background-jobs-cron--systemd-timers)).
+An administrator can run the same sweep by hand from **Admin → Sharing codes**,
+which is a fallback for a broken cron rather than a substitute for one. It cannot be redeemed again the moment it dies, so keeping it is
 not a risk; but its owner is still asking how many people took it up and which
 comics went with it, and that question outlives the code by rather more than a
 day. `ShareClaimCode::RETENTION_AFTER_EXPIRY` is the one place that window is

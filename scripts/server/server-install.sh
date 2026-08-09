@@ -156,10 +156,21 @@ Next steps (do them once):
    $APP_DIR/scripts/server/backup-comics.sh
    Optionally: sudo ln -sf $APP_DIR/scripts/server/backup-comics.sh /usr/local/bin/backup-comics
 
-5. (Optional) Daily Dropbox sync — install a systemd timer or cron job:
-   0 */2 * * * cd $APP_DIR/backend && php bin/console app:sync-dropbox-comics --env=prod >/var/log/comics-dropbox.log 2>&1
+5. REQUIRED: schedule the retention jobs — crontab -e as the deploy user.
+   Nothing runs these on its own. The retention periods in .env.local are
+   policy only; without these three the instance keeps everything for ever.
 
-6. From your laptop, set up scripts/.env.deploy and from now on deploy with:
+   0  3 * * * cd $APP_DIR/backend && php bin/console app:cleanup-personal-data --env=prod >>/var/log/comics-cleanup.log 2>&1
+   5  3 * * * cd $APP_DIR/backend && php bin/console app:cleanup-expired-shares --env=prod >>/var/log/comics-cleanup.log 2>&1
+   15 3 * * * cd $APP_DIR/backend && php bin/console app:cleanup-logs --env=prod >>/var/log/comics-cleanup.log 2>&1
+
+   See SSH-deploy.md section 7 for what each one removes and how to check the
+   schedule is actually firing.
+
+6. (Optional) Dropbox sync, only if this instance imports from Dropbox:
+   0 */2 * * * cd $APP_DIR/backend && php bin/console app:dropbox-sync --env=prod >>/var/log/comics-dropbox.log 2>&1
+
+7. From your laptop, set up scripts/.env.deploy and from now on deploy with:
    ./scripts/deploy-ssh.sh
 
 ==============================================================================
