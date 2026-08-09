@@ -21,6 +21,8 @@ final class PdfDocument
     private const MAX_OBJECTS = 500_000;
     private const MAX_PAGES = 20_000;
     private const MAX_TREE_DEPTH = 64;
+    /** ~600 megapixels: far past any comic page, well short of exhausting memory. */
+    private const MAX_PIXELS = 600_000_000;
 
     /** Byte offset of each object, or the object stream holding it. */
     /** @var array<int, int> */
@@ -114,8 +116,128 @@ final class PdfDocument
             return new PdfPageImage($inflated, 'image/jpeg', $width, $height);
         }
 
-        // A JPXDecode page is JPEG 2000, which browsers do not display and GD
-        // cannot convert. Poppler handles it; say we cannot.
+        // Anything else that is only compressed — or not compressed at all —
+        // is raw pixel rows, which is what a PNG carries. Repacking those is
+        // exact and cheap, and it covers the exports that store pages as
+        // bitmaps rather than JPEGs.
+        if ($filters === [] || $filters === ['/FlateDecode']) {
+            return $this->pngFromSamples($stream, $width, $height);
+        }
+
+        // JPXDecode is JPEG 2000 and CCITTFaxDecode is fax-encoded bilevel.
+        // Both need a real decoder; Poppler has one and we do not.
+        return null;
+    }
+
+    /**
+     * Repack an uncompressed image stream as a PNG.
+     *
+     * Returns null rather than guessing whenever the colour space or bit depth
+     * is one where a wrong interpretation would show the reader a corrupted
+     * page. Poppler is the fallback for those.
+     */
+    private function pngFromSamples(PdfStream $stream, int $width, int $height): ?PdfPageImage
+    {
+        // A page that would not fit in memory as pixels is not one to unpack.
+        if ($width * $height > self::MAX_PIXELS) return null;
+
+        $samples = $this->inflate($stream);
+        if ($samples === null || $samples === '') return null;
+
+        $bits = (int) $this->resolve($stream->dictionary['BitsPerComponent'] ?? 8);
+        $isMask = $this->resolve($stream->dictionary['ImageMask'] ?? false) === true;
+        if ($isMask) $bits = 1;
+
+        $colourSpace = $this->colourSpace($this->resolve($stream->dictionary['ColorSpace'] ?? null));
+        if ($isMask) $colourSpace = ['type' => 'gray'];
+        if ($colourSpace === null) return null;
+
+        [$colorType, $palette] = match ($colourSpace['type']) {
+            'gray' => [PngWriter::COLOR_GRAY, null],
+            'rgb' => [PngWriter::COLOR_RGB, null],
+            'indexed' => [PngWriter::COLOR_PALETTE, $colourSpace['palette']],
+            default => [null, null],
+        };
+        if ($colorType === null) return null;
+
+        // PNG carries 1, 2, 4, 8 and 16 bits per sample, and RGB only at 8 or
+        // 16. Anything outside that would need resampling to be honest about.
+        $allowed = $colorType === PngWriter::COLOR_RGB ? [8, 16] : [1, 2, 4, 8];
+        if (!in_array($bits, $allowed, true)) return null;
+
+        // /Decode [1 0] means the samples are inverted, which is ordinary for
+        // scanned bilevel pages. Flipping the bytes is exact for 1-bit gray.
+        $decode = $this->resolve($stream->dictionary['Decode'] ?? null);
+        if ($bits === 1 && $colorType === PngWriter::COLOR_GRAY && is_array($decode) && ($decode[0] ?? 0) == 1) {
+            $samples = ~$samples;
+        }
+
+        $needed = PngWriter::rowBytes($width, $bits, $colorType) * $height;
+        if (strlen($samples) < $needed) return null;
+
+        try {
+            $png = PngWriter::encode($width, $height, $bits, $colorType, $samples, $palette);
+        } catch (PdfException) {
+            return null;
+        }
+
+        return new PdfPageImage($png, 'image/png', $width, $height);
+    }
+
+    /**
+     * Reduce a PDF colour space to the three shapes a PNG can carry directly.
+     *
+     * @return array{type: string, palette?: string}|null
+     */
+    private function colourSpace(mixed $space, int $depth = 0): ?array
+    {
+        if ($depth > 4) return null;
+        $space = $this->resolve($space);
+
+        if ($space === '/DeviceGray' || $space === '/CalGray' || $space === '/G') return ['type' => 'gray'];
+        if ($space === '/DeviceRGB' || $space === '/CalRGB' || $space === '/RGB') return ['type' => 'rgb'];
+
+        if (!is_array($space) || $space === []) return null;
+
+        $family = $this->resolve($space[0] ?? null);
+
+        // An ICC profile still describes gray or RGB underneath; /N says which.
+        if ($family === '/ICCBased') {
+            $profile = $this->resolve($space[1] ?? null);
+            $components = $profile instanceof PdfStream ? (int) $this->resolve($profile->dictionary['N'] ?? 0) : 0;
+
+            return match ($components) {
+                1 => ['type' => 'gray'],
+                3 => ['type' => 'rgb'],
+                // CMYK has no PNG equivalent and converting it without the
+                // profile would shift every colour on the page.
+                default => null,
+            };
+        }
+
+        if ($family === '/Indexed' || $family === '/I') {
+            $base = $this->colourSpace($space[1] ?? null, $depth + 1);
+            if ($base === null || $base['type'] === 'indexed') return null;
+
+            $lookup = $this->resolve($space[3] ?? null);
+            $table = $lookup instanceof PdfStream ? $this->inflate($lookup) : (is_string($lookup) ? $lookup : null);
+            if ($table === null) return null;
+
+            // PNG palettes are always RGB triples, so a grey base expands.
+            if ($base['type'] === 'gray') {
+                $expanded = '';
+                for ($i = 0, $length = strlen($table); $i < $length; ++$i) $expanded .= str_repeat($table[$i], 3);
+                $table = $expanded;
+            }
+
+            $entries = intdiv(strlen($table), 3);
+            if ($entries < 1 || $entries > 256) return null;
+
+            return ['type' => 'indexed', 'palette' => substr($table, 0, $entries * 3)];
+        }
+
+        if ($family === '/DeviceN' || $family === '/Separation' || $family === '/DeviceCMYK') return null;
+
         return null;
     }
 

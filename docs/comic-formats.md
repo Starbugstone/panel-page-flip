@@ -29,6 +29,22 @@ Encrypted and password-protected PDFs are rejected either way, and are told apar
 
 A PDF's page count is cached exactly as a CBZ's page index is, keyed by path, modification time and size, so turning pages does not re-parse the whole document each time.
 
+## Page delivery
+
+Whatever a comic was stored as, every page leaves the server as WebP.
+
+The source providers hand back whatever the page happens to be — a JPEG out of a CBZ, a PNG repacked from a PDF bitmap, a rendered page from Poppler — which would otherwise make a reader's bandwidth depend on how the uploader happened to export their comic. Each page is converted once, cached, and served from the cache afterwards.
+
+Generated pages live under `var/page-cache/{comicId}/`, deliberately outside the web root: they are derived from comics whose access is checked on every request, so they must never be reachable by guessing a URL. The cache holds nothing authoritative and can be deleted at any time; entries are keyed by the source's modification time and size, so replacing a comic's file cannot serve pages from the previous one. Deleting a comic drops its pages with it.
+
+Every failure in this path ends in a served page rather than an error. A GD without WebP, an image it cannot decode, a page too large to convert, a cache directory that cannot be written — each falls back to serving exactly what the provider produced. The `Content-Type` and the ETag both reflect the format actually used, so a server that gains or loses its WebP encoder does not leave browsers revalidating stale bytes as current.
+
+## Essential and optional
+
+CBZ and PDF are **essential**: neither needs anything installed, so both are expected to work on any host the application runs on. If either is unavailable, **Admin → Formats** shows a prominent alert and `app:comic-formats:check` exits non-zero — that state is a broken installation rather than an administrator's choice.
+
+CBR, CB7, CBT, Poppler and qpdf are **optional**. Their absence is reported, never alerted: the application falls back to the two native formats and keeps working.
+
 Rendering has a 30-second timeout and uses a random, mode-0700 temporary directory that is removed after every attempt. At most three renders run concurrently per application lock store; beyond that a request waits up to 20 seconds for a free slot before reporting the renderer as busy, so a reader that fetches the current page and prefetches the next one is never refused for it.
 
 Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed data, and 64 MiB per page. Only JPG, PNG, GIF, and WebP entries with safe, non-traversing names and matching image content become readable pages. Page names are natural-sorted and never returned by the API.

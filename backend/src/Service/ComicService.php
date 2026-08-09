@@ -25,7 +25,8 @@ class ComicService
         private readonly int $uploadMaxTotalBytes,
         private readonly int $uploadUserQuotaBytes,
         private readonly ComicPageProviderFactory $pageProviderFactory,
-        private readonly ComicFormatService $comicFormatService
+        private readonly ComicFormatService $comicFormatService,
+        private readonly ComicPageCache $pageCache
     ) {
     }
 
@@ -166,6 +167,15 @@ class ComicService
 
         if ($comic->getCoverImagePath()) {
             $paths[] = $this->comicsDirectory . '/' . $user->getId() . '/' . ltrim($comic->getCoverImagePath(), '/');
+        }
+
+        // Generated pages are not quarantined, they are dropped: they hold no
+        // information the source does not, and leaving them behind would let a
+        // later comic reusing this identifier inherit somebody else's pages.
+        // A restore regenerates them on the next read.
+        $identifier = $comic->getId();
+        if ($identifier !== null) {
+            $this->pageCache->purge($identifier);
         }
 
         return $this->fileQuarantine->quarantine($paths);

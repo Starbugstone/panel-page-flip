@@ -81,6 +81,27 @@ final class ComicFormatsCheckCommand extends Command
             $qpdfUsable ? '<info>yes</info>' : '<comment>no</comment>'
         ));
 
+        // An essential format failing is a broken installation, not a choice.
+        // It is reported before anything optional and it fails the command
+        // whether or not an administrator has switched the format on.
+        $brokenEssentials = array_keys(array_filter(
+            $report,
+            static fn (array $detail): bool => $detail['essential'] && !$detail['available']
+        ));
+
+        if ($brokenEssentials !== []) {
+            $io->error(sprintf(
+                'This installation is broken: %s cannot be served, and %s meant to work on any host without extra software.',
+                implode(' and ', array_map('strtoupper', $brokenEssentials)),
+                count($brokenEssentials) === 1 ? 'it is' : 'they are'
+            ));
+            foreach ($brokenEssentials as $format) {
+                $io->writeln(sprintf(' <comment>%s</comment>: %s', strtoupper($format), $report[$format]['hint']));
+            }
+
+            return Command::FAILURE;
+        }
+
         if ($missing === []) {
             $io->success('Every supported comic format can be served by this server.');
             return Command::SUCCESS;

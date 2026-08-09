@@ -20,6 +20,13 @@ final class ComicFormatService
      * below answers "can this server do it"; these answer "what do I do about
      * it", which is the question somebody staring at a red row actually has.
      */
+    /**
+     * The formats that must work everywhere. Both are read with no external
+     * tooling, so either one failing means something is wrong with the
+     * installation rather than merely unconfigured.
+     */
+    private const ESSENTIAL = [ComicSourceType::CBZ, ComicSourceType::PDF];
+
     private const REQUIREMENTS = [
         'cbz' => ['PHP ZIP extension'],
         'cbr' => ['7z with RAR support'],
@@ -81,7 +88,7 @@ final class ComicFormatService
      * while a server is unhealthy, and a diagnostic that needs a working
      * installation to tell you the installation is broken is no diagnostic.
      *
-     * @return array<string, array{available: bool, requirements: list<string>, hint: string, note: string}>
+     * @return array<string, array{available: bool, essential: bool, requirements: list<string>, hint: string, note: string}>
      */
     public function runtimeReport(bool $refreshAvailability = false): array
     {
@@ -98,6 +105,11 @@ final class ComicFormatService
 
             $result[$type->value] = [
                 'available' => $availability[$type->value] ?? false,
+                // CBZ and PDF are what the application promises on any host it
+                // runs on, since neither needs anything installed. One of them
+                // being unavailable is a broken installation, not a choice an
+                // administrator made; the archive formats are optional extras.
+                'essential' => in_array($type, self::ESSENTIAL, true),
                 'requirements' => self::REQUIREMENTS[$type->value] ?? [],
                 'hint' => $needsExternalTool && !$canShellOut
                     ? self::NO_SUBPROCESS_HINT
@@ -110,7 +122,7 @@ final class ComicFormatService
     }
 
     /**
-     * @return array<string, array{available: bool, enabled: bool, requirements: list<string>, hint: string, note: string}>
+     * @return array<string, array{available: bool, essential: bool, enabled: bool, requirements: list<string>, hint: string, note: string}>
      */
     public function status(bool $refreshAvailability = false): array
     {

@@ -12,6 +12,7 @@ use App\Repository\ComicShareRepository;
 use App\Repository\TagRepository;
 use App\Security\Voter\ComicVoter;
 use App\Service\AdminAuditService;
+use App\Service\ComicPageDelivery;
 use App\Service\ComicSerializer;
 use App\Service\ComicShareService;
 use App\Service\ComicUploadFilenameValidator;
@@ -1313,7 +1314,8 @@ class ComicController extends AbstractController
         int $page,
         Request $request,
         EntityManagerInterface $entityManager,
-        ComicService $comicService
+        ComicService $comicService,
+        ComicPageDelivery $pageDelivery
     ): Response {
         // Get the current user
         $user = $this->getUser();
@@ -1378,7 +1380,14 @@ class ComicController extends AbstractController
         $modifiedAt = @filemtime($filePath);
         if ($modifiedAt !== false) {
             $response->setLastModified(new \DateTimeImmutable('@' . $modifiedAt));
-            $response->setEtag(hash('sha256', $filePath . '|' . $modifiedAt . '|' . @filesize($filePath) . '|' . $page));
+            // The delivery format is part of the validator: a server that gains
+            // or loses its WebP encoder starts producing different bytes for
+            // the same page, and a cached copy from before that must not be
+            // revalidated as still current.
+            $response->setEtag(hash(
+                'sha256',
+                $filePath . '|' . $modifiedAt . '|' . @filesize($filePath) . '|' . $page . '|' . $pageDelivery->deliveryFormat()
+            ));
 
             if ($response->isNotModified($request)) {
                 return $response;
@@ -1386,7 +1395,7 @@ class ComicController extends AbstractController
         }
 
         try {
-            $pageResult = $comicService->readPage($comic, $page);
+            [$pageResult] = $pageDelivery->deliver($comic, $page);
         } catch (\Throwable $exception) {
             $this->logger->error('Failed to read a comic source.', [
                 'comic_id' => $comic->getId(),

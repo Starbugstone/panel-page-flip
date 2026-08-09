@@ -3,6 +3,7 @@
 namespace App\Tests\Functional\Controller;
 
 use App\Entity\User;
+use App\Service\ComicPageDelivery;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
@@ -17,6 +18,9 @@ final class ComicPageCachingTest extends AbstractApiTestCase
     /** @var list<string> */
     private array $temporaryFiles = [];
 
+    /** @var list<string> */
+    private array $temporaryDirectories = [];
+
     public function testPageResponseIsCacheableAndValidated(): void
     {
         [$owner, $comic] = $this->createComicWithArchive();
@@ -26,7 +30,15 @@ final class ComicPageCachingTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         $headers = $this->browser()->getResponse()->headers;
-        self::assertSame('image/jpeg', $headers->get('content-type'));
+        // Pages leave as WebP whatever the comic was stored as — the CBZ behind
+        // this test holds JPEGs. A server whose GD cannot write WebP serves the
+        // source bytes instead, which is a fallback rather than a failure.
+        self::assertSame(
+            self::getContainer()->get(ComicPageDelivery::class)->deliveryFormat() === ComicPageDelivery::FORMAT_WEBP
+                ? 'image/webp'
+                : 'image/jpeg',
+            $headers->get('content-type')
+        );
         $cacheControl = (string) $headers->get('cache-control');
         self::assertStringContainsString('private', $cacheControl);
         self::assertStringContainsString('max-age=86400', $cacheControl);
@@ -77,6 +89,66 @@ final class ComicPageCachingTest extends AbstractApiTestCase
         );
 
         self::assertResponseIsSuccessful();
+    }
+
+    /**
+     * The delivery contract: one format out, whatever went in, and the second
+     * request for a page is answered from the cache rather than by decoding the
+     * source again.
+     */
+    public function testPagesAreDeliveredAsCachedWebp(): void
+    {
+        $delivery = self::getContainer()->get(ComicPageDelivery::class);
+        if ($delivery->deliveryFormat() !== ComicPageDelivery::FORMAT_WEBP) {
+            self::markTestSkipped('This build of GD cannot write WebP.');
+        }
+
+        [$owner, $comic] = $this->createComicWithArchive();
+        $this->loginAs($owner);
+        $url = sprintf('/api/comics/%d/pages/1', $comic->getId());
+
+        $this->browser()->request('GET', $url);
+        self::assertResponseIsSuccessful();
+        $first = (string) $this->browser()->getResponse()->getContent();
+        self::assertSame('image/webp', $this->browser()->getResponse()->headers->get('content-type'));
+        self::assertSame('image/webp', (string) (getimagesizefromstring($first)['mime'] ?? ''));
+
+        // A cache entry must now exist for this comic, and the bytes served on
+        // a second request must be exactly the ones stored.
+        $cacheDirectory = self::getContainer()->getParameter('page_cache_directory').'/'.$comic->getId();
+        $this->temporaryDirectories[] = $cacheDirectory;
+        self::assertNotSame([], glob($cacheDirectory.'/1-*.webp') ?: [], 'Page 1 should have been cached.');
+
+        $this->browser()->request('GET', $url);
+        self::assertResponseIsSuccessful();
+        self::assertSame($first, (string) $this->browser()->getResponse()->getContent());
+    }
+
+    /**
+     * Deleting a comic has to take its generated pages with it, or a later
+     * comic issued the same identifier would inherit them.
+     */
+    public function testDeletingAComicDropsItsCachedPages(): void
+    {
+        $delivery = self::getContainer()->get(ComicPageDelivery::class);
+        if ($delivery->deliveryFormat() !== ComicPageDelivery::FORMAT_WEBP) {
+            self::markTestSkipped('This build of GD cannot write WebP.');
+        }
+
+        [$owner, $comic] = $this->createComicWithArchive();
+        $this->loginAs($owner);
+        $comicId = $comic->getId();
+
+        $this->browser()->request('GET', sprintf('/api/comics/%d/pages/1', $comicId));
+        self::assertResponseIsSuccessful();
+
+        $cacheDirectory = self::getContainer()->getParameter('page_cache_directory').'/'.$comicId;
+        $this->temporaryDirectories[] = $cacheDirectory;
+        self::assertDirectoryExists($cacheDirectory);
+
+        self::getContainer()->get(\App\Service\ComicService::class)->quarantineComicFiles($comic);
+
+        self::assertDirectoryDoesNotExist($cacheDirectory, 'Cached pages should not outlive the comic.');
     }
 
     public function testAnotherUserCannotReadAPage(): void
@@ -143,6 +215,16 @@ final class ComicPageCachingTest extends AbstractApiTestCase
             }
         }
         $this->temporaryFiles = [];
+
+        // Only directories this test asked for, and only their own entries.
+        foreach ($this->temporaryDirectories as $directory) {
+            if (!is_dir($directory)) continue;
+            foreach (glob($directory.'/*') ?: [] as $file) {
+                if (is_file($file)) unlink($file);
+            }
+            rmdir($directory);
+        }
+        $this->temporaryDirectories = [];
 
         parent::tearDown();
     }

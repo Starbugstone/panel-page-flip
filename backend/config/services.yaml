@@ -6,6 +6,11 @@
 parameters:
     comics_directory: '%kernel.project_dir%/public/uploads/comics'
     quarantine_directory: '%kernel.project_dir%/var/quarantine/comics'
+    # Generated page images, deliberately under var/ rather than public/: these
+    # are derived from comics whose access is checked on every request, so they
+    # must never be reachable by guessing a URL. Nothing here is authoritative
+    # and the whole directory can be deleted at any time.
+    page_cache_directory: '%kernel.project_dir%/var/page-cache'
     mailer_from_address: '%env(MAILER_FROM_ADDRESS)%'
     mailer_from_name: '%env(MAILER_FROM_NAME)%'
     privacy_operator_default: 'Panel Page Flip site operator'
@@ -159,6 +164,15 @@ services:
     App\Service\ComicFormatService:
         arguments:
             $availabilityCache: '@comic.format_availability.cache'
+
+    App\Service\ComicPageCache:
+        arguments:
+            $directory: '%page_cache_directory%'
+            $logger: '@logger'
+
+    App\Service\ComicPageDelivery:
+        arguments:
+            $logger: '@logger'
 
     App\Service\ComicCleanupService:
         arguments:

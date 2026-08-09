@@ -138,9 +138,122 @@ final class PdfDocumentTest extends TestCase
         PdfDocument::open($this->path)->pageCount();
     }
 
+    /**
+     * Plenty of exports store pages as bitmaps rather than JPEGs. Those are raw
+     * pixel rows once inflated, which is what a PNG carries, so they are served
+     * natively too — without which "PDF works without Poppler" would only be
+     * half true.
+     *
+     * @dataProvider rawImageProvider
+     */
+    public function testServesPagesStoredAsRawBitmaps(
+        string $colourSpace,
+        int $bitsPerComponent,
+        string $samples,
+        int $width,
+        int $height,
+        string $extra,
+    ): void {
+        $this->write($this->rawImagePdf($colourSpace, $bitsPerComponent, $samples, $width, $height, $extra));
+
+        $image = PdfDocument::open($this->path)->pageImage(1);
+
+        self::assertNotNull($image, 'A raw bitmap page should be servable natively.');
+        self::assertSame('image/png', $image->mimeType);
+
+        $size = getimagesizefromstring($image->content);
+        self::assertIsArray($size, 'The result should be a decodable image.');
+        self::assertSame($width, $size[0]);
+        self::assertSame($height, $size[1]);
+    }
+
+    public function rawImageProvider(): iterable
+    {
+        // 2x2 red/green/blue/white.
+        yield 'DeviceRGB 8-bit' => [
+            '/DeviceRGB', 8,
+            "\xFF\x00\x00\x00\xFF\x00\x00\x00\xFF\xFF\xFF\xFF",
+            2, 2, '',
+        ];
+
+        yield 'DeviceGray 8-bit' => ['/DeviceGray', 8, "\x00\x40\x80\xFF", 2, 2, ''];
+
+        // An ICC profile still describes RGB underneath.
+        yield 'ICCBased RGB' => [
+            '[/ICCBased 90 0 R]', 8,
+            "\xFF\x00\x00\x00\xFF\x00\x00\x00\xFF\xFF\xFF\xFF",
+            2, 2, '',
+        ];
+
+        // Indexed: two palette entries, one byte per pixel.
+        yield 'Indexed palette' => [
+            '[/Indexed /DeviceRGB 1 <FF000000FF00>]', 8,
+            "\x00\x01\x01\x00",
+            2, 2, '',
+        ];
+
+        // Bilevel scans, the other common shape, including the inverted form.
+        yield '1-bit bilevel' => ['/DeviceGray', 1, "\x80\x40", 2, 2, ''];
+        yield '1-bit bilevel inverted' => ['/DeviceGray', 1, "\x80\x40", 2, 2, '/Decode [1 0]'];
+    }
+
+    /**
+     * CMYK has no PNG equivalent, and converting it without the profile would
+     * shift every colour on the page. Declining hands it to Poppler instead.
+     *
+     * @dataProvider unservableProvider
+     */
+    public function testDeclinesColourSpacesItCannotRepackFaithfully(string $colourSpace, int $bits, string $samples): void
+    {
+        $this->write($this->rawImagePdf($colourSpace, $bits, $samples, 2, 2, ''));
+
+        self::assertNull(PdfDocument::open($this->path)->pageImage(1));
+    }
+
+    public function unservableProvider(): iterable
+    {
+        yield 'DeviceCMYK' => ['/DeviceCMYK', 8, str_repeat("\x10\x20\x30\x40", 4)];
+        yield 'ICCBased CMYK' => ['[/ICCBased 91 0 R]', 8, str_repeat("\x10\x20\x30\x40", 4)];
+    }
+
+    public function testDeclinesAJpeg2000Page(): void
+    {
+        $this->write($this->imagePdf([$this->jpeg()], '/JPXDecode'));
+
+        self::assertNull(PdfDocument::open($this->path)->pageImage(1));
+    }
+
     private function jpeg(): string
     {
         return (string) base64_decode(self::TINY_JPEG_BASE64, true);
+    }
+
+    /**
+     * One page whose image is uncompressed samples in the given colour space.
+     */
+    private function rawImagePdf(string $colourSpace, int $bits, string $samples, int $width, int $height, string $extra): string
+    {
+        $compressed = gzcompress($samples, 6);
+
+        return $this->assemble([
+            1 => '<< /Type /Catalog /Pages 2 0 R >>',
+            2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            3 => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>',
+            4 => sprintf(
+                "<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent %d %s /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream",
+                $width,
+                $height,
+                $colourSpace,
+                $bits,
+                $extra,
+                strlen($compressed),
+                $compressed
+            ),
+            5 => "<< /Length 29 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream",
+            // Referenced by the ICCBased cases: /N is what says gray or RGB.
+            90 => "<< /N 3 /Length 0 >>\nstream\n\nendstream",
+            91 => "<< /N 4 /Length 0 >>\nstream\n\nendstream",
+        ]);
     }
 
     /**
@@ -149,7 +262,7 @@ final class PdfDocumentTest extends TestCase
      *
      * @param list<string> $jpegs
      */
-    private function imagePdf(array $jpegs): string
+    private function imagePdf(array $jpegs, string $filter = "/DCTDecode"): string
     {
         $count = count($jpegs);
         $objects = [1 => '<< /Type /Catalog /Pages 2 0 R >>'];
@@ -171,9 +284,10 @@ final class PdfDocumentTest extends TestCase
             );
             $size = getimagesizefromstring($jpeg);
             $objects[$imageNumbers[$index]] = sprintf(
-                "<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
+                "<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter %s /Length %d >>\nstream\n%s\nendstream",
                 $size[0],
                 $size[1],
+                $filter,
                 strlen($jpeg),
                 $jpeg
             );

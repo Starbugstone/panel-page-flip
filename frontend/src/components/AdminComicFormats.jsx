@@ -49,6 +49,10 @@ export function AdminComicFormats() {
     return () => { cancelled = true; };
   }, []);
 
+  const brokenEssentials = Object.entries(formats ?? {})
+    .filter(([, status]) => status.essential && !status.available)
+    .map(([name]) => name);
+
   const toggle = (name, checked) => setFormats((current) => ({ ...current, [name]: { ...current[name], enabled: checked } }));
 
   const save = async () => {
@@ -74,6 +78,22 @@ export function AdminComicFormats() {
       </CardHeader>
       <CardContent className="space-y-5">
         {loadError && <p className="text-sm text-destructive">{loadError}</p>}
+
+        {/* CBZ and PDF need nothing installed, so one of them failing means the
+            installation is broken rather than merely unconfigured. That is worth
+            saying once, loudly, rather than leaving an admin to infer it from a
+            red row among four others. */}
+        {brokenEssentials.length > 0 && (
+          <div className="rounded-md border border-destructive bg-destructive/10 p-4">
+            <p className="font-semibold text-destructive">
+              This installation cannot serve {brokenEssentials.map((name) => LABELS[name]).join(" or ")}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              These formats need nothing installed and are expected to work on any server. Something is wrong with this
+              deployment — see the guidance on the affected rows below.
+            </p>
+          </div>
+        )}
         {!formats ? <p>Checking format support…</p> : Object.entries(formats).map(([name, status]) => (
           <div key={name} className="rounded-md border p-4">
             <div className="flex items-start justify-between gap-4">
