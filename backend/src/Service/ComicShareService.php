@@ -79,94 +79,127 @@ class ComicShareService
         string $recipientEmail,
         bool $senderResponsibilityAccepted
     ): IssuedInvitation {
-        // Checked before anything else is decided, so a share cannot come into
-        // existence without the acknowledgement that goes on the record with it.
-        // The tick box in the UI is a prompt, not the rule.
-        if (!$senderResponsibilityAccepted) {
-            throw new ShareException(
-                'You must acknowledge responsibility for the content you share.',
-                400,
-                ShareException::CODE_RESPONSIBILITY_REQUIRED
-            );
-        }
+        $this->assertSenderResponsibility($senderResponsibilityAccepted);
+        $email = $this->assertInvitableRecipient($owner, $recipientEmail);
+        $reusable = $this->assertNoLiveInvitation($comic, $email);
 
-        $email = ComicShare::normaliseEmail($recipientEmail);
+        // The last thing checked before anything is created, so only invitations
+        // that actually go out count against the allowance — a request rejected
+        // as a duplicate, by permissions or by validation spends nothing — and
+        // nothing half-built is left in the unit of work when it is refused.
+        $this->reserveInvitationAllowance($owner);
 
-        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            throw new ShareException('A valid recipient email address is required.', 400);
-        }
+        $prepared = $this->openInvitation($reusable, $comic, $owner, $email);
 
-        if ($email === ComicShare::normaliseEmail((string) $owner->getEmail())) {
-            throw new ShareException('You already own this comic.', 400);
-        }
-
-        // Keyed on the comic, so this only ever finds a live relationship: a
-        // tombstone holds a null comic and is invisible here by construction.
-        // That is deliberate. A tombstone belongs to the recipient, as the
-        // record of a comic that went away; re-pointing it at a different comic
-        // would rewrite their history and delete the explanation they were left
-        // with. Re-inviting somebody after a deletion starts a fresh
-        // relationship, and the null comic keeps it clear of the unique index.
-        $share = $this->shareRepository->findForComicAndRecipient($comic, $email);
-
-        if ($share !== null && $share->getStatus() === ComicShare::STATUS_ACCEPTED) {
-            throw new ShareException('This comic is already shared with that person.', 409);
-        }
-
-        if ($share !== null && $share->isPending()) {
-            throw new ShareException(
-                'An invitation is already pending for that person. Resend it instead.',
-                409
-            );
-        }
-
-        if ($share === null) {
-            $share = new ComicShare($comic, $owner, $email);
-            $this->entityManager->persist($share);
-        } else {
-            // Declined, revoked, or a pending invitation that lapsed. The row is
-            // reused rather than duplicated, which is what the unique index on
-            // (comic, recipient) is there to guarantee.
-            //
-            // Reusing the row does not carry the old age declaration forward:
-            // this is a fresh offer of the comic as it is now, and the previous
-            // relationship ended without the recipient reading anything.
-            $share->setOwner($owner)->refreshSnapshots()->resetAdultConfirmation();
-        }
-
-        $share->markPending($this->invitationExpiry());
-        // A new share, so a new acknowledgement. Resending does not come through
-        // here and keeps the timestamp it already has.
-        $share->acceptSenderResponsibility();
-
-        $invitation = $this->issueInvitation($share, $comic, $owner);
+        $this->deliver(
+            [$prepared],
+            fn () => $this->sendInvitationEmail($prepared->share, $comic, $owner, $prepared->plaintextToken)
+        );
 
         // After the send, so nothing is recorded as shared that was rolled back
         // when the email failed.
-        $this->auditLogger->audit(SecurityAuditLogger::SHARE_CREATED, [
-            'actor_user_id' => $owner->getId(),
-            'target_type' => 'share',
-            'target_id' => $share->getId(),
-            'comic_id' => $comic->getId(),
-            'recipient_user_id' => $share->getRecipientUser()?->getId(),
-            'explicit_content' => $comic->isExplicitContent(),
-        ]);
+        $this->auditInvitation($prepared, $owner);
 
-        // Its own record rather than a field on the one above, because this is
-        // the acknowledgement's audit trail and somebody looking for it should
-        // not have to know that shares are created with one attached. Ids only:
-        // the canonical evidence is ComicShare::senderResponsibilityAcceptedAt,
-        // and the title of an explicit comic is the thing the gate withholds.
-        $this->auditLogger->audit(SecurityAuditLogger::SHARE_SENDER_RESPONSIBILITY_ACCEPTED, [
-            'actor_user_id' => $owner->getId(),
-            'target_type' => 'share',
-            'target_id' => $share->getId(),
-            'comic_id' => $comic->getId(),
-            'recipient_user_id' => $share->getRecipientUser()?->getId(),
-            'accepted_at' => $share->getSenderResponsibilityAcceptedAt()?->format(DATE_ATOM),
-        ]);
+        return new IssuedInvitation($prepared->share, $this->invitationUrl($prepared->plaintextToken));
+    }
 
-        return $invitation;
+    /**
+     * Share several comics with one recipient as a single act.
+     *
+     * A convenience layer and nothing more: every comic still gets its own
+     * {@see ComicShare}, its own token, its own status and its own revocation,
+     * and every one of them goes through the same checks a single invitation
+     * does. Nothing here can grant access that {@see invite()} would refuse.
+     *
+     * Two things are deliberately shared across the batch rather than repeated
+     * per comic:
+     *
+     * - **One email.** Twenty comics must not mean twenty messages in somebody's
+     *   inbox. The recipient gets one notice listing what they were offered,
+     *   with a separate link per comic, because each invitation is still
+     *   answered on its own.
+     * - **One allowance.** One send is one claim on the `share_invitation`
+     *   limiter, so what the limiter protects — how much mail one account can
+     *   put in somebody's inbox — is exactly what it protected before bulk
+     *   sharing existed.
+     *
+     * All or nothing on the send: the grouped email is the only notice the
+     * recipient gets, so a failed send must not leave behind invitations nobody
+     * will ever hear about.
+     *
+     * The caller is responsible for having checked {@see ComicVoter::SHARE} on
+     * every comic it passes in.
+     *
+     * @param list<Comic> $comics
+     *
+     * @return array<int, array{status: string, message?: string, code?: string, shareId?: int|null}>
+     *                                                                                                 keyed by comic id
+     *
+     * @throws ShareException when the whole batch is refused — a bad recipient,
+     *                        a missing acknowledgement or an exhausted allowance
+     */
+    public function inviteMany(
+        array $comics,
+        User $owner,
+        string $recipientEmail,
+        bool $senderResponsibilityAccepted
+    ): array {
+        $this->assertSenderResponsibility($senderResponsibilityAccepted);
+        $email = $this->assertInvitableRecipient($owner, $recipientEmail);
+
+        $outcomes = [];
+        $invitable = [];
+
+        // Read-only pass first. Every comic is judged before any of them is
+        // created, so the allowance is claimed once and only for a send that is
+        // known to have something to announce.
+        foreach ($comics as $comic) {
+            $comicId = (int) $comic->getId();
+
+            try {
+                $invitable[$comicId] = [$comic, $this->assertNoLiveInvitation($comic, $email)];
+            } catch (ShareException $exception) {
+                $outcomes[$comicId] = $this->describeFailure($exception);
+            }
+        }
+
+        if ($invitable === []) {
+            return $outcomes;
+        }
+
+        $this->reserveInvitationAllowance($owner);
+
+        $prepared = [];
+        foreach ($invitable as $comicId => [$comic, $reusable]) {
+            $prepared[$comicId] = $this->openInvitation($reusable, $comic, $owner, $email);
+        }
+
+        try {
+            $this->deliver(
+                array_values($prepared),
+                fn () => $this->sendGroupedInvitationEmail(array_values($prepared), $owner)
+            );
+        } catch (ShareException $exception) {
+            // The rollback already undid every relationship in the batch, so the
+            // whole group reports the same failure rather than the request
+            // looking partly successful.
+            foreach (array_keys($prepared) as $comicId) {
+                $outcomes[$comicId] = $this->describeFailure($exception);
+            }
+
+            return $outcomes;
+        }
+
+        foreach ($prepared as $comicId => $invitation) {
+            $this->auditInvitation($invitation, $owner);
+
+            $outcomes[$comicId] = [
+                'status' => 'created',
+                'shareId' => $invitation->share->getId(),
+            ];
+        }
+
+        return $outcomes;
     }
 
     /**
@@ -188,9 +221,23 @@ class ComicShareService
             throw new ShareException('That invitation has already been accepted.', 409);
         }
 
-        $share->markPending($this->invitationExpiry())->refreshSnapshots();
+        // Claimed before the row is touched, so a resend that is turned away
+        // leaves the invitation exactly as it was.
+        $this->reserveInvitationAllowance($owner);
 
-        return $this->issueInvitation($share, $comic, $owner);
+        $share->markPending($this->invitationExpiry())->refreshSnapshots();
+        $this->revokeOutstandingTokens($share);
+
+        [$plaintext, $hash] = ShareInvitationToken::generate();
+        $this->entityManager->persist(new ShareInvitationToken($share, $hash, $this->invitationExpiry()));
+        $prepared = new PreparedInvitation($share, $comic, $plaintext);
+
+        $this->deliver(
+            [$prepared],
+            fn () => $this->sendInvitationEmail($share, $comic, $owner, $plaintext)
+        );
+
+        return new IssuedInvitation($share, $this->invitationUrl($plaintext));
     }
 
     /**
@@ -571,21 +618,128 @@ class ComicShareService
     }
 
     /**
-     * Mint a token, persist the relationship and email the link.
+     * The acknowledgement that goes on the record with the share.
+     *
+     * Checked before anything else is decided, so a share cannot come into
+     * existence without it. The tick box in the UI is a prompt, not the rule.
      *
      * @throws ShareException
      */
-    private function issueInvitation(ComicShare $share, Comic $comic, User $owner): IssuedInvitation
+    private function assertSenderResponsibility(bool $accepted): void
     {
-        // The last thing checked before anything is created or sent, so only
-        // invitations that actually go out count against the allowance.
-        $this->reserveInvitationAllowance($owner);
+        if (!$accepted) {
+            throw new ShareException(
+                'You must acknowledge responsibility for the content you share.',
+                400,
+                ShareException::CODE_RESPONSIBILITY_REQUIRED
+            );
+        }
+    }
+
+    /**
+     * @return string the normalised address every later step uses
+     *
+     * @throws ShareException
+     */
+    private function assertInvitableRecipient(User $owner, string $recipientEmail): string
+    {
+        $email = ComicShare::normaliseEmail($recipientEmail);
+
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new ShareException('A valid recipient email address is required.', 400);
+        }
+
+        if ($email === ComicShare::normaliseEmail((string) $owner->getEmail())) {
+            throw new ShareException('You already own this comic.', 400);
+        }
+
+        return $email;
+    }
+
+    /**
+     * Refuse a comic this recipient can already reach, and hand back the dead
+     * relationship to reuse when there is one.
+     *
+     * Reads only. Bulk sharing judges every comic in a batch before it creates
+     * any of them, so nothing here may write.
+     *
+     * @return ComicShare|null a declined, revoked or lapsed row to reopen
+     *
+     * @throws ShareException
+     */
+    private function assertNoLiveInvitation(Comic $comic, string $email): ?ComicShare
+    {
+        // Keyed on the comic, so this only ever finds a live relationship: a
+        // tombstone holds a null comic and is invisible here by construction.
+        // That is deliberate. A tombstone belongs to the recipient, as the
+        // record of a comic that went away; re-pointing it at a different comic
+        // would rewrite their history and delete the explanation they were left
+        // with. Re-inviting somebody after a deletion starts a fresh
+        // relationship, and the null comic keeps it clear of the unique index.
+        $share = $this->shareRepository->findForComicAndRecipient($comic, $email);
+
+        if ($share !== null && $share->getStatus() === ComicShare::STATUS_ACCEPTED) {
+            throw new ShareException('This comic is already shared with that person.', 409);
+        }
+
+        if ($share !== null && $share->isPending()) {
+            throw new ShareException(
+                'An invitation is already pending for that person. Resend it instead.',
+                409
+            );
+        }
+
+        return $share;
+    }
+
+    /**
+     * Open the relationship and mint the link, without flushing or sending.
+     *
+     * @param ComicShare|null $share the row {@see assertNoLiveInvitation} found
+     */
+    private function openInvitation(?ComicShare $share, Comic $comic, User $owner, string $email): PreparedInvitation
+    {
+        if ($share === null) {
+            $share = new ComicShare($comic, $owner, $email);
+            $this->entityManager->persist($share);
+        } else {
+            // Declined, revoked, or a pending invitation that lapsed. The row is
+            // reused rather than duplicated, which is what the unique index on
+            // (comic, recipient) is there to guarantee.
+            //
+            // Reusing the row does not carry the old age declaration forward:
+            // this is a fresh offer of the comic as it is now, and the previous
+            // relationship ended without the recipient reading anything.
+            $share->setOwner($owner)->refreshSnapshots()->resetAdultConfirmation();
+        }
+
+        $share->markPending($this->invitationExpiry());
+        // A new share, so a new acknowledgement. Resending does not come through
+        // here and keeps the timestamp it already has.
+        $share->acceptSenderResponsibility();
+
         $this->revokeOutstandingTokens($share);
 
         [$plaintext, $hash] = ShareInvitationToken::generate();
-        $token = new ShareInvitationToken($share, $hash, $this->invitationExpiry());
-        $this->entityManager->persist($token);
+        $this->entityManager->persist(new ShareInvitationToken($share, $hash, $this->invitationExpiry()));
 
+        return new PreparedInvitation($share, $comic, $plaintext);
+    }
+
+    /**
+     * Commit the prepared relationships and announce them, as one unit of work.
+     *
+     * The send is inside the transaction on purpose: a send that fails rolls the
+     * invitations back, so nobody is shown a recipient who was never actually
+     * contacted.
+     *
+     * @param list<PreparedInvitation> $prepared for the failure log only
+     * @param callable(): void         $send
+     *
+     * @throws ShareException
+     */
+    private function deliver(array $prepared, callable $send): void
+    {
         // Avoid nesting commits when a caller already owns the transaction, the
         // same way account deletion does — a nested commit would escape the
         // test suite's rollback wrapper.
@@ -598,7 +752,7 @@ class ComicShareService
             }
 
             $this->entityManager->flush();
-            $this->sendInvitationEmail($share, $comic, $owner, $plaintext);
+            $send();
 
             if ($ownsTransaction) {
                 $this->entityManager->commit();
@@ -613,7 +767,10 @@ class ComicShareService
             }
 
             $this->logger->error('Failed to send a comic share invitation.', [
-                'comic_id' => $comic->getId(),
+                'comic_ids' => array_map(
+                    static fn (PreparedInvitation $invitation): ?int => $invitation->comic->getId(),
+                    $prepared
+                ),
                 'exception' => $exception,
             ]);
 
@@ -622,8 +779,59 @@ class ComicShareService
                 502
             );
         }
+    }
 
-        return new IssuedInvitation($share, $this->invitationUrl($plaintext));
+    /** The two records every new sharing relationship leaves behind. */
+    private function auditInvitation(PreparedInvitation $invitation, User $owner): void
+    {
+        $share = $invitation->share;
+        $comic = $invitation->comic;
+
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_CREATED, [
+            'actor_user_id' => $owner->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $comic->getId(),
+            'recipient_user_id' => $share->getRecipientUser()?->getId(),
+            'explicit_content' => $comic->isExplicitContent(),
+        ]);
+
+        // Its own record rather than a field on the one above, because this is
+        // the acknowledgement's audit trail and somebody looking for it should
+        // not have to know that shares are created with one attached. Ids only:
+        // the canonical evidence is ComicShare::senderResponsibilityAcceptedAt,
+        // and the title of an explicit comic is the thing the gate withholds.
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_SENDER_RESPONSIBILITY_ACCEPTED, [
+            'actor_user_id' => $owner->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $comic->getId(),
+            'recipient_user_id' => $share->getRecipientUser()?->getId(),
+            'accepted_at' => $share->getSenderResponsibilityAcceptedAt()?->format(DATE_ATOM),
+        ]);
+    }
+
+    /**
+     * One comic's failure, in the shape a bulk result reports it.
+     *
+     * @return array{status: string, message: string, code?: string}
+     */
+    private function describeFailure(ShareException $exception): array
+    {
+        $outcome = [
+            'status' => match ($exception->getStatusCode()) {
+                409 => 'skipped',
+                429 => 'rate_limited',
+                default => 'failed',
+            },
+            'message' => $exception->getMessage(),
+        ];
+
+        if ($exception->getErrorCode() !== null) {
+            $outcome['code'] = $exception->getErrorCode();
+        }
+
+        return $outcome;
     }
 
     private function sendInvitationEmail(ComicShare $share, Comic $comic, User $owner, string $plaintextToken): void
@@ -649,6 +857,68 @@ class ComicShareService
             ->replyTo((string) $owner->getEmail())
             ->to($share->getRecipientEmailNormalized())
             ->subject($ownerName . ' shared a comic with you!')
+            ->html($body);
+
+        $this->mailer->send($email);
+    }
+
+    /**
+     * One message for a whole bulk share.
+     *
+     * Each comic still carries its own link, because each invitation is still
+     * answered, expired and revoked on its own — grouping is about the notice,
+     * not about the access. The 18+ gate is applied per comic exactly as the
+     * single-comic template applies it, so one explicit comic in a batch is
+     * announced without a title while the rest are named normally.
+     *
+     * @param list<PreparedInvitation> $prepared
+     */
+    private function sendGroupedInvitationEmail(array $prepared, User $owner): void
+    {
+        // One comic is not a group. Falling back keeps the ordinary case on the
+        // template that has always described it.
+        if (count($prepared) === 1) {
+            $only = $prepared[0];
+            $this->sendInvitationEmail($only->share, $only->comic, $owner, $only->plaintextToken);
+
+            return;
+        }
+
+        $ownerName = $owner->getName() ?: $owner->getEmail();
+        $recipient = $prepared[0]->share->getRecipientEmailNormalized();
+        $expiresAt = $prepared[0]->share->getExpiresAt();
+
+        $invitations = array_map(
+            function (PreparedInvitation $invitation): array {
+                $explicit = $invitation->comic->isExplicitContent();
+
+                return [
+                    // Withheld rather than rendered and hidden: an email is
+                    // previewed on lock screens and read by scanners, so an
+                    // explicit comic must not be named in one at all.
+                    'title' => $explicit ? null : $invitation->comic->getTitle(),
+                    'author' => $explicit ? null : $invitation->comic->getAuthor(),
+                    'explicitContent' => $explicit,
+                    'shareLink' => $this->invitationUrl($invitation->plaintextToken),
+                ];
+            },
+            $prepared
+        );
+
+        $body = $this->twig->render('emails/share_comics.html.twig', [
+            'invitations' => $invitations,
+            'comicCount' => count($invitations),
+            'explicitCount' => count(array_filter($invitations, static fn (array $i): bool => $i['explicitContent'])),
+            'userName' => $ownerName,
+            'privacyUrl' => $this->publicUrl->to('/privacy'),
+            'expiresAt' => $expiresAt,
+        ]);
+
+        $email = (new Email())
+            ->from(new Address($this->mailerFromAddress, $this->mailerFromName))
+            ->replyTo((string) $owner->getEmail())
+            ->to($recipient)
+            ->subject(sprintf('%s shared %d comics with you!', $ownerName, count($invitations)))
             ->html($body);
 
         $this->mailer->send($email);

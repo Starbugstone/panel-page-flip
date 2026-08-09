@@ -57,6 +57,8 @@ function ShareCover({ src, title, gated = false }) {
   if (!src) {
     return (
       <div className="flex h-24 w-16 flex-none items-center justify-center rounded bg-muted">
+        {/* No cover URL and none coming: for a gated share the server withheld
+            it, so this placeholder stands in rather than a blurred real one. */}
         {gated
           ? <ShieldAlert className="h-6 w-6 text-muted-foreground" />
           : <BookOpen className="h-6 w-6 text-muted-foreground" />}
@@ -81,18 +83,37 @@ export default function Sharing() {
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  // The share currently being acted on, not the action being taken. Accept and
+  // Decline are alternatives, as are Resend and Revoke, so keying this by
+  // action would leave the opposite button live and let two conflicting
+  // transitions be requested for one share at once.
   const [busyShareId, setBusyShareId] = useState(null);
+  // The two confirmation dialogs act on a comic or on the whole history rather
+  // than on one share, so they get their own flag instead of borrowing a share
+  // id.
   const [isDialogBusy, setIsDialogBusy] = useState(false);
+  // The multi-comic flow, or null when it is closed. Holds the recipient and
+  // comics it should open with, so "Share another comic" can arrive with the
+  // recipient already chosen.
   const [shareDialog, setShareDialog] = useState(null);
   const [inviteTarget, setInviteTarget] = useState(null);
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [stopSharingTarget, setStopSharingTarget] = useState(null);
+  // Controlled so a completed share can move the page to the half that now has
+  // something new on it. Answering an invitation is what most visits are for,
+  // so that stays the tab the page opens on.
+  const [activeTab, setActiveTab] = useState("with-me");
 
   const { invitations, collection, dead } = useMemo(
     () => groupReceivedShares(sharedWithMe),
     [sharedWithMe]
   );
 
+  /**
+   * Every action here changes what the collection contains, so the library is
+   * reloaded alongside the sharing lists. Without that, accepting an invitation
+   * would leave the dashboard showing a collection that predates it.
+   */
   const runAction = async (shareId, action, successMessage) => {
     setBusyShareId(shareId);
     try {
@@ -114,13 +135,31 @@ export default function Sharing() {
     }
   };
 
+  /**
+   * What both sharing flows do once invitations exist: the new relationships
+   * belong on **Shared by me**, and a comic that was not shared before now is.
+   * Deliberately not wrapped in a try — the dialog reports a refresh failure
+   * itself, and must not mistake one for a share that did not happen.
+   */
   const refreshAfterShare = async () => {
+    // Before the reload rather than after it, so a sender who started from the
+    // header is not left looking at "Shared with me" wondering whether anything
+    // happened — even if the refresh itself fails.
+    setActiveTab("by-me");
     await reload();
     await loadLibrary();
   };
 
   const cleanupCopy = describeDeadShareCleanup(dead.length);
 
+  /**
+   * The sender-side reminder.
+   *
+   * Informational only — the acknowledgement that actually goes on the record
+   * is the tick box in the share dialog, once per share. This is here so the
+   * expectation is visible while somebody is looking at what they have already
+   * handed out, not only at the moment they hand out the next one.
+   */
   const responsibilityReminder = (
     <Alert className="mb-4">
       <ShieldAlert className="h-5 w-5" />
@@ -202,6 +241,9 @@ export default function Sharing() {
                       key={recipient.id}
                       className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
                     >
+                      {/* Every share here belongs to a comic the owner still
+                          has — a deleted one leaves this list entirely — so the
+                          only state worth calling out is a lapsed invitation. */}
                       <div className="min-w-0">
                         <span className="block truncate text-sm">{recipient.recipientEmail}</span>
                         {recipient.status === SHARE_STATUS.PENDING && recipient.isExpired && (
@@ -269,6 +311,12 @@ export default function Sharing() {
     );
   };
 
+  /**
+   * Record the age declaration for one share and reload.
+   *
+   * The same endpoint the invitation page uses, because it is the same
+   * declaration: the gate follows the share, not the screen it is met on.
+   */
   const confirmAdult = (share) => runAction(
     share.id,
     () => api.post(`/api/shares/${share.id}/confirm-adult`, { adultConfirmed: true }),
@@ -346,6 +394,8 @@ export default function Sharing() {
                         Restore
                       </Button>
                     )}
+                    {/* A tombstone offers no way to read anything — there is
+                        nothing left behind it — only a way to clear the entry. */}
                     {share.isDead && (
                       <Button
                         size="sm"
@@ -413,6 +463,11 @@ export default function Sharing() {
                             {describeReceivedShare(share)}
                           </p>
                         </div>
+                        {/* The emailed link is not the only way in: somebody
+                            signed in and looking at their own invitation has
+                            already identified themselves. That still is not an
+                            age declaration, so an explicit invitation offers the
+                            gate here instead of Accept. */}
                         <div className="flex flex-none flex-col gap-2">
                           {gated ? (
                             <Button
@@ -512,7 +567,7 @@ export default function Sharing() {
           </AlertDescription>
         </Alert>
       ) : (
-        <Tabs defaultValue="with-me" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="with-me">
               Shared with me ({sharedWithMe.length})
@@ -526,6 +581,9 @@ export default function Sharing() {
         </Tabs>
       )}
 
+      {/* Mounted only while open, and keyed on what it opens with, so a dialog
+          started from a different recipient never inherits the previous
+          selection or a stale "already shared" marking. */}
       {shareDialog && (
         <ShareComicsDialog
           key={`${shareDialog.recipient}:${shareDialog.comicIds.join(",")}`}
@@ -538,6 +596,10 @@ export default function Sharing() {
         />
       )}
 
+      {/* Kept alongside the multi-comic flow rather than replaced by it: this
+          is the one-comic shortcut, and it is the only path that hands the
+          owner the copyable invitation link for when the email does not
+          arrive. */}
       {inviteTarget && (
         <ShareComicModal
           key={inviteTarget.id}

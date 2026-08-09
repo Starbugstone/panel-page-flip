@@ -21,6 +21,7 @@ import {
   SHARE_RESPONSIBILITY_ACK_LABEL,
   SHARE_RESPONSIBILITY_NOTICE,
   SHARE_STATUS,
+  buildInvitationRequest,
   isValidShareEmail,
 } from "@/lib/sharing";
 import { useToast } from "@/hooks/use-toast";
@@ -182,32 +183,39 @@ export function ShareComicsDialog({
       return;
     }
 
+    const recipient = recipientEmail.trim();
+
     setIsSending(true);
     setError(null);
 
     try {
       const data = await api.post("/api/shares/invitations/bulk", {
+        ...buildInvitationRequest({ email: recipient, responsibilityAccepted: true }),
         comicIds: selectedComicIds.map(Number),
-        email: recipientEmail.trim(),
-        senderResponsibilityAccepted: true,
       });
 
-      const created = Number(data.created || 0);
-      const total = Number(data.total || selectedComicIds.length);
-      const skipped = Math.max(0, total - created);
+      const results = Array.isArray(data.results) ? data.results : [];
+      const created = Number(data.created) || results.filter((r) => r.status === "created").length;
+      // Everything the server did not create, with the first reason it gave.
+      // Reporting these as "skipped" would tell somebody whose comic was
+      // refused that their share went through.
+      const refused = results.filter((result) => result.status !== "created");
+      const reason = refused.find((result) => result.message)?.message;
 
       if (created === 0) {
-        const message = data.results?.find((result) => result.message)?.message
-          || "No new invitations were created.";
-        setError(message);
+        setError(reason || "No new invitations were created.");
         return;
       }
 
       toast({
         title: created === 1 ? "Comic shared" : `${created} comics shared`,
-        description: skipped > 0
-          ? `${skipped} ${skipped === 1 ? "comic was" : "comics were"} skipped. Check the Sharing list for current access.`
-          : `Invitation${created === 1 ? "" : "s"} sent to ${recipientEmail.trim()}.`,
+        // One email, however many comics went into it — so this says what the
+        // recipient actually receives rather than implying a message each.
+        description: refused.length > 0
+          ? `One invitation email was sent to ${recipient}. `
+            + `${refused.length} ${refused.length === 1 ? "comic was" : "comics were"} left out`
+            + `${reason ? `: ${reason}` : "."}`
+          : `One invitation email was sent to ${recipient}.`,
       });
 
       try {
@@ -349,6 +357,8 @@ export function ShareComicsDialog({
                       type="button"
                       size="sm"
                       variant={normaliseEmail(recipientEmail) === normaliseEmail(recipient.email) ? "default" : "outline"}
+                      aria-pressed={normaliseEmail(recipientEmail) === normaliseEmail(recipient.email)}
+                      disabled={isSending}
                       onClick={() => setRecipientEmail(recipient.email)}
                     >
                       {recipient.email}
@@ -377,7 +387,8 @@ export function ShareComicsDialog({
                 <p className="text-sm text-muted-foreground">
                   {selectedComics.length === 0
                     ? "Select at least one comic above."
-                    : `${selectedComics.length} ${selectedComics.length === 1 ? "comic" : "comics"} will be offered to ${recipientEmail.trim() || "the recipient"}.`}
+                    : `${selectedComics.length} ${selectedComics.length === 1 ? "comic" : "comics"} will be offered to ${recipientEmail.trim() || "the recipient"} in one invitation email. `
+                      + "They must accept each one before they can read it, and you can withdraw any of them later."}
                 </p>
               </div>
 

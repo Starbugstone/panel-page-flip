@@ -14,11 +14,19 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
  *
  * This service deliberately does not search User. Reusable recipients come only
  * from addresses this owner previously supplied themselves, and bulk sharing is
- * only a coordinator around ComicShareService::invite().
+ * only the permission gate in front of ComicShareService::inviteMany().
  */
 final class SharingWorkflowService
 {
+    /**
+     * How many comics one bulk share may carry.
+     *
+     * A ceiling on the size of one invitation email rather than on how much
+     * mail can be sent — that is the `share_invitation` limiter's job, and a
+     * bulk share claims one allowance from it however many comics it carries.
+     */
     public const MAX_BULK_COMICS = 20;
+
     public const RECENT_RECIPIENT_LIMIT = 20;
 
     public function __construct(
@@ -64,16 +72,17 @@ final class SharingWorkflowService
     /**
      * Share several owned comics with one exact email address.
      *
-     * Every item goes through the normal invitation service. That intentionally
-     * means the existing rate limiter is consumed once per relationship and a
-     * bulk request cannot become an invitation-spam bypass.
-     *
-     * The first version also keeps the existing one-email-per-comic delivery.
-     * Grouped mail can be added later without changing the durable ComicShare
-     * model or weakening the explicit-content email redaction.
+     * This layer decides only what the caller is allowed to touch. Everything
+     * that follows — the duplicate rules, the acknowledgement, the tokens, the
+     * grouped email, the rate limiting and the audit records — belongs to
+     * {@see ComicShareService::inviteMany()}, so a bulk share cannot drift away
+     * from what a single invitation does.
      *
      * @param list<int> $comicIds
+     *
      * @return array{created: int, total: int, results: list<array<string, mixed>>}
+     *
+     * @throws ShareException when the whole request is refused
      */
     public function inviteMany(
         array $comicIds,
@@ -81,9 +90,9 @@ final class SharingWorkflowService
         string $recipientEmail,
         bool $senderResponsibilityAccepted
     ): array {
-        $ids = array_values(array_unique($comicIds));
+        $ids = array_values(array_unique(array_map('intval', $comicIds)));
+        $shareable = [];
         $results = [];
-        $created = 0;
 
         foreach ($ids as $comicId) {
             $comic = $this->entityManager->getRepository(Comic::class)->find($comicId);
@@ -92,51 +101,46 @@ final class SharingWorkflowService
             // The picker only sends owned ids, but a hand-written request must
             // not turn this endpoint into a comic-id discovery oracle.
             if (!$comic instanceof Comic || !$this->authorizationChecker->isGranted(ComicVoter::SHARE, $comic)) {
-                $results[] = [
-                    'comicId' => $comicId,
+                $results[$comicId] = [
                     'status' => 'not_available',
                     'message' => 'This comic is not available to share.',
                 ];
                 continue;
             }
 
-            try {
-                $invitation = $this->shareService->invite(
-                    $comic,
-                    $owner,
-                    $recipientEmail,
-                    $senderResponsibilityAccepted
-                );
+            $shareable[$comicId] = $comic;
+        }
 
+        if ($shareable !== []) {
+            $results += $this->shareService->inviteMany(
+                array_values($shareable),
+                $owner,
+                $recipientEmail,
+                $senderResponsibilityAccepted
+            );
+        }
+
+        // Reported in the order the caller asked, so the response lines up with
+        // the selection the sender is looking at.
+        $ordered = [];
+        $created = 0;
+        foreach ($ids as $comicId) {
+            $result = $results[$comicId] ?? [
+                'status' => 'failed',
+                'message' => 'This comic could not be shared.',
+            ];
+
+            if ($result['status'] === 'created') {
                 ++$created;
-                $results[] = [
-                    'comicId' => $comicId,
-                    'status' => 'created',
-                    'shareId' => $invitation->share->getId(),
-                ];
-            } catch (ShareException $exception) {
-                $status = match ($exception->getStatusCode()) {
-                    409 => 'skipped',
-                    429 => 'rate_limited',
-                    default => 'failed',
-                };
-
-                $result = [
-                    'comicId' => $comicId,
-                    'status' => $status,
-                    'message' => $exception->getMessage(),
-                ];
-                if ($exception->getErrorCode() !== null) {
-                    $result['code'] = $exception->getErrorCode();
-                }
-                $results[] = $result;
             }
+
+            $ordered[] = ['comicId' => $comicId] + $result;
         }
 
         return [
             'created' => $created,
             'total' => count($ids),
-            'results' => $results,
+            'results' => $ordered,
         ];
     }
 }

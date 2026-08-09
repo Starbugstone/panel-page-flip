@@ -115,6 +115,84 @@ describe("ShareComicsDialog", () => {
     ));
     await waitFor(() => expect(onShared).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
+    // One email, however many comics went into it — the wording must not
+    // promise the recipient a message each.
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "2 comics shared",
+      description: "One invitation email was sent to jane@example.com.",
+    }));
+  });
+
+  it("reports comics the server refused instead of calling them skipped", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    vi.mocked(api.post).mockResolvedValue({
+      created: 1,
+      total: 2,
+      results: [
+        { comicId: 1, status: "created" },
+        {
+          comicId: 2,
+          status: "skipped",
+          message: "An invitation is already pending for that person. Resend it instead.",
+        },
+      ],
+    });
+
+    render(
+      <ShareComicsDialog
+        isOpen
+        onClose={onClose}
+        initialRecipient="jane@example.com"
+        initialComicIds={[1, 2]}
+        sharedByMe={[]}
+        onShared={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await screen.findByRole("checkbox", { name: "Select Batman #1" });
+    await user.click(screen.getByRole("checkbox", { name: "I understand" }));
+    await user.click(screen.getByRole("button", { name: "Send 2 invitations" }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Comic shared",
+      description: expect.stringContaining("1 comic was left out: An invitation is already pending"),
+    })));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("keeps the dialog open and explains why when nothing was created", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    vi.mocked(api.post).mockResolvedValue({
+      created: 0,
+      total: 1,
+      results: [{
+        comicId: 1,
+        status: "skipped",
+        message: "This comic is already shared with that person.",
+      }],
+    });
+
+    render(
+      <ShareComicsDialog
+        isOpen
+        onClose={onClose}
+        initialRecipient="jane@example.com"
+        initialComicIds={[1]}
+        sharedByMe={[]}
+        onShared={vi.fn()}
+      />
+    );
+
+    await screen.findByRole("checkbox", { name: "Select Batman #1" });
+    await user.click(screen.getByRole("checkbox", { name: "I understand" }));
+    await user.click(screen.getByRole("button", { name: "Send invitation" }));
+
+    expect(await screen.findByText("This comic is already shared with that person."))
+      .toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it("closes after a successful share even if refreshing the sharing list fails", async () => {

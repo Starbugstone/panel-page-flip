@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Entity\ComicShare;
 use App\Entity\User;
+use App\Service\ShareException;
 use App\Service\SharingWorkflowService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -87,12 +88,20 @@ final class SharingWorkflowController extends AbstractController
             $comicIds[] = $comicId;
         }
 
-        $result = $this->workflow->inviteMany(
-            $comicIds,
-            $user,
-            $email,
-            true
-        );
+        try {
+            $result = $this->workflow->inviteMany(
+                $comicIds,
+                $user,
+                $email,
+                true
+            );
+        } catch (ShareException $exception) {
+            // The whole batch was refused before anything was created — an
+            // exhausted invitation allowance, or a recipient the sender may not
+            // invite. Reported as one failure with its real status rather than
+            // as a per-comic result, because nothing was attempted.
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
+        }
 
         $status = $result['created'] === $result['total']
             ? Response::HTTP_CREATED

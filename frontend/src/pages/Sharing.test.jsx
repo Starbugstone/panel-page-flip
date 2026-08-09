@@ -152,6 +152,48 @@ describe("Sharing page", () => {
     expect(screen.getByText("Hidden — explicit content (18+)")).toBeInTheDocument();
   });
 
+  it("offers to start a share without sending anyone back to their library", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    // On the header, so it is there before anything has ever been shared…
+    expect(screen.getByRole("button", { name: /^share comics$/i })).toBeInTheDocument();
+
+    // …and again in the empty state, which used to dead-end into /dashboard.
+    await openSharedByMe(user);
+    expect(screen.getAllByRole("button", { name: /^share comics$/i })).toHaveLength(2);
+    expect(screen.queryByRole("link", { name: /your library/i })).not.toBeInTheDocument();
+  });
+
+  it("preselects the recipient when sharing another comic with someone", async () => {
+    const user = userEvent.setup();
+    lists.sharedByMe = [{
+      comicId: 5,
+      title: "Sandman",
+      author: "Neil Gaiman",
+      coverImagePath: null,
+      explicitContent: false,
+      recipients: [{ id: 1, recipientEmail: "jane@example.com", status: "accepted" }],
+    }];
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (url === "/api/comics?ownership=mine") return Promise.resolve({ comics: [] });
+      if (url === "/api/shares/recent-recipients") return Promise.resolve({ recipients: [] });
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    renderPage();
+    await openSharedByMe(user);
+    await user.click(screen.getByRole("button", { name: /share another comic with jane@example.com/i }));
+
+    const email = await screen.findByLabelText(/recipient email/i);
+    expect(email).toHaveValue("jane@example.com");
+    // The picker asks for the caller's own comics and their own share history —
+    // never for a list of registered users.
+    expect(api.get).toHaveBeenCalledWith("/api/comics?ownership=mine");
+    expect(api.get).toHaveBeenCalledWith("/api/shares/recent-recipients");
+    expect(vi.mocked(api.get).mock.calls.every(([url]) => !url.startsWith("/api/users"))).toBe(true);
+  });
+
   it("leaves a non-explicit share entirely alone", () => {
     lists.sharedWithMe = [receivedShare({
       comicId: 5,

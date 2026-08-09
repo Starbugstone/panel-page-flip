@@ -41,8 +41,9 @@ This document provides detailed information for developers working on the projec
 - **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored. One link per invitation, good for a single claim within two months; accepting spends it and revokes every other token for that share, and resending mints a new one and retires the old link
 - **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
 - **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup
+- **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients` and `POST /api/shares/invitations/bulk` — the convenience layer behind the Sharing page's **Share comics** flow. Recipients come only from the caller's own share history and never from the user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
-- **Email Notifications**: One "Review invitation" link per email; the link only previews, because mail scanners follow links on the recipient's behalf
+- **Email Notifications**: One "Review invitation" link per invitation; the link only previews, because mail scanners follow links on the recipient's behalf. A bulk share sends one grouped email carrying a link per comic, so twenty comics are not twenty messages
 - **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered
 
 #### ✅ Dropbox Integration System
@@ -101,8 +102,9 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx` with chunked upload support, progress tracking, and tag management
 
 #### ✅ Comic Sharing
-- **Sharing Page**: `Sharing.jsx` at `/sharing`, with "Shared with me" and "Shared by me" tabs — the management surface for invitations, access and tombstones
-- **Share Comic Modal**: `ShareComicModal.jsx` invites a recipient and shows the invitation link once, since only its hash is stored
+- **Sharing Page**: `Sharing.jsx` at `/sharing` — where shares are both started and managed, with "Shared with me" and "Shared by me" tabs for invitations, access and tombstones
+- **Share Comics Dialog**: `ShareComicsDialog.jsx` is the multi-comic flow behind **Share comics** and **Share another comic** — an owned-only picker with search, previously used recipients, and one grouped invitation email per action. It lists no registered users and searches none
+- **Share Comic Modal**: `ShareComicModal.jsx` is the one-comic shortcut from a comic card, and the only path that shows the invitation link once, since only its hash is stored
 - **Invitation Preview**: `ShareInvitation.jsx` at `/share/invitation/:token` loads the invitation through a safe `GET` and only accepts or declines on a button press
 - **Pending Shares Alert**: `PendingSharesAlert.jsx`, now a one-line prompt on the dashboard rather than a card per invitation
 - **Sharing Hooks**: `use-sharing.jsx` — `SharingProvider` holds the pending count for the header badge and the dashboard alert; `useSharingLists` loads both halves of the Sharing page
@@ -253,6 +255,81 @@ by a write, and concurrent requests can all read the same figure and all decide
 they are under the limit. The allowance is claimed immediately before an
 invitation is issued, so a request rejected as a duplicate, by permissions, or
 by validation does not spend it.
+
+**One send is one claim.** The limiter counts messages, not relationships, so a
+bulk share of twenty comics costs the same one allowance as a single invitation —
+it is one email. That keeps what the limiter protects, how much mail one account
+can put in somebody's inbox, exactly where it was before bulk sharing existed.
+
+#### Starting a share from `/sharing`
+
+`/sharing` is the entry point for new shares as well as the management surface
+for existing ones. **Share comics** is on the page header and in the empty state,
+and each existing recipient has a **Share another comic** shortcut that opens the
+same dialog with the recipient already chosen.
+
+`ShareComicsDialog.jsx` picks owned comics (`GET /api/comics?ownership=mine`,
+filtered again on `canShare`), offers previously used recipients, and posts one
+request:
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/shares/recent-recipients` | up to 20 addresses this owner has shared with before, most recent first |
+| `POST /api/shares/invitations/bulk` | a per-comic result for up to 20 comics — `created`, `skipped`, `rate_limited`, `failed` or `not_available` |
+
+`SharingWorkflowService` is only the permission gate: it resolves each id, asks
+`ComicVoter::SHARE` about it, and hands what is left to
+`ComicShareService::inviteMany()`. So the duplicate rules, the acknowledgement,
+the tokens, the audit records and the rate limiting are the same code a single
+invitation runs, and a bulk share cannot grant access a single one would refuse.
+
+**Every comic still gets its own `ComicShare`**, its own token, its own status
+and its own revocation. What is shared across a batch is the notice and the
+allowance:
+
+- **One email.** `templates/emails/share_comics.html.twig` lists the comics with
+  a separate **Review invitation** link each, because each invitation is still
+  answered on its own. A batch of one falls back to the ordinary single-comic
+  template. The 18+ gate is applied per comic exactly as it is for a single
+  invitation, so an explicit comic in a batch is announced without its title
+- **All or nothing on the send.** The grouped email is the only notice the
+  recipient gets, so a failed send rolls every relationship in the batch back
+  rather than leaving invitations nobody will hear about
+- **A refused batch creates nothing.** An exhausted allowance, a missing
+  acknowledgement or an address the sender may not invite is answered as one
+  error with its real status, before any comic is touched
+
+A comic that is missing and a comic belonging to somebody else both come back as
+`not_available` with the same message. The picker only ever sends owned ids, but
+a hand-written request must not turn the endpoint into a comic-id oracle.
+
+### Privacy: registered users are never discoverable
+
+> Making sharing easier must never make registered users discoverable.
+
+This is a security requirement, not a UI choice — a frontend that declines to
+search is worthless if the API answers anyway.
+
+- There is **no normal-user endpoint** that searches or lists users by email,
+  username, display name, account id or any other identifier, and none may be
+  added. `/api/users` is admin-only and stays that way
+- **Recent recipients are not a user search.** The query reads `ComicShare` rows
+  whose `owner` is the caller and returns nothing but the normalised addresses
+  the caller typed in themselves. It never joins `User`, so it cannot say whether
+  an address has an account behind it
+- **Incoming shares are not a contact list.** Somebody sharing a comic with you
+  does not put their address in your recipient picker. The sender chose to reveal
+  it for that one invitation; inferring a reciprocal relationship from it would
+  disclose something the recipient was never entitled to
+- **Inviting reveals nothing either way.** The response for an address that
+  belongs to an account and one that does not is identical, so the invitation
+  endpoint cannot be used to enumerate accounts. The UI behaves the same in both
+  cases: the recipient may simply have to register before they can accept
+
+Private opaque **Sharing IDs** are a possible future phase. If they are built,
+they must stay an address-book identifier — high-entropy, revocable, rate limited
+on resolution, granting nothing on their own — and must never become a public
+searchable username.
 
 #### Answering
 1. The email carries a single **Review invitation** link, good for one claim
