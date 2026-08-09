@@ -82,7 +82,22 @@ function ShareComicModalForm({ isOpen, onClose, comicId, comicTitle, onShared })
         title: "Invitation sent",
         description: `${recipientEmail.trim()} has been invited to read “${comicTitle}”.`,
       });
-      onShared?.();
+
+      // In its own try, and awaited rather than left running: the invitation
+      // exists once the POST resolves, so a refresh that fails is a stale list
+      // to warn about — never a reason to tell the sender their share failed,
+      // and never an unhandled rejection nobody sees.
+      try {
+        await onShared?.();
+      } catch (refreshError) {
+        logger.error("Sharing data refresh failed:", refreshError);
+        toast({
+          title: "Invitation sent",
+          description: "The invitation was sent, but the Sharing list could not refresh. "
+            + "Reload the page to see the latest state.",
+          variant: "destructive",
+        });
+      }
     } catch (err) {
       const message = err.message || "The invitation could not be sent.";
       setError(message);

@@ -168,7 +168,8 @@ docker compose exec php php bin/console app:import-comics /path/to/comics user@e
 # Preview orphan cleanup without removing source files
 docker compose exec php php bin/console app:cleanup-comics --dry-run
 
-# Remove sharing invitations that expired unanswered
+# Remove sharing invitations that expired unanswered, and sharing codes that
+# have been dead for over a month
 docker compose exec php php bin/console app:cleanup-expired-shares
 
 # Clear the Symfony cache
@@ -176,6 +177,22 @@ docker compose exec php php bin/console cache:clear
 ```
 
 `app:cleanup-comics` moves orphaned files to recoverable quarantine storage. Run its dry-run mode first.
+
+### Scheduled maintenance
+
+Nothing in the application schedules itself. Retention periods in `.env.local`
+are **policy only** — they say how long something is kept, and a command has to
+run for anything to be deleted. A production instance needs these three:
+
+| Command | Cadence | If it never runs |
+|---|---|---|
+| `app:cleanup-logs` | daily | Log directories grow without limit; `*_LOG_RETENTION_DAYS` has no effect |
+| `app:cleanup-personal-data` | daily | Old audit rows, spent tokens, unverified accounts and uncollected export files are kept indefinitely |
+| `app:cleanup-expired-shares` | daily | Unanswered invitations keep the addresses of people who never had an account here, and dead sharing codes are never removed |
+
+`app:dropbox-sync` is additionally needed only if the instance uses Dropbox
+imports. Crontab examples, and how to check the schedule is actually firing, are
+in [SSH-deploy.md §7](SSH-deploy.md#7-background-jobs-cron--systemd-timers).
 
 ## Testing and quality checks
 

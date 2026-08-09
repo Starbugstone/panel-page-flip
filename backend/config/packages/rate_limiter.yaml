@@ -26,6 +26,34 @@ framework:
             policy: sliding_window
             limit: 10
             interval: '1 hour'
+        # Sharing codes are the only place an identifier somebody typed is
+        # turned into a person, so this is the only enumeration surface the
+        # sharing feature has. Charged per lookup that finds nothing, so
+        # pasting a code never meets it and grinding through candidates does.
+        # Sixty bits of entropy is what actually makes guessing hopeless; this
+        # is the ceiling that stops anybody trying at scale.
+        sharing_code_lookup:
+            policy: sliding_window
+            limit: 20
+            interval: '1 hour'
+        # Creating a claim code sends no mail, so the invitation limiter is the
+        # wrong control for it — but a code handed out ten times at a time is
+        # still access leaving the account, and it deserves a ceiling of its
+        # own. Redemption attempts that fail are charged against the lookup
+        # limiter above, for the same reason.
+        share_claim_code:
+            policy: sliding_window
+            limit: 10
+            interval: '1 hour'
+        # Replacing a receiver code is cheap for the account doing it and
+        # expensive for everybody holding the old one, so this is not about
+        # load — it is about a script or a stuck retry quietly making somebody
+        # uncontactable. Generous enough that a person who rotates, mistypes
+        # the new code to a friend and rotates again never notices it.
+        sharing_code_rotation:
+            policy: sliding_window
+            limit: 5
+            interval: '1 hour'
 
 when@test:
     framework:
@@ -37,4 +65,11 @@ when@test:
             forgot_password:
                 limit: 1000
             verification_resend:
+                limit: 1000
+            # Raised because the limiter is cache-backed while the database is
+            # rolled back between tests: user ids come round again and inherit
+            # an allowance a previous test spent. No test asserts this limit —
+            # the ones that do assert a limit are written to tolerate arriving
+            # at a key somebody else already used.
+            share_claim_code:
                 limit: 1000

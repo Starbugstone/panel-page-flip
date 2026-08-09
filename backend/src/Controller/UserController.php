@@ -9,6 +9,8 @@ use App\Service\AdminAuditService;
 use App\Service\PasswordValidator;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
+use App\Service\ShareException;
+use App\Service\SharingCodeService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -448,6 +450,53 @@ class UserController extends AbstractController
         }
 
         return $this->json(['message' => 'User deleted successfully']);
+    }
+
+    /**
+     * Replace a user's receiver sharing code on their behalf.
+     *
+     * Support's version of the button the user has on their own Sharing page,
+     * for when they report that the code has been posted somewhere they cannot
+     * take it back from. Nothing about the account changes but the identifier,
+     * and the shares made through the old code are untouched.
+     *
+     * The new code is deliberately not returned. An administrator has no reason
+     * to hold somebody's contact handle, and the user can read it off their own
+     * Sharing page the moment they look — which is also the only place it can
+     * reach them without passing through a support channel on the way.
+     */
+    #[Route('/{id}/sharing-code/rotate', name: 'rotate_sharing_code', methods: ['POST'])]
+    public function rotateSharingCode(
+        int $id,
+        EntityManagerInterface $entityManager,
+        AdminAuditService $auditService,
+        SharingCodeService $sharingCodes
+    ): JsonResponse {
+        $admin = $this->getUser();
+        if (!$admin instanceof User || !in_array('ROLE_ADMIN', $admin->getRoles(), true)) {
+            return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
+        }
+
+        $targetUser = $entityManager->getRepository(User::class)->find($id);
+        if (!$targetUser) {
+            return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        try {
+            // The service owns generation, uniqueness and the security record,
+            // so this path and the user's own cannot drift apart.
+            $sharingCodes->rotateCode($targetUser, $admin);
+        } catch (ShareException $exception) {
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
+        }
+
+        // Ids only in the administrative trail as well — neither the old code
+        // nor the new one is written down anywhere.
+        $auditService->log($admin, 'user_sharing_code_rotate', 'user', $targetUser->getId());
+
+        return $this->json([
+            'message' => 'Sharing code replaced. The user can see the new one on their Sharing page.',
+        ]);
     }
 
     #[Route('/{id}/verify', name: 'verify', methods: ['POST'])]

@@ -41,6 +41,29 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     private ?string $name = null;
 
     /**
+     * The address other people share with this account by.
+     *
+     * Not a credential and not a secret: it authenticates nobody, exposes
+     * nothing about the account beyond the display name somebody who already
+     * holds it is shown, and grants no access on its own. That is why it is
+     * stored in the clear where an invitation token is stored hashed — its
+     * owner has to be able to read it back and hand it out again.
+     *
+     * Stable, but not permanent. It is meant to be pasted into chats, forums
+     * and group threads, which is exactly the kind of place a thing escapes
+     * from — and an identifier its owner cannot retire after that is one they
+     * are stuck with. Rotation is theirs to trigger, and an administrator's on
+     * their behalf; nothing rotates it on its own, because everybody who was
+     * given the old one has to be told the new one.
+     *
+     * Nullable only so accounts that predate the column can be filled in on
+     * first use rather than in a migration that would have to invent one for
+     * every row at once.
+     */
+    #[ORM\Column(length: 16, unique: true, nullable: true)]
+    private ?string $sharingCode = null;
+
+    /**
      * @var list<string> The user roles
      */
     #[ORM\Column]
@@ -197,6 +220,45 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->name;
     }
     
+    public function getSharingCode(): ?string
+    {
+        return $this->sharingCode;
+    }
+
+    /**
+     * Give this account its first code, if it has none.
+     *
+     * Deliberately refuses to overwrite: issuing and rotating are different
+     * acts, and only one of them is allowed to retire an identifier other
+     * people are holding.
+     */
+    public function assignSharingCode(string $sharingCode): static
+    {
+        if ($this->sharingCode === null) {
+            $this->sharingCode = $sharingCode;
+        }
+
+        return $this;
+    }
+
+    /**
+     * Retire the current code and take a new one.
+     *
+     * The only path that replaces an existing code, and it exists so a code
+     * that has escaped further than its owner intended can be taken out of
+     * circulation. Nothing else about the account changes — least of all the
+     * shares already made through the old code, which are relationships and
+     * not addresses.
+     *
+     * @see \App\Service\SharingCodeService::rotateCode()
+     */
+    public function replaceSharingCode(string $sharingCode): static
+    {
+        $this->sharingCode = $sharingCode;
+
+        return $this;
+    }
+
     public function setName(?string $name): static
     {
         $this->name = $name;

@@ -512,15 +512,52 @@ intentionally move to containers.
 
 ## 7. Background jobs (cron / systemd timers)
 
-These unit/cron fragments are also **server-side examples** (not repo files).
-Install them on the host if you need the corresponding job.
+These unit/cron fragments are **server-side examples** (not repo files). Install
+them on the host if you need the corresponding job.
+
+### 7.0 What has to be scheduled, and what breaks if it is not
+
+Nothing in this application schedules itself. Retention periods configured in
+`.env.local` are **policy only** — the value says how long something is kept,
+and a command has to run for anything to actually be deleted. An instance with
+no cron keeps everything for ever and never notices.
+
+| Command | Suggested cadence | Required? | If it never runs |
+|---|---|---|---|
+| `app:cleanup-logs` | daily | **Yes** | `var/log/app`, `var/log/security` and `var/log/audit` grow without limit. `*_LOG_RETENTION_DAYS` has no effect |
+| `app:cleanup-personal-data` | daily | **Yes** | Audit rows past 12 months, spent verification and reset tokens, unverified accounts older than 30 days and pending export files are all kept indefinitely. This is a data-protection obligation, not housekeeping |
+| `app:cleanup-expired-shares` | daily | **Yes** | Unanswered invitations keep the email addresses of people who never had an account here. Dead sharing codes are never removed, so the admin table grows for ever |
+| `app:dropbox-sync` | every 2 hours | Only with Dropbox | Users import by hand from the Dropbox page. Nothing else is affected |
+| `app:cleanup-comics` | never | **No** | Nothing. It quarantines orphaned files and is a manual tool — run `--dry-run` first and look at the output |
+
+The three required jobs are all idempotent, cheap when there is nothing to do,
+and safe to run more often than suggested. Stagger them by a few minutes rather
+than starting them all on the hour.
+
+> **The sharing cleanup is the one with a visible product consequence.** Dead
+> sharing codes are deliberately kept for 30 days past expiry so their owner can
+> still see how many people took them up. Without the cron they are kept for
+> ever instead, which is a growing table rather than a correctness problem — but
+> the expired *invitations* it also removes hold recipient email addresses, and
+> those should not outlive the invitation. See
+> [DEV_README.md](DEV_README.md#sharing-codes).
+
+An administrator can run the sharing sweep by hand from **Admin → Sharing
+codes → Run cleanup**. That is a fallback for a broken or unconfigured cron, not
+a replacement for one: it runs the same service with the same rules, but only
+when somebody remembers to press it.
 
 ### 7.1 Dropbox sync (every 2 hours)
 
+Only needed if the instance uses Dropbox imports.
+
 ```cron
 # crontab -e for the deploy user
-0 */2 * * * cd /var/www/comics/backend && php bin/console app:sync-dropbox-comics --env=prod >> /var/log/comics-dropbox.log 2>&1
+0 */2 * * * cd /var/www/comics/backend && php bin/console app:dropbox-sync --env=prod >> /var/log/comics-dropbox.log 2>&1
 ```
+
+Add `--limit=<n>` to cap how many files each user imports per run, and
+`--dry-run` to see what a run would do without importing anything.
 
 ### 7.2 Symfony Messenger consumer (if you switch from sync to async)
 
@@ -584,10 +621,44 @@ The glob is deliberately not recursive, so it matches only the files directly in
 
 ### 7.4 Retention and privacy cleanups
 
+Both are required. Together with `app:cleanup-logs` above, these three lines are
+the whole of what this application needs scheduled:
+
 ```cron
-0 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-personal-data --env=prod >> /var/log/comics-cleanup.log 2>&1
-5 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-expired-shares --env=prod >> /var/log/comics-cleanup.log 2>&1
+# crontab -e for the deploy user
+0  3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-personal-data --env=prod >> /var/log/comics-cleanup.log 2>&1
+5  3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-expired-shares --env=prod >> /var/log/comics-cleanup.log 2>&1
+15 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-logs --env=prod >> /var/log/comics-cleanup.log 2>&1
 ```
+
+`app:cleanup-personal-data` removes audit rows past 12 months, spent email
+verification and password reset tokens, unverified accounts older than 30 days,
+and personal-data export files that were never collected.
+
+`app:cleanup-expired-shares` removes invitations that expired unanswered — they
+hold the address of somebody who may never have had an account here — and
+sharing codes that died more than 30 days ago. It never touches a live record,
+and never the comics somebody claimed through a code.
+
+Both print what they removed. They are quiet by design when there is nothing to
+do, so an empty log line is the normal case rather than a sign the job failed.
+
+#### Checking the schedule is actually working
+
+```sh
+# Every job the deploy user has
+crontab -l
+
+# What the last runs did
+tail -n 50 /var/log/comics-cleanup.log
+
+# Prove a command runs at all under the deploy user's environment
+cd /var/www/comics/backend && php bin/console app:cleanup-expired-shares --env=prod
+```
+
+The usual reason a cron entry silently does nothing is `php` not being on
+`PATH` for a non-login shell. Use an absolute interpreter path
+(`/usr/bin/php`) if `crontab -l` looks right but the log stays empty.
 
 ---
 

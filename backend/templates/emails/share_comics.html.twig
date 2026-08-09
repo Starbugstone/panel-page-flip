@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comic Sharing Invitations</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            color: #333333;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            padding-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #333333;
+        }
+        .content p {
+            line-height: 1.6;
+            margin: 10px 0;
+        }
+        .invitation {
+            border: 1px solid #e2e2e2;
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin: 12px 0;
+        }
+        .invitation-title {
+            font-weight: bold;
+            font-size: 16px;
+            margin: 0 0 4px 0;
+        }
+        .invitation-author {
+            color: #777777;
+            font-size: 13px;
+            margin: 0 0 10px 0;
+        }
+        .invitation-link {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .footer {
+            text-align: center;
+            font-size: 12px;
+            color: #777777;
+            margin-top: 20px;
+        }
+        .highlight {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>You've Been Invited to Read {{ comicCount }} Comics!</h1>
+        </div>
+        <div class="content">
+            <p>Hi there,</p>
+            <p>
+                <span class="highlight">{{ userName|e }}</span> would like to share
+                <span class="highlight">{{ comicCount }} comics</span> with you.
+            </p>
+            {% if explicitCount > 0 %}
+                <p class="highlight">
+                    {{ explicitCount }} of them {{ explicitCount == 1 ? 'has' : 'have' }} been marked as
+                    containing explicit adult content (18+). You will be asked to confirm that you are
+                    18 or older before any details of {{ explicitCount == 1 ? 'that comic' : 'those comics' }}
+                    are shown to you.
+                </p>
+            {% endif %}
+            {# Each comic keeps its own link because each invitation is still
+               answered on its own: accepting one says nothing about the rest,
+               and the sender can withdraw any of them separately. The links only
+               ever open a preview — mail scanners and link-preview services
+               follow links without a person behind them, so nothing here may
+               accept or decline on the recipient's behalf. #}
+            <p>Each link below shows you what is being shared. Nothing is added to your account until you choose to accept it.</p>
+
+            {% for invitation in invitations %}
+                <div class="invitation">
+                    {# An explicit comic is not named here. The email is the one
+                       place the recipient cannot choose to open: it is previewed
+                       on lock screens and read by scanners, so the title stays
+                       behind the age gate along with everything else that
+                       identifies the comic. #}
+                    {% if invitation.explicitContent %}
+                        <p class="invitation-title">A comic marked as explicit content (18+)</p>
+                        <p class="invitation-author">Details are hidden until you confirm your age.</p>
+                    {% else %}
+                        <p class="invitation-title">{{ invitation.title|e }}</p>
+                        {% if invitation.author %}
+                            <p class="invitation-author">{{ invitation.author|e }}</p>
+                        {% endif %}
+                    {% endif %}
+                    <a href="{{ invitation.shareLink|e('html_attr') }}" class="invitation-link" style="color: #ffffff;">Review invitation</a>
+                </div>
+            {% endfor %}
+
+            <p>
+                To accept, you'll need to log in or create an account on
+                <span class="highlight">Comic Share Platform</span>.
+            </p>
+            <p>
+                The comics stay owned by {{ userName|e }}. You will be able to read them
+                for as long as they keep sharing them, and any of them may become
+                unavailable if they stop sharing or remove it.
+            </p>
+            <p>
+                These invitation links will expire on <span class="highlight">{{ expiresAt|date("F j, Y") }}</span>.
+            </p>
+            <p>
+                You received this email because {{ userName|e }} entered your address
+                to share these comics. If you do not know the sender or do not want the
+                invitations, you can ignore this email; no account will be created for you.
+            </p>
+            <p>Happy reading!</p>
+        </div>
+        <div class="footer">
+            <p>&copy; {{ "now"|date("Y") }} Comic Share Platform. All rights reserved.</p>
+            <p><a href="{{ privacyUrl|e('html_attr') }}">Privacy information</a></p>
+        </div>
+    </div>
+</body>
+</html>
