@@ -45,6 +45,11 @@ class SecurityAuditLogger
     public const INTEGRATION_TOKEN_REJECTED = 'security.integration.token.rejected';
     public const ADULT_GATE_BYPASS_ATTEMPT = 'security.share.adult_gate_bypass_attempt';
     public const SHARE_WRONG_RECIPIENT = 'security.share.wrong_recipient';
+    // Sharing codes are the only surface that turns an identifier somebody
+    // typed into a person, so they are the only place worth watching for
+    // somebody working through the keyspace rather than pasting a code.
+    public const SHARING_CODE_ENUMERATION_ATTEMPT = 'security.share.sharing_code_enumeration_attempt';
+    public const SHARE_CLAIM_CODE_REJECTED = 'security.share.claim_code_rejected';
     public const DATA_INTEGRITY_FAILURE = 'security.data_integrity.failure';
     // The alarm raised by a sweep large enough to look like a compromised
     // account. Its own name rather than the audit event below reused: the two
@@ -77,6 +82,9 @@ class SecurityAuditLogger
     // that commit — where the deletion events above already carry the count of
     // recipients who lost access.
     public const SHARES_CLEARED = 'audit.share.dead_records_cleared';
+    public const SHARE_CLAIM_CODE_CREATED = 'audit.share.claim_code_created';
+    public const SHARE_CLAIM_CODE_REDEEMED = 'audit.share.claim_code_redeemed';
+    public const SHARE_CLAIM_CODE_REVOKED = 'audit.share.claim_code_revoked';
     public const INTEGRATION_DISCONNECTED = 'audit.integration.disconnected';
     public const STORAGE_ORPHAN_QUARANTINE = 'audit.storage.orphan_quarantine';
     public const RETENTION_CLEANUP = 'audit.retention.cleanup';

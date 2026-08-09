@@ -41,6 +41,29 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     private ?string $name = null;
 
     /**
+     * The permanent address other people share with this account by.
+     *
+     * Not a credential and not a secret: it authenticates nobody, exposes
+     * nothing about the account beyond the display name somebody who already
+     * holds it is shown, and grants no access on its own. That is why it is
+     * stored in the clear where an invitation token is stored hashed — its
+     * owner has to be able to read it back and hand it out again.
+     *
+     * It never changes, and nothing in the application offers to change it. An
+     * address book entry that rotates is an address book entry that stops
+     * working in every conversation it was ever pasted into. What it costs is
+     * that a leaked code cannot be retired, so it is deliberately incapable of
+     * doing anything worse than letting a stranger offer you a comic you can
+     * decline.
+     *
+     * Nullable only so accounts that predate the column can be filled in on
+     * first use rather than in a migration that would have to invent one for
+     * every row at once.
+     */
+    #[ORM\Column(length: 16, unique: true, nullable: true)]
+    private ?string $sharingCode = null;
+
+    /**
      * @var list<string> The user roles
      */
     #[ORM\Column]
@@ -197,6 +220,27 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->name;
     }
     
+    public function getSharingCode(): ?string
+    {
+        return $this->sharingCode;
+    }
+
+    /**
+     * Set once, by {@see \App\Service\SharingCodeService}, and never again.
+     *
+     * There is no path that rewrites an existing code — not an admin screen,
+     * not a profile edit — because everybody who was ever given it is holding
+     * the old one.
+     */
+    public function assignSharingCode(string $sharingCode): static
+    {
+        if ($this->sharingCode === null) {
+            $this->sharingCode = $sharingCode;
+        }
+
+        return $this;
+    }
+
     public function setName(?string $name): static
     {
         $this->name = $name;

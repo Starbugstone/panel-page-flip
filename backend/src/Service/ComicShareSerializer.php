@@ -46,9 +46,26 @@ class ComicShareSerializer
         // Never redacted. The owner classified the comic, and owns the file; an
         // age gate protects a recipient from content they have not agreed to
         // see, not a person from their own library.
+        // The one thing an owner is not always shown. When the sender reached
+        // this person through their receiver code, the whole point was that the
+        // address never crossed over — so handing it back on the page that
+        // lists what they shared would undo the feature entirely. They get the
+        // name and the code instead, which is exactly what they were given.
+        $hidden = $share->isRecipientAddressHiddenFromOwner();
+
         return $this->common($share, false) + [
-            'recipientEmail' => $share->getRecipientEmailNormalized(),
-            'recipientName' => $share->getRecipientUser()?->getName(),
+            'recipientEmail' => $hidden ? null : $share->getRecipientEmailNormalized(),
+            // Grouped, because that is the only form a code is ever shown in
+            // and the sender will be pasting it back into the share dialog.
+            'recipientSharingCode' => $share->getRecipientSharingCode() === null
+                ? null
+                : SharingCodeFormat::forDisplay($share->getRecipientSharingCode()),
+            'recipientLabel' => $hidden
+                ? ($share->getRecipientAliasName() ?: 'Shared by code')
+                : $share->getRecipientEmailNormalized(),
+            'recipientName' => $hidden
+                ? $share->getRecipientAliasName()
+                : $share->getRecipientUser()?->getName(),
             // Resending only makes sense while the recipient still has a choice
             // to make and there is still a comic behind the invitation.
             'canResend' => !$share->isTombstoned()

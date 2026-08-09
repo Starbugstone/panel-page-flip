@@ -43,7 +43,10 @@ final class SharingWorkflowService
      * previously entered, never whether an address belongs to a registered
      * account or anything about that account.
      *
-     * @return list<array{email: string}>
+     * Recipients reached by receiver code are listed too, but by their code and
+     * name — never by the address the sender was deliberately not given.
+     *
+     * @return list<array{email: string|null, sharingCode: string|null, name: string|null, label: string}>
      */
     public function recentRecipients(User $owner, int $limit = self::RECENT_RECIPIENT_LIMIT): array
     {
@@ -51,20 +54,43 @@ final class SharingWorkflowService
 
         $rows = $this->entityManager->createQueryBuilder()
             ->select('s.recipientEmailNormalized AS email')
+            ->addSelect('s.recipientSharingCode AS sharingCode')
+            ->addSelect('s.recipientAliasName AS name')
             ->addSelect('MAX(s.id) AS HIDDEN lastShareId')
             ->from(ComicShare::class, 's')
             ->andWhere('s.owner = :owner')
             ->andWhere('s.recipientEmailNormalized <> :empty')
             ->setParameter('owner', $owner)
             ->setParameter('empty', '')
+            // Grouped by all three so a person the owner has reached both ways
+            // appears once per way of reaching them, rather than one entry
+            // silently carrying the other's label.
             ->groupBy('s.recipientEmailNormalized')
+            ->addGroupBy('s.recipientSharingCode')
+            ->addGroupBy('s.recipientAliasName')
             ->orderBy('lastShareId', 'DESC')
             ->setMaxResults($safeLimit)
             ->getQuery()
             ->getArrayResult();
 
         return array_map(
-            static fn (array $row): array => ['email' => (string) $row['email']],
+            static function (array $row): array {
+                $sharingCode = $row['sharingCode'] === null ? null : (string) $row['sharingCode'];
+                $name = $row['name'] === null ? null : (string) $row['name'];
+
+                return [
+                    // Withheld for a code recipient, so the picker cannot put
+                    // back on screen the address the sender never learned.
+                    'email' => $sharingCode === null ? (string) $row['email'] : null,
+                    'sharingCode' => $sharingCode === null
+                        ? null
+                        : SharingCodeFormat::forDisplay($sharingCode),
+                    'name' => $name,
+                    'label' => $sharingCode === null
+                        ? (string) $row['email']
+                        : ($name ?: SharingCodeFormat::forDisplay($sharingCode)),
+                ];
+            },
             $rows
         );
     }
@@ -88,7 +114,8 @@ final class SharingWorkflowService
         array $comicIds,
         User $owner,
         string $recipientEmail,
-        bool $senderResponsibilityAccepted
+        bool $senderResponsibilityAccepted,
+        ?SharingCodeRecipient $viaSharingCode = null
     ): array {
         $ids = array_values(array_unique(array_map('intval', $comicIds)));
         $shareable = [];
@@ -116,7 +143,8 @@ final class SharingWorkflowService
                 array_values($shareable),
                 $owner,
                 $recipientEmail,
-                $senderResponsibilityAccepted
+                $senderResponsibilityAccepted,
+                $viaSharingCode
             );
         }
 

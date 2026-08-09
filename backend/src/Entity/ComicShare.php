@@ -112,6 +112,25 @@ class ComicShare
     private string $ownerNameSnapshot = '';
 
     /**
+     * Set when the sender reached this recipient through their receiver code
+     * rather than by typing their address.
+     *
+     * The point of a receiver code is that the sender never learns the address,
+     * so the address they never learned must not be handed back to them by the
+     * page that lists what they shared. These two carry what the owner is shown
+     * instead: the recipient's name as it was, and the code they can use to
+     * offer them something else.
+     *
+     * Both null for an ordinary email invitation, where the sender typed the
+     * address themselves and there is nothing to withhold.
+     */
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $recipientAliasName = null;
+
+    #[ORM\Column(length: 16, nullable: true)]
+    private ?string $recipientSharingCode = null;
+
+    /**
      * Whether the comic was marked explicit when the snapshots were last taken.
      *
      * Kept alongside the title snapshot because a tombstone outlives the comic
@@ -196,6 +215,36 @@ class ComicShare
     public function getId(): ?int
     {
         return $this->id;
+    }
+
+    /**
+     * Record that this relationship was made through a receiver code.
+     *
+     * Called with the recipient's own name and code, both of which they published
+     * by handing the code out. Nothing else about them crosses over.
+     */
+    public function hideRecipientBehindSharingCode(string $sharingCode, ?string $recipientName): self
+    {
+        $this->recipientSharingCode = $sharingCode;
+        $this->recipientAliasName = $recipientName;
+
+        return $this;
+    }
+
+    /** Whether the owner may be shown this recipient's address. */
+    public function isRecipientAddressHiddenFromOwner(): bool
+    {
+        return $this->recipientSharingCode !== null;
+    }
+
+    public function getRecipientAliasName(): ?string
+    {
+        return $this->recipientAliasName;
+    }
+
+    public function getRecipientSharingCode(): ?string
+    {
+        return $this->recipientSharingCode;
     }
 
     public function getComic(): ?Comic

@@ -142,7 +142,8 @@ class ComicShareService
         array $comics,
         User $owner,
         string $recipientEmail,
-        bool $senderResponsibilityAccepted
+        bool $senderResponsibilityAccepted,
+        ?SharingCodeRecipient $viaSharingCode = null
     ): array {
         $this->assertSenderResponsibility($senderResponsibilityAccepted);
         $email = $this->assertInvitableRecipient($owner, $recipientEmail);
@@ -172,6 +173,17 @@ class ComicShareService
         $prepared = [];
         foreach ($invitable as $comicId => [$comic, $reusable]) {
             $prepared[$comicId] = $this->openInvitation($reusable, $comic, $owner, $email);
+
+            // The sender reached this person through their receiver code and
+            // never saw the address, so the record carries what the sender may
+            // be shown in its place — and the owner-facing serializer reads
+            // that instead of the address from here on.
+            if ($viaSharingCode !== null) {
+                $prepared[$comicId]->share->hideRecipientBehindSharingCode(
+                    $viaSharingCode->sharingCode,
+                    $viaSharingCode->name
+                );
+            }
         }
 
         try {

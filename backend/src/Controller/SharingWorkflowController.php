@@ -5,6 +5,8 @@ namespace App\Controller;
 use App\Entity\ComicShare;
 use App\Entity\User;
 use App\Service\ShareException;
+use App\Service\SharingCodeRecipient;
+use App\Service\SharingCodeService;
 use App\Service\SharingWorkflowService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -16,8 +18,10 @@ use Symfony\Component\Security\Http\Attribute\CurrentUser;
 #[Route('/api/shares')]
 final class SharingWorkflowController extends AbstractController
 {
-    public function __construct(private readonly SharingWorkflowService $workflow)
-    {
+    public function __construct(
+        private readonly SharingWorkflowService $workflow,
+        private readonly SharingCodeService $sharingCodes,
+    ) {
     }
 
     #[Route('/recent-recipients', name: 'app_shares_recent_recipients', methods: ['GET'])]
@@ -30,6 +34,70 @@ final class SharingWorkflowController extends AbstractController
         return $this->json([
             'recipients' => $this->workflow->recentRecipients($user),
         ]);
+    }
+
+    /**
+     * This account's own receiver code, issued on first use.
+     *
+     * Reads back the same value for ever after. There is no companion endpoint
+     * that changes it: everybody who was ever given it is holding the old one,
+     * and an address book entry that rotates is one that stops working in every
+     * conversation it was pasted into.
+     */
+    #[Route('/my-code', name: 'app_shares_my_code', methods: ['GET'])]
+    public function myCode(#[CurrentUser] ?User $user): JsonResponse
+    {
+        if (!$user) {
+            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        try {
+            $this->sharingCodes->codeFor($user);
+        } catch (ShareException $exception) {
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
+        }
+
+        return $this->json($this->sharingCodes->describe($user));
+    }
+
+    /**
+     * Who a receiver code belongs to, so a sender can check they have the right
+     * person before handing anything over.
+     *
+     * A POST because it is rate limited and writes to that allowance, and
+     * because a code does not belong in a URL that ends up in logs and history.
+     * It answers with a display name and nothing else — never an address, an id,
+     * or whether the account exists when the code does not resolve.
+     */
+    #[Route('/resolve-code', name: 'app_shares_resolve_code', methods: ['POST'])]
+    public function resolveCode(Request $request, #[CurrentUser] ?User $user): JsonResponse
+    {
+        if (!$user) {
+            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $data = json_decode($request->getContent(), true);
+        $code = is_array($data) ? ($data['sharingCode'] ?? null) : null;
+
+        if (!is_string($code)) {
+            return $this->json(['message' => 'A sharing code is required.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $recipient = $this->sharingCodes->resolve($code, $user);
+        } catch (ShareException $exception) {
+            return $this->json($exception->toPayload(), $exception->getStatusCode());
+        }
+
+        if ($recipient === null) {
+            return $this->json(['message' => 'That sharing code is not valid.'], Response::HTTP_NOT_FOUND);
+        }
+
+        if ($recipient->getId() === $user->getId()) {
+            return $this->json(['message' => 'That is your own sharing code.'], Response::HTTP_CONFLICT);
+        }
+
+        return $this->json(['recipient' => $this->sharingCodes->describe($recipient)]);
     }
 
     #[Route('/invitations/bulk', name: 'app_shares_bulk_invite', methods: ['POST'])]
@@ -50,13 +118,39 @@ final class SharingWorkflowController extends AbstractController
             ], Response::HTTP_BAD_REQUEST);
         }
 
-        $email = $data['email'] ?? null;
-        if (!is_string($email)) {
-            return $this->json(['message' => 'A recipient email address is required.'], Response::HTTP_BAD_REQUEST);
-        }
-        $email = ComicShare::normaliseEmail($email);
-        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            return $this->json(['message' => 'A valid recipient email address is required.'], Response::HTTP_BAD_REQUEST);
+        // Two ways to name a recipient, and exactly one of them per request. A
+        // sharing code resolves to an address the sender is never shown; an
+        // email is the address they typed themselves.
+        $rawSharingCode = $data['sharingCode'] ?? null;
+        $viaSharingCode = null;
+
+        if (is_string($rawSharingCode) && trim($rawSharingCode) !== '') {
+            try {
+                $recipient = $this->sharingCodes->resolve($rawSharingCode, $user);
+            } catch (ShareException $exception) {
+                return $this->json($exception->toPayload(), $exception->getStatusCode());
+            }
+
+            if ($recipient === null) {
+                return $this->json([
+                    'message' => 'That sharing code is not valid.',
+                ], Response::HTTP_NOT_FOUND);
+            }
+
+            $email = ComicShare::normaliseEmail((string) $recipient->getEmail());
+            $viaSharingCode = new SharingCodeRecipient(
+                (string) $recipient->getSharingCode(),
+                $recipient->getName()
+            );
+        } else {
+            $email = $data['email'] ?? null;
+            if (!is_string($email)) {
+                return $this->json(['message' => 'A recipient email address is required.'], Response::HTTP_BAD_REQUEST);
+            }
+            $email = ComicShare::normaliseEmail($email);
+            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return $this->json(['message' => 'A valid recipient email address is required.'], Response::HTTP_BAD_REQUEST);
+            }
         }
 
         $rawComicIds = $data['comicIds'] ?? null;
@@ -93,7 +187,8 @@ final class SharingWorkflowController extends AbstractController
                 $comicIds,
                 $user,
                 $email,
-                true
+                true,
+                $viaSharingCode
             );
         } catch (ShareException $exception) {
             // The whole batch was refused before anything was created — an

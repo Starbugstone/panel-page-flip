@@ -26,6 +26,25 @@ framework:
             policy: sliding_window
             limit: 10
             interval: '1 hour'
+        # Sharing codes are the only place an identifier somebody typed is
+        # turned into a person, so this is the only enumeration surface the
+        # sharing feature has. Charged per lookup that finds nothing, so
+        # pasting a code never meets it and grinding through candidates does.
+        # Sixty bits of entropy is what actually makes guessing hopeless; this
+        # is the ceiling that stops anybody trying at scale.
+        sharing_code_lookup:
+            policy: sliding_window
+            limit: 20
+            interval: '1 hour'
+        # Creating a claim code sends no mail, so the invitation limiter is the
+        # wrong control for it — but a code handed out ten times at a time is
+        # still access leaving the account, and it deserves a ceiling of its
+        # own. Redemption attempts that fail are charged against the lookup
+        # limiter above, for the same reason.
+        share_claim_code:
+            policy: sliding_window
+            limit: 10
+            interval: '1 hour'
 
 when@test:
     framework:
