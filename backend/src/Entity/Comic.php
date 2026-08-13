@@ -3,6 +3,8 @@
 namespace App\Entity;
 
 use App\Enum\ComicSourceType;
+use App\Enum\ReadingDirection;
+use App\Metadata\ComicPageInfo;
 use App\Repository\ComicRepository;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
@@ -12,6 +14,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: ComicRepository::class)]
 #[ORM\Index(name: 'IDX_comic_owner_dropbox_path', columns: ['owner_id', 'dropbox_path'])]
+#[ORM\Index(name: 'IDX_comic_owner_series', columns: ['owner_id', 'series'])]
 #[ORM\HasLifecycleCallbacks]
 class Comic
 {
@@ -64,6 +67,49 @@ class Comic
     
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $publisher = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $series = null;
+
+    /** A string, not a number: "1.5", "0", and "Annual 2" are all real issue numbers. */
+    #[ORM\Column(length: 50, nullable: true)]
+    private ?string $issueNumber = null;
+
+    #[ORM\Column(type: Types::INTEGER, nullable: true)]
+    private ?int $issueCount = null;
+
+    #[ORM\Column(type: Types::INTEGER, nullable: true)]
+    private ?int $volume = null;
+
+    #[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $publishedAt = null;
+
+    #[ORM\Column(length: 16, nullable: true)]
+    private ?string $languageCode = null;
+
+    #[ORM\Column(length: 32, nullable: true)]
+    private ?string $ageRating = null;
+
+    /**
+     * What the file says about its own reading order. The reader's own persisted
+     * settings stay authoritative; this is the per-comic default they start from.
+     */
+    #[ORM\Column(enumType: ReadingDirection::class, options: ['default' => 'ltr'])]
+    private ReadingDirection $readingDirection = ReadingDirection::LeftToRight;
+
+    /** @var array<string, list<string>>|null role => names */
+    #[ORM\Column(type: Types::JSON, nullable: true)]
+    private ?array $creators = null;
+
+    /**
+     * Per-page facts known without decoding the images: page type, double-page
+     * flags and dimensions. Stored whole because every consumer wants the whole
+     * set at once, and queried through getPageInfo().
+     *
+     * @var list<array<string, mixed>>|null
+     */
+    #[ORM\Column(type: Types::JSON, nullable: true)]
+    private ?array $pageMetadata = null;
 
     /**
      * Source path in the owner's Dropbox, set only for comics pulled in by the
@@ -261,6 +307,153 @@ class Comic
         $this->publisher = $publisher;
 
         return $this;
+    }
+
+    public function getSeries(): ?string
+    {
+        return $this->series;
+    }
+
+    public function setSeries(?string $series): static
+    {
+        $this->series = $series;
+
+        return $this;
+    }
+
+    public function getIssueNumber(): ?string
+    {
+        return $this->issueNumber;
+    }
+
+    public function setIssueNumber(?string $issueNumber): static
+    {
+        $this->issueNumber = $issueNumber;
+
+        return $this;
+    }
+
+    public function getIssueCount(): ?int
+    {
+        return $this->issueCount;
+    }
+
+    public function setIssueCount(?int $issueCount): static
+    {
+        $this->issueCount = $issueCount;
+
+        return $this;
+    }
+
+    public function getVolume(): ?int
+    {
+        return $this->volume;
+    }
+
+    public function setVolume(?int $volume): static
+    {
+        $this->volume = $volume;
+
+        return $this;
+    }
+
+    public function getPublishedAt(): ?\DateTimeImmutable
+    {
+        return $this->publishedAt;
+    }
+
+    public function setPublishedAt(?\DateTimeImmutable $publishedAt): static
+    {
+        $this->publishedAt = $publishedAt;
+
+        return $this;
+    }
+
+    public function getLanguageCode(): ?string
+    {
+        return $this->languageCode;
+    }
+
+    public function setLanguageCode(?string $languageCode): static
+    {
+        $this->languageCode = $languageCode;
+
+        return $this;
+    }
+
+    public function getAgeRating(): ?string
+    {
+        return $this->ageRating;
+    }
+
+    public function setAgeRating(?string $ageRating): static
+    {
+        $this->ageRating = $ageRating;
+
+        return $this;
+    }
+
+    public function getReadingDirection(): ReadingDirection
+    {
+        return $this->readingDirection;
+    }
+
+    public function setReadingDirection(ReadingDirection $readingDirection): static
+    {
+        $this->readingDirection = $readingDirection;
+
+        return $this;
+    }
+
+    /** @return array<string, list<string>> */
+    public function getCreators(): array
+    {
+        return $this->creators ?? [];
+    }
+
+    /** @param array<string, list<string>> $creators */
+    public function setCreators(array $creators): static
+    {
+        $this->creators = $creators === [] ? null : $creators;
+
+        return $this;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function getPageMetadata(): array
+    {
+        return $this->pageMetadata ?? [];
+    }
+
+    /** @param list<array<string, mixed>> $pageMetadata */
+    public function setPageMetadata(array $pageMetadata): static
+    {
+        $this->pageMetadata = $pageMetadata === [] ? null : $pageMetadata;
+
+        return $this;
+    }
+
+    /**
+     * Page facts keyed by 1-based page number.
+     *
+     * This is what spread pairing and page-derivative work read; stored values
+     * are normalised on the way out, so data written by an older version cannot
+     * reach a consumer in a shape it does not expect.
+     *
+     * @return array<int, ComicPageInfo>
+     */
+    public function getPageInfo(): array
+    {
+        $info = [];
+
+        foreach ($this->getPageMetadata() as $stored) {
+            $page = is_array($stored) ? ComicPageInfo::fromArray($stored) : null;
+            if ($page !== null) {
+                $info[$page->page] = $page;
+            }
+        }
+
+        return $info;
     }
 
     public function getDropboxPath(): ?string

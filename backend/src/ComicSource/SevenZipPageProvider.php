@@ -7,7 +7,7 @@ use Symfony\Component\Process\Process;
 use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\Cache\ItemInterface;
 
-final class SevenZipPageProvider implements ComicPageProviderInterface
+final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInfoSourceInterface
 {
     private const TIMEOUT = 20.0;
     /** @var array<string, list<string>> */ private array $indexes = [];
@@ -41,8 +41,38 @@ final class SevenZipPageProvider implements ComicPageProviderInterface
         });
     }
 
-    /** @return list<string> */
-    private function buildIndex(string $path, ComicSourceType $type): array
+    public function readComicInfoXml(string $sourcePath, ComicSourceType $type): ?string
+    {
+        try {
+            $entry = $this->comicInfoEntry($this->listing($sourcePath, $type));
+        } catch (\RuntimeException) {
+            return null;
+        }
+
+        if ($entry === null) return null;
+
+        $process = new Process(['7z', 'x', '-so', '-spd', '--', $sourcePath, $entry]);
+        $process->setTimeout(self::TIMEOUT); $process->setInput(null); $process->run();
+        if (!$process->isSuccessful()) return null;
+
+        $xml = $process->getOutput();
+
+        return $xml === '' || strlen($xml) > ComicSourceLimits::MAX_METADATA_BYTES ? null : $xml;
+    }
+
+    private function comicInfoEntry(string $listing): ?string
+    {
+        foreach (preg_split('/\R/', $listing) ?: [] as $line) {
+            if (!str_starts_with($line, 'Path = ')) continue;
+            $path = substr($line, 7);
+            if (ZipPageProvider::isComicInfoEntry($path)) return $path;
+        }
+
+        return null;
+    }
+
+    /** Raw `7z l -slt` output, once the archive is confirmed to match its extension. */
+    private function listing(string $path, ComicSourceType $type): string
     {
         $process = new Process(['7z', 'l', '-slt', '--', $path]); $process->setTimeout(self::TIMEOUT); $process->run();
         if (!$process->isSuccessful()) {
@@ -58,8 +88,16 @@ final class SevenZipPageProvider implements ComicPageProviderInterface
         $actual = strtolower($format[1]);
         $expected = match ($type) { ComicSourceType::CBR => ['rar', 'rar5'], ComicSourceType::CB7 => ['7z'], ComicSourceType::CBT => ['tar'], default => [] };
         if (!in_array($actual, $expected, true)) throw new \RuntimeException('Archive content does not match its extension.');
+
+        return $process->getOutput();
+    }
+
+    /** @return list<string> */
+    private function buildIndex(string $path, ComicSourceType $type): array
+    {
+        $listing = $this->listing($path, $type);
         $pages = []; $entries = 0; $total = 0; $currentPath = null; $inEntries = false;
-        foreach (preg_split('/\R/', $process->getOutput()) ?: [] as $line) {
+        foreach (preg_split('/\R/', $listing) ?: [] as $line) {
             if ($line === '----------') { $inEntries = true; continue; }
             if (!$inEntries) continue;
             if (str_starts_with($line, 'Path = ')) { ++$entries; $currentPath = substr($line, 7); if (ZipPageProvider::isSafeImage($currentPath)) $pages[] = $currentPath; }

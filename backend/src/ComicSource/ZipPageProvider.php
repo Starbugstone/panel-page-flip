@@ -3,11 +3,12 @@
 namespace App\ComicSource;
 
 use App\Enum\ComicSourceType;
+use App\Metadata\ComicInfoParser;
 use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\Cache\ItemInterface;
 use ZipArchive;
 
-final class ZipPageProvider implements ComicPageProviderInterface
+final class ZipPageProvider implements ComicPageProviderInterface, ComicInfoSourceInterface
 {
     /** @var array<string, list<string>> */
     private array $indexes = [];
@@ -39,6 +40,27 @@ final class ZipPageProvider implements ComicPageProviderInterface
         } finally {
             $zip->close();
         }
+    }
+
+    public function readComicInfoXml(string $sourcePath, ComicSourceType $type): ?string
+    {
+        $zip = new ZipArchive();
+        if ($zip->open($sourcePath) !== true) return null;
+
+        try {
+            for ($i = 0; $i < min($zip->numFiles, ComicSourceLimits::MAX_ENTRIES); ++$i) {
+                $name = $zip->statIndex($i)['name'] ?? '';
+                if (!self::isComicInfoEntry($name)) continue;
+
+                $xml = $zip->getFromIndex($i, ComicSourceLimits::MAX_METADATA_BYTES);
+
+                return is_string($xml) && $xml !== '' ? $xml : null;
+            }
+        } finally {
+            $zip->close();
+        }
+
+        return null;
     }
 
     /** @return list<string> */
@@ -90,6 +112,14 @@ final class ZipPageProvider implements ComicPageProviderInterface
     private function sourceKey(string $sourcePath): string
     {
         return $sourcePath.'|'.(@filemtime($sourcePath) ?: 0).'|'.(@filesize($sourcePath) ?: 0);
+    }
+
+    /** Only at the archive root: a nested ComicInfo.xml describes something else. */
+    public static function isComicInfoEntry(string $name): bool
+    {
+        $normal = str_replace('\\', '/', $name);
+
+        return !str_contains($normal, '/') && strcasecmp($normal, ComicInfoParser::ENTRY_NAME) === 0;
     }
 
     public static function isSafeImage(string $name): bool
