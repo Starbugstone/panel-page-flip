@@ -1235,8 +1235,11 @@ class ComicController extends AbstractController
         // Combine chunks into final file
         // The client filename is metadata only. Always assemble into a
         // server-controlled path so valid punctuation and Unicode never
-        // influence filesystem path handling.
-        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        // influence filesystem path handling. The extension comes back through
+        // the source type rather than off the filename for that reason: the
+        // enum is what actually constrains it to a known set, so loosening the
+        // filename validator can never put an arbitrary suffix on this path.
+        $extension = ComicSourceType::fromFilename($filename)->value;
         $finalFilePath = $userChunkDir . '/assembled.' . $extension;
         $finalFile = fopen($finalFilePath, 'wb');
         

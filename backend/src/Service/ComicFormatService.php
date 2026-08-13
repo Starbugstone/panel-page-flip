@@ -15,18 +15,18 @@ final class ComicFormatService
     private const AVAILABILITY_TTL_SECONDS = 300;
 
     /**
-     * What an administrator has to install to turn each format on, in the words
-     * of the thing they would type into a package manager. The runtime check
-     * below answers "can this server do it"; these answer "what do I do about
-     * it", which is the question somebody staring at a red row actually has.
-     */
-    /**
      * The formats that must work everywhere. Both are read with no external
      * tooling, so either one failing means something is wrong with the
      * installation rather than merely unconfigured.
      */
     private const ESSENTIAL = [ComicSourceType::CBZ, ComicSourceType::PDF];
 
+    /**
+     * What an administrator has to install to turn each format on, in the words
+     * of the thing they would type into a package manager. The runtime check
+     * below answers "can this server do it"; these answer "what do I do about
+     * it", which is the question somebody staring at a red row actually has.
+     */
     private const REQUIREMENTS = [
         'cbz' => ['PHP ZIP extension'],
         'cbr' => ['7z with RAR support'],

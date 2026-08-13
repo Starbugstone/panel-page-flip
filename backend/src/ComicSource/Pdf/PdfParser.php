@@ -31,11 +31,6 @@ final class PdfParser
         $this->position = $offset;
     }
 
-    public function position(): int
-    {
-        return $this->position;
-    }
-
     /**
      * Parse the object at the current position, including the `N G obj` header
      * when one is present.
@@ -128,8 +123,11 @@ final class PdfParser
             $raw = preg_replace('/(\r\n|\r|\n)$/', '', $raw) ?? $raw;
         }
 
-        $this->position = strpos($this->buffer, 'endstream', $start + strlen($raw));
-        $this->position = $this->position === false ? strlen($this->buffer) : $this->position + 9;
+        // Assigned through a local: this property is typed int, and in coercive
+        // mode a false from strpos() lands in it as 0, so the "not found" test
+        // below would never fire and the parser would resume from offset 9.
+        $endstream = strpos($this->buffer, 'endstream', $start + strlen($raw));
+        $this->position = $endstream === false ? strlen($this->buffer) : $endstream + 9;
 
         return new PdfStream($dictionary, $raw);
     }

@@ -77,11 +77,6 @@ final class ComicRuntimeProbe
         return $finder->find('pdfinfo') !== null && $finder->find('pdftocairo') !== null;
     }
 
-    public function hasQpdf(): bool
-    {
-        return self::canRunExternalTools() && (new ExecutableFinder())->find('qpdf') !== null;
-    }
-
     /**
      * Whether this 7z was built with the RAR handler.
      *

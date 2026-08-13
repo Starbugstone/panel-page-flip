@@ -24,6 +24,27 @@ final class PdfDocument
     /** ~600 megapixels: far past any comic page, well short of exhausting memory. */
     private const MAX_PIXELS = 600_000_000;
 
+    /**
+     * Ceiling on what one stream may inflate to.
+     *
+     * The compressed bytes come out of an uploaded file, so their expansion
+     * ratio is chosen by whoever produced it; without a bound, a few kilobytes
+     * of zeros inflate until the process dies. A real full-page scan is well
+     * inside this — 2500x3500 in RGB is 26 MB of samples — and everything this
+     * declines falls through to the renderer, which streams rather than
+     * building the whole page in memory.
+     */
+    private const MAX_STREAM_BYTES = 67_108_864;
+
+    /**
+     * The predictor is undone a byte at a time in PHP, so its input is bounded
+     * far more tightly than an ordinary stream: this is the cost of one loop
+     * iteration times the number of bytes. Cross-reference and object streams,
+     * which are what predictors are actually used on, are orders of magnitude
+     * below this — MAX_OBJECTS rows of a cross-reference stream is about 5 MB.
+     */
+    private const MAX_PREDICTED_BYTES = 16_777_216;
+
     /** Byte offset of each object, or the object stream holding it. */
     /** @var array<int, int> */
     private array $offsets = [];
@@ -109,7 +130,7 @@ final class PdfDocument
 
         // Some producers wrap the JPEG in Flate as well; unwrap and re-check.
         if ($filters === ['/FlateDecode', '/DCTDecode']) {
-            $inflated = @gzuncompress($stream->raw);
+            $inflated = @gzuncompress($stream->raw, self::MAX_STREAM_BYTES);
             if (!is_string($inflated)) return null;
             $info = @getimagesizefromstring($inflated);
             if (!is_array($info) || ($info['mime'] ?? '') !== 'image/jpeg') return null;
@@ -371,12 +392,16 @@ final class PdfDocument
         if ($filters === []) return $stream->raw;
         if ($filters !== ['/FlateDecode']) return null;
 
-        $data = @gzuncompress($stream->raw);
-        if (!is_string($data)) $data = @gzinflate($stream->raw);
+        // Both take the cap as their length limit and return false rather than
+        // allocating past it, so an over-expanding stream costs nothing.
+        $data = @gzuncompress($stream->raw, self::MAX_STREAM_BYTES);
+        if (!is_string($data)) $data = @gzinflate($stream->raw, self::MAX_STREAM_BYTES);
         if (!is_string($data)) return null;
 
         $parms = $this->resolve($stream->dictionary['DecodeParms'] ?? null);
         if (is_array($parms) && isset($parms['Predictor']) && (int) $this->resolve($parms['Predictor']) > 1) {
+            if (strlen($data) > self::MAX_PREDICTED_BYTES) return null;
+
             $data = $this->undoPngPredictor(
                 $data,
                 (int) $this->resolve($parms['Columns'] ?? 1),
