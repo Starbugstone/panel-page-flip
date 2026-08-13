@@ -133,6 +133,11 @@ APP_ENV=prod APP_DEBUG=0 php bin/console cache:warmup --env=prod --no-debug
 # =============================================================================
 log "Fixing permissions on var/ for $WEB_USER:$WEB_GROUP"
 mkdir -p "$APP_DIR/backend/var/cache" "$APP_DIR/backend/var/log"
+# Generated comic pages. Kept out of public/ because access to them is checked
+# per request. If this is not writable the application still serves every page,
+# it just regenerates each one every time, so create it here rather than leaving
+# a silently slow installation behind.
+mkdir -p "$APP_DIR/backend/var/page-cache"
 mkdir -p "$APP_DIR/backend/public/uploads"
 
 # Try without sudo first (when the deploy user IS the web user); fall back to sudo.

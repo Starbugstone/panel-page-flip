@@ -26,7 +26,7 @@ const OrganizationGuide = () => {
             Dropbox File Organization Guide
           </DialogTitle>
           <DialogDescription>
-            Learn how to organize your CBZ files in Dropbox for automatic tagging
+            Learn how to organize supported comic files in Dropbox for automatic tagging
           </DialogDescription>
         </DialogHeader>
         
@@ -347,7 +347,7 @@ function DropboxSyncPage() {
               Sync your comic collection with Dropbox for easy access across devices.
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Connecting authorizes Panel Page Flip to read file names and import CBZ
+              Connecting authorizes Panel Page Flip to read file names and import files in enabled comic formats
               files from its Dropbox app folder. Tokens are encrypted locally and can
               be disconnected at any time.{" "}
               <Link className="underline" to="/privacy">Privacy information</Link>
@@ -363,7 +363,7 @@ function DropboxSyncPage() {
             <div className="text-sm">
               <span className="font-medium text-amber-800 dark:text-amber-200">Pro Tip:</span>
               <span className="text-amber-700 dark:text-amber-300 ml-1">
-                Add CBZ files to your <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Applications/StarbugStoneComics</code> folder. 
+                Add supported comic files to your <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Applications/StarbugStoneComics</code> folder.
                 Organize in subfolders like <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">superHero/</code> or <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Manga/Action/</code> for automatic tagging!
               </span>
             </div>
@@ -502,7 +502,7 @@ function DropboxSyncPage() {
                       <Cloud className="h-12 w-12 mx-auto mb-4 opacity-50" />
                       <p>No comics found in your Dropbox folder</p>
                       <p className="text-sm">
-                        Add .cbz files to the <code>Applications/StarbugStoneComics</code> folder in your Dropbox
+                        Add an enabled comic format to the <code>Applications/StarbugStoneComics</code> folder in your Dropbox
                       </p>
                     </div>
                   )}

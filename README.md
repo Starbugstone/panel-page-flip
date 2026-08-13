@@ -1,6 +1,8 @@
 # Panel Page Flip
 
-Panel Page Flip is a self-hosted web application for managing and reading CBZ comic collections. It combines a responsive comic reader with per-user libraries, reading progress, sharing, bulk uploads, tagging, Dropbox imports, and administrative tools.
+Supported comic sources are CBZ, CBR, CB7, CBT, and PDF. Self-hosters should see [comic format runtime requirements](docs/comic-formats.md).
+
+Panel Page Flip is a self-hosted web application for managing and reading CBZ, CBR, CB7, CBT, and PDF comic collections. It combines a responsive comic reader with per-user libraries, reading progress, sharing, bulk uploads, tagging, Dropbox imports, and administrative tools.
 
 **Live site:** [comics.starbugstone.com](https://comics.starbugstone.com/)  
 **Issues:** [GitHub issue tracker](https://github.com/Starbugstone/panel-page-flip/issues)
@@ -9,7 +11,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ co
 
 - Secure session-based authentication with email verification and password recovery
 - Private, per-user comic libraries with grid and table views
-- CBZ page streaming, fullscreen reading, keyboard navigation, and saved progress
+- Protected comic-page streaming across supported source formats, fullscreen reading, keyboard navigation, and saved progress
 - Single and bulk chunked uploads with progress reporting
 - Search, custom tags, bulk tagging, and recoverable file cleanup
 - Comic sharing that grants revocable read access without copying files, with a dedicated Sharing page
@@ -23,7 +25,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ co
 | --- | --- |
 | Frontend | React 18, Vite 8, React Router, TanStack Query, Tailwind CSS, Radix UI |
 | Backend | PHP 8.2, Symfony 6.4, Doctrine ORM |
-| Data | MySQL 8 and filesystem-backed CBZ storage |
+| Data | MySQL 8 and filesystem-backed canonical comic-source storage |
 | Development | Docker Compose, Nginx, PHP-FPM, Mailpit, Adminer |
 | Testing | Vitest, PHPUnit, Symfony functional tests |
 
@@ -162,7 +164,7 @@ docker compose exec php php bin/console app:create-user user@example.com 'Change
 # Create an administrator
 docker compose exec php php bin/console app:create-admin-user admin@example.com 'ChangeMe-Strong-Password-123!'
 
-# Import CBZ files from a directory visible inside the PHP container
+# Import enabled comic source files from a directory visible inside the PHP container
 docker compose exec php php bin/console app:import-comics /path/to/comics user@example.com
 
 # Preview orphan cleanup without removing source files

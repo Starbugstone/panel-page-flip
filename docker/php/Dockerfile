@@ -7,17 +7,29 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     libpng-dev \
+    libjpeg62-turbo-dev \
+    libwebp-dev \
+    libfreetype6-dev \
     libonig-dev \
     libxml2-dev \
     zip \
     unzip \
+    p7zip-full \
+    poppler-utils \
+    qpdf \
     libzip-dev \
     libicu-dev \
     libxslt-dev \
     acl
 
 # Install PHP extensions
+#
+# GD is configured explicitly rather than taking the defaults: without
+# --with-jpeg and --with-webp it builds without JPEG or WebP support, which
+# would leave the page pipeline unable to read the format comics are actually
+# stored in or write the one they are delivered as.
 RUN docker-php-ext-configure intl \
+    && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
     && docker-php-ext-install -j$(nproc) \
         pdo_mysql \
         mysqli \

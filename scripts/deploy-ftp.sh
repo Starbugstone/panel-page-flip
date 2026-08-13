@@ -90,6 +90,11 @@ COMMON_EXCLUDES=(
     --exclude-glob "public/uploads/*"
     # Never overwrite a server-managed sqlite (if any).
     --exclude-glob "var/data_*.db"
+    # Generated comic pages belong to the server, not the release. The empty
+    # directory itself still ships, so a first deploy creates it; its contents
+    # are left alone, which keeps a --delete run from throwing away a warm
+    # cache the server would then have to rebuild a page at a time.
+    --exclude-glob "var/page-cache/*"
 )
 
 DELETE_FLAG=""

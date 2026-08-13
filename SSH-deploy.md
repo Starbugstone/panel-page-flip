@@ -79,7 +79,24 @@ The deploy server must have:
 | Composer 2    | 2.5+            | dependency installation                      |
 | Node.js       | 18 or 20        | builds the React frontend (skip if you build locally and use `--rsync`) |
 | MySQL/MariaDB | 8.0 / 10.6+     | the database                                 |
-| Required PHP extensions: `pdo_mysql`, `intl`, `mbstring`, `zip`, `xsl`, `gd`, `opcache` | | enforced by `composer.json` and verified by `server-install.sh` |
+| Required PHP extensions: `pdo_mysql`, `intl`, `mbstring`, `zip`, `zlib`, `xsl`, `gd`, `opcache` | | enforced by `composer.json` and verified by `server-install.sh` |
+
+`zip` and `zlib` are what read CBZ and PDF respectively — the two comic formats
+that work on any host without extra software, so neither is optional.
+
+**GD needs JPEG and WebP built in**, not merely to be loaded. JPEG is the format
+comic pages are actually stored in, and WebP is the format they are delivered
+in. A distribution `php-gd` package normally has both; a hand-compiled PHP needs
+`--with-jpeg --with-webp`. `server-install.sh` warns when either is missing, and
+**Admin → Formats** reports it under *Page delivery*. Neither is fatal: without
+WebP the application serves each page in its source format instead, which works
+but is larger and is not cached.
+
+Optional, and only widening which comic formats can be offered: `7z` (CBR, CB7,
+CBT), `poppler-utils` (PDFs whose pages are drawn rather than scanned) and
+`qpdf` (an extra structural check on uploaded PDFs). See
+[docs/comic-formats.md](docs/comic-formats.md). Their absence is reported, never
+fatal.
 
 ### Outbound git access
 
@@ -559,7 +576,26 @@ Only needed if the instance uses Dropbox imports.
 Add `--limit=<n>` to cap how many files each user imports per run, and
 `--dry-run` to see what a run would do without importing anything.
 
-### 7.2 Symfony Messenger consumer (if you switch from sync to async)
+### 7.2 Comic page cache pruning (weekly)
+
+Generated pages accumulate in `backend/var/page-cache/`. Nothing there is
+authoritative — every file can be regenerated from the comic it came from — so
+pruning is safe to schedule and is the right answer for a server short of disk,
+rather than turning the cache off.
+
+```cron
+# crontab -e for the deploy user
+30 4 * * 0 cd /var/www/comics/backend && php bin/console app:comic-pages:prune --env=prod >> /var/log/comics-prune.log 2>&1
+```
+
+Reading a page refreshes it, so a library in regular use keeps its pages and
+only the ones nobody opens age out. `--max-age-days=<n>` changes the window
+(default 30), `--max-age-days=0` keeps every page and only removes those left
+behind by deleted comics, and `--dry-run` reports without deleting.
+
+Skipping this cron is not dangerous; the cache simply keeps growing.
+
+### 7.3 Symfony Messenger consumer (if you switch from sync to async)
 
 Systemd unit `/etc/systemd/system/comics-messenger.service`:
 

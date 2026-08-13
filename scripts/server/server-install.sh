@@ -49,8 +49,26 @@ case "$PHP_MAJ_MIN" in
 esac
 
 # Required PHP extensions for Symfony 6.4 + this project.
-for ext in pdo_mysql intl mbstring zip xsl gd opcache; do
+# zip reads CBZ and zlib reads PDF; those two formats are the ones the
+# application promises on every host, so neither is optional.
+for ext in pdo_mysql intl mbstring zip zlib xsl gd opcache; do
     php -m | grep -qi "^${ext}$" || fail "PHP extension '$ext' not loaded."
+done
+
+# GD being loaded is not the same as GD being useful. A build without JPEG
+# cannot read the format comic pages are actually stored in, and one without
+# WebP cannot write the format they are delivered in. Neither is fatal — pages
+# are then served in their source format — but both are worth knowing about,
+# because the difference is every page of every comic.
+GD_JPEG=$(php -r 'echo (function_exists("gd_info") && (gd_info()["JPEG Support"] ?? false)) ? "yes" : "no";')
+GD_WEBP=$(php -r 'echo (function_exists("gd_info") && (gd_info()["WebP Support"] ?? false)) ? "yes" : "no";')
+[ "$GD_JPEG" = "yes" ] || warn "GD has no JPEG support. Install php-gd built --with-jpeg for the page pipeline to work properly."
+[ "$GD_WEBP" = "yes" ] || warn "GD has no WebP support. Pages will be served in their source format instead of the smaller WebP."
+
+# Optional: these widen which comic formats can be offered. Their absence only
+# means fewer formats, never a broken installation.
+for tool in 7z pdfinfo pdftocairo qpdf; do
+    command -v "$tool" >/dev/null 2>&1 || warn "Optional tool '$tool' not found — see docs/comic-formats.md for what it enables."
 done
 
 if ! command -v node >/dev/null 2>&1; then
@@ -65,7 +83,7 @@ fi
 
 cd "$APP_DIR"
 
-mkdir -p backend/var/cache backend/var/log
+mkdir -p backend/var/cache backend/var/log backend/var/page-cache
 mkdir -p backend/public/uploads
 
 # =============================================================================

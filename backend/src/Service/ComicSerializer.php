@@ -112,6 +112,7 @@ class ComicSerializer
             'description' => $comic->getDescription(),
             'coverImagePath' => $this->coverUrl($comic),
             'pageCount' => $comic->getPageCount(),
+            'sourceType' => $comic->getSourceType()->value,
             // The owner's own classification, independent of every tag. It is
             // what an 18+ gate is derived from when the comic is shared, and it
             // has to survive a round trip through the edit dialog unchanged.

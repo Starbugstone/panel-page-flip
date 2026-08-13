@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use App\Entity\Comic;
+use App\Enum\ComicSourceType;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Finder\Finder;
 
@@ -85,6 +86,19 @@ class ComicCleanupService
         ];
     }
 
+    /**
+     * Every extension the application can hold on disk, derived from the enum
+     * rather than spelled out, so orphan sweeping does not start ignoring a
+     * format the day one is added.
+     *
+     * Every supported format is matched, not only the currently enabled ones:
+     * turning a format off must not strand the files already imported under it.
+     */
+    private function comicSourceNamePattern(): string
+    {
+        return '/\.(?:'.implode('|', array_map('preg_quote', ComicSourceType::extensions())).')$/i';
+    }
+
     private function findDiskComicFiles(): array
     {
         $files = [];
@@ -93,8 +107,10 @@ class ComicCleanupService
             return $files;
         }
 
+        $namePattern = $this->comicSourceNamePattern();
+
         $rootFinder = new Finder();
-        foreach ($rootFinder->files()->name('*.cbz')->in($this->comicsDirectory)->depth(0) as $file) {
+        foreach ($rootFinder->files()->name($namePattern)->in($this->comicsDirectory)->depth(0) as $file) {
             $files[] = [
                 'filename' => $file->getFilename(),
                 'path' => $file->getRealPath(),
@@ -109,7 +125,7 @@ class ComicCleanupService
             }
 
             $userComicsFinder = new Finder();
-            foreach ($userComicsFinder->files()->name('*.cbz')->in($userDir->getRealPath())->depth(0) as $file) {
+            foreach ($userComicsFinder->files()->name($namePattern)->in($userDir->getRealPath())->depth(0) as $file) {
                 $files[] = [
                     'filename' => $file->getFilename(),
                     'path' => $file->getRealPath(),

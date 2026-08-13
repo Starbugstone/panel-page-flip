@@ -1,6 +1,6 @@
 {
     "name": "panel-page-flip/application",
-    "description": "Self-hosted comic library and CBZ reader.",
+    "description": "Self-hosted multi-format comic library and reader.",
     "type": "project",
     "license": "MIT",
     "minimum-stability": "stable",
@@ -9,6 +9,8 @@
         "php": ">=8.1",
         "ext-ctype": "*",
         "ext-iconv": "*",
+        "ext-zip": "*",
+        "ext-zlib": "*",
         "doctrine/dbal": "^3",
         "doctrine/doctrine-bundle": "^2.14",
         "doctrine/doctrine-migrations-bundle": "^3.4",

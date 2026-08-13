@@ -2,6 +2,7 @@
 
 namespace App\Entity;
 
+use App\Enum\ComicSourceType;
 use App\Repository\ComicRepository;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
@@ -26,6 +27,9 @@ class Comic
     #[ORM\Column(length: 1024)] // Assuming file paths can be long
     #[Assert\NotBlank]
     private ?string $filePath = null;
+
+    #[ORM\Column(enumType: ComicSourceType::class, options: ['default' => 'cbz'])]
+    private ComicSourceType $sourceType = ComicSourceType::CBZ;
 
     #[ORM\Column(length: 1024, nullable: true)]
     private ?string $coverImagePath = null;
@@ -121,6 +125,17 @@ class Comic
     public function setFilePath(string $filePath): static
     {
         $this->filePath = $filePath;
+        return $this;
+    }
+
+    public function getSourceType(): ComicSourceType
+    {
+        return $this->sourceType;
+    }
+
+    public function setSourceType(ComicSourceType $sourceType): static
+    {
+        $this->sourceType = $sourceType;
         return $this;
     }
 

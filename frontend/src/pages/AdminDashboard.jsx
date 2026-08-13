@@ -9,8 +9,9 @@ import { AdminSharingCodesList } from "@/components/AdminSharingCodesList";
 import { AdminOverview } from "@/components/AdminOverview";
 import { AdminDropbox } from "@/components/AdminDropbox";
 import { AdminAuditList } from "@/components/AdminAuditList";
+import { AdminComicFormats } from "@/components/AdminComicFormats";
 
-const TABS = ["overview", "pending", "users", "comics", "tags", "dropbox", "audit"];
+const TABS = ["overview", "pending", "users", "comics", "formats", "tags", "dropbox", "audit"];
 
 export default function AdminDashboard() {
   const { user, loading } = useAuth(); // Destructure loading state
@@ -53,6 +54,7 @@ export default function AdminDashboard() {
           <TabsTrigger value="pending">Pending</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="comics">Comics</TabsTrigger>
+          <TabsTrigger value="formats">Formats</TabsTrigger>
           <TabsTrigger value="tags">Tags</TabsTrigger>
           <TabsTrigger value="sharing-codes">Sharing codes</TabsTrigger>
           <TabsTrigger value="dropbox">Dropbox</TabsTrigger>
@@ -73,6 +75,10 @@ export default function AdminDashboard() {
         
         <TabsContent value="comics" className="space-y-6">
           <AdminComicsList />
+        </TabsContent>
+
+        <TabsContent value="formats" className="space-y-6">
+          <AdminComicFormats />
         </TabsContent>
         
         <TabsContent value="tags" className="space-y-6">

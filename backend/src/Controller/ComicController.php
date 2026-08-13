@@ -12,9 +12,12 @@ use App\Repository\ComicShareRepository;
 use App\Repository\TagRepository;
 use App\Security\Voter\ComicVoter;
 use App\Service\AdminAuditService;
+use App\Service\ComicPageDelivery;
 use App\Service\ComicSerializer;
 use App\Service\ComicShareService;
 use App\Service\ComicUploadFilenameValidator;
+use App\Service\ComicFormatService;
+use App\Enum\ComicSourceType;
 use App\Service\ComicService;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
@@ -32,13 +35,11 @@ use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\HttpKernel\EventListener\AbstractSessionListener;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\Routing\Attribute\Route;
-use ZipArchive;
 
 #[Route('/api/comics', name: 'api_comics_')]
 class ComicController extends AbstractController
 {
     private const FILE_ID_REGEX = '/^[A-Za-z0-9\-]{8,64}$/';
-    private const ASSEMBLED_UPLOAD_FILENAME = 'assembled.cbz';
 
     /**
      * How many comics one request may remove before an administrator is told.
@@ -84,6 +85,7 @@ class ComicController extends AbstractController
         private readonly int $uploadMaxTotalChunks,
         private readonly int $uploadUserQuotaBytes,
         private readonly ComicUploadFilenameValidator $uploadFilenameValidator,
+        private readonly ComicFormatService $comicFormatService,
         private readonly ComicSerializer $comicSerializer,
         private readonly ComicShareRepository $shareRepository,
         private readonly ManagerRegistry $managerRegistry
@@ -148,7 +150,12 @@ class ComicController extends AbstractController
 
     private function assertSafeFilename(string $filename): string
     {
-        return $this->uploadFilenameValidator->validate($filename);
+        $validated = $this->uploadFilenameValidator->validate($filename);
+        $type = ComicSourceType::fromFilename($validated);
+        if (!$this->comicFormatService->isEnabled($type)) {
+            throw new BadRequestHttpException(sprintf('%s uploads are not enabled.', strtoupper($type->value)));
+        }
+        return $validated;
     }
 
     // Removed getPublicBaseUrlForUploads() method as it's no longer needed.
@@ -464,7 +471,7 @@ class ComicController extends AbstractController
 
         $orphanedComics = [];
         foreach ($comics as $comic) {
-            if (!$comicService->comicArchiveExists($comic)) {
+            if (!$comicService->comicSourceExists($comic)) {
                 $orphanedComics[] = [
                     'id' => $comic->getId(),
                     'title' => $comic->getTitle(),
@@ -645,7 +652,7 @@ class ComicController extends AbstractController
             // server paths. The reasons a user can act on are enumerated here;
             // anything else is a server fault and reads as one.
             return $this->json([
-                'message' => 'Upload failed. Check that the file is a valid CBZ within your storage quota.',
+                'message' => 'Upload failed. Check that the file is a valid enabled comic format within your storage quota.',
             ], Response::HTTP_BAD_REQUEST);
         }
     }
@@ -1228,8 +1235,12 @@ class ComicController extends AbstractController
         // Combine chunks into final file
         // The client filename is metadata only. Always assemble into a
         // server-controlled path so valid punctuation and Unicode never
-        // influence filesystem path handling.
-        $finalFilePath = $userChunkDir . '/' . self::ASSEMBLED_UPLOAD_FILENAME;
+        // influence filesystem path handling. The extension comes back through
+        // the source type rather than off the filename for that reason: the
+        // enum is what actually constrains it to a known set, so loosening the
+        // filename validator can never put an arbitrary suffix on this path.
+        $extension = ComicSourceType::fromFilename($filename)->value;
+        $finalFilePath = $userChunkDir . '/assembled.' . $extension;
         $finalFile = fopen($finalFilePath, 'wb');
         
         for ($i = 0; $i < $metadata['totalChunks']; $i++) {
@@ -1306,7 +1317,8 @@ class ComicController extends AbstractController
         int $page,
         Request $request,
         EntityManagerInterface $entityManager,
-        ComicService $comicService
+        ComicService $comicService,
+        ComicPageDelivery $pageDelivery
     ): Response {
         // Get the current user
         $user = $this->getUser();
@@ -1360,6 +1372,15 @@ class ComicController extends AbstractController
             $filePath = $legacyPath;
         }
 
+        // Settle on one answer for "which file is this comic". The block above
+        // decides whether the comic exists and migrates a legacy copy into the
+        // owner's directory; ComicService is what the page cache keys itself
+        // on. Re-resolving here, after any migration, keeps the validator below
+        // describing the same file the cache does — otherwise a comic found by
+        // two different candidate orders gets an ETag for one file and cached
+        // pages for another.
+        $filePath = $comicService->locateComicSource($comic) ?? $filePath;
+
         // Validators taken from the archive rather than the extracted page, so a
         // revalidation can be answered without opening the CBZ at all. Reading a
         // comic is the app's hot path and every page used to be re-downloaded.
@@ -1371,59 +1392,40 @@ class ComicController extends AbstractController
         $modifiedAt = @filemtime($filePath);
         if ($modifiedAt !== false) {
             $response->setLastModified(new \DateTimeImmutable('@' . $modifiedAt));
-            $response->setEtag(hash('sha256', $filePath . '|' . $modifiedAt . '|' . @filesize($filePath) . '|' . $page));
+            // The delivery format is part of the validator: a server that gains
+            // or loses its WebP encoder starts producing different bytes for
+            // the same page, and a cached copy from before that must not be
+            // revalidated as still current.
+            $response->setEtag(hash(
+                'sha256',
+                $filePath . '|' . $modifiedAt . '|' . @filesize($filePath) . '|' . $page . '|' . $pageDelivery->deliveryFormat()
+            ));
 
             if ($response->isNotModified($request)) {
                 return $response;
             }
         }
 
-        // The page list comes from ComicService, cached against the archive, so
-        // a reading session scans it once rather than once per page — and so
-        // the numbering here is the same numbering the stored page count was
-        // derived from. This used to be a second, unfiltered copy of that loop,
-        // which counted __MACOSX resource forks as pages and shifted every page
-        // after one of them.
         try {
-            $imageFiles = $comicService->getPageIndex($filePath);
+            [$pageResult] = $pageDelivery->deliver($comic, $page);
         } catch (\Throwable $exception) {
-            $this->logger->error('Failed to read a comic archive.', [
+            $this->logger->error('Failed to read a comic source.', [
                 'comic_id' => $comic->getId(),
                 'exception' => $exception,
             ]);
 
-            return $this->json(['message' => 'Failed to open comic file'], Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
-
-        // Check if requested page exists
-        if (!isset($imageFiles[$page - 1])) {
-            return $this->json(['message' => 'Page not found'], Response::HTTP_NOT_FOUND);
-        }
-
-        $zip = new ZipArchive();
-        if ($zip->open($filePath) !== true) {
-            return $this->json(['message' => 'Failed to open comic file'], Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
-
-        // Get page image
-        $pageImage = $zip->getFromName($imageFiles[$page - 1]);
-        $zip->close();
-
-        if ($pageImage === false) {
-            return $this->json(['message' => 'Failed to extract page image'], Response::HTTP_INTERNAL_SERVER_ERROR);
+            return $this->json(['message' => 'Failed to read comic page'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
         // Return image, keeping the caching policy set up before the archive was
         // opened.
-        $response->setContent($pageImage);
-        $extension = strtolower(pathinfo($imageFiles[$page - 1], PATHINFO_EXTENSION));
-        $mimeType = $this->getMimeTypeForExtension($extension);
-        $response->headers->set('Content-Type', $mimeType);
+        $response->setContent($pageResult->content);
+        $response->headers->set('Content-Type', $pageResult->mimeType);
         return $response;
     }
 
     /**
-     * Download the original CBZ.
+     * Download the original comic source.
      *
      * Owners only, deliberately: this is the backup path for your own library.
      * A shared comic is read through the reader, and handing a recipient the
@@ -1452,7 +1454,7 @@ class ComicController extends AbstractController
             );
         }
 
-        $archivePath = $comicService->locateComicArchive($comic);
+        $archivePath = $comicService->locateComicSource($comic);
         if ($archivePath === null) {
             return $this->json(['message' => 'Comic file not found'], Response::HTTP_NOT_FOUND);
         }
@@ -1466,7 +1468,7 @@ class ComicController extends AbstractController
             ResponseHeaderBag::DISPOSITION_ATTACHMENT,
             $this->downloadFilename($comic)
         );
-        $response->headers->set('Content-Type', 'application/vnd.comicbook+zip');
+        $response->headers->set('Content-Type', $comic->getSourceType()->mimeType());
         $response->headers->set(AbstractSessionListener::NO_AUTO_CACHE_CONTROL_HEADER, 'true');
 
         return $response;
@@ -1484,7 +1486,7 @@ class ComicController extends AbstractController
             $safeTitle = 'comic-' . $comic->getId();
         }
 
-        return mb_substr($safeTitle, 0, 100) . '.cbz';
+        return mb_substr($safeTitle, 0, 100) . '.' . $comic->getSourceType()->value;
     }
 
     #[Route('/{id}/progress', name: 'update_progress', methods: ['POST'])]

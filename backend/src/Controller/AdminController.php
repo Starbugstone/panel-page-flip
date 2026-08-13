@@ -8,6 +8,9 @@ use App\Entity\User;
 use App\Repository\AdminAuditLogRepository;
 use App\Service\AdminAuditService;
 use App\Service\ComicCleanupService;
+use App\Service\ComicFormatService;
+use App\Service\ComicPageDelivery;
+use App\Enum\ComicSourceType;
 use App\Service\DropboxImportService;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
@@ -30,6 +33,38 @@ class AdminController extends AbstractController
         #[Autowire('%kernel.project_dir%')]
         private readonly string $projectDir
     ) {
+    }
+
+    #[Route('/comic-formats', name: 'comic_formats', methods: ['GET'])]
+    public function comicFormats(ComicFormatService $formats, ComicPageDelivery $delivery): JsonResponse
+    {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+        return $this->json(['formats' => $formats->status(), 'delivery' => $delivery->describe()]);
+    }
+
+    #[Route('/comic-formats/verify', name: 'comic_formats_verify', methods: ['POST'])]
+    public function verifyComicFormats(ComicFormatService $formats, ComicPageDelivery $delivery): JsonResponse
+    {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+        return $this->json(['formats' => $formats->status(true), 'delivery' => $delivery->describe()]);
+    }
+
+    #[Route('/comic-formats', name: 'comic_formats_update', methods: ['PUT'])]
+    public function updateComicFormats(Request $request, ComicFormatService $formats, AdminAuditService $auditService, EntityManagerInterface $entityManager): JsonResponse
+    {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+        $data = json_decode($request->getContent(), true);
+        if (!is_array($data) || !is_array($data['enabled'] ?? null)) return $this->json(['message' => 'Enabled formats must be an array.'], Response::HTTP_BAD_REQUEST);
+        try {
+            $enabled = array_map(static fn (mixed $value): ComicSourceType => ComicSourceType::from((string) $value), $data['enabled']);
+            $formats->save($enabled);
+            $saved = $formats->enabled();
+            $auditService->log($this->getAdminUser(), 'comic_formats_updated', 'configuration', 1, ['enabled' => array_map(static fn (ComicSourceType $type): string => $type->value, $saved)]);
+            $entityManager->flush();
+        } catch (\ValueError|\RuntimeException $exception) {
+            return $this->json(['message' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
+        return $this->json(['formats' => $formats->status()]);
     }
 
     #[Route('/stats', name: 'stats', methods: ['GET'])]

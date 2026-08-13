@@ -200,7 +200,7 @@ class DropboxController extends AbstractController
             $importedIndex = $this->dropboxImport->getImportedIndex($user);
 
             $files = [];
-            foreach ($this->dropboxImport->listCbzFiles($client) as $fileInfo) {
+            foreach ($this->dropboxImport->listComicSourceFiles($client) as $fileInfo) {
                 $files[] = [
                     'name' => $fileInfo['name'],
                     'path' => $fileInfo['path'],
@@ -243,7 +243,7 @@ class DropboxController extends AbstractController
             $client = $this->dropboxClientFactory->createForUser($user);
 
             $targetFile = null;
-            foreach ($this->dropboxImport->listCbzFiles($client) as $fileInfo) {
+            foreach ($this->dropboxImport->listComicSourceFiles($client) as $fileInfo) {
                 // Match on the full path: the same file name can appear in
                 // several folders, and the folder is what the tags come from.
                 // The name is only a fallback for clients that predate this.

@@ -5,7 +5,8 @@ import { logger } from '@/lib/logger';
 
 const DEFAULT_CONFIG = {
   upload: {
-    maxConcurrentUploads: 5 // Matches the backend default
+    maxConcurrentUploads: 5,
+    comicFormats: ["cbz"],
   }
 };
 

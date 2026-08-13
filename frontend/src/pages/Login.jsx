@@ -223,12 +223,12 @@ export default function Login() {
 
         <div className="bg-card p-6 sm:p-8 rounded-lg shadow-lg space-y-2 text-center text-sm text-muted-foreground">
           <p>
-            Comic Reader is your personal CBZ library on the web. Upload your comics,
+            Comic Reader is your personal multi-format comic library on the web. Upload your comics,
             organize them with tags, and read page by page with your progress saved
             so you can pick up right where you left off.
           </p>
           <p>
-            Keep your collection tidy with search and reading filters, or sync CBZs
+            Keep your collection tidy with search and reading filters, or sync comic sources
             from Dropbox when you prefer. When a friend should see a book too, share
             it by email — they can accept it into their own library and start reading.
           </p>

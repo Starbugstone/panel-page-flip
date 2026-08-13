@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Enum\ComicSourceType;
 use App\Entity\Comic;
 use App\Entity\User;
 use Doctrine\ORM\EntityManagerInterface;
@@ -32,16 +33,17 @@ class DropboxImportService
         private readonly EntityManagerInterface $entityManager,
         private readonly HttpClientInterface $httpClient,
         private readonly LoggerInterface $logger,
+        private readonly ComicFormatService $comicFormatService,
         private readonly string $dropboxAppFolder
     ) {
     }
 
     /**
-     * Recursively collect every CBZ under the configured app folder.
+     * Recursively collect enabled comic sources under the configured app folder.
      *
      * @return list<array{path: string, name: string, size: int, modified: ?string, tags: list<string>}>
      */
-    public function listCbzFiles(DropboxClient $client, ?string $path = null): array
+    public function listComicSourceFiles(DropboxClient $client, ?string $path = null): array
     {
         $path = $path ?? $this->dropboxAppFolder;
         $files = [];
@@ -56,11 +58,12 @@ class DropboxImportService
                     $tag = $entry['.tag'] ?? null;
 
                     if ($tag === 'folder') {
-                        array_push($files, ...$this->listCbzFiles($client, $entry['path_display']));
+                        array_push($files, ...$this->listComicSourceFiles($client, $entry['path_display']));
                         continue;
                     }
 
-                    if ($tag !== 'file' || strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION)) !== 'cbz') {
+                    $type = ComicSourceType::tryFrom(strtolower(pathinfo((string) ($entry['name'] ?? ''), PATHINFO_EXTENSION)));
+                    if ($tag !== 'file' || $type === null || !$this->comicFormatService->isEnabled($type)) {
                         continue;
                     }
 
@@ -159,7 +162,7 @@ class DropboxImportService
             $this->downloadFile($client, $fileInfo['path'], $stagedPath);
 
             $comic = $this->comicService->uploadComic(
-                new UploadedFile($stagedPath, $fileInfo['name'], 'application/zip', null, true),
+                new UploadedFile($stagedPath, $fileInfo['name'], ComicSourceType::fromFilename($fileInfo['name'])->mimeType(), null, true),
                 $user,
                 $this->titleFromFilename($fileInfo['name']),
                 null,
@@ -180,7 +183,7 @@ class DropboxImportService
     }
 
     /**
-     * Import every not-yet-imported CBZ for a user, up to $limit attempts.
+     * Import every not-yet-imported comic source for a user, up to $limit attempts.
      *
      * The HTTP endpoint and the CLI command both drive this; they differ only in
      * how they report progress, which is what $report is for. Successes and
@@ -202,7 +205,7 @@ class DropboxImportService
         $notify = $report ?? static function (string $event, array $context): void {
         };
 
-        $files = $this->listCbzFiles($client);
+        $files = $this->listComicSourceFiles($client);
         $notify('listed', ['count' => count($files)]);
 
         $importedIndex = $this->getImportedIndex($user);
@@ -242,6 +245,16 @@ class DropboxImportService
                 ]);
                 $failed++;
                 $notify('failed', ['file' => $fileInfo, 'exception' => $e]);
+
+                // Doctrine closes the entity manager when a flush fails, and
+                // nothing reopens it mid-sync. Every remaining file would fail
+                // on that instead of on anything about itself, so stop and let
+                // the next sync run pick them up against a fresh manager.
+                if (!$this->entityManager->isOpen()) {
+                    $this->logger->error('Stopping the Dropbox sync because the entity manager closed.', ['user_id' => $user->getId()]);
+                    $notify('aborted', ['reason' => 'entity_manager_closed']);
+                    break;
+                }
             }
         }
 
@@ -302,7 +315,7 @@ class DropboxImportService
     }
 
     /**
-     * Derive a display title from a CBZ filename: "super_hero-01.cbz" -> "Super Hero 01".
+     * Derive a display title from a comic filename: "super_hero-01.cbz" -> "Super Hero 01".
      */
     public function titleFromFilename(string $filename): string
     {

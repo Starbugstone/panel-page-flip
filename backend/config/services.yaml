@@ -6,6 +6,11 @@
 parameters:
     comics_directory: '%kernel.project_dir%/public/uploads/comics'
     quarantine_directory: '%kernel.project_dir%/var/quarantine/comics'
+    # Generated page images, deliberately under var/ rather than public/: these
+    # are derived from comics whose access is checked on every request, so they
+    # must never be reachable by guessing a URL. Nothing here is authoritative
+    # and the whole directory can be deleted at any time.
+    page_cache_directory: '%kernel.project_dir%/var/page-cache'
     mailer_from_address: '%env(MAILER_FROM_ADDRESS)%'
     mailer_from_name: '%env(MAILER_FROM_NAME)%'
     privacy_operator_default: 'Panel Page Flip site operator'
@@ -36,6 +41,10 @@ services:
     _defaults:
         autowire: true      # Automatically injects dependencies in your services.
         autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+
+    _instanceof:
+        App\ComicSource\ComicPageProviderInterface:
+            tags: ['app.comic_page_provider']
 
     # makes classes in src/ available to be used as services
     # this creates a service per class whose id is the fully-qualified class name
@@ -134,7 +143,36 @@ services:
             $comicsDirectory: '%comics_directory%'
             $uploadMaxTotalBytes: '%upload_max_total_bytes%'
             $uploadUserQuotaBytes: '%upload_user_quota_bytes%'
+
+    App\ComicSource\ComicPageProviderFactory:
+        arguments:
+            $providers: !tagged_iterator app.comic_page_provider
+
+    App\ComicSource\ZipPageProvider:
+        arguments:
             $pageIndexCache: '@comic.page_index.cache'
+
+    App\ComicSource\SevenZipPageProvider:
+        arguments:
+            $pageIndexCache: '@comic.page_index.cache'
+
+    App\ComicSource\PdfPageProvider:
+        arguments:
+            $pageIndexCache: '@comic.page_index.cache'
+            $logger: '@logger'
+
+    App\Service\ComicFormatService:
+        arguments:
+            $availabilityCache: '@comic.format_availability.cache'
+
+    App\Service\ComicPageCache:
+        arguments:
+            $directory: '%page_cache_directory%'
+            $logger: '@logger'
+
+    App\Service\ComicPageDelivery:
+        arguments:
+            $logger: '@logger'
 
     App\Service\ComicCleanupService:
         arguments:

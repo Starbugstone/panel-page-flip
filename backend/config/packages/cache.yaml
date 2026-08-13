@@ -24,6 +24,15 @@ framework:
                 adapter: cache.app
                 default_lifetime: 86400
 
+            # Whether this server's comic-format runtimes are present. Probing
+            # shells out to 7z, so it is not something to redo on every upload
+            # and every configuration fetch. Short-lived, and the admin panel's
+            # Verify button recomputes it immediately, so installing a package
+            # never leaves an administrator staring at a stale "Unavailable".
+            comic.format_availability.cache:
+                adapter: cache.app
+                default_lifetime: 300
+
             # Threshold counters and cooldowns for administrator security
             # alerts. Its own pool so that clearing an application cache cannot
             # reset every cooldown at once and let a burst of alerts through,
