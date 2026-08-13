@@ -767,9 +767,17 @@ export default function ComicReader() {
           }}
         >
           {/* Control buttons - positioned differently in fullscreen mode */}
-          <div className={isFullscreen
-            ? `fullscreen-controls ${settings.autoHideControls ? "fullscreen-controls-auto-hide" : ""}`
-            : "absolute top-2 right-2 z-10 flex gap-2"}>
+          {/* In fullscreen this cluster duplicates Previous/Next from the bar
+              below, so both groups are named: without that, a screen reader
+              reads two identical "Next page" buttons with nothing to tell them
+              apart. */}
+          <div
+            role="group"
+            aria-label="Reader view controls"
+            className={isFullscreen
+              ? `fullscreen-controls ${settings.autoHideControls ? "fullscreen-controls-auto-hide" : ""}`
+              : "absolute top-2 right-2 z-10 flex gap-2"}
+          >
             <ReaderSettings
               settings={settings}
               isLoaded={arePreferencesLoaded}
@@ -911,9 +919,13 @@ export default function ComicReader() {
       </div>
       
       {/* Reader controls - different styling in fullscreen mode */}
-      <div className={isFullscreen
-        ? `reader-controls-fullscreen ${settings.autoHideControls ? "" : "reader-controls-pinned"}`
-        : "reader-controls"}>
+      <div
+        role="group"
+        aria-label="Reader page controls"
+        className={isFullscreen
+          ? `reader-controls-fullscreen ${settings.autoHideControls ? "" : "reader-controls-pinned"}`
+          : "reader-controls"}
+      >
         {/* How far through the comic this page is, at a glance */}
         {settings.showProgress && comicPages.length > 0 && (
           <Progress

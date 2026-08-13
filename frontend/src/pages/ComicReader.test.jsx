@@ -322,6 +322,39 @@ describe("ComicReader", () => {
       expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^next/i })).toBeEnabled();
     });
+
+    it("cannot be changed before the saved values arrive", async () => {
+      const user = userEvent.setup();
+      let resolvePreferences;
+      vi.mocked(api.get).mockImplementation((path) => (
+        path === "/api/reader/preferences"
+          ? new Promise((resolve) => { resolvePreferences = resolve; })
+          : Promise.resolve(comic())
+      ));
+
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /reader settings/i }));
+      const wakeLock = screen.getByRole("switch", { name: /keep screen awake/i });
+      expect(wakeLock).toBeDisabled();
+
+      // Toggling here would send the placeholder defaults as the user's whole
+      // preference set, wiping whatever the pending request is about to return.
+      await user.click(wakeLock);
+      expect(api.put).not.toHaveBeenCalled();
+
+      resolvePreferences({
+        preferences: {
+          ...DEFAULT_READER_PREFERENCES,
+          settings: { ...DEFAULT_READER_PREFERENCES.settings, wakeLock: false },
+        },
+      });
+
+      await waitFor(() => expect(screen.getByRole("switch", { name: /keep screen awake/i })).toBeEnabled());
+      expect(screen.getByRole("switch", { name: /keep screen awake/i })).not.toBeChecked();
+      expect(api.put).not.toHaveBeenCalled();
+    });
   });
 
   describe("fullscreen and preload regressions", () => {
