@@ -11,13 +11,18 @@ import { isTypingTarget } from "@/lib/keyboard";
 import { parsePageNumber } from "@/lib/comic-progress";
 import { toggleFullscreen } from "@/lib/fullscreen";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
+import { useReaderNavigation } from "@/hooks/use-reader-navigation";
+import { useReaderPreferences } from "@/hooks/use-reader-preferences.jsx";
+import { useReaderWakeLock } from "@/hooks/use-reader-wake-lock";
+import { createComicPageUrls } from "@/lib/reader-pages";
+import { ReaderSettings } from "@/components/reader/ReaderSettings";
+import { SinglePageReader } from "@/components/reader/SinglePageReader";
 
 export default function ComicReader() {
   const { comicId } = useParams();
   const [comic, setComic] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [comicPages, setComicPages] = useState([]);
-  const [currentPage, setCurrentPage] = useState(0);
   const [isFetchingComic, setIsFetchingComic] = useState(true); // For overall comic data
   const [imageCache, setImageCache] = useState({});
   const [showDebug, setShowDebug] = useState(false); // For debug panel
@@ -27,19 +32,35 @@ export default function ComicReader() {
   const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
   const imageContainerRef = useRef(null);
   const pageInputRef = useRef(null);
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const { updateComicProgress } = useComicLibrary();
+  const {
+    currentPage,
+    currentPageRef,
+    goToPage,
+    goPrevious: handlePreviousPage,
+    goNext: handleNextPage,
+    resetPage,
+    canGoPrevious,
+    canGoNext,
+  } = useReaderNavigation(comicPages.length);
+  const {
+    settings,
+    isLoaded: arePreferencesLoaded,
+    isSaving: arePreferencesSaving,
+    changeSettings,
+    resetPreferences,
+  } = useReaderPreferences(toast);
+  useReaderWakeLock(settings.wakeLock);
   
   // Refs for async operations
   const progressAbortController = useRef(null);
-  const currentPageRef = useRef(0); // Ref to track current page for async operations
   const loadQueueRef = useRef([]); // Queue of pages to load
   const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
   const isMountedRef = useRef(true); // Progress saves outlive the component; used to suppress late toasts
   const progressRevisionRef = useRef(0); // Orders progress saves that may reach the server out of order
   
-  const navigate = useNavigate();
-  const { toast } = useToast();
-  const { updateComicProgress } = useComicLibrary();
-
   const CACHE_SIZE_FORWARD = 5;
   const CACHE_SIZE_BACKWARD = 5;
 
@@ -157,24 +178,25 @@ export default function ComicReader() {
       setLoadError(null);
       setComic(null);
       setComicPages([]);
+      resetPage(0, 0);
+      setImageCache({});
       try {
         const data = await api.get(`/api/comics/${comicId}`);
         if (!active) return;
         setComic(data.comic);
 
         if (data.comic && data.comic.pageCount > 0) {
-          setComicPages(
-            Array.from({ length: data.comic.pageCount }, (_, i) => `/api/comics/${comicId}/pages/${i + 1}`)
-          );
+          const pages = createComicPageUrls(comicId, data.comic.pageCount);
+          setComicPages(pages);
           // Continue the server's revision sequence, otherwise a reopened
           // reader would start below the stored value and every save would
           // look stale.
           progressRevisionRef.current = data.comic.readingProgress?.revision || 0;
 
           if (data.comic.readingProgress && data.comic.readingProgress.currentPage) {
-            setCurrentPage(data.comic.readingProgress.currentPage - 1);
+            resetPage(data.comic.readingProgress.currentPage - 1, pages.length);
           } else {
-            setCurrentPage(0); // Default to first page
+            resetPage(0, pages.length);
           }
         } else {
           toast({
@@ -220,13 +242,13 @@ export default function ComicReader() {
     }
 
     return () => { active = false; };
-  }, [comicId, navigate, toast]);
+  }, [comicId, navigate, resetPage, toast]);
 
   // Function to check if a page index is within the cache window
   const isInCacheWindow = useCallback((pageIndex) => {
     return pageIndex >= Math.max(0, currentPageRef.current - CACHE_SIZE_BACKWARD) && 
            pageIndex <= Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
-  }, [comicPages.length]);
+  }, [comicPages.length, currentPageRef]);
 
   // Object to track in-progress loads to prevent duplicate requests
   const loadingPagesRef = useRef({});
@@ -319,7 +341,7 @@ export default function ComicReader() {
     };
 
     drain();
-  }, [loadPageIntoCache]);
+  }, [currentPageRef, loadPageIntoCache]);
   
   // Function to queue pages for loading in priority order
   const queuePagesToLoad = useCallback(() => {
@@ -365,7 +387,7 @@ export default function ComicReader() {
     if (loadQueueRef.current.length > 0) {
       processLoadQueue();
     }
-  }, [processLoadQueue, imageCache, comicPages.length]);
+  }, [processLoadQueue, imageCache, comicPages.length, currentPageRef]);
   
   // Function to clean up the cache (remove pages outside the window)
   const cleanupCache = useCallback(() => {
@@ -387,13 +409,10 @@ export default function ComicReader() {
       stale.forEach(key => delete newCache[key]);
       return newCache;
     });
-  }, [comicPages.length]);
+  }, [comicPages.length, currentPageRef]);
   
   // Effect to handle page changes and update UI state - only runs when page actually changes
   useEffect(() => {
-    // Update the ref to ensure async operations have the latest value
-    currentPageRef.current = currentPage;
-    
     if (comicPages.length === 0) return;
     
     // Check if current page is available in cache
@@ -430,7 +449,7 @@ export default function ComicReader() {
       clearTimeout(cleanupTimer);
       clearTimeout(queueTimer);
     };
-  }, [currentPage, comicPages, imageCache, queuePagesToLoad, cleanupCache, loadPageIntoCache]);
+  }, [currentPage, comicPages, imageCache, queuePagesToLoad, cleanupCache, loadPageIntoCache, currentPageRef]);
 
 
 
@@ -453,22 +472,6 @@ export default function ComicReader() {
     // supersedes its own previous request.
   }, [currentPage, comic, comicId, comicPages.length, updateReadingProgress]);
 
-  // Move by one page, priming the loading state from the cache so an already
-  // cached page renders without a skeleton flash.
-  const goToPage = useCallback((newPage) => {
-    if (newPage < 0 || newPage > comicPages.length - 1) return;
-
-    setCurrentPage(newPage);
-  }, [comicPages.length]);
-
-  const handlePreviousPage = useCallback(() => {
-    goToPage(currentPage - 1);
-  }, [goToPage, currentPage]);
-
-  const handleNextPage = useCallback(() => {
-    goToPage(currentPage + 1);
-  }, [goToPage, currentPage]);
-
   // The jump-to-page box holds raw text, not a page number: it has to survive
   // the empty and half-typed states an input passes through. It is reconciled
   // with the reader whenever the page changes by any other means.
@@ -482,7 +485,7 @@ export default function ComicReader() {
     : String(currentPage + 1);
   const setPageInput = useCallback(
     (text) => setPageDraft({ forPage: currentPageRef.current, text }),
-    []
+    [currentPageRef]
   );
 
 
@@ -500,7 +503,7 @@ export default function ComicReader() {
     if (requestedPage !== currentPageRef.current) {
       goToPage(requestedPage);
     }
-  }, [pageInput, comicPages.length, goToPage, setPageInput]);
+  }, [pageInput, comicPages.length, currentPageRef, goToPage, setPageInput]);
 
   // Force a page to come from the server again, bypassing the browser cache.
   // A unique URL is what does the bypassing: the page endpoint is cacheable, so
@@ -582,7 +585,7 @@ export default function ComicReader() {
     loadingPagesRef.current[pageToReload] = forcedLoad;
 
     img.src = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
-  }, [comicPages, currentPage, toast]);
+  }, [comicPages, currentPage, currentPageRef, toast]);
 
   const handleScreenNavClick = (direction) => {
     if (direction === 'left') {
@@ -671,6 +674,22 @@ export default function ComicReader() {
     };
   }, [isZoomed, handleWheel]);
 
+  const handleReaderSettingsChange = useCallback((patch) => {
+    // A fit choice describes the untransformed page. Leaving an old zoom
+    // active makes that choice look broken, so return to natural scale first.
+    if (patch.fit && patch.fit !== settings.fit) {
+      setIsZoomed(false);
+      setZoomLevel(1);
+    }
+    changeSettings(patch);
+  }, [changeSettings, settings.fit]);
+
+  const handleResetReaderSettings = useCallback(() => {
+    setIsZoomed(false);
+    setZoomLevel(1);
+    resetPreferences();
+  }, [resetPreferences]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex justify-center items-center bg-background">
@@ -697,25 +716,34 @@ export default function ComicReader() {
   return (
     <div className="min-h-screen flex flex-col items-center bg-background overflow-hidden">
       {/* Navigation areas for clicking left/right sides of screen */}
-      <div 
+      <div
         className={`page-navigation left-0 ${isFullscreen ? 'z-[55]' : ''}`}
         style={{ bottom: '88px' }} // Leave space for controls to prevent overlap
         onClick={() => handleScreenNavClick('left')}
-        aria-label="Previous page"
+        aria-hidden="true"
       ></div>
       
       <div 
         className={`page-navigation right-0 ${isFullscreen ? 'z-[55]' : ''}`}
         style={{ bottom: '88px' }} // Leave space for controls to prevent overlap
         onClick={() => handleScreenNavClick('right')}
-        aria-label="Next page"
+        aria-hidden="true"
       ></div>
       
       {/* Main content area - adjusted height to account for the header in normal mode */}
-      <div className={`max-w-4xl w-full ${isFullscreen ? 'h-[calc(100vh-8rem)]' : 'h-[calc(100vh-10rem)]'} flex items-center justify-center py-4`}>
-        <div 
-          ref={imageContainerRef}
-          className={`relative max-h-full w-full h-full flex items-center justify-center ${isFullscreen ? 'fullscreen-container' : ''}`}
+      <div className={`${settings.fit === "contain" || settings.fit === "height" ? "max-w-4xl" : "max-w-none"} w-full ${isFullscreen ? 'h-[calc(100vh-8rem)]' : 'h-[calc(100vh-10rem)]'} flex items-center justify-center py-4`}>
+        <SinglePageReader
+          containerRef={imageContainerRef}
+          image={imageLoadedSuccessfully ? currentPageImage : null}
+          isLoading={isPageImageLoading}
+          hasFailed={!isPageImageLoading && !imageLoadedSuccessfully && comicPages.length > 0 && Boolean(comicPages[currentPage])}
+          pageNumber={currentPage + 1}
+          title={comic?.title}
+          fit={settings.fit}
+          isFullscreen={isFullscreen}
+          isZoomed={isZoomed}
+          zoomLevel={zoomLevel}
+          mousePosition={mousePosition}
           onMouseMove={(e) => {
             if (isZoomed) {
               const rect = e.currentTarget.getBoundingClientRect();
@@ -724,61 +752,47 @@ export default function ComicReader() {
               setMousePosition({ x, y });
             }
           }}
+          onImageClick={() => {
+            if (isZoomed) {
+              setIsZoomed(false);
+              setZoomLevel(1);
+            }
+          }}
+          onRetry={() => {
+            setImageCache((previousCache) => {
+              const nextCache = { ...previousCache };
+              delete nextCache[currentPage];
+              return nextCache;
+            });
+          }}
         >
-          {/* Main image display */}
-          {comicPages.length > 0 && imageCache[currentPage] && 
-           imageCache[currentPage] !== 'loading' && 
-           imageCache[currentPage] !== 'failed' && (
-            <img
-              key={`cached-${currentPage}`}
-              src={imageCache[currentPage].src}
-              alt={`Page ${currentPage + 1} of ${comic?.title || 'Comic'}`}
-              className={`max-h-full max-w-full object-contain mx-auto shadow-lg block transition-transform ${isZoomed ? 'zoomed-image' : ''}`}
-              style={{
-                transform: isZoomed ? `scale(${zoomLevel})` : 'none',
-                transformOrigin: isZoomed ? `${mousePosition.x * 100}% ${mousePosition.y * 100}%` : 'center center'
-              }}
-              onClick={() => {
-                if (isZoomed) {
-                  setIsZoomed(false);
-                  setZoomLevel(1);
-                }
-              }}
-            />
-          )}
-          {/* Error display for failed image load */}
-          {!isPageImageLoading && !imageLoadedSuccessfully && comicPages.length > 0 && comicPages[currentPage] && (
-            <div className="flex flex-col items-center justify-center text-destructive p-4 bg-destructive-foreground rounded-md">
-              <p className="mb-2">Error loading page {currentPage + 1}.</p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  // Retry logic: Clear from cache and set to loading to trigger reload
-                  setImageCache(prevCache => {
-                    const newCache = { ...prevCache };
-                    delete newCache[currentPage];
-                    return newCache;
-                  });
-                }}
-              >
-                Retry
-              </Button>
-            </div>
-          )}
-          {/* Loading state only if we don't have a cached image */}
-          {(!imageCache[currentPage] || imageCache[currentPage] === 'loading') && isPageImageLoading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Skeleton className="w-full h-full max-w-full object-contain mx-auto" />
-            </div>
-          )}
           {/* Control buttons - positioned differently in fullscreen mode */}
-          <div className={isFullscreen ? "fullscreen-controls" : "absolute top-2 right-2 z-10 flex gap-2"}>
-            <Button 
+          {/* In fullscreen this cluster duplicates Previous/Next from the bar
+              below, so both groups are named: without that, a screen reader
+              reads two identical "Next page" buttons with nothing to tell them
+              apart. */}
+          <div
+            role="group"
+            aria-label="Reader view controls"
+            className={isFullscreen
+              ? `fullscreen-controls ${settings.autoHideControls ? "fullscreen-controls-auto-hide" : ""}`
+              : "absolute top-2 right-2 z-10 flex gap-2"}
+          >
+            <ReaderSettings
+              settings={settings}
+              isLoaded={arePreferencesLoaded}
+              isSaving={arePreferencesSaving}
+              onChange={handleReaderSettingsChange}
+              onReset={handleResetReaderSettings}
+            />
+
+            <Button
               variant="outline" 
               size="icon"
               className="opacity-80 hover:opacity-100 bg-card/80"
               onClick={() => toggleFullscreen(document)}
-              title="Toggle fullscreen"
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             >
               <Maximize className="h-4 w-4" />
             </Button>
@@ -788,10 +802,12 @@ export default function ComicReader() {
                 variant="outline" 
                 size="icon"
                 className="opacity-80 hover:opacity-100 bg-card/80"
+                disabled={!arePreferencesLoaded}
                 onClick={() => {
                   setIsZoomed(false);
                   setZoomLevel(1);
                 }}
+                aria-label="Zoom out"
                 title="Zoom out"
               >
                 <ZoomOut className="h-4 w-4" />
@@ -801,10 +817,12 @@ export default function ComicReader() {
                 variant="outline" 
                 size="icon"
                 className="opacity-80 hover:opacity-100 bg-card/80"
+                disabled={!arePreferencesLoaded}
                 onClick={() => {
                   setIsZoomed(true);
                   setZoomLevel(2);
                 }}
+                aria-label="Zoom in"
                 title="Zoom in"
               >
                 <ZoomIn className="h-4 w-4" />
@@ -819,7 +837,8 @@ export default function ComicReader() {
                   size="icon"
                   className="opacity-80 hover:opacity-100 bg-card/80"
                   onClick={handlePreviousPage}
-                  disabled={currentPage === 0}
+                  disabled={!canGoPrevious}
+                  aria-label="Previous page"
                   title="Previous page"
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -830,7 +849,8 @@ export default function ComicReader() {
                   size="icon"
                   className="opacity-80 hover:opacity-100 bg-card/80"
                   onClick={handleNextPage}
-                  disabled={currentPage === comicPages.length - 1}
+                  disabled={!canGoNext}
+                  aria-label="Next page"
                   title="Next page"
                 >
                   <ArrowRight className="h-4 w-4" />
@@ -844,6 +864,8 @@ export default function ComicReader() {
               size="icon"
               className="opacity-80 hover:opacity-100 bg-card/80"
               onClick={() => setShowDebug(!showDebug)}
+              aria-label="Debug info"
+              aria-expanded={showDebug}
               title="Debug info"
             >
               <Info className="h-4 w-4" />
@@ -893,13 +915,19 @@ export default function ComicReader() {
           {comicPages.length === 0 && !isLoading && (
              <div className="text-xl">This comic has no pages to display.</div>
           )}
-        </div>
+        </SinglePageReader>
       </div>
       
       {/* Reader controls - different styling in fullscreen mode */}
-      <div className={isFullscreen ? "reader-controls-fullscreen" : "reader-controls"}>
+      <div
+        role="group"
+        aria-label="Reader page controls"
+        className={isFullscreen
+          ? `reader-controls-fullscreen ${settings.autoHideControls ? "" : "reader-controls-pinned"}`
+          : "reader-controls"}
+      >
         {/* How far through the comic this page is, at a glance */}
-        {comicPages.length > 0 && (
+        {settings.showProgress && comicPages.length > 0 && (
           <Progress
             value={((currentPage + 1) / comicPages.length) * 100}
             aria-label={`Page ${currentPage + 1} of ${comicPages.length}`}
@@ -912,10 +940,12 @@ export default function ComicReader() {
             <Button
               variant="outline"
               onClick={handlePreviousPage}
-              disabled={currentPage === 0}
+              disabled={!canGoPrevious}
+              aria-label="Previous page"
               className={isFullscreen ? "" : "bg-card"}
             >
-              <ArrowLeft className="mr-2 h-4 w-4" /> Previous
+              <ArrowLeft className="h-4 w-4 min-[360px]:mr-2" />
+              <span className="hidden min-[360px]:inline">Previous</span>
             </Button>
 
             {/* Force reload button */}
@@ -923,6 +953,7 @@ export default function ComicReader() {
               variant="outline"
               size="icon"
               onClick={handleForceReload}
+              aria-label="Force reload current page"
               title="Force reload current page"
               className={isFullscreen ? "" : "bg-card"}
             >
@@ -966,10 +997,12 @@ export default function ComicReader() {
           <Button
             variant="outline"
             onClick={handleNextPage}
-            disabled={currentPage === comicPages.length - 1}
+            disabled={!canGoNext}
+            aria-label="Next page"
             className={isFullscreen ? "" : "bg-card"}
           >
-            Next <ArrowRight className="ml-2 h-4 w-4" />
+            <span className="hidden min-[360px]:inline">Next</span>
+            <ArrowRight className="h-4 w-4 min-[360px]:ml-2" />
           </Button>
         </div>
       </div>

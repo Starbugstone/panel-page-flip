@@ -65,6 +65,7 @@ final class PersonalDataExporter
                 'dropboxConnected' => $user->getDropboxAccessToken() !== null
                     || $user->getDropboxRefreshToken() !== null,
                 'dropboxLastSyncedAt' => $user->getDropboxLastSyncedAt()?->format(\DateTimeInterface::ATOM),
+                'readerPreferences' => $user->getReaderPreferences(),
             ],
             'comics' => $comics,
             'readingProgress' => $progress,

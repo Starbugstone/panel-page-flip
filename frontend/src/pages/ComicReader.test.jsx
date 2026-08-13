@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ComicReader from "./ComicReader";
 import { api } from "@/lib/api";
+import { toggleFullscreen } from "@/lib/fullscreen";
+import { DEFAULT_READER_PREFERENCES } from "@/lib/reader-preferences";
 
 /**
  * Stable identities, deliberately.
@@ -16,7 +18,7 @@ import { api } from "@/lib/api";
  */
 const mocks = vi.hoisted(() => ({ toast: vi.fn(), updateComicProgress: vi.fn() }));
 
-vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn() } }));
+vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), log: vi.fn() } }));
 vi.mock("@/lib/fullscreen", () => ({ toggleFullscreen: vi.fn() }));
@@ -90,8 +92,17 @@ describe("ComicReader", () => {
     mocks.updateComicProgress.mockClear();
     vi.stubGlobal("Image", FakeImage);
     vi.mocked(api.get).mockReset();
-    vi.mocked(api.get).mockResolvedValue(comic());
+    vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+      path === "/api/reader/preferences"
+        ? { preferences: DEFAULT_READER_PREFERENCES }
+        : comic()
+    ));
     vi.mocked(api.post).mockResolvedValue({ progress: { currentPage: 1, revision: 1 } });
+    vi.mocked(api.put).mockReset();
+    vi.mocked(api.put).mockImplementation((_path, body) => Promise.resolve(body));
+    vi.mocked(api.delete).mockReset();
+    vi.mocked(api.delete).mockResolvedValue({ preferences: DEFAULT_READER_PREFERENCES });
+    vi.mocked(toggleFullscreen).mockClear();
   });
 
   afterEach(() => {
@@ -168,7 +179,7 @@ describe("ComicReader", () => {
 
       expect(pageBox()).toHaveValue(1);
 
-      await user.click(screen.getByLabelText(/next page/i));
+      await user.click(screen.getByRole("button", { name: /^next/i }));
 
       await waitFor(() => expect(pageBox()).toHaveValue(2));
     });
@@ -199,6 +210,171 @@ describe("ComicReader", () => {
       // match the page being shown.
       await waitFor(() => expect(pageBox()).toHaveValue(3));
       expect(await page(3)).toBeInTheDocument();
+    });
+  });
+
+  describe("shared navigation and logical progress", () => {
+    it("uses the same next and previous operations for keyboard navigation", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.keyboard("{ArrowRight}");
+      expect(await page(2)).toBeInTheDocument();
+
+      await user.keyboard("{ArrowLeft}");
+      expect(await page(1)).toBeInTheDocument();
+    });
+
+    it("does not steal arrow keys from the page input", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(pageBox());
+      await user.keyboard("{ArrowRight}");
+
+      expect(await page(1)).toBeInTheDocument();
+    });
+
+    it("restores and saves the underlying comic page number", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? { preferences: DEFAULT_READER_PREFERENCES }
+          : { comic: { ...comic().comic, readingProgress: { currentPage: 2, revision: 7 } } }
+      ));
+
+      renderReader();
+
+      expect(await page(2)).toBeInTheDocument();
+      await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+        "/api/comics/42/progress",
+        expect.objectContaining({ currentPage: 2, revision: 8 }),
+        expect.objectContaining({ keepalive: true })
+      ));
+    });
+  });
+
+  describe("reader settings", () => {
+    it("loads a saved fit without reloading comic metadata", async () => {
+      const saved = {
+        ...DEFAULT_READER_PREFERENCES,
+        settings: { ...DEFAULT_READER_PREFERENCES.settings, fit: "width" },
+      };
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: saved } : comic()
+      ));
+
+      const { container } = renderReader();
+      await page(1);
+
+      await waitFor(() => expect(container.querySelector("[data-page-fit]")).toHaveAttribute("data-page-fit", "width"));
+      expect(api.get.mock.calls.filter(([path]) => path === "/api/comics/42")).toHaveLength(1);
+    });
+
+    it("changes fit immediately, persists it, and resets naturally", async () => {
+      const user = userEvent.setup();
+      const { container } = renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /reader settings/i }));
+      await user.click(screen.getByRole("combobox", { name: /page size/i }));
+      await user.click(await screen.findByRole("option", { name: /fit width/i }));
+
+      expect(container.querySelector("[data-page-fit]")).toHaveAttribute("data-page-fit", "width");
+      await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+        "/api/reader/preferences",
+        { preferences: expect.objectContaining({ settings: expect.objectContaining({ fit: "width" }) }) },
+        { keepalive: true }
+      ));
+      expect(api.get.mock.calls.filter(([path]) => path === "/api/comics/42")).toHaveLength(1);
+
+      await user.click(screen.getByRole("button", { name: /reset defaults/i }));
+      await waitFor(() => expect(api.delete).toHaveBeenCalledWith(
+        "/api/reader/preferences",
+        { keepalive: true }
+      ));
+      expect(container.querySelector("[data-page-fit]")).toHaveAttribute("data-page-fit", "contain");
+    });
+
+    it("falls back safely when saved settings are stale", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? { preferences: { schemaVersion: 99, settings: { fit: "stretch" } } }
+          : comic()
+      ));
+
+      const { container } = renderReader();
+      await page(1);
+
+      expect(container.querySelector("[data-page-fit]")).toHaveAttribute("data-page-fit", "contain");
+    });
+
+    it("can hide the progress indicator without affecting navigation", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      expect(screen.getByRole("progressbar")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /reader settings/i }));
+      await user.click(screen.getByRole("switch", { name: /show progress bar/i }));
+
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^next/i })).toBeEnabled();
+    });
+
+    it("cannot be changed before the saved values arrive", async () => {
+      const user = userEvent.setup();
+      let resolvePreferences;
+      vi.mocked(api.get).mockImplementation((path) => (
+        path === "/api/reader/preferences"
+          ? new Promise((resolve) => { resolvePreferences = resolve; })
+          : Promise.resolve(comic())
+      ));
+
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /reader settings/i }));
+      const wakeLock = screen.getByRole("switch", { name: /keep screen awake/i });
+      expect(wakeLock).toBeDisabled();
+
+      // Toggling here would send the placeholder defaults as the user's whole
+      // preference set, wiping whatever the pending request is about to return.
+      await user.click(wakeLock);
+      expect(api.put).not.toHaveBeenCalled();
+
+      resolvePreferences({
+        preferences: {
+          ...DEFAULT_READER_PREFERENCES,
+          settings: { ...DEFAULT_READER_PREFERENCES.settings, wakeLock: false },
+        },
+      });
+
+      await waitFor(() => expect(screen.getByRole("switch", { name: /keep screen awake/i })).toBeEnabled());
+      expect(screen.getByRole("switch", { name: /keep screen awake/i })).not.toBeChecked();
+      expect(api.put).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("fullscreen and preload regressions", () => {
+    it("keeps fullscreen available through an explicitly named button", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /enter fullscreen/i }));
+
+      expect(toggleFullscreen).toHaveBeenCalledWith(document);
+    });
+
+    it("does not request the same preload URL twice", async () => {
+      renderReader();
+      await page(1);
+
+      await waitFor(() => expect(FakeImage.instances.length).toBeGreaterThanOrEqual(3));
+      const pageUrls = FakeImage.instances.map(({ src }) => src).filter((src) => src.includes("/pages/"));
+      expect(new Set(pageUrls).size).toBe(pageUrls.length);
     });
   });
 

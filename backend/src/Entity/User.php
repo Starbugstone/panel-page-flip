@@ -102,6 +102,10 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $lastLoginAt = null;
 
+    /** @var array<string, mixed>|null */
+    #[ORM\Column(type: Types::JSON, nullable: true)]
+    private ?array $readerPreferences = null;
+
     /**
      * @var Collection<int, Comic>
      */
@@ -361,6 +365,20 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setLastLoginAt(?\DateTimeImmutable $lastLoginAt): static
     {
         $this->lastLoginAt = $lastLoginAt;
+        return $this;
+    }
+
+    /** @return array<string, mixed>|null */
+    public function getReaderPreferences(): ?array
+    {
+        return $this->readerPreferences;
+    }
+
+    /** @param array<string, mixed>|null $readerPreferences */
+    public function setReaderPreferences(?array $readerPreferences): static
+    {
+        $this->readerPreferences = $readerPreferences;
+
         return $this;
     }
 
