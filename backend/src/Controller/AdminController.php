@@ -12,6 +12,8 @@ use App\Service\ComicFormatService;
 use App\Service\ComicPageDelivery;
 use App\Enum\ComicSourceType;
 use App\Service\DropboxImportService;
+use App\Service\MetadataProviderConfigurationService;
+use App\Service\MetadataProviderRegistry;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -65,6 +67,55 @@ class AdminController extends AbstractController
             return $this->json(['message' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
         }
         return $this->json(['formats' => $formats->status()]);
+    }
+
+    #[Route('/metadata-providers', name: 'metadata_providers', methods: ['GET'])]
+    public function metadataProviders(MetadataProviderRegistry $providers): JsonResponse
+    {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        // Whether a provider is configured, never what it was configured with.
+        return $this->json(['providers' => $providers->status()]);
+    }
+
+    #[Route('/metadata-providers', name: 'metadata_providers_update', methods: ['PUT'])]
+    public function updateMetadataProviders(
+        Request $request,
+        MetadataProviderConfigurationService $configuration,
+        MetadataProviderRegistry $providers,
+        AdminAuditService $auditService,
+        EntityManagerInterface $entityManager
+    ): JsonResponse {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        $data = json_decode($request->getContent(), true);
+        if (!is_array($data)) {
+            return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $settings = $configuration->get();
+        foreach (['metronUsername', 'metronPassword', 'comicVineApiKey'] as $field) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+
+            $value = $data[$field];
+            if ($value !== null && !is_string($value)) {
+                return $this->json(['message' => sprintf('%s must be a string or null.', $field)], Response::HTTP_BAD_REQUEST);
+            }
+
+            $settings->{'set'.ucfirst($field)}($value);
+        }
+
+        // The values are secrets, so the audit trail records that they changed
+        // and never which fields held what.
+        $configuration->save();
+        $auditService->log($this->getAdminUser(), 'metadata_providers_updated', 'configuration', 1, [
+            'configured' => array_column($providers->status(), 'configured', 'key'),
+        ]);
+        $entityManager->flush();
+
+        return $this->json(['providers' => $providers->status()]);
     }
 
     #[Route('/stats', name: 'stats', methods: ['GET'])]
