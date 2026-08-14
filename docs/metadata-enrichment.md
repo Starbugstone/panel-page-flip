@@ -8,6 +8,10 @@ This is written to be picked up cold. Each slice below is a separate PR, and
 there may be weeks between them, so every slice states what it depends on, what
 it must not do, and how you know it is finished.
 
+**Status:** all four slices are implemented — PRs #106, #107, #108 and #109,
+stacked in that order. Where the shipped code deviates from the plan below, the
+plan is annotated rather than rewritten, so the reasoning stays visible.
+
 ## Why this comes before the reader work
 
 The obvious reading of #74 is that it is a library feature: series, issue,
@@ -75,6 +79,23 @@ Provider tags stay suggestions until the user explicitly applies them. Every
 slice below has to preserve this, which is why the review/apply UI is its own
 slice rather than being smuggled into the provider slice.
 
+### Which sources need accepting, and which do not
+
+The pipeline above is one line and reads as though everything waits for a
+person. It does not, and the difference is worth stating because two slices
+could otherwise be built to contradict each other:
+
+| Source | When it lands | Why |
+| --- | --- | --- |
+| `ComicInfo.xml` | **Persisted at import**, no acceptance step | It is the file's own statement about itself, arriving with the file. Nothing is being guessed and there is no second opinion to weigh — the same standing as the page count, which is also read at import and never confirmed. |
+| Filename | **Suggestion only** | Inferred from a naming convention that the file never promised to follow. |
+| Provider | **Suggestion only** | Somebody else's record of what this comic might be. |
+| The user | Authoritative | They were looking at the comic. |
+
+So "nothing reaches the database without an explicit action" in slice 4 is
+about **suggestions**, not about everything. What ComicInfo says still never
+overwrites a value the uploader typed — see the field rules in slice 1.
+
 ---
 
 ## Slice 1 — Structured metadata model and ComicInfo.xml ingestion
@@ -87,15 +108,31 @@ slice rather than being smuggled into the provider slice.
    archive, and nothing can read it today. Add a capability alongside
    `ComicPageProviderInterface` — a separate interface is preferable to widening
    the existing one, because PDF cannot implement it meaningfully:
-   - CBZ: `ZipArchive::getFromName('ComicInfo.xml')`, with the same
-     `MAX_*` bounds `ZipPageProvider` already applies to pages.
-   - CBR/CB7/CBT: `7z x -so -spd -- <archive> ComicInfo.xml`, matching the
-     existing call's argument shape exactly (`--` and `-spd` are load-bearing;
-     see `SevenZipPageProvider::readPage`).
-   - PDF: has no ComicInfo.xml. It contributes only what its own Info dictionary
-     / XMP offers (title, author). Do not fabricate the rest.
-   - The entry name is matched case-insensitively and only at the archive root —
-     real files use `ComicInfo.xml` and `comicinfo.xml` roughly equally.
+   - CBZ: enumerate entries and read the match by index, not by name.
+   - CBR/CB7/CBT: `7z x -so -spd -- <archive> <entry>`, matching the existing
+     call's argument shape exactly (`--` and `-spd` are load-bearing; see
+     `SevenZipPageProvider::readPage`). The entry name comes from the listing,
+     so it is never a pattern.
+   - PDF: has no ComicInfo.xml, so it implements nothing here. Contributing what
+     its Info dictionary offers was planned and **deliberately dropped** — that
+     is title and author at best, which the upload form already collects, and it
+     would put a special case into an otherwise uniform design. Revisit only if
+     a real PDF turns up whose Info dictionary carries something worth having.
+
+   Locating it has to be **bounded and deterministic**, because an archive is
+   untrusted input and "whichever one we happened to hit first" is not an
+   answer that survives a re-read:
+
+   - Match `ComicInfo.xml` **case-insensitively** and **only at the archive
+     root**. Real files use both spellings; a nested one describes a
+     subdirectory, not the comic.
+   - **First match wins** when an archive carries the name twice, so the result
+     cannot depend on read order.
+   - Bound it with a dedicated `MAX_METADATA_BYTES`, separate from the page
+     limits. Check the declared size *before* reading where the format exposes
+     one, and cap the read regardless — a declaration is the archive's own claim
+     about itself. On the 7z path, read incrementally and stop at the cap rather
+     than buffering the entry and measuring it afterwards.
 
 2. **A parsed, validated representation.** A value object, not an array. Unknown
    fields are dropped rather than carried; out-of-range values fall back per
@@ -104,8 +141,26 @@ slice rather than being smuggled into the provider slice.
 
 3. **Persistence.** New columns/table for series, volume, issue number, issue
    count, publication date, language, reading direction, and structured
-   creators. Per-page metadata (`type`, `doublePage`, `width`, `height`) needs
-   its own table keyed by comic + page index.
+   creators. Per-page metadata (`type`, `doublePage`, `width`, `height`) is
+   keyed by page number.
+
+   **How a ComicInfo page becomes a reader page.** Get this wrong and
+   double-page flags attach to the wrong pages, which is a silent wrong answer
+   rather than a visible failure:
+
+   - `<Page Image="N">` is **authoritative**. Document order is not — entries
+     are sorted by page, so a file listing them out of order still maps
+     correctly.
+   - `Image` counts from **zero**; the readers count from **one**. Convert in
+     exactly one place.
+   - It indexes the comic's page sequence, which is the natural-sorted list of
+     image entries the page providers build (`strnatcasecmp`) — the same order
+     the stored page count came from.
+   - **Duplicates:** first entry claiming a page wins.
+   - **Missing:** a page with no entry simply has no metadata; consumers must
+     cope with a partial map rather than assuming one entry per page.
+   - **Out of range:** an entry past the page count is stored but never looked
+     up, since consumers ask by page number. It is not worth a rejection.
 
 4. **The page-info contract.** A read model the reader can consume that answers
    "is page N a double-page", "what are its dimensions", "is it the cover", and
