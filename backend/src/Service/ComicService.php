@@ -114,6 +114,7 @@ class ComicService
             $comic->setFileSize($fileSize);
             $comic->setPageCount($pageCount);
             $comic->setSourceType($sourceType);
+            $comic->setOriginalFilename(mb_substr($originalName, 0, 255));
             $comic->setOwner($user);
 
             if ($author) $comic->setAuthor($author);

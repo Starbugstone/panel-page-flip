@@ -12,6 +12,7 @@ use App\Repository\ComicShareRepository;
 use App\Repository\TagRepository;
 use App\Security\Voter\ComicVoter;
 use App\Service\AdminAuditService;
+use App\Service\ComicMetadataSuggestionService;
 use App\Service\ComicPageDelivery;
 use App\Service\ComicSerializer;
 use App\Service\ComicShareService;
@@ -591,6 +592,35 @@ class ComicController extends AbstractController
         }
 
         return $this->json(['comic' => $this->comicSerializer->serialize($comic, $user)]);
+    }
+
+    /**
+     * What could be filled in about this comic, and where each proposal came
+     * from. Read-only by design: applying a suggestion is an edit, and goes
+     * through the ordinary update route so it is authorised the same way.
+     */
+    #[Route('/{id}/metadata-suggestions', name: 'metadata_suggestions', methods: ['GET'])]
+    public function metadataSuggestions(
+        int $id,
+        EntityManagerInterface $entityManager,
+        ComicMetadataSuggestionService $suggestions
+    ): JsonResponse {
+        if (!$this->getUser() instanceof User) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
+        if (!$comic) {
+            return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // Suggestions describe the comic, so seeing them needs the same right as
+        // seeing the comic; acting on them needs the right to edit it.
+        if (!$this->isGranted(ComicVoter::VIEW, $comic)) {
+            return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN);
+        }
+
+        return $this->json(['suggestions' => $suggestions->for($comic)]);
     }
 
     #[Route('', name: 'create', methods: ['POST'])]
