@@ -49,6 +49,12 @@ docker compose exec -T php php bin/console app:create-admin-user navadmin@exampl
 docker compose exec -T database sh -lc \
   'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "UPDATE ${MYSQL_DATABASE}.user SET is_email_verified=1 WHERE email LIKE \"nav%\";"' 2>/dev/null
 
+# Repeated driver runs trip the login limiter (5 attempts / 15 minutes), which
+# surfaces as a 429 and a login that never completes. Clearing it costs nothing
+# and is not something to sit out for a quarter of an hour.
+say "Clearing the login rate limiter"
+docker compose exec -T php php bin/console cache:pool:clear cache.rate_limiter >/dev/null 2>&1 || true
+
 say "Generating fixtures"
 docker compose cp "$REPO_ROOT/.claude/skills/browser-test/scripts/make-fixtures.php" php:/tmp/make-fixtures.php >/dev/null
 docker compose exec -T php php /tmp/make-fixtures.php
