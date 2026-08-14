@@ -391,6 +391,18 @@ class ComicController extends AbstractController
                 }
             }
 
+            // The edit dialog saves through this route, so the structured
+            // fields have to be accepted here as well as on the single-comic
+            // update — otherwise an accepted suggestion is staged, saved, and
+            // silently dropped on the way.
+            $structured = new StructuredMetadataInput();
+            if (!$structured->applyTo($changes, $comic)) {
+                return $this->json(
+                    ['message' => implode(' ', $structured->errors())],
+                    Response::HTTP_UNPROCESSABLE_ENTITY
+                );
+            }
+
             if (array_key_exists('explicitContent', $changes)) {
                 $wasExplicit = $comic->isExplicitContent();
                 $comic->setExplicitContent($changes['explicitContent']);
@@ -1841,7 +1853,14 @@ class ComicController extends AbstractController
                 return [];
             }
 
-            $allowedFields = ['title', 'author', 'publisher', 'description', 'tags', 'addTags', 'explicitContent'];
+            $allowedFields = [
+                'title', 'author', 'publisher', 'description', 'tags', 'addTags', 'explicitContent',
+                // Structured metadata, so accepting a suggestion in the edit
+                // dialog survives the save. Their values are validated by
+                // StructuredMetadataInput once the comic is in hand; this list
+                // only decides which keys the endpoint will look at.
+                'series', 'issueNumber', 'issueCount', 'volume', 'publishedAt', 'languageCode', 'ageRating',
+            ];
             if (array_diff(array_keys($changes), $allowedFields) !== []) {
                 return [];
             }

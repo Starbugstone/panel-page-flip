@@ -39,6 +39,43 @@ foreach ($pages as $n => $bytes) {
 }
 $zip->close();
 
+// ---- CBZ carrying ComicInfo.xml, for the metadata paths ----
+$comicInfo = <<<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<ComicInfo>
+  <Series>Navigator Chronicles</Series>
+  <Number>7</Number>
+  <Count>13</Count>
+  <Volume>1996</Volume>
+  <Publisher>Fixture Comics</Publisher>
+  <Summary>A comic that describes itself.</Summary>
+  <Year>1997</Year><Month>4</Month><Day>9</Day>
+  <LanguageISO>en</LanguageISO>
+  <AgeRating>Teen</AgeRating>
+  <Manga>YesAndRightToLeft</Manga>
+  <Writer>Jeph Loeb</Writer>
+  <Penciller>Tim Sale</Penciller>
+  <Pages>
+    <Page Image="0" Type="FrontCover" ImageWidth="600" ImageHeight="900" />
+    <Page Image="1" Type="Story" />
+    <Page Image="2" DoublePage="true" ImageWidth="1200" ImageHeight="900" />
+  </Pages>
+</ComicInfo>
+XML;
+
+$tagged = $dir . '/Navigator Tagged 007 (1997).cbz';
+@unlink($tagged);
+$zip = new ZipArchive();
+if ($zip->open($tagged, ZipArchive::CREATE) !== true) {
+    fwrite(STDERR, "cannot create tagged cbz\n");
+    exit(1);
+}
+foreach ($pages as $n => $bytes) {
+    $zip->addFromString(sprintf('page-%02d.jpg', $n), $bytes);
+}
+$zip->addFromString('ComicInfo.xml', $comicInfo);
+$zip->close();
+
 // ---- PDF (image-based, native read path) ----
 function assemble(array $objects): string
 {

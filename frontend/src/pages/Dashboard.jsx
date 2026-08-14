@@ -14,6 +14,7 @@ import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { getComicProgressState } from "@/lib/comic-progress";
+import { buildComicUpdatePayload } from "@/lib/comic-updates";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 import { useSharing } from "@/hooks/use-sharing.jsx";
 
@@ -180,19 +181,7 @@ export default function Dashboard() {
   
   const handleSaveComic = async (updatedComic) => {
     try {
-      await api.patch("/api/comics", {
-        updates: [{
-          id: updatedComic.id,
-          changes: {
-            title: updatedComic.title,
-            author: updatedComic.author,
-            publisher: updatedComic.publisher,
-            description: updatedComic.description,
-            tags: updatedComic.tags,
-            explicitContent: updatedComic.explicitContent === true,
-          },
-        }],
-      });
+      await api.patch("/api/comics", { updates: [buildComicUpdatePayload(updatedComic)] });
       
       await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
 

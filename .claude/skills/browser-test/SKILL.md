@@ -108,6 +108,11 @@ Verified 2026-08-14; do not spend time rediscovering it:
 
 ## Gotchas that have bitten before
 
+- **A 429 on `/api/login`** means the login limiter tripped — five attempts per
+  fifteen minutes, and each driver run spends two. `up.sh` clears it, or:
+  `docker compose exec -T php php bin/console cache:pool:clear cache.rate_limiter`.
+  It looks like a hung login, because the driver waits for a redirect that never
+  comes.
 - **`/tmp/comic_uploads` owned by root** makes every upload 500 with
   `mkdir(): Permission denied`. Running console commands as root inside the php
   container is what causes it. `up.sh` fixes the ownership.
