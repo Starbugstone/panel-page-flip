@@ -23,7 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 .windsurf/*
+# Local agent settings stay out of the repo, but project skills are meant to be
+# shared — they are how a working recipe survives leaving one machine.
 .claude/*
+!.claude/skills/
 
 # Local testing files
 passwords.txt
@@ -49,3 +52,6 @@ backend/public/favicon.ico
 backend/public/placeholder.svg
 backend/public/robots.txt
 error_log
+
+# Screenshots, fixtures and scratch output from the browser-test skill.
+/var/browser-test/
