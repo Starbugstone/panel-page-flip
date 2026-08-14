@@ -6,6 +6,7 @@ use App\ComicSource\ComicPageProviderFactory;
 use App\ComicSource\PageResult;
 use App\Entity\Comic;
 use App\Enum\ComicSourceType;
+use App\Metadata\ComicInfo;
 use App\Entity\Tag;
 use App\Entity\User;
 use App\Repository\TagRepository;
@@ -26,7 +27,8 @@ class ComicService
         private readonly int $uploadUserQuotaBytes,
         private readonly ComicPageProviderFactory $pageProviderFactory,
         private readonly ComicFormatService $comicFormatService,
-        private readonly ComicPageCache $pageCache
+        private readonly ComicPageCache $pageCache,
+        private readonly ComicMetadataReader $metadataReader
     ) {
     }
 
@@ -97,6 +99,9 @@ class ComicService
 
         $fileSize = filesize($absolutePath) ?: $incomingSize;
         $pageCount = $sourceInfo->pageCount;
+        // Read after validation, never inside it: a comic with unreadable
+        // metadata is still a comic, and must not be rejected as a bad source.
+        $embedded = $this->metadataReader->read($absolutePath, $sourceType);
 
         $connection = $this->entityManager->getConnection();
         $coverPath = null;
@@ -114,6 +119,8 @@ class ComicService
             if ($author) $comic->setAuthor($author);
             if ($publisher) $comic->setPublisher($publisher);
             if ($description) $comic->setDescription($description);
+
+            $this->applyEmbeddedMetadata($comic, $embedded);
 
             foreach ($this->normaliseTagNames($tags) as $tagName) {
                 /** @var TagRepository $tagRepository */
@@ -147,6 +154,44 @@ class ComicService
             if (is_file($absolutePath)) @unlink($absolutePath);
             $this->logger->error('Comic upload finalization failed.', ['reason' => $e->getMessage()]);
             throw new \RuntimeException('Comic upload could not be finalized.', previous: $e);
+        }
+    }
+
+    /**
+     * Fill in what the file says about itself.
+     *
+     * Anything the uploader typed wins: they were looking at the comic, and a
+     * ComicInfo.xml written by whoever packaged it is not grounds for replacing
+     * their answer. Fields with no form equivalent are taken as given.
+     */
+    private function applyEmbeddedMetadata(Comic $comic, ?ComicInfo $info): void
+    {
+        if ($info === null) {
+            return;
+        }
+
+        $comic->setSeries($info->series);
+        $comic->setIssueNumber($info->issueNumber);
+        $comic->setIssueCount($info->issueCount);
+        $comic->setVolume($info->volume);
+        $comic->setPublishedAt($info->publishedAt);
+        $comic->setLanguageCode($info->languageCode);
+        $comic->setAgeRating($info->ageRating);
+        $comic->setReadingDirection($info->readingDirection);
+        $comic->setCreators($info->creators);
+        $comic->setPageMetadata($info->pagesAsArray());
+
+        if (!$comic->getPublisher() && $info->publisher) {
+            $comic->setPublisher($info->publisher);
+        }
+
+        if (!$comic->getDescription() && $info->summary) {
+            $comic->setDescription($info->summary);
+        }
+
+        $writers = $info->creators['writer'] ?? [];
+        if (!$comic->getAuthor() && $writers !== []) {
+            $comic->setAuthor(implode(', ', $writers));
         }
     }
 

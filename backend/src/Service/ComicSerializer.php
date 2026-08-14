@@ -113,6 +113,15 @@ class ComicSerializer
             'coverImagePath' => $this->coverUrl($comic),
             'pageCount' => $comic->getPageCount(),
             'sourceType' => $comic->getSourceType()->value,
+            'series' => $comic->getSeries(),
+            'issueNumber' => $comic->getIssueNumber(),
+            'issueCount' => $comic->getIssueCount(),
+            'volume' => $comic->getVolume(),
+            'publishedAt' => $comic->getPublishedAt()?->format('Y-m-d'),
+            'languageCode' => $comic->getLanguageCode(),
+            'ageRating' => $comic->getAgeRating(),
+            'readingDirection' => $comic->getReadingDirection()->value,
+            'creators' => $comic->getCreators(),
             // The owner's own classification, independent of every tag. It is
             // what an 18+ gate is derived from when the comic is shared, and it
             // has to survive a round trip through the edit dialog unchanged.
