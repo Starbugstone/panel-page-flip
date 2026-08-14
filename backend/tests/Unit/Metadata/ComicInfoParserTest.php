@@ -107,6 +107,21 @@ final class ComicInfoParserTest extends TestCase
         self::assertSame([1, 3, 5], array_map(static fn ($p) => $p->page, $info?->pages ?? []));
     }
 
+    /**
+     * A file listing the same page twice must not make the result depend on
+     * how the parser walked it.
+     */
+    public function testKeepsTheFirstEntryForADuplicatedPage(): void
+    {
+        $info = $this->parser->parse($this->comicInfo(
+            '<Pages><Page Image="0" Type="FrontCover" /><Page Image="0" Type="Story" DoublePage="true" /></Pages>'
+        ));
+
+        self::assertCount(1, $info?->pages ?? []);
+        self::assertSame(ComicPageType::FrontCover, $info?->pages[0]->type);
+        self::assertFalse($info?->pages[0]->doublePage);
+    }
+
     /** @dataProvider unusableDocuments */
     public function testRefusesWhatItCannotUse(string $xml): void
     {

@@ -52,12 +52,21 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
         if ($entry === null) return null;
 
         $process = new Process(['7z', 'x', '-so', '-spd', '--', $sourcePath, $entry]);
-        $process->setTimeout(self::TIMEOUT); $process->setInput(null); $process->run();
-        if (!$process->isSuccessful()) return null;
+        $process->setTimeout(self::TIMEOUT); $process->setInput(null);
 
-        $xml = $process->getOutput();
+        // Read incrementally and stop at the cap. getOutput() would hold the
+        // whole entry first, and how large that is was decided by whoever built
+        // the archive.
+        $xml = ''; $tooLarge = false;
+        $process->run(static function (string $type, string $chunk) use (&$xml, &$tooLarge, $process): void {
+            if ($type !== Process::OUT || $tooLarge) return;
+            $xml .= $chunk;
+            if (strlen($xml) > ComicSourceLimits::MAX_METADATA_BYTES) { $tooLarge = true; $process->stop(0); }
+        });
 
-        return $xml === '' || strlen($xml) > ComicSourceLimits::MAX_METADATA_BYTES ? null : $xml;
+        if ($tooLarge || !$process->isSuccessful() || $xml === '') return null;
+
+        return $xml;
     }
 
     private function comicInfoEntry(string $listing): ?string

@@ -160,7 +160,23 @@ final class ComicInfoParser
         return array_values(array_slice(array_unique($names), 0, self::MAX_CREATORS_PER_ROLE));
     }
 
-    /** @return list<ComicPageInfo> */
+    /**
+     * Page facts, keyed to the reader's own page numbering.
+     *
+     * `Image` is authoritative and is an index into the comic's page sequence,
+     * counted from zero; the readers count from one, so it is offset here and
+     * nowhere else. That sequence is the natural-sorted list of image entries
+     * the page providers build, which is the same order the stored page count
+     * came from — a file whose ComicInfo disagrees with its own page order is
+     * describing pages that do not exist, and there is nothing better to do
+     * with it than take it at its word.
+     *
+     * Document order is not trusted: entries are sorted by page, and the first
+     * entry claiming a page wins, so a file listing a page twice cannot make
+     * the result depend on how the parser happened to walk it.
+     *
+     * @return list<ComicPageInfo>
+     */
     private function pages(\SimpleXMLElement $root): array
     {
         if (!isset($root->Pages->Page)) {
@@ -174,13 +190,12 @@ final class ComicInfoParser
                 break;
             }
 
-            // ComicInfo numbers pages from zero; everything else here is 1-based.
             $image = $this->attributeInt($element, 'Image');
-            if ($image === null || $image < 0) {
+            if ($image === null || $image < 0 || isset($pages[$image + 1])) {
                 continue;
             }
 
-            $pages[] = new ComicPageInfo(
+            $pages[$image + 1] = new ComicPageInfo(
                 page: $image + 1,
                 type: ComicPageType::tryFromName($this->attribute($element, 'Type')),
                 doublePage: strcasecmp($this->attribute($element, 'DoublePage') ?? '', 'true') === 0,
@@ -189,9 +204,9 @@ final class ComicInfoParser
             );
         }
 
-        usort($pages, static fn (ComicPageInfo $a, ComicPageInfo $b): int => $a->page <=> $b->page);
+        ksort($pages);
 
-        return $pages;
+        return array_values($pages);
     }
 
     private function attribute(\SimpleXMLElement $element, string $name): ?string
