@@ -48,9 +48,15 @@ final class ZipPageProvider implements ComicPageProviderInterface, ComicInfoSour
         if ($zip->open($sourcePath) !== true) return null;
 
         try {
+            // First match wins, so an archive carrying two entries of the same
+            // name cannot make the metadata depend on read order. The declared
+            // size is checked before reading and the read is capped anyway: the
+            // declaration is the archive's own claim about itself.
             for ($i = 0; $i < min($zip->numFiles, ComicSourceLimits::MAX_ENTRIES); ++$i) {
-                $name = $zip->statIndex($i)['name'] ?? '';
-                if (!self::isComicInfoEntry($name)) continue;
+                $entry = $zip->statIndex($i);
+                if (!self::isComicInfoEntry($entry['name'] ?? '')) continue;
+
+                if ((int) ($entry['size'] ?? 0) > ComicSourceLimits::MAX_METADATA_BYTES) return null;
 
                 $xml = $zip->getFromIndex($i, ComicSourceLimits::MAX_METADATA_BYTES);
 

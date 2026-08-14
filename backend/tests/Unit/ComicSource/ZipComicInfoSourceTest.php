@@ -54,15 +54,30 @@ final class ZipComicInfoSourceTest extends TestCase
         self::assertNull((new ZipPageProvider())->readComicInfoXml($this->archivePath, ComicSourceType::CBZ));
     }
 
-    /** A metadata entry is capped independently of the page limit. */
-    public function testTruncatesAnOversizedEntryRatherThanLoadingItWhole(): void
+    /**
+     * Refused on the declared size, before any of it is read: a truncated
+     * document would only fail to parse later, having cost the memory anyway.
+     */
+    public function testRefusesAnOversizedEntryWithoutReadingIt(): void
     {
         $this->archive(['ComicInfo.xml' => str_repeat('a', 3_000_000)]);
 
-        $xml = (new ZipPageProvider())->readComicInfoXml($this->archivePath, ComicSourceType::CBZ);
+        self::assertNull((new ZipPageProvider())->readComicInfoXml($this->archivePath, ComicSourceType::CBZ));
+    }
 
-        self::assertNotNull($xml);
-        self::assertSame(2_097_152, strlen($xml));
+    /** First match wins, so read order cannot decide which one is used. */
+    public function testTakesTheFirstOfDuplicateEntries(): void
+    {
+        $this->archivePath = tempnam(sys_get_temp_dir(), 'comic-zip-');
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($this->archivePath, \ZipArchive::OVERWRITE) === true);
+        $zip->addFromString('ComicInfo.xml', '<ComicInfo><Series>First</Series></ComicInfo>');
+        $zip->close();
+
+        self::assertStringContainsString(
+            'First',
+            (string) (new ZipPageProvider())->readComicInfoXml($this->archivePath, ComicSourceType::CBZ)
+        );
     }
 
     /** @param array<string, string> $entries */
