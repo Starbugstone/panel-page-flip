@@ -1,8 +1,13 @@
 name: Validate Application
 
 on:
+  # Feature and docs branches are listed as bases, not just main, so that a PR
+  # stacked on another PR is validated too. Without them the filter matches only
+  # the base branch, and a stack of four PRs runs its tests exactly once — on
+  # the one at the bottom — leaving the rest reviewed by nothing until they are
+  # retargeted.
   pull_request:
-    branches: [main]
+    branches: [main, 'feature/**', 'docs/**', 'fix/**', 'ci/**']
   push:
     branches: [main]
   workflow_dispatch:
