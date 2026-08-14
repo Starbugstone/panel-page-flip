@@ -19,6 +19,7 @@ import { TagBadge } from "@/components/TagBadge";
 import { TagCombobox } from "@/components/TagCombobox";
 import { describeTagSubmission } from "@/lib/tag-suggestions.js";
 import { EXPLICIT_FLAG_DESCRIPTION, EXPLICIT_FLAG_LABEL } from "@/lib/sharing.js";
+import { MetadataSuggestions } from "@/components/MetadataSuggestions";
 
 /**
  * Editing a different comic means a different set of fields, so the form is
@@ -49,6 +50,12 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
   // adding or removing a tag — including one that hides the comic from the
   // library — must leave this exactly as the owner set it.
   const [explicitContent, setExplicitContent] = useState(comic?.explicitContent === true);
+  const [structured, setStructured] = useState({
+    series: comic?.series ?? "",
+    issueNumber: comic?.issueNumber ?? "",
+    volume: comic?.volume ?? "",
+    publishedAt: comic?.publishedAt ?? "",
+  });
   const [newTag, setNewTag] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -65,6 +72,18 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
 
     setTags([...tags, resolved]);
     setNewTag("");
+  };
+
+  const setStructuredField = (field, value) => setStructured((current) => ({ ...current, [field]: value }));
+
+  // A suggestion lands in the field it belongs to, so the user sees what they
+  // are about to save and can still change it or cancel.
+  const handleAcceptSuggestion = (patch) => {
+    Object.entries(patch).forEach(([field, value]) => {
+      if (field === "publisher") setPublisher(String(value));
+      else if (field === "description") setDescription(String(value));
+      else setStructuredField(field, String(value));
+    });
   };
 
   const handleRemoveTag = (tagToRemove) => {
@@ -90,7 +109,11 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
         publisher,
         description,
         tags,
-        explicitContent
+        explicitContent,
+        series: structured.series.trim() === "" ? null : structured.series.trim(),
+        issueNumber: structured.issueNumber.trim() === "" ? null : structured.issueNumber.trim(),
+        volume: String(structured.volume).trim() === "" ? null : String(structured.volume).trim(),
+        publishedAt: structured.publishedAt.trim() === "" ? null : structured.publishedAt.trim(),
       });
       
       // If we have new tags, add them to the cache
@@ -176,6 +199,47 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
             />
           </div>
           
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="series">Series</Label>
+              <Input
+                id="series"
+                value={structured.series}
+                onChange={(e) => setStructuredField("series", e.target.value)}
+                placeholder="Series name"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="issueNumber">Issue</Label>
+              <Input
+                id="issueNumber"
+                value={structured.issueNumber}
+                onChange={(e) => setStructuredField("issueNumber", e.target.value)}
+                placeholder="7"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="volume">Volume</Label>
+              <Input
+                id="volume"
+                value={structured.volume}
+                onChange={(e) => setStructuredField("volume", e.target.value)}
+                placeholder="1996"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="publishedAt">Published</Label>
+              <Input
+                id="publishedAt"
+                type="date"
+                value={structured.publishedAt}
+                onChange={(e) => setStructuredField("publishedAt", e.target.value)}
+              />
+            </div>
+          </div>
+
+          <MetadataSuggestions comicId={comic?.id} onAccept={handleAcceptSuggestion} />
+
           <div className="grid gap-2">
             <Label>Tags</Label>
             <div className="flex flex-wrap gap-2 mb-2">
