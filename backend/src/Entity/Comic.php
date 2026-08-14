@@ -68,6 +68,14 @@ class Comic
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $publisher = null;
 
+    /**
+     * The name the file arrived under, kept because it is evidence about the
+     * comic. Suggestions are derived from it on demand rather than frozen at
+     * import, so improving the parser improves every comic already stored.
+     */
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $originalFilename = null;
+
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $series = null;
 
@@ -305,6 +313,18 @@ class Comic
     public function setPublisher(?string $publisher): static
     {
         $this->publisher = $publisher;
+
+        return $this;
+    }
+
+    public function getOriginalFilename(): ?string
+    {
+        return $this->originalFilename;
+    }
+
+    public function setOriginalFilename(?string $originalFilename): static
+    {
+        $this->originalFilename = $originalFilename;
 
         return $this;
     }
