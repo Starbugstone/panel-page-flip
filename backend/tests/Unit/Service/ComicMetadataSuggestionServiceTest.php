@@ -27,7 +27,7 @@ final class ComicMetadataSuggestionServiceTest extends TestCase
             [
                 ['series', 'Batman'],
                 ['issueNumber', '7'],
-                ['publishedYear', 2011],
+                ['publishedAt', '2011-01-01'],
             ],
             array_map(static fn ($s) => [$s->field, $s->suggested], $suggestions)
         );
@@ -47,7 +47,7 @@ final class ComicMetadataSuggestionServiceTest extends TestCase
             ->setIssueNumber('7');
 
         self::assertSame(
-            ['publishedYear'],
+            ['publishedAt'],
             array_map(static fn ($s) => $s->field, $this->service->for($comic))
         );
     }

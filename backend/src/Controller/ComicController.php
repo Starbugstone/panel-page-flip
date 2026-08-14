@@ -20,6 +20,7 @@ use App\Service\ComicShareService;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicFormatService;
 use App\Enum\ComicSourceType;
+use App\Metadata\StructuredMetadataInput;
 use App\Service\ComicService;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
@@ -636,7 +637,8 @@ class ComicController extends AbstractController
         int $id,
         Request $request,
         EntityManagerInterface $entityManager,
-        MetadataProviderRegistry $providers
+        MetadataProviderRegistry $providers,
+        ComicMetadataSuggestionService $suggestions
     ): JsonResponse {
         if (!$this->getUser() instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
@@ -656,7 +658,18 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Unknown metadata provider.'], Response::HTTP_BAD_REQUEST);
         }
 
-        return $this->json(['candidates' => $providers->search($comic, $only)]);
+        // Each candidate carries what accepting it would actually change, so
+        // the review UI never has to work that out for itself and what it shows
+        // matches what applying would do.
+        return $this->json([
+            'candidates' => array_map(
+                fn ($candidate): array => [
+                    'candidate' => $candidate,
+                    'suggestions' => $suggestions->fromCandidate($comic, $candidate),
+                ],
+                $providers->search($comic, $only)
+            ),
+        ]);
     }
 
     #[Route('', name: 'create', methods: ['POST'])]
@@ -787,6 +800,18 @@ class ComicController extends AbstractController
         // array_key_exists would fatal on it.
         if (is_array($data) && array_key_exists('explicitContent', $data) && is_bool($data['explicitContent'])) {
             $comic->setExplicitContent($data['explicitContent']);
+        }
+
+        // Accepting a suggestion is an ordinary edit, so it arrives here rather
+        // than through a route of its own and is authorised the same way.
+        if (is_array($data)) {
+            $structured = new StructuredMetadataInput();
+            if (!$structured->applyTo($data, $comic)) {
+                return $this->json(
+                    ['message' => implode(' ', $structured->errors())],
+                    Response::HTTP_UNPROCESSABLE_ENTITY
+                );
+            }
         }
 
         // Update tags if provided

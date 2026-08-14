@@ -15,6 +15,7 @@ vi.mock("@/hooks/use-tags.jsx", () => ({
   }),
 }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
+vi.mock("@/lib/api", () => ({ api: { get: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
 
 const comic = (overrides = {}) => ({
   id: 3,
@@ -124,5 +125,50 @@ describe("ComicEditDialog explicit-content flag", () => {
 
     await user.click(save());
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ explicitContent: true }));
+  });
+
+  describe("structured metadata", () => {
+    it("submits the structured fields alongside the rest", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderDialog();
+
+      await user.type(screen.getByLabelText(/^series$/i), "The Sandman");
+      await user.type(screen.getByLabelText(/^issue$/i), "17");
+      await user.click(screen.getByRole("button", { name: /save/i }));
+
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+        series: "The Sandman",
+        issueNumber: "17",
+      }));
+    });
+
+    /** An empty box means "no value", which has to reach the server as null. */
+    it("sends an emptied field as null rather than an empty string", async () => {
+      const user = userEvent.setup();
+      const { onSave } = renderDialog({ comic: { ...comic(), series: "The Sandman" } });
+
+      await user.clear(screen.getByLabelText(/^series$/i));
+      await user.click(screen.getByRole("button", { name: /save/i }));
+
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ series: null }));
+    });
+
+    it("stages an accepted suggestion into the form instead of saving it", async () => {
+      const user = userEvent.setup();
+      const { api } = await import("@/lib/api");
+      vi.mocked(api.get).mockResolvedValue({
+        suggestions: [{ field: "series", current: null, suggested: "The Sandman", source: "filename", fillsGap: true }],
+      });
+
+      const { onSave } = renderDialog();
+      await user.click(await screen.findByRole("button", { name: /use series the sandman/i }));
+
+      // Staged, not saved.
+      expect(onSave).not.toHaveBeenCalled();
+      expect(screen.getByLabelText(/^series$/i)).toHaveValue("The Sandman");
+
+      await user.click(screen.getByRole("button", { name: /save/i }));
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ series: "The Sandman" }));
+    });
   });
 });
