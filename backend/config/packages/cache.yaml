@@ -33,6 +33,15 @@ framework:
                 adapter: cache.app
                 default_lifetime: 300
 
+            # Answers from the external metadata providers, keyed by the query
+            # rather than by the comic, so two comics asking the same question
+            # cost one lookup. Its own pool because these are the only entries
+            # whose absence costs an outbound request against somebody else's
+            # rate limit.
+            metadata.provider.cache:
+                adapter: cache.app
+                default_lifetime: 86400
+
             # Threshold counters and cooldowns for administrator security
             # alerts. Its own pool so that clearing an application cache cannot
             # reset every cooldown at once and let a burst of alerts through,

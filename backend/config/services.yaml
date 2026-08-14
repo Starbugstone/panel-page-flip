@@ -47,6 +47,8 @@ services:
             tags: ['app.comic_page_provider']
         App\ComicSource\ComicInfoSourceInterface:
             tags: ['app.comic_info_source']
+        App\Metadata\Provider\MetadataProviderInterface:
+            tags: ['app.metadata_provider']
 
     # makes classes in src/ available to be used as services
     # this creates a service per class whose id is the fully-qualified class name
@@ -153,6 +155,20 @@ services:
     App\ComicSource\ComicInfoSourceFactory:
         arguments:
             $sources: !tagged_iterator app.comic_info_source
+
+    App\Service\MetadataProviderRegistry:
+        arguments:
+            $providers: !tagged_iterator app.metadata_provider
+
+    App\Metadata\Provider\MetronProvider:
+        arguments:
+            $metadataProviderLimiter: '@limiter.metadata_provider'
+            $cache: '@metadata.provider.cache'
+
+    App\Metadata\Provider\ComicVineProvider:
+        arguments:
+            $metadataProviderLimiter: '@limiter.metadata_provider'
+            $cache: '@metadata.provider.cache'
 
     App\ComicSource\ZipPageProvider:
         arguments:

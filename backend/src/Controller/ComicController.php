@@ -13,6 +13,7 @@ use App\Repository\TagRepository;
 use App\Security\Voter\ComicVoter;
 use App\Service\AdminAuditService;
 use App\Service\ComicMetadataSuggestionService;
+use App\Service\MetadataProviderRegistry;
 use App\Service\ComicPageDelivery;
 use App\Service\ComicSerializer;
 use App\Service\ComicShareService;
@@ -621,6 +622,41 @@ class ComicController extends AbstractController
         }
 
         return $this->json(['suggestions' => $suggestions->for($comic)]);
+    }
+
+    /**
+     * Records an external provider thinks might be this comic.
+     *
+     * Editing the comic is what this leads to, so it takes the edit right
+     * rather than the view right: a recipient a comic was shared with has no
+     * business spending the installation's provider allowance on it.
+     */
+    #[Route('/{id}/metadata-candidates', name: 'metadata_candidates', methods: ['GET'])]
+    public function metadataCandidates(
+        int $id,
+        Request $request,
+        EntityManagerInterface $entityManager,
+        MetadataProviderRegistry $providers
+    ): JsonResponse {
+        if (!$this->getUser() instanceof User) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
+        if (!$comic) {
+            return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        if (!$this->isGranted(ComicVoter::EDIT, $comic)) {
+            return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN);
+        }
+
+        $only = $request->query->get('provider');
+        if ($only !== null && $providers->get($only) === null) {
+            return $this->json(['message' => 'Unknown metadata provider.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        return $this->json(['candidates' => $providers->search($comic, $only)]);
     }
 
     #[Route('', name: 'create', methods: ['POST'])]

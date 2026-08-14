@@ -55,6 +55,16 @@ framework:
             limit: 5
             interval: '1 hour'
 
+        # Outbound lookups against the external metadata providers. Their own
+        # documented limits are what this protects: Comic Vine refuses a client
+        # that exceeds 200 requests an hour, and being cut off costs every user
+        # of this installation, not just the one who triggered it. Sliding so
+        # the allowance cannot be doubled across a window boundary.
+        metadata_provider:
+            policy: sliding_window
+            limit: 150
+            interval: '1 hour'
+
 when@test:
     framework:
         rate_limiter:
@@ -72,4 +82,8 @@ when@test:
             # the ones that do assert a limit are written to tolerate arriving
             # at a key somebody else already used.
             share_claim_code:
+                limit: 1000
+            # Provider lookups are cache-backed like the others, so raise it
+            # rather than have an unrelated test spend the allowance.
+            metadata_provider:
                 limit: 1000
