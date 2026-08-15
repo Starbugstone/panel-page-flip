@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Check, Search } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TagBadge } from "@/components/TagBadge";
+import { useConfig } from "@/hooks/use-config";
+import { Sparkles, Check, Search, Tag as TagIcon } from "lucide-react";
 
 const FIELD_LABELS = {
   series: "Series",
@@ -33,19 +36,30 @@ const summarise = (value) => {
  * user is already editing, so what they see is what they are about to save and
  * they keep the chance to change their mind.
  */
-export function MetadataSuggestions({ comicId, onAccept }) {
+export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags = [] }) {
+  const { config } = useConfig();
+  const providers = config?.metadataProviders ?? [];
   const [suggestions, setSuggestions] = useState([]);
+  const [tagSuggestions, setTagSuggestions] = useState([]);
   const [candidates, setCandidates] = useState(null);
   const [accepted, setAccepted] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState(null);
+  // One provider at a time by default: a search spends somebody's quota, and
+  // asking all of them to answer the same question spends all of them.
+  const [provider, setProvider] = useState(null);
+  const chosen = provider ?? providers[0]?.key ?? null;
 
   useEffect(() => {
     if (!comicId) return undefined;
 
     let cancelled = false;
     api.get(`/api/comics/${comicId}/metadata-suggestions`)
-      .then((result) => { if (!cancelled) setSuggestions(result.suggestions ?? []); })
+      .then((result) => {
+        if (cancelled) return;
+        setSuggestions(result.suggestions ?? []);
+        setTagSuggestions(result.tags ?? []);
+      })
       .catch(() => { /* Suggestions are an extra; failing to load one is not an error worth a toast. */ });
 
     return () => { cancelled = true; };
@@ -55,7 +69,9 @@ export function MetadataSuggestions({ comicId, onAccept }) {
     setIsSearching(true);
     setError(null);
     try {
-      const result = await api.get(`/api/comics/${comicId}/metadata-candidates`);
+      const result = await api.get(
+        `/api/comics/${comicId}/metadata-candidates${chosen ? `?provider=${encodeURIComponent(chosen)}` : ""}`
+      );
       setCandidates(result.candidates ?? []);
     } catch (loadError) {
       setError(loadError.message || "Could not reach the metadata providers.");
@@ -95,7 +111,12 @@ export function MetadataSuggestions({ comicId, onAccept }) {
     </div>
   );
 
-  const hasAnything = suggestions.length > 0 || candidates !== null;
+  // A tag already on the comic is not a suggestion, and once every proposal has
+  // been taken the section has nothing left to say.
+  const unusedTags = tagSuggestions.filter(
+    (tag) => !currentTags.some((name) => name.toLowerCase() === tag.name.toLowerCase())
+  );
+  const hasAnything = suggestions.length > 0 || unusedTags.length > 0 || candidates !== null;
   if (!comicId) return null;
 
   return (
@@ -104,10 +125,32 @@ export function MetadataSuggestions({ comicId, onAccept }) {
         <p className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="h-4 w-4" /> Suggestions
         </p>
-        <Button type="button" variant="outline" size="sm" disabled={isSearching} onClick={lookUp}>
-          <Search className="mr-1 h-3 w-3" />
-          {isSearching ? "Searching…" : "Search providers"}
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Only shown when there is a choice to make. One provider is asked
+              per search, because each one answering costs its own quota. */}
+          {providers.length > 1 && (
+            <Select value={chosen ?? undefined} onValueChange={setProvider}>
+              <SelectTrigger className="h-8 w-36" aria-label="Provider to search">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {providers.map((p) => (
+                  <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isSearching || providers.length === 0}
+            onClick={lookUp}
+          >
+            <Search className="mr-1 h-3 w-3" />
+            {isSearching ? "Searching…" : providers.length === 1 ? `Search ${providers[0].label}` : "Search provider"}
+          </Button>
+        </div>
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -116,9 +159,34 @@ export function MetadataSuggestions({ comicId, onAccept }) {
 
       {suggestions.map((suggestion, index) => renderSuggestion(suggestion, `local-${index}`))}
 
+      {unusedTags.length > 0 && (
+        <div className="space-y-2 rounded-md border px-3 py-2">
+          <p className="flex items-center gap-1.5 text-sm font-medium">
+            <TagIcon className="h-3.5 w-3.5" /> Tags you already use
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {unusedTags.map((tag) => (
+                <Button
+                  key={tag.name}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  onClick={() => onAddTag?.(tag.name)}
+                  aria-label={`Add tag ${tag.name}`}
+                  title={`Matches ${tag.matchedField}: ${tag.matchedValue}`}
+                >
+                  <TagBadge tag={tag.name} className="mr-1" />
+                  <span className="text-xs text-muted-foreground">+ {tag.matchedField}</span>
+                </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {candidates !== null && candidates.length === 0 && (
         <p className="text-xs text-muted-foreground">
-          No provider matches. Providers may not be configured — an administrator sets those up under Admin → Metadata.
+          No matches from {providers.find((p) => p.key === chosen)?.label ?? "the provider"}.
         </p>
       )}
 
@@ -134,6 +202,12 @@ export function MetadataSuggestions({ comicId, onAccept }) {
             : fields.map((field, index) => renderSuggestion(field, `${candidate.provider}-${candidate.externalId}-${index}`))}
         </div>
       ))}
+
+      {providers.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          No metadata provider is configured. An administrator sets those up under Admin → Metadata.
+        </p>
+      )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 

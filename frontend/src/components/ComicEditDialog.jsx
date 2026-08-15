@@ -243,7 +243,12 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
             </div>
           </div>
 
-          <MetadataSuggestions comicId={comic?.id} onAccept={handleAcceptSuggestion} />
+          <MetadataSuggestions
+            comicId={comic?.id}
+            onAccept={handleAcceptSuggestion}
+            onAddTag={handleAddTag}
+            currentTags={tags}
+          />
 
           <div className="grid gap-2">
             <Label>Tags</Label>

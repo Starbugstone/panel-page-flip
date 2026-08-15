@@ -15,7 +15,10 @@ vi.mock("@/hooks/use-tags.jsx", () => ({
   }),
 }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
-vi.mock("@/lib/api", () => ({ api: { get: vi.fn().mockResolvedValue({ suggestions: [] }) } }));
+vi.mock("@/lib/api", () => ({ api: { get: vi.fn().mockResolvedValue({ suggestions: [], tags: [] }) } }));
+// The suggestions panel reads which providers are configured, which comes from
+// the config hook and therefore from auth context this test does not stand up.
+vi.mock("@/hooks/use-config", () => ({ useConfig: () => ({ config: { metadataProviders: [] } }) }));
 
 const comic = (overrides = {}) => ({
   id: 3,

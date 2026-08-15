@@ -7,7 +7,10 @@ const DEFAULT_CONFIG = {
   upload: {
     maxConcurrentUploads: 5,
     comicFormats: ["cbz"],
-  }
+  },
+  // Empty until the server says otherwise, so a lookup is never offered against
+  // a provider nobody configured.
+  metadataProviders: [],
 };
 
 export function useConfig() {
