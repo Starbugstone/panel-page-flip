@@ -48,7 +48,7 @@ final class RegistrationController extends AbstractController
 
         $constraints = new Assert\Collection([
             'email' => [new Assert\NotBlank(['message' => 'Email is required']), new Assert\Email(['message' => 'Invalid email format'])],
-            'password' => [new Assert\NotBlank(['message' => 'Password is required']), new Assert\Type('string')],
+            'password' => new Assert\Optional(new Assert\Type('string')),
             'plainPassword' => new Assert\Optional(new Assert\Type('string')),
             'name' => new Assert\Optional(new Assert\Type('string')),
             'agreeTerms' => new Assert\Required([
@@ -67,7 +67,14 @@ final class RegistrationController extends AbstractController
             return new JsonResponse(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
         }
 
-        $passwordErrors = $passwordValidator->validate((string) $password);
+        if (!is_string($password) || $password === '') {
+            return new JsonResponse([
+                'message' => 'Validation failed',
+                'errors' => ['[password]' => 'Password is required'],
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $passwordErrors = $passwordValidator->validate($password);
         if ($passwordErrors !== []) {
             return new JsonResponse([
                 'message' => 'Password does not meet policy requirements.',
@@ -85,7 +92,7 @@ final class RegistrationController extends AbstractController
             $user->setName(trim($data['name']));
         }
         $user->setRoles(['ROLE_USER']);
-        $user->setPassword($userPasswordHasher->hashPassword($user, (string) $password));
+        $user->setPassword($userPasswordHasher->hashPassword($user, $password));
 
         $entityManager->persist($user);
         $plainToken = $verification->issue($user);
