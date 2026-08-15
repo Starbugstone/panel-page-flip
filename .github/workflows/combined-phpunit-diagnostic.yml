@@ -66,21 +66,42 @@ jobs:
       - name: Apply test migrations
         run: docker compose exec -T php php bin/console doctrine:migrations:migrate --env=test --no-interaction
 
-      - name: Run combined PHPUnit and expose failure
+      - name: Capture memory limits before PHPUnit
+        shell: bash
+        run: |
+          echo "Runner memory:"
+          free -m
+          echo "PHP memory_limit:"
+          docker compose exec -T php php -r 'echo ini_get("memory_limit"), PHP_EOL;'
+          echo "Container state:"
+          docker inspect "$(docker compose ps -q php)" --format '{{json .State}}'
+          echo "Container stats:"
+          docker stats --no-stream
+
+      - name: Run combined PHPUnit with debug diagnostics
         shell: bash
         run: |
           set +e
-          docker compose exec -T php php bin/phpunit 2>&1 | tee /tmp/phpunit.log
-          code=${PIPESTATUS[0]}
-          if [ "$code" -ne 0 ]; then
-            echo "--- PHPUnit diagnostic tail ---"
-            tail -n 160 /tmp/phpunit.log
-            while IFS= read -r line; do
-              escaped="${line//'%'/'%25'}"
-              escaped="${escaped//$'\r'/'%0D'}"
-              echo "::error title=Combined PHPUnit::${escaped}"
-            done < <(tail -n 80 /tmp/phpunit.log)
-          fi
+          docker compose exec -T php php bin/phpunit --debug > /tmp/phpunit-debug.log 2>&1
+          code=$?
+          set -e
+
+          echo "PHPUnit exit code: $code"
+          echo "--- PHPUnit diagnostic tail ---"
+          tail -n 120 /tmp/phpunit-debug.log || true
+          echo "--- Runner memory after PHPUnit ---"
+          free -m || true
+          echo "--- Container state after PHPUnit ---"
+          docker inspect "$(docker compose ps -q php)" --format '{{json .State}}' || true
+          echo "--- Container stats after PHPUnit ---"
+          docker stats --no-stream || true
+
+          tail_text="$(tail -n 55 /tmp/phpunit-debug.log 2>/dev/null || true)"
+          escaped="${tail_text//'%'/'%25'}"
+          escaped="${escaped//$'\r'/'%0D'}"
+          escaped="${escaped//$'\n'/'%0A'}"
+          echo "::error title=Combined PHPUnit exit $code::$escaped"
+
           exit "$code"
 
       - name: Show container logs on failure
