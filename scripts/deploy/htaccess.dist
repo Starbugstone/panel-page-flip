@@ -54,7 +54,16 @@ DirectoryIndex index.php
     RewriteCond %{REQUEST_FILENAME} -d
     RewriteRule ^ - [L]
 
-    # Otherwise rewrite all other queries to the Symfony front controller.
+    # Client-side routes belong to the React SPA. Keep API requests on
+    # Symfony, but send any other missing path (for example /admin or /library)
+    # to the built index.html so React Router can resolve it. This must remain
+    # after the real file/directory rule above and before the Symfony catch-all.
+    RewriteCond %{REQUEST_URI} !^/api(?:/|$) [NC]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ %{ENV:BASE}/index.html [L]
+
+    # API requests and any other backend route still go through Symfony.
     RewriteRule ^ %{ENV:BASE}/index.php [L]
 </IfModule>
 
