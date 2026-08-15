@@ -8,6 +8,7 @@ import { useTags } from "@/hooks/use-tags";
 import { TagBadge } from "@/components/TagBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { UserMetadataCredentials } from "@/components/UserMetadataCredentials";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -255,6 +256,10 @@ export default function UserSettings() {
           </div>
         </CardContent>
       </Card>
+
+      <div className="mt-6">
+        <UserMetadataCredentials />
+      </div>
 
       <Card className="mt-6">
         <CardHeader>

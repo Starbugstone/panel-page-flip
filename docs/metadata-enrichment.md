@@ -8,9 +8,16 @@ This is written to be picked up cold. Each slice below is a separate PR, and
 there may be weeks between them, so every slice states what it depends on, what
 it must not do, and how you know it is finished.
 
-**Status:** all four slices are implemented — PRs #106, #107, #108 and #109,
-stacked in that order. Where the shipped code deviates from the plan below, the
-plan is annotated rather than rewritten, so the reasoning stays visible.
+**Status:** the four original slices are the **foundation**, not the whole of
+#74. They shipped as PRs #106-#109, with #112-#115 fixing what real use found.
+The **close-out** — the provider account model, the tag/classification workflow,
+provenance and refresh, ranking, and quota handling — is the section further
+down, [Close-out](#close-out-p0-a-to-p0-f). Where the shipped code deviates from
+the original plan, the plan is annotated rather than rewritten, so the reasoning
+stays visible.
+
+Read the close-out section before touching this area. The four slices below
+describe how the foundation was built; they no longer describe how it behaves.
 
 ## Why this comes before the reader work
 
@@ -302,11 +309,253 @@ of thing that gets re-litigated later.
 
 ---
 
+## Close-out (P0-A to P0-F)
+
+What the four foundation slices left open, and how each was settled. P1 bulk
+enrichment is **not** built and is deliberately a follow-up — the issue says so,
+and getting the manual path right first is what makes a bulk path safe.
+
+### The provider account model
+
+Metron moved from an account **username and password** to a revocable **bearer
+token**. The old columns are dropped rather than migrated: they held a real
+account password, which the new flow never asks for and must not keep. An
+installation that had Metron configured re-enters a token, which is the intended
+outcome of the migration rather than a casualty of it.
+
+Credentials now come from two places, and `MetadataAccessResolver` is the single
+point that decides between them:
+
+| Source | Who pays | Notes |
+| --- | --- | --- |
+| A user's own token | Them | Answers on its own, for **both** providers. None of the shared switches apply. |
+| The installation's shared token | Everybody | Gated on the full conjunction below. |
+
+**A personal token answers first and answers alone.** It spends its owner's
+allowance rather than anybody else's, so the switches governing the shared
+account have nothing to say about it — those exist to control who may spend the
+installation's credential, and a personal token is not one. Metron and Comic Vine
+behave identically here; an earlier cut gated Comic Vine's personal key behind
+the shared switch, and the asymmetry was the surprising part rather than the
+protection.
+
+Whether users may bring a token at all is itself an administrator's switch —
+`personalCredentialsEnabled`, on by default. Turning it off makes the resolver
+ignore stored tokens and **fall back to the shared credential**; it does not stop
+the lookup and does not delete anything. A user whose token has stopped being
+used can still see that it is stored and still remove it, which is why clearing
+a token stays permitted while setting one is refused.
+
+Shared access is:
+
+```text
+environment allows it        (METRON_SHARED_ENABLED / COMIC_VINE_SHARED_ENABLED)
+AND an administrator enabled it
+AND a token is configured
+AND the circuit breaker is not holding the account off
+```
+
+The environment flag is checked **first**, and an operator who turned a provider
+off must not be overrulable from inside the application — that is the whole point
+of putting a switch outside it.
+
+**The two defaults differ, deliberately:**
+
+- **Shared Metron is off unless set.** It spends a token the installation owns on
+  behalf of every user, so it is opted into rather than inherited from a shipped
+  default. A personal Metron token is unaffected by it.
+- **Comic Vine is on by default.** This is self-hosted software and its ordinary
+  deployment is somebody's own library, which is squarely inside Comic Vine's
+  non-commercial terms. Shipping it disabled would make every operator hunt for a
+  switch to get behaviour they were already entitled to. A deployment that leaves
+  those terms turns it off — in the environment, or in one click in the admin
+  panel.
+
+Both switches govern the credential the **installation** owns. Neither reaches a
+user's own token — see the personal-token rule above, which applies to Comic Vine
+exactly as it does to Metron.
+
+**Per-user access.** `User::$metadataApiEnabled` lets an administrator withdraw
+external lookups from one account, from the admin user page. Local sources —
+ComicInfo.xml and the filename parser — are unaffected, because neither leaves
+the server, so a withdrawn account keeps every suggestion that does not cost
+anybody anything.
+
+### The circuit breaker is a pause, never a setting
+
+`ProviderCircuitBreaker` holds an account off after a refused credential, a 429,
+or a run of failures. It is cache-backed and expires on its own. It deliberately
+never changes the administrator's switch: if a burst of timeouts flipped a
+setting off, somebody would have to notice and turn it back on.
+
+`Retry-After` wins over anything computed locally — the provider knows its own
+quota and we are guessing. The pause is keyed by a **hash of the credential**, so
+one user's exhausted personal token cannot pause the shared one, and two people
+who pasted the same token correctly share one pause.
+
+### One provider per lookup
+
+`MetadataProviderRegistry::search()` used to ask every configured provider. That
+spends two accounts on one click, and cascading to the second after the first
+fails spends somebody else's allowance to paper over an outage. It now picks
+**one** provider — a personal credential first, then anything else allowed, in
+registration order — and reports the others as unasked.
+
+### What a user is told, and what stays the operator's
+
+The resolver's answer is operator information: it names which account would be
+spent and exactly why a shared credential was refused. A normal user gets a
+deliberately reduced view — `PublicProviderStatus` — of whether a provider will
+answer *them*, plus a reason only when the reason is theirs to act on:
+
+| Situation | What the user sees |
+| --- | --- |
+| Their own token was refused | "Metron rejected your token. Check it in your settings." |
+| Their account has lookups withdrawn | "External metadata lookups are turned off for your account." |
+| Anything about the shared credential | "Metron is currently unavailable." |
+
+The last row collapses *unconfigured*, *disabled*, *paused*, *rate limited*,
+*unreachable* and *failed* into one sentence on purpose. Those differences
+describe the installation's own account, and being able to tell them apart is
+how somebody maps the server's configuration by reading error messages.
+
+`origin` — which credential a call would spend — never leaves the backend. It is
+what the quota and circuit-breaker keys are built from, and nothing more.
+`ProviderSearchResult` and `ProviderLookup` serialise a deliberate minimum so a
+route that forgets to reduce cannot leak the difference, and
+`ProviderSecrecyTest` walks every user-facing endpoint with sentinel credentials
+asserting neither the secret nor the operator markers appear.
+
+One inference survives and cannot be removed: a user with no personal token
+whose search works can conclude the server has some way of doing it. That is a
+consequence of the feature existing. Confirming the credential's state on top of
+it is not.
+
+Internally, every result still carries a full `ProviderStatus`, so the code can
+tell apart:
+
+```text
+ok + no candidates   nothing matched
+unconfigured         nobody gave it a credential
+disabled             an administrator, or the environment, turned it off
+forbidden            this user may not spend allowance
+unauthorized         the credential was refused
+rate_limited         throttled, upstream or by our own ceiling
+paused               held off after failures
+unreachable/failed   the network, or an unusable answer
+```
+
+Returning the same empty array for all of these is safe and useless — for the
+*code*. What reaches the user is the reduced view above.
+
+### Provider failures are never logged verbatim
+
+A transport exception routinely quotes the request URL, and Comic Vine puts its
+API key in the query string. So a provider failure logs the exception **class**
+and nothing out of the exception itself: the message would put the
+installation's credential into a log file that gets shipped, rotated and read.
+The class name is enough to tell a timeout from a DNS failure, and there is a
+regression test that throws an exception carrying a sentinel key and asserts it
+never reaches the log.
+
+### Search runs off the staged form, not the saved comic
+
+`POST /api/comics/{id}/metadata-candidates` takes an optional normalized query
+from the edit form. Accepting a filename suggestion and searching immediately now
+works; before, the flow was *accept → save → reopen → search*.
+
+Those staged values are **search hints only**. What may be edited is decided by
+the comic id and `ComicVoter`, exactly as everywhere else — a request body cannot
+widen it.
+
+### Ranking and confidence
+
+`CandidateRanker` scores normalized series and issue number first, then uses year
+as a tiebreak and as a contradiction:
+
+| | |
+| --- | --- |
+| `exact` | series and issue both agree |
+| `high` | series agrees, nothing contradicts |
+| `ambiguous` | plausibly the same series, or the wrong issue of the right one |
+| `low` | came back from the search and little else recommends it |
+
+A year off by more than one downgrades a match, because relaunches and reprints
+share a series name and an issue number and are exactly where this would
+otherwise be confidently wrong. **Nothing is ever auto-applied on confidence** —
+it is a label on a row a person still clicks, which is why a heuristic is fine.
+
+### Detail, provenance and refresh
+
+Metron's issue *list* carries no publisher, description or classification (this
+is verified, not assumed). So a search returns rows, and picking one fetches
+`/issue/{id}/` — one request for the record somebody chose, not one per row.
+
+`Comic::$metadataProvider` / `$metadataExternalId` / `$metadataFetchedAt` record
+which external record was accepted, so **Refresh metadata** asks for that exact
+issue instead of re-running a fuzzy search and hoping. A refresh still produces
+suggestions and never overwrites: the id makes the question cheap, not the answer
+authoritative. The stored origin says which record was chosen — not that every
+current field still comes from it, because the user edits them afterwards.
+
+`explicitContent` is absent from every suggestion path and must stay absent. Age
+rating is carried as information; the flag is the owner's declaration about their
+own library.
+
+### Classification and tag suggestions
+
+`ComicInfoParser` now reads `Genre`, `Tags`, `Characters`, `Teams`, `Locations`
+and `StoryArc` into a `Classification` value object, stored on
+`Comic::$classification`. Providers map the same shape.
+
+**Only genres are ever offered as tags.** Characters, teams, locations and story
+arcs stay structured metadata. A single crossover names dozens of them, and a
+large collection enriched that way would produce thousands of tags nobody chose —
+which is the specific failure #74 exists to prevent.
+
+Accepting a genre goes through the ordinary comic update, which reuses an
+existing global or personal tag by name and otherwise creates a **personal** one.
+A metadata import can never create a global tag. Nothing is preselected, the
+section collapses once it is long, and the spelling of an existing tag wins over
+the source's so accepting cannot make a near-duplicate.
+
+### Quota
+
+The static `150/hour` limiter is kept as a local abuse ceiling but is no longer
+the only representation of quota. `ProviderQuotaTracker` records
+`X-RateLimit-*` and `Retry-After` per **account**, because two users pasting the
+same token share one upstream allowance and tracking them separately would show
+each a full budget while the account ran out. A separate per-user limiter stops
+one enthusiastic library spending the installation's whole hourly allowance.
+
+A non-ok result is **never cached**. The old code cached an empty list for a day
+on any failure, which turned a thirty-second outage into a comic that
+permanently "has no match".
+
+### Privacy
+
+The policy now discloses what a metadata search sends: series, issue, year and
+volume, to the chosen provider, only when the user asks for a search. It states
+what is *not* sent — identity, email, file or Dropbox paths, reading history,
+tags, the archive — and how a personal token is stored and removed. Provider
+tokens are excluded from the personal-data export, because an export is a file
+that leaves the server.
+
+---
+
 ## Known not to work yet
 
 Written down after configuring a real provider and editing a real comic. None of
 these is a crash; they are the quiet kind, where something returns nothing and
 looks like it simply found nothing.
+
+### Bulk enrichment is not built
+
+The issue's P1: a resumable queue offering **Enrich metadata** after a bulk
+import, respecting quota, pausing on a kill switch, resuming without repeating,
+and marking ambiguous items for review. Deliberately left out of the close-out —
+the manual path had to be correct first, and bulk acceptance is where a wrong
+tag decision multiplies by a thousand.
 
 ### Collected editions do not match a provider
 
@@ -318,26 +567,31 @@ index.
 
 Metron has a `/series/` endpoint that suits collections. Using it would mean
 deciding, per comic, whether we are looking for an issue or a volume — plausibly
-from whether the filename yielded an issue number or a volume. Not attempted.
+from whether the filename yielded an issue number or a volume. Still not
+attempted; the staged-query work makes it easier, since the query now knows
+whether a volume was supplied.
 
 **How to see it:** any `Vol N` filename. **What works instead:** a single issue,
 e.g. `Batman 001 (2011).cbz`.
 
-### Metron candidates carry no publisher or description
+### Metron candidates carry no publisher or description — resolved
 
 Verified against the live API: the issue list returns `id, series, number, issue,
 cover_date, store_date, image, cover_hash, modified` and nothing else. Both
 fields live on `/issue/{id}/`.
 
-Fetching them would be one request per candidate against a rate limit, so it
-belongs with **picking** a candidate rather than with listing them — the natural
-shape is to fetch detail when the user expands or accepts one. Not built.
+Fetched on demand now. Picking a candidate calls
+`POST /api/comics/{id}/metadata-record`, which reads `/issue/{id}/` for that one
+record — a request for the record somebody chose, rather than one per row of
+every search.
 
 ### Comic Vine's field mapping has never seen a live response
 
 Metron's is now verified; Comic Vine's is not, because there was no key to hand.
 `ComicVineProvider::candidates()` maps `volume.name`, `issue_number`, `name`,
-`deck`, `cover_date` and `image.original_url` from the documented shape only.
+`deck`, `cover_date` and `image.original_url` from the documented shape only, and
+its **detail** mapping — `person_credits`, `character_credits`, `team_credits`,
+`location_credits`, `story_arc_credits` — has seen no live response either.
 
 Given Metron's list turned out to differ from its documentation in exactly this
 way, **assume Comic Vine's does too until someone runs one real search.** The
@@ -356,16 +610,54 @@ function with a table test, so a new case is one row. Known-weak: a series whose
 name genuinely ends in a number, and any language where the volume marker is not
 `v`/`vol`/`volume`.
 
-### GitGuardian flags the provider configuration entity
+### GitGuardian flagged the provider configuration entity — resolved
 
-`MetadataProviderConfiguration.php` contains **no string literals at all** — the
-`Username Password` detector fires on the adjacency of the `metronUsername` and
-`metronPassword` identifiers. It was marked a false positive once; expect it back
-on any PR that touches the file. Renaming the properties would appease the
-scanner and misname the domain, since Metron really does authenticate with a
-username and a password.
+`MetadataProviderConfiguration.php` used to trip the `Username Password`
+detector on the adjacency of the `metronUsername` and `metronPassword`
+identifiers, despite containing no string literals at all. The move to bearer
+tokens removed both properties, so the finding should not recur. Noted here
+because the old note said renaming them would misname the domain — which was
+true right up until the domain changed.
+
+### Metron's token header form is unverified
+
+Metron is a Django REST framework application and DRF's `TokenAuthentication`
+expects `Authorization: Token <token>`, which is what `MetronProvider` sends. No
+live response has confirmed it. If lookups start failing with a refused token
+against a token that works elsewhere, this header is the first thing to check —
+Admin → Metadata → Test will report it as "Metron refused the token".
 
 ---
+
+## Close-out design questions, and how they were settled
+
+1. **Where the shared kill switch lives.** Environment *and* admin setting, with
+   the environment holding final authority and failing closed. An operator needs
+   a control the application cannot override; an administrator needs one they do
+   not need shell access to use.
+2. **What a circuit breaker is allowed to change.** Nothing persistent. It pauses
+   an account and expires; it never edits a setting a person chose, because a
+   setting silently turned off is one somebody has to notice.
+3. **Whether a personal Comic Vine key bypasses the global switch.** Yes, and it
+   does the same for Metron. The switch governs the credential the installation
+   owns. Somebody using their own key against their own library is the party
+   Comic Vine's terms bind, and obtaining a key is them accepting those terms —
+   so the operator's switch stops the operator's key, not theirs. Gating it both
+   ways made the two providers behave differently for no benefit anybody could
+   name.
+4. **Whether an administrator can refuse personal tokens outright.** Yes, one
+   switch for all providers, on by default. A deployment that wants exactly one
+   outbound credential and wants to know which one it is can have that. It
+   ignores stored tokens rather than deleting them, because somebody turning it
+   back on should not find everybody's token was thrown away meanwhile.
+4. **Whether to cascade to a second provider on failure.** No. Spending another
+   account's quota to hide the first one's outage is exactly the silent
+   overspending the one-provider rule exists to prevent.
+5. **Whether quota is per user or per credential.** Per credential, hashed. Two
+   users with the same token share an upstream allowance, and per-user tracking
+   would show both a full budget while the account ran dry.
+6. **Whether characters and teams become tags.** No — see the classification
+   section. Genres only, and only on acceptance.
 
 ## Open questions from the original plan
 

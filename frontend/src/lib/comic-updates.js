@@ -22,8 +22,17 @@ export function buildComicUpdatePayload(comic) {
       // server reads an absent key as "leave this alone".
       series: comic.series ?? null,
       issueNumber: comic.issueNumber ?? null,
+      issueCount: comic.issueCount ?? null,
       volume: comic.volume ?? null,
       publishedAt: comic.publishedAt ?? null,
+      languageCode: comic.languageCode ?? null,
+      ageRating: comic.ageRating ?? null,
+      // These two are different: they are only sent when the editor actually
+      // resolved them. Defaulting them to null would clear reviewed credits and
+      // an accepted provider match on every ordinary save.
+      ...(comic.creators === undefined ? {} : { creators: comic.creators }),
+      ...(comic.metadataProvider === undefined ? {} : { metadataProvider: comic.metadataProvider }),
+      ...(comic.metadataExternalId === undefined ? {} : { metadataExternalId: comic.metadataExternalId }),
     },
   };
 }

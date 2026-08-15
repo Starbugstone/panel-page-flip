@@ -2,9 +2,12 @@
 
 namespace App\Tests\Unit\Metadata\Provider;
 
+use App\Enum\ProviderStatus;
 use App\Metadata\Provider\ComicVineProvider;
-use App\Metadata\Provider\ProviderCredentials;
+use App\Metadata\Provider\ProviderAccess;
 use App\Metadata\Provider\ProviderQuery;
+use App\Service\ProviderCircuitBreaker;
+use App\Service\ProviderQuotaTracker;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -30,7 +33,7 @@ final class ComicVineProviderTest extends TestCase
             ]],
         ]) ?: ''));
 
-        $candidates = $provider->search(new ProviderQuery('Batman', '7'));
+        $candidates = $provider->search(new ProviderQuery('Batman', '7'), self::access())->candidates;
 
         self::assertCount(1, $candidates);
         self::assertSame('comicvine', $candidates[0]->provider);
@@ -38,6 +41,64 @@ final class ComicVineProviderTest extends TestCase
         self::assertSame('Batman', $candidates[0]->series);
         self::assertSame('7', $candidates[0]->issueNumber);
         self::assertSame('https://comicvine.example/cover.jpg', $candidates[0]->coverUrl);
+    }
+
+    public function testReadsTheFullRecordFromADetailLookup(): void
+    {
+        $provider = $this->provider(new MockResponse(json_encode([
+            'status_code' => 1,
+            'results' => [
+                'id' => 4000,
+                'issue_number' => '7',
+                'name' => 'The Long Halloween',
+                'deck' => 'A killer strikes on holidays.',
+                'cover_date' => '1997-04-09',
+                'volume' => ['name' => 'Batman', 'publisher' => ['name' => 'DC Comics']],
+                'image' => ['original_url' => 'https://comicvine.example/cover.jpg'],
+                'person_credits' => [
+                    ['name' => 'Jeph Loeb', 'role' => 'writer'],
+                    ['name' => 'Tim Sale', 'role' => 'artist, cover'],
+                ],
+                'character_credits' => [['name' => 'Batman'], ['name' => 'Catwoman']],
+                'team_credits' => [['name' => 'Gotham City Police Department']],
+                'location_credits' => [['name' => 'Gotham City']],
+                'story_arc_credits' => [['name' => 'The Long Halloween']],
+            ],
+        ]) ?: ''));
+
+        $candidate = $provider->detail('4000', self::access())->candidates[0];
+
+        self::assertTrue($candidate->isDetailed);
+        self::assertSame('DC Comics', $candidate->publisher);
+        self::assertSame('A killer strikes on holidays.', $candidate->summary);
+        self::assertSame(
+            ['writer' => ['Jeph Loeb'], 'artist' => ['Tim Sale'], 'cover' => ['Tim Sale']],
+            $candidate->creators
+        );
+        self::assertSame(['Batman', 'Catwoman'], $candidate->classification?->characters);
+        self::assertSame(['Gotham City'], $candidate->classification?->locations);
+        self::assertSame(['The Long Halloween'], $candidate->classification?->storyArcs);
+    }
+
+    /**
+     * `description` is HTML. Taking it verbatim would land markup in the
+     * description field for the user to clean up by hand.
+     */
+    public function testPrefersThePlainBlurbAndStripsMarkupFromTheFallback(): void
+    {
+        $provider = $this->provider(new MockResponse(json_encode([
+            'status_code' => 1,
+            'results' => [
+                'id' => 4000,
+                'volume' => ['name' => 'Batman'],
+                'description' => '<p>A killer strikes on <em>holidays</em>.</p>',
+            ],
+        ]) ?: ''));
+
+        self::assertSame(
+            'A killer strikes on holidays.',
+            $provider->detail('4000', self::access())->candidates[0]->summary
+        );
     }
 
     /**
@@ -52,27 +113,57 @@ final class ComicVineProviderTest extends TestCase
             'results' => [['id' => 1, 'volume' => ['name' => 'Batman']]],
         ]) ?: ''));
 
-        self::assertSame([], $provider->search(new ProviderQuery('Batman')));
+        $result = $provider->search(new ProviderQuery('Batman'), self::access());
+
+        self::assertSame(ProviderStatus::Unauthorized, $result->status);
+        self::assertSame([], $result->candidates);
     }
 
-    public function testSaysNothingWhenUnconfigured(): void
+    /** An in-body error is a failure, so it must not be cached as a result. */
+    public function testDoesNotRememberAnInBodyError(): void
     {
-        $provider = $this->provider(new MockResponse('{"status_code":1,"results":[]}'), configured: false);
+        $calls = 0;
+        $client = new MockHttpClient(function () use (&$calls): MockResponse {
+            ++$calls;
 
-        self::assertFalse($provider->isConfigured());
-        self::assertSame([], $provider->search(new ProviderQuery('Batman')));
-    }
-
-    public function testDegradesToNothingWhenTheHostIsUnreachable(): void
-    {
-        $client = new MockHttpClient(static function (): never {
-            throw new \Symfony\Component\HttpClient\Exception\TransportException('dns failure');
+            return new MockResponse('{"status_code":107}');
         });
 
-        self::assertSame([], $this->provider(null, client: $client)->search(new ProviderQuery('Batman')));
+        $provider = $this->provider(null, client: $client);
+        $provider->search(new ProviderQuery('Batman'), self::access());
+        $provider->search(new ProviderQuery('Batman'), self::access());
+
+        self::assertSame(2, $calls);
     }
 
-    /** Comic Vine refuses requests without a descriptive user agent. */
+    public function testDoesNotAskWhenAccessWasDenied(): void
+    {
+        $calls = 0;
+        $client = new MockHttpClient(function () use (&$calls): MockResponse {
+            ++$calls;
+
+            return new MockResponse('{"status_code":1,"results":[]}');
+        });
+
+        $denied = ProviderAccess::denied('comicvine', ProviderStatus::Disabled, 'Comic Vine is turned off.');
+        $result = $this->provider(null, client: $client)->search(new ProviderQuery('Batman'), $denied);
+
+        self::assertSame(0, $calls);
+        self::assertSame(ProviderStatus::Disabled, $result->status);
+    }
+
+    public function testDegradesToAResultWhenTheHostIsUnreachable(): void
+    {
+        $client = new MockHttpClient(static function (): never {
+            throw new \Symfony\Component\HttpClient\Exception\TransportException('no route to host');
+        });
+
+        $result = $this->provider(null, client: $client)->search(new ProviderQuery('Batman'), self::access());
+
+        self::assertSame(ProviderStatus::Unreachable, $result->status);
+        self::assertSame([], $result->candidates);
+    }
+
     public function testIdentifiesItselfAndSendsTheKey(): void
     {
         $seen = null;
@@ -82,86 +173,77 @@ final class ComicVineProviderTest extends TestCase
             return new MockResponse('{"status_code":1,"results":[]}');
         });
 
-        $this->provider(null, client: $client)->search(new ProviderQuery('Batman', '7'));
+        $this->provider(null, client: $client)->search(new ProviderQuery('Batman', '7'), self::access());
 
-        self::assertStringContainsString('api_key=comicvine-key-placeholder', (string) $seen['url']);
+        self::assertStringContainsString('api_key=comic-vine-key-placeholder', (string) $seen['url']);
         self::assertStringContainsString('resources=issue', (string) $seen['url']);
         self::assertNotEmpty(array_filter(
             $seen['headers'],
-            static fn ($h) => str_contains(strtolower((string) $h), 'user-agent: panelpageflip')
+            static fn ($h) => str_starts_with(strtolower((string) $h), 'user-agent: panelpageflip')
         ));
     }
 
-    /**
-     * @dataProvider verificationCases
-     * @param array<string, mixed>|string $body
-     */
-    public function testSaysWhatHappenedWhenCredentialsAreTested(array|string $body, int $httpCode, string $expected): void
+    /** @dataProvider verificationCases */
+    public function testSaysWhatHappenedWhenCredentialsAreTested(mixed $body, int $httpCode, ProviderStatus $expected): void
     {
-        $provider = $this->provider(new MockResponse(
-            is_array($body) ? (json_encode($body) ?: '') : $body,
-            ['http_code' => $httpCode]
-        ));
+        $payload = is_array($body)
+            ? json_encode(['status_code' => $body[0]] + (isset($body[1]) ? ['error' => $body[1]] : []))
+            : $body;
 
-        self::assertSame($expected, $provider->verify(self::credentials(true))->status);
+        $provider = $this->provider(new MockResponse((string) $payload, ['http_code' => $httpCode]));
+
+        self::assertSame($expected, $provider->verify('comic-vine-key-placeholder')->status);
     }
 
     public function verificationCases(): iterable
     {
-        yield 'accepted' => [['status_code' => 1, 'results' => []], 200, 'ok'];
-        // Comic Vine puts a rejected key in the body of a 200, so a status-only
-        // check would call a bad key a success.
-        yield 'rejected key' => [['status_code' => 100, 'error' => 'Invalid API Key'], 200, 'unauthorized'];
-        yield 'key with no access' => [['status_code' => 102], 200, 'unauthorized'];
-        yield 'rate limited' => [['status_code' => 107], 200, 'rate_limited'];
-        yield 'some other api error' => [['status_code' => 104, 'error' => 'Filter Error'], 200, 'failed'];
-        // Observed against the live API: /issues/ answers 401 for a bad key
-        // rather than the documented 200-with-error-body. Both mean the same
-        // thing to whoever typed the key.
-        yield 'rejected with a status code' => ['', 401, 'unauthorized'];
-        yield 'forbidden' => ['', 403, 'unauthorized'];
-        yield 'rate limited by status code' => ['', 429, 'rate_limited'];
-        yield 'http failure' => ['', 503, 'failed'];
+        yield 'accepted' => [[1], 200, ProviderStatus::Ok];
+        yield 'rejected key' => [[100, 'Invalid API Key'], 200, ProviderStatus::Unauthorized];
+        yield 'key with no access' => [[102], 200, ProviderStatus::Unauthorized];
+        yield 'rate limited' => [[107], 200, ProviderStatus::RateLimited];
+        yield 'some other api error' => [[104, 'Filter Error'], 200, ProviderStatus::Failed];
+        yield 'rejected with a status code' => ['', 401, ProviderStatus::Unauthorized];
+        yield 'forbidden' => ['', 403, ProviderStatus::Unauthorized];
+        yield 'rate limited by status code' => ['', 429, ProviderStatus::RateLimited];
+        yield 'http failure' => ['', 503, ProviderStatus::Failed];
     }
 
     public function testSaysThereIsNothingToTestWithoutAKey(): void
     {
-        $verification = $this->provider(null)->verify(self::credentials(false));
+        $verification = $this->provider(null)->verify(null);
 
-        self::assertSame('unconfigured', $verification->status);
+        self::assertSame(ProviderStatus::Unconfigured, $verification->status);
         self::assertStringContainsString('API key', $verification->message);
     }
 
     public function testDistinguishesAnUnreachableServiceFromARejectedKey(): void
     {
         $client = new MockHttpClient(static function (): never {
-            throw new \Symfony\Component\HttpClient\Exception\TransportException('dns failure');
+            throw new \Symfony\Component\HttpClient\Exception\TransportException('no route to host');
         });
 
-        self::assertSame('unreachable', $this->provider(null, client: $client)->verify(self::credentials(true))->status);
+        self::assertSame(ProviderStatus::Unreachable, $this->provider(null, client: $client)->verify('key')->status);
     }
 
-    private function provider(?MockResponse $response, bool $configured = true, ?MockHttpClient $client = null): ComicVineProvider
+    private function provider(?MockResponse $response, ?MockHttpClient $client = null): ComicVineProvider
     {
+        $cache = $this->cache();
+
         return new ComicVineProvider(
             $client ?? new MockHttpClient($response ?? new MockResponse('{"status_code":1,"results":[]}')),
-            self::credentials($configured),
-            new RateLimiterFactory(['id' => 'test', 'policy' => 'fixed_window', 'limit' => 100, 'interval' => '1 hour'], new InMemoryStorage()),
-            $this->cache(),
+            new RateLimiterFactory(
+                ['id' => 'test', 'policy' => 'fixed_window', 'limit' => 100, 'interval' => '1 hour'],
+                new InMemoryStorage()
+            ),
+            $cache,
+            new ProviderQuotaTracker($cache),
+            new ProviderCircuitBreaker($cache),
         );
     }
 
-    private static function credentials(bool $configured): ProviderCredentials
+    private static function access(): ProviderAccess
     {
-        return new class($configured) implements ProviderCredentials {
-            public function __construct(private bool $configured)
-            {
-            }
-
-            public function metronUsername(): ?string { return null; }
-            public function metronPassword(): ?string { return null; }
-            public function comicVineApiKey(): ?string { return $this->configured ? 'comicvine-key-placeholder' : null; }
-        };
+        return ProviderAccess::granted('comicvine', 'shared', 'comic-vine-key-placeholder');
     }
 
     private function cache(): CacheInterface

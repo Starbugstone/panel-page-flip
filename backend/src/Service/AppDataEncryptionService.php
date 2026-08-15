@@ -50,6 +50,24 @@ final class AppDataEncryptionService
         return $plaintext;
     }
 
+    /**
+     * The longest plaintext whose ciphertext still fits a column of this many
+     * characters.
+     *
+     * Encrypting expands: a nonce and a MAC are prepended, the whole is base64
+     * encoded, and a prefix goes in front. A value that fits the column before
+     * encryption can easily overflow it afterwards, and the failure lands at
+     * flush time as a database error rather than as a message anybody can act
+     * on. Callers validate against this instead.
+     */
+    public static function maxPlaintextBytes(int $columnLength): int
+    {
+        $envelope = SODIUM_CRYPTO_SECRETBOX_NONCEBYTES + SODIUM_CRYPTO_SECRETBOX_MACBYTES;
+        $availableForBase64 = $columnLength - strlen(self::PREFIX);
+
+        return max(0, intdiv($availableForBase64, 4) * 3 - $envelope);
+    }
+
     public function isEncrypted(?string $value): bool
     {
         return is_string($value) && str_starts_with($value, self::PREFIX);

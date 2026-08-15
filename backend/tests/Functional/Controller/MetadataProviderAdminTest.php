@@ -22,8 +22,90 @@ final class MetadataProviderAdminTest extends AbstractApiTestCase
         self::assertSame(['comicvine', 'metron'], $this->sortedKeys($providers));
         foreach ($providers as $provider) {
             self::assertFalse($provider['configured']);
-            self::assertSame(['key', 'label', 'configured'], array_keys($provider));
+            self::assertSame(['key', 'label', 'configured', 'enabled', 'quota'], array_keys($provider));
         }
+    }
+
+    /**
+     * The environment's half of each switch is reported, so an administrator
+     * can see why a toggle they turned on is not taking effect.
+     *
+     * The two defaults differ on purpose. Shared Metron spends a token this
+     * installation owns, so it is opted into. Comic Vine is allowed unless
+     * somebody switches it off: a self-hosted library is inside its
+     * non-commercial terms, and shipping it disabled would make every operator
+     * hunt for a switch to get behaviour they were already entitled to.
+     */
+    public function testReportsWhetherTheEnvironmentAllowsEachProvider(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $environment = $this->getJson('/api/admin/metadata-providers')['environment'];
+
+        self::assertFalse($environment['metronSharedEnabled']);
+        self::assertTrue($environment['comicVineEnabled']);
+    }
+
+    /** Configuring a key is enough; there is no second switch to find. */
+    public function testComicVineIsEnabledOutOfTheBox(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $enabled = array_column($this->getJson('/api/admin/metadata-providers')['providers'], 'enabled', 'key');
+
+        self::assertTrue($enabled['comicvine']);
+        self::assertFalse($enabled['metron']);
+    }
+
+    /**
+     * The point of the switch: a deployment that stops satisfying Comic Vine's
+     * terms turns it off here rather than in a code change.
+     */
+    public function testAnAdministratorCanTurnComicVineOff(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $response = $this->putJson('/api/admin/metadata-providers', ['comicVineEnabled' => false]);
+
+        self::assertResponseIsSuccessful();
+        self::assertFalse(array_column($response['providers'], 'enabled', 'key')['comicvine']);
+    }
+
+    /** There is nowhere here to put a Metron account password any more. */
+    public function testAMetronPasswordIsNotSomethingThatCanBeStored(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $this->putJson('/api/admin/metadata-providers', ['metronPassword' => 'metron-password-placeholder']);
+
+        self::assertResponseIsSuccessful();
+        $configured = array_column($this->getJson('/api/admin/metadata-providers')['providers'], 'configured', 'key');
+        self::assertFalse($configured['metron']);
+    }
+
+    public function testTogglesAreStoredAndReported(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $this->putJson('/api/admin/metadata-providers', [
+            'metronSharedEnabled' => true,
+            'comicVineEnabled' => false,
+        ]);
+        $response = $this->putJson('/api/admin/metadata-providers', ['comicVineEnabled' => true]);
+
+        self::assertResponseIsSuccessful();
+        $enabled = array_column($response['providers'], 'enabled', 'key');
+        self::assertTrue($enabled['metron']);
+        self::assertTrue($enabled['comicvine']);
+    }
+
+    public function testARejectedToggleIsNotABoolean(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $this->putJson('/api/admin/metadata-providers', ['metronSharedEnabled' => 'yes']);
+
+        self::assertResponseStatusCodeSame(400);
     }
 
     public function testStoresCredentialsAndReportsThemAsConfigured(): void
@@ -31,8 +113,7 @@ final class MetadataProviderAdminTest extends AbstractApiTestCase
         $this->createAndLoginAdmin();
 
         $this->putJson('/api/admin/metadata-providers', [
-            'metronUsername' => 'librarian',
-            'metronPassword' => 'metron-password-placeholder',
+            'metronToken' => 'metron-token-placeholder',
             'comicVineApiKey' => 'comicvine-key-placeholder',
         ]);
 
@@ -40,7 +121,7 @@ final class MetadataProviderAdminTest extends AbstractApiTestCase
         $body = (string) $this->browser()->getResponse()->getContent();
 
         // Confirms the change without echoing the secrets back.
-        self::assertStringNotContainsString('metron-password-placeholder', $body);
+        self::assertStringNotContainsString('metron-token-placeholder', $body);
         self::assertStringNotContainsString('comicvine-key-placeholder', $body);
 
         $configured = array_column(json_decode($body, true)['providers'], 'configured', 'key');
@@ -80,12 +161,25 @@ final class MetadataProviderAdminTest extends AbstractApiTestCase
     {
         $this->createAndLoginAdmin();
 
-        $this->putJson('/api/admin/metadata-providers', ['metronUsername' => 'librarian', 'metronPassword' => 'metron-password-placeholder']);
+        $this->putJson('/api/admin/metadata-providers', ['metronToken' => 'metron-token-placeholder']);
         $response = $this->putJson('/api/admin/metadata-providers', ['comicVineApiKey' => 'comicvine-key-placeholder']);
 
         $configured = array_column($response['providers'], 'configured', 'key');
         self::assertTrue($configured['metron']);
         self::assertTrue($configured['comicvine']);
+    }
+
+    /**
+     * The shared credentials had no length check at all, so an oversized value
+     * reached the column and failed at flush time as a database error.
+     */
+    public function testRejectsACredentialThatWouldOverflowTheColumn(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $this->putJson('/api/admin/metadata-providers', ['metronToken' => str_repeat('a', 1_000)]);
+
+        self::assertResponseStatusCodeSame(400);
     }
 
     public function testRejectsACredentialThatIsNotAString(): void

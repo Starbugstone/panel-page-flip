@@ -29,6 +29,22 @@ parameters:
     dropbox_sync_limit: '%env(int:DROPBOX_SYNC_LIMIT)%'
     dropbox_rate_limit: '%env(int:DROPBOX_RATE_LIMIT)%'
     app_data_key: '%env(APP_DATA_KEY)%'
+    # The operator's final word on the provider integrations. Nothing inside the
+    # application can override these, which is the point of putting them out
+    # here.
+    #
+    # Shared Metron is off by default: it spends an account the installation
+    # owns, so it is opted into rather than inherited from a shipped default.
+    #
+    # Comic Vine is on by default. This is self-hosted software and its ordinary
+    # deployment is a person's own library, which is squarely inside Comic Vine's
+    # non-commercial terms; a deployment that leaves those terms turns it off
+    # here or in the admin panel. Shipping it disabled would mean every operator
+    # had to discover a switch to get behaviour they were already entitled to.
+    env(METRON_SHARED_ENABLED): 'false'
+    env(COMIC_VINE_SHARED_ENABLED): 'true'
+    metron_shared_enabled: '%env(bool:METRON_SHARED_ENABLED)%'
+    comic_vine_shared_enabled: '%env(bool:COMIC_VINE_SHARED_ENABLED)%'
     # Daily log files live under these, one folder per stream. Security and
     # audit files are grouped into YYYY/MM/ because a year of them at one file
     # per day is several hundred entries in a single listing.
@@ -169,10 +185,25 @@ services:
         arguments:
             $providers: !tagged_iterator app.metadata_provider
 
-    # A provider injected with credentials always means the stored ones. The
-    # other implementation carries credentials out of a request so they can be
-    # tested before they are saved, and is built by hand at that one call site.
-    App\Metadata\Provider\ProviderCredentials: '@App\Service\MetadataProviderConfigurationService'
+    # Narrow seams onto the two credential stores. Whatever decides who may
+    # spend an allowance sees the tokens and the switches, and never the
+    # entities or the manager behind them.
+    App\Metadata\Provider\SharedProviderCredentials: '@App\Service\MetadataProviderConfigurationService'
+    App\Metadata\Provider\PersonalProviderCredentials: '@App\Service\UserMetadataCredentialService'
+
+    App\Service\MetadataAccessResolver:
+        arguments:
+            $metronSharedAllowedByEnvironment: '%metron_shared_enabled%'
+            $comicVineSharedAllowedByEnvironment: '%comic_vine_shared_enabled%'
+
+    App\Service\ProviderCircuitBreaker:
+        arguments:
+            $cache: '@metadata.provider.cache'
+            $logger: '@logger'
+
+    App\Service\ProviderQuotaTracker:
+        arguments:
+            $cache: '@metadata.provider.cache'
 
     App\Metadata\Provider\MetronProvider:
         arguments:

@@ -21,6 +21,9 @@ import { describeTagSubmission } from "@/lib/tag-suggestions.js";
 import { EXPLICIT_FLAG_DESCRIPTION, EXPLICIT_FLAG_LABEL } from "@/lib/sharing.js";
 import { MetadataSuggestions } from "@/components/MetadataSuggestions";
 
+/** A blank field means "no value", not the empty string. */
+const blankToNull = (value) => (String(value ?? "").trim() === "" ? null : String(value).trim());
+
 /**
  * Editing a different comic means a different set of fields, so the form is
  * remounted per comic rather than being reset field-by-field from an effect.
@@ -53,9 +56,17 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
   const [structured, setStructured] = useState({
     series: comic?.series ?? "",
     issueNumber: comic?.issueNumber ?? "",
+    issueCount: comic?.issueCount ?? "",
     volume: comic?.volume ?? "",
     publishedAt: comic?.publishedAt ?? "",
+    languageCode: comic?.languageCode ?? "",
+    ageRating: comic?.ageRating ?? "",
   });
+  // Reviewed credits and the external record they came from. Neither has a form
+  // field: they are accepted whole from a provider record or left as they are,
+  // and both travel with the save so an accepted match survives it.
+  const [creators, setCreators] = useState(comic?.creators ?? null);
+  const [metadataOrigin, setMetadataOrigin] = useState(comic?.metadataOrigin ?? null);
   const [newTag, setNewTag] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -80,9 +91,15 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
   // are about to save and can still change it or cancel.
   const handleAcceptSuggestion = (patch) => {
     Object.entries(patch).forEach(([field, value]) => {
-      if (field === "publisher") setPublisher(String(value));
+      if (field === "title") setTitle(String(value));
+      else if (field === "publisher") setPublisher(String(value));
       else if (field === "description") setDescription(String(value));
-      else setStructuredField(field, String(value));
+      else if (field === "creators") setCreators(value);
+      else if (field === "metadataProvider") {
+        setMetadataOrigin((current) => ({ ...(current ?? {}), provider: String(value) }));
+      } else if (field === "metadataExternalId") {
+        setMetadataOrigin((current) => ({ ...(current ?? {}), externalId: String(value) }));
+      } else setStructuredField(field, String(value));
     });
   };
 
@@ -110,10 +127,18 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
         description,
         tags,
         explicitContent,
-        series: structured.series.trim() === "" ? null : structured.series.trim(),
-        issueNumber: structured.issueNumber.trim() === "" ? null : structured.issueNumber.trim(),
-        volume: String(structured.volume).trim() === "" ? null : String(structured.volume).trim(),
-        publishedAt: structured.publishedAt.trim() === "" ? null : structured.publishedAt.trim(),
+        series: blankToNull(structured.series),
+        issueNumber: blankToNull(structured.issueNumber),
+        issueCount: blankToNull(structured.issueCount),
+        volume: blankToNull(structured.volume),
+        publishedAt: blankToNull(structured.publishedAt),
+        languageCode: blankToNull(structured.languageCode),
+        ageRating: blankToNull(structured.ageRating),
+        creators: creators ?? undefined,
+        // Only sent once a record has actually been chosen, so an ordinary edit
+        // never clears a match somebody made earlier.
+        metadataProvider: metadataOrigin?.provider ?? undefined,
+        metadataExternalId: metadataOrigin?.externalId ?? undefined,
       });
       
       // If we have new tags, add them to the cache
@@ -248,6 +273,10 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
             onAccept={handleAcceptSuggestion}
             onAddTag={handleAddTag}
             currentTags={tags}
+            /* What is in the form right now, so a provider search uses a
+               suggestion the user just accepted rather than the last save. */
+            staged={{ ...structured, title }}
+            metadataOrigin={metadataOrigin}
           />
 
           <div className="grid gap-2">

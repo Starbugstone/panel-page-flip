@@ -64,6 +64,7 @@ final class ComicInfoParser
             ageRating: $this->text($root, 'AgeRating'),
             readingDirection: ReadingDirection::fromManga($this->text($root, 'Manga')),
             creators: $this->creators($root),
+            classification: $this->classification($root),
             pages: $this->pages($root),
         );
 
@@ -150,6 +151,31 @@ final class ComicInfoParser
         }
 
         return $creators;
+    }
+
+    /**
+     * What the file says the comic is about.
+     *
+     * Read, but never applied: ComicInfo's own genres are still a third party's
+     * opinion about how a library should be organised, and the archive that
+     * carries them was often produced by somebody other than the reader. They
+     * reach the review UI as suggestions like any provider's would.
+     */
+    private function classification(\SimpleXMLElement $root): Classification
+    {
+        // ComicInfo's <Tags> is a free-text keyword list with no agreed
+        // meaning, so it is read alongside <Genre> and offered the same way,
+        // rather than being trusted enough to skip the review step.
+        return new Classification(
+            genres: Classification::clean(array_merge(
+                $this->splitNames($this->text($root, 'Genre')),
+                $this->splitNames($this->text($root, 'Tags')),
+            )),
+            characters: Classification::clean($this->splitNames($this->text($root, 'Characters'))),
+            teams: Classification::clean($this->splitNames($this->text($root, 'Teams'))),
+            locations: Classification::clean($this->splitNames($this->text($root, 'Locations'))),
+            storyArcs: Classification::clean($this->splitNames($this->text($root, 'StoryArc'))),
+        );
     }
 
     /** @return list<string> */

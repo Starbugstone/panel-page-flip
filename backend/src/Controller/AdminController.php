@@ -9,12 +9,12 @@ use App\Entity\Comic;
 use App\Entity\User;
 use App\Repository\AdminAuditLogRepository;
 use App\Service\AdminAuditService;
+use App\Service\AppDataEncryptionService;
 use App\Service\ComicCleanupService;
 use App\Service\ComicFormatService;
 use App\Service\ComicPageDelivery;
 use App\Enum\ComicSourceType;
 use App\Service\DropboxImportService;
-use App\Metadata\Provider\StaticProviderCredentials;
 use App\Service\MetadataProviderConfigurationService;
 use App\Service\MetadataProviderRegistry;
 use App\Service\Pagination\PaginationRequest;
@@ -33,10 +33,16 @@ use Symfony\Contracts\Cache\ItemInterface;
 #[Route('/api/admin', name: 'api_admin_')]
 class AdminController extends AbstractController
 {
+    private const SECRET_COLUMN_LENGTH = 1024;
+
     public function __construct(
         private readonly CacheInterface $cache,
         #[Autowire('%kernel.project_dir%')]
-        private readonly string $projectDir
+        private readonly string $projectDir,
+        #[Autowire('%metron_shared_enabled%')]
+        private readonly bool $metronSharedAllowedByEnvironment = false,
+        #[Autowire('%comic_vine_shared_enabled%')]
+        private readonly bool $comicVineSharedAllowedByEnvironment = false
     ) {
     }
 
@@ -73,12 +79,27 @@ class AdminController extends AbstractController
     }
 
     #[Route('/metadata-providers', name: 'metadata_providers', methods: ['GET'])]
-    public function metadataProviders(MetadataProviderRegistry $providers): JsonResponse
-    {
+    public function metadataProviders(
+        MetadataProviderRegistry $providers,
+        MetadataProviderConfigurationService $configuration
+    ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
         // Whether a provider is configured, never what it was configured with.
-        return $this->json(['providers' => $providers->status()]);
+        // The quota alongside it is what the provider last told us about the
+        // account, which is the only honest source for a daily budget.
+        return $this->json([
+            'providers' => $providers->adminStatus($this->sharedSecrets($configuration), $configuration),
+            // The environment's half of each switch, so an administrator can
+            // see why a toggle they turned on is not taking effect.
+            'environment' => [
+                'metronSharedEnabled' => $this->metronSharedAllowedByEnvironment,
+                'comicVineEnabled' => $this->comicVineSharedAllowedByEnvironment,
+            ],
+            // Not per-provider: it governs whether users may bring a token at
+            // all, for any provider.
+            'settings' => ['personalCredentialsEnabled' => $configuration->arePersonalCredentialsEnabled()],
+        ]);
     }
 
     /**
@@ -103,8 +124,19 @@ class AdminController extends AbstractController
             $submitted = [];
         }
 
+        $typed = static function (string $field) use ($submitted): ?string {
+            $value = $submitted[$field] ?? null;
+
+            return is_string($value) && trim($value) !== '' ? trim($value) : null;
+        };
+
+        $stored = $this->sharedSecrets($configuration);
+
         return $this->json([
-            'results' => $providers->verify(StaticProviderCredentials::preferring($submitted, $configuration)),
+            'results' => $providers->verify([
+                'metron' => $typed('metronToken') ?? $stored['metron'],
+                'comicvine' => $typed('comicVineApiKey') ?? $stored['comicvine'],
+            ]),
         ]);
     }
 
@@ -124,7 +156,8 @@ class AdminController extends AbstractController
         }
 
         $settings = $configuration->get();
-        foreach (['metronUsername', 'metronPassword', 'comicVineApiKey'] as $field) {
+
+        foreach (['metronToken', 'comicVineApiKey'] as $field) {
             if (!array_key_exists($field, $data)) {
                 continue;
             }
@@ -134,18 +167,77 @@ class AdminController extends AbstractController
                 return $this->json(['message' => sprintf('%s must be a string or null.', $field)], Response::HTTP_BAD_REQUEST);
             }
 
+            // The column holds ciphertext, which is longer than what went into
+            // it, so the limit comes from the column. Bytes rather than
+            // characters: a multibyte value passes a character count and still
+            // overflows, and that lands as a database error at flush time.
+            if (is_string($value) && strlen(trim($value)) > AppDataEncryptionService::maxPlaintextBytes(self::SECRET_COLUMN_LENGTH)) {
+                return $this->json(['message' => sprintf('%s is longer than a credential this provider issues.', $field)], Response::HTTP_BAD_REQUEST);
+            }
+
             $settings->{'set'.ucfirst($field)}($value);
         }
 
-        // The values are secrets, so the audit trail records that they changed
-        // and never which fields held what.
-        $configuration->save();
-        $auditService->log($this->getAdminUser(), 'metadata_providers_updated', 'configuration', 1, [
-            'configured' => array_column($providers->status(), 'configured', 'key'),
-        ]);
-        $entityManager->flush();
+        $switches = [
+            'metronSharedEnabled' => 'setMetronSharedEnabled',
+            'comicVineEnabled' => 'setComicVineEnabled',
+            'personalCredentialsEnabled' => 'setPersonalCredentialsEnabled',
+        ];
 
-        return $this->json(['providers' => $providers->status()]);
+        foreach ($switches as $field => $setter) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+
+            if (!is_bool($data[$field])) {
+                return $this->json(['message' => sprintf('%s must be true or false.', $field)], Response::HTTP_BAD_REQUEST);
+            }
+
+            $settings->{$setter}($data[$field]);
+        }
+
+        // The values are secrets, so the audit trail records that they changed
+        // and never which fields held what. The switches are not secrets and
+        // are recorded in full: turning shared provider access on or off is
+        // exactly the kind of change somebody later needs to be able to find.
+        //
+        // Logged before saving on purpose. The audit entry is persisted but not
+        // flushed, so save()'s flush commits the change and its record in one
+        // transaction — logging afterwards left a window where the credential
+        // change landed and the record it requires did not.
+        $auditService->log($this->getAdminUser(), 'metadata_providers_updated', 'configuration', 1, [
+            'configured' => array_column($providers->adminStatus($this->sharedSecrets($configuration), $configuration), 'configured', 'key'),
+            'metronSharedEnabled' => $configuration->isMetronSharedEnabled(),
+            'comicVineEnabled' => $configuration->isComicVineEnabled(),
+            'personalCredentialsEnabled' => $configuration->arePersonalCredentialsEnabled(),
+        ]);
+        $configuration->save();
+
+        return $this->json([
+            'providers' => $providers->adminStatus($this->sharedSecrets($configuration), $configuration),
+            'environment' => [
+                'metronSharedEnabled' => $this->metronSharedAllowedByEnvironment,
+                'comicVineEnabled' => $this->comicVineSharedAllowedByEnvironment,
+            ],
+            'settings' => ['personalCredentialsEnabled' => $configuration->arePersonalCredentialsEnabled()],
+        ]);
+    }
+
+    /**
+     * The installation's secrets, keyed by provider.
+     *
+     * Never returned to a client. The registry needs them only to fingerprint
+     * the upstream account for quota bookkeeping and to say whether a provider
+     * is configured at all.
+     *
+     * @return array<string, string|null>
+     */
+    private function sharedSecrets(MetadataProviderConfigurationService $configuration): array
+    {
+        return [
+            'metron' => $configuration->metronToken(),
+            'comicvine' => $configuration->comicVineApiKey(),
+        ];
     }
 
     #[Route('/stats', name: 'stats', methods: ['GET'])]

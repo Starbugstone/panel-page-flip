@@ -2,6 +2,7 @@
 
 namespace App\Tests\Functional\Controller;
 
+use App\Metadata\Classification;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\TagFactory;
 use App\Tests\Factory\UserFactory;
@@ -199,5 +200,98 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
 
         $stored = $this->getJson(sprintf('/api/comics/%d', $comic->getId()))['comic'];
         self::assertSame([], $stored['tags']);
+    }
+
+    /**
+     * ComicInfo's own genres are still a third party's opinion about how a
+     * library should be organised, and the archive that carried them was often
+     * packaged by somebody other than the reader. They are offered, not applied.
+     */
+    public function testProposesGenresFromTheFileWithoutCreatingTags(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::createOne([
+            'owner' => $owner,
+            'title' => 'The Boys',
+            'tags' => [],
+            'classification' => new Classification(genres: ['Superhero', 'Crime']),
+        ])->object();
+
+        $this->loginAs($owner);
+        $tags = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'];
+
+        self::assertSame(['Superhero', 'Crime'], array_column($tags, 'name'));
+        foreach ($tags as $tag) {
+            self::assertSame('genre', $tag['kind']);
+            self::assertSame('comicinfo', $tag['source']);
+            // Proposed, and not yet a tag anywhere.
+            self::assertFalse($tag['exists']);
+        }
+
+        self::assertSame([], TagFactory::repository()->findAll());
+    }
+
+    /**
+     * Characters, teams, locations and story arcs are structured metadata, not
+     * organisational tags. A crossover names dozens; a library enriched that way
+     * would end up with thousands nobody chose.
+     */
+    public function testDoesNotProposeCharactersTeamsOrStoryArcsAsTags(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::createOne([
+            'owner' => $owner,
+            'tags' => [],
+            'classification' => new Classification(
+                characters: ['Billy Butcher'],
+                teams: ['The Seven'],
+                locations: ['New York'],
+                storyArcs: ['Herogasm'],
+            ),
+        ])->object();
+
+        $this->loginAs($owner);
+        $response = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));
+
+        self::assertSame([], $response['tags']);
+        // Still visible as metadata — just never as a proposed tag.
+        self::assertSame(['Billy Butcher'], $response['classification']['characters']);
+        self::assertSame(['Herogasm'], $response['classification']['storyArcs']);
+    }
+
+    /** The user's own spelling wins, so accepting cannot make a near-duplicate. */
+    public function testPrefersTheSpellingOfATagTheLibraryAlreadyHas(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        TagFactory::createOne(['name' => 'Science Fiction', 'creator' => $owner]);
+        $comic = ComicFactory::createOne([
+            'owner' => $owner,
+            'tags' => [],
+            'classification' => new Classification(genres: ['science fiction']),
+        ])->object();
+
+        $this->loginAs($owner);
+        $tags = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'];
+
+        $genres = array_values(array_filter($tags, static fn (array $t): bool => $t['kind'] === 'genre'));
+        self::assertSame('Science Fiction', $genres[0]['name']);
+        self::assertTrue($genres[0]['exists']);
+    }
+
+    /** Once it is on the comic, proposing it again is noise. */
+    public function testDoesNotProposeAGenreTheComicAlreadyCarries(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $tag = TagFactory::createOne(['name' => 'Superhero', 'creator' => $owner])->object();
+        $comic = ComicFactory::createOne([
+            'owner' => $owner,
+            'tags' => [$tag],
+            'classification' => new Classification(genres: ['Superhero', 'Crime']),
+        ])->object();
+
+        $this->loginAs($owner);
+        $tags = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'];
+
+        self::assertSame(['Crime'], array_column($tags, 'name'));
     }
 }

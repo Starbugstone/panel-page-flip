@@ -43,25 +43,26 @@ final class SecretPersistenceIntegrityTest extends AbstractApiTestCase
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $encryption = static::getContainer()->get(AppDataEncryptionService::class);
         $configuration = new MetadataProviderConfiguration();
-        $configuration->setMetronUsername('before');
-        $configuration->setMetronPassword('old-password');
+        $configuration->setMetronToken('old-token');
         $entityManager->persist($configuration);
         $entityManager->flush();
 
         $entityManager->clear();
         $stale = $entityManager->find(MetadataProviderConfiguration::class, 1);
         self::assertInstanceOf(MetadataProviderConfiguration::class, $stale);
-        self::assertSame('old-password', $stale->getMetronPassword());
+        self::assertSame('old-token', $stale->getMetronToken());
 
         $entityManager->getConnection()->executeStatement(
-            'UPDATE metadata_provider_configuration SET metron_password = :password WHERE id = 1',
-            ['password' => $encryption->encrypt('new-password')]
+            'UPDATE metadata_provider_configuration SET metron_token = :token WHERE id = 1',
+            ['token' => $encryption->encrypt('new-token')]
         );
-        $stale->setMetronUsername('after');
+        // Change a non-secret setting on the stale entity. The encrypted token
+        // that was rotated directly in storage must survive this unrelated flush.
+        $stale->setMetronSharedEnabled(true);
         $entityManager->flush();
 
-        $stored = $entityManager->getConnection()->fetchOne('SELECT metron_password FROM metadata_provider_configuration WHERE id = 1');
-        self::assertSame('new-password', $encryption->decrypt(is_string($stored) ? $stored : null));
+        $stored = $entityManager->getConnection()->fetchOne('SELECT metron_token FROM metadata_provider_configuration WHERE id = 1');
+        self::assertSame('new-token', $encryption->decrypt(is_string($stored) ? $stored : null));
     }
 
     public function testIntentionalCredentialChangeIsEncryptedAndReadable(): void

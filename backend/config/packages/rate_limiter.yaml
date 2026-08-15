@@ -69,6 +69,15 @@ framework:
             limit: 150
             interval: '1 hour'
 
+        # Per-user fairness, separate from the ceiling above. The provider limit
+        # protects the upstream account; this protects the other people sharing
+        # it, so one enthusiastic library cannot spend the installation's whole
+        # allowance before anybody else opens an editor.
+        metadata_provider_user:
+            policy: sliding_window
+            limit: 40
+            interval: '1 hour'
+
 when@test:
     framework:
         rate_limiter:
@@ -92,4 +101,6 @@ when@test:
             # Provider lookups are cache-backed like the others, so raise it
             # rather than have an unrelated test spend the allowance.
             metadata_provider:
+                limit: 1000
+            metadata_provider_user:
                 limit: 1000

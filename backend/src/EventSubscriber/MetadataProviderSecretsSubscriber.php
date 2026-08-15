@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\EventSubscriber;
 
 use App\Entity\MetadataProviderConfiguration;
+use App\Entity\UserMetadataCredential;
 use App\Service\AppDataEncryptionService;
 use Doctrine\Bundle\DoctrineBundle\Attribute\AsDoctrineListener;
 use Doctrine\ORM\EntityManagerInterface;
@@ -15,6 +16,17 @@ use Doctrine\ORM\Event\PrePersistEventArgs;
 use Doctrine\ORM\Event\PreUpdateEventArgs;
 use Doctrine\ORM\Events;
 
+/**
+ * Keeps provider credentials encrypted at rest while exposing plaintext to the
+ * application.
+ *
+ * Both the installation-owned provider configuration and each user's personal
+ * provider credentials use the same lifecycle. After decryption, Doctrine's
+ * original-data snapshot is synchronised to the logical plaintext values. This
+ * is important: without it, an unrelated later flush can treat the decrypted
+ * value as a change and write stale credentials back over a newer database
+ * value.
+ */
 #[AsDoctrineListener(event: Events::postLoad)]
 #[AsDoctrineListener(event: Events::prePersist)]
 #[AsDoctrineListener(event: Events::preUpdate)]
@@ -22,96 +34,110 @@ use Doctrine\ORM\Events;
 #[AsDoctrineListener(event: Events::postUpdate)]
 final class MetadataProviderSecretsSubscriber
 {
-    /** @var \WeakMap<MetadataProviderConfiguration, array{metron: ?string, comicVine: ?string}> */
+    /**
+     * @var \WeakMap<MetadataProviderConfiguration|UserMetadataCredential, array{metron: ?string, comicVine: ?string}>
+     */
     private \WeakMap $logicalSnapshots;
 
     public function __construct(private readonly AppDataEncryptionService $encryption)
     {
-        $this->logicalSnapshots = new \WeakMap(); // @phpstan-ignore assign.propertyType (WeakMap TValue is invariant)
+        // WeakMap TValue is invariant, so PHPStan cannot infer the documented
+        // generic value type from the empty constructor.
+        $this->logicalSnapshots = new \WeakMap(); // @phpstan-ignore assign.propertyType
     }
 
     public function postLoad(PostLoadEventArgs $args): void
     {
-        $configuration = $args->getObject();
-        if ($configuration instanceof MetadataProviderConfiguration) {
-            $this->decryptAndSynchronize($configuration, $args->getObjectManager());
+        $entity = $args->getObject();
+        if ($this->holdsSecrets($entity)) {
+            $this->decryptAndSynchronize($entity, $args->getObjectManager());
         }
     }
 
     public function prePersist(PrePersistEventArgs $args): void
     {
-        $configuration = $args->getObject();
-        if (!$configuration instanceof MetadataProviderConfiguration) {
+        $entity = $args->getObject();
+        if (!$this->holdsSecrets($entity)) {
             return;
         }
 
-        $configuration->setMetronPassword($this->encryption->encrypt($configuration->getMetronPassword()));
-        $configuration->setComicVineApiKey($this->encryption->encrypt($configuration->getComicVineApiKey()));
+        $this->encryptAll($entity);
     }
 
     public function preUpdate(PreUpdateEventArgs $args): void
     {
-        $configuration = $args->getObject();
-        if (!$configuration instanceof MetadataProviderConfiguration) {
+        $entity = $args->getObject();
+        if (!$this->holdsSecrets($entity)) {
             return;
         }
 
-        $snapshot = $this->logicalSnapshots[$configuration] ?? [
-            'metron' => $configuration->getMetronPassword(),
-            'comicVine' => $configuration->getComicVineApiKey(),
+        $snapshot = $this->logicalSnapshots[$entity] ?? [
+            'metron' => $entity->getMetronToken(),
+            'comicVine' => $entity->getComicVineApiKey(),
         ];
-        $metronChanged = $configuration->getMetronPassword() !== $snapshot['metron'];
-        $comicVineChanged = $configuration->getComicVineApiKey() !== $snapshot['comicVine'];
+        $metronChanged = $entity->getMetronToken() !== $snapshot['metron'];
+        $comicVineChanged = $entity->getComicVineApiKey() !== $snapshot['comicVine'];
 
         if (!$metronChanged && !$comicVineChanged) {
             return;
         }
 
         if ($metronChanged) {
-            $configuration->setMetronPassword($this->encryption->encrypt($configuration->getMetronPassword()));
+            $entity->setMetronToken($this->encryption->encrypt($entity->getMetronToken()));
         }
         if ($comicVineChanged) {
-            $configuration->setComicVineApiKey($this->encryption->encrypt($configuration->getComicVineApiKey()));
+            $entity->setComicVineApiKey($this->encryption->encrypt($entity->getComicVineApiKey()));
         }
 
         $entityManager = $args->getObjectManager();
         $entityManager->getUnitOfWork()->recomputeSingleEntityChangeSet(
-            $entityManager->getClassMetadata(MetadataProviderConfiguration::class),
-            $configuration
+            $entityManager->getClassMetadata($entity::class),
+            $entity
         );
     }
 
     public function postPersist(PostPersistEventArgs $args): void
     {
-        $configuration = $args->getObject();
-        if ($configuration instanceof MetadataProviderConfiguration) {
-            $this->decryptAndSynchronize($configuration, $args->getObjectManager());
+        $entity = $args->getObject();
+        if ($this->holdsSecrets($entity)) {
+            $this->decryptAndSynchronize($entity, $args->getObjectManager());
         }
     }
 
     public function postUpdate(PostUpdateEventArgs $args): void
     {
-        $configuration = $args->getObject();
-        if ($configuration instanceof MetadataProviderConfiguration) {
-            $this->decryptAndSynchronize($configuration, $args->getObjectManager());
+        $entity = $args->getObject();
+        if ($this->holdsSecrets($entity)) {
+            $this->decryptAndSynchronize($entity, $args->getObjectManager());
         }
     }
 
+    private function encryptAll(MetadataProviderConfiguration|UserMetadataCredential $entity): void
+    {
+        $entity->setMetronToken($this->encryption->encrypt($entity->getMetronToken()));
+        $entity->setComicVineApiKey($this->encryption->encrypt($entity->getComicVineApiKey()));
+    }
+
     private function decryptAndSynchronize(
-        MetadataProviderConfiguration $configuration,
+        MetadataProviderConfiguration|UserMetadataCredential $entity,
         EntityManagerInterface $entityManager
     ): void {
-        $oid = spl_object_id($configuration);
-        $metron = $this->encryption->decrypt($configuration->getMetronPassword());
-        $comicVine = $this->encryption->decrypt($configuration->getComicVineApiKey());
+        $oid = spl_object_id($entity);
+        $metron = $this->encryption->decrypt($entity->getMetronToken());
+        $comicVine = $this->encryption->decrypt($entity->getComicVineApiKey());
 
-        $configuration->setMetronPassword($metron);
-        $configuration->setComicVineApiKey($comicVine);
+        $entity->setMetronToken($metron);
+        $entity->setComicVineApiKey($comicVine);
         $snapshots = $this->logicalSnapshots;
-        $snapshots[$configuration] = ['metron' => $metron, 'comicVine' => $comicVine];
+        $snapshots[$entity] = ['metron' => $metron, 'comicVine' => $comicVine];
 
         $unitOfWork = $entityManager->getUnitOfWork();
-        $unitOfWork->setOriginalEntityProperty($oid, 'metronPassword', $metron);
+        $unitOfWork->setOriginalEntityProperty($oid, 'metronToken', $metron);
         $unitOfWork->setOriginalEntityProperty($oid, 'comicVineApiKey', $comicVine);
+    }
+
+    private function holdsSecrets(object $entity): bool
+    {
+        return $entity instanceof MetadataProviderConfiguration || $entity instanceof UserMetadataCredential;
     }
 }
