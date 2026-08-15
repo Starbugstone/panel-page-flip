@@ -1,0 +1,59 @@
+name: PHPUnit Diagnostic
+
+on:
+  push:
+    branches:
+      - feature/metadata-enrichment-74-closeout
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: contains(github.event.head_commit.message, '[phpunit-diagnostic]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Start PHP and database containers
+        run: docker compose up -d --build database php
+
+      - name: Wait for MySQL
+        run: |
+          for attempt in {1..60}; do
+            if docker compose exec -T database sh -lc 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs database
+          exit 1
+
+      - name: Install backend dependencies
+        run: docker compose exec -T php composer install --no-interaction --no-progress
+
+      - name: Create isolated test database
+        run: |
+          docker compose exec -T database sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE}_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}_test.* TO '\''${MYSQL_USER}'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+
+      - name: Apply test migrations
+        run: docker compose exec -T php php bin/console doctrine:migrations:migrate --env=test --no-interaction
+
+      - name: Run PHPUnit and expose failure
+        shell: bash
+        run: |
+          set +e
+          docker compose exec -T php php bin/phpunit --colors=never 2>&1 | tee /tmp/phpunit-output.txt
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            message="$(tail -n 100 /tmp/phpunit-output.txt)"
+            message="${message//'%'/'%25'}"
+            message="${message//$'\r'/'%0D'}"
+            message="${message//$'\n'/'%0A'}"
+            echo "::error title=PHPUnit diagnostic::$message"
+          fi
+
+          exit "$status"
