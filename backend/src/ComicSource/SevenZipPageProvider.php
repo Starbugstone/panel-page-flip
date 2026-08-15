@@ -18,7 +18,8 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
 
     public function supports(ComicSourceType $type): bool { return in_array($type, [ComicSourceType::CBR, ComicSourceType::CB7, ComicSourceType::CBT], true); }
     public function inspect(string $sourcePath, ComicSourceType $type): ComicSourceInfo { return new ComicSourceInfo(count($this->index($sourcePath, $type))); }
-    public function readPage(string $sourcePath, ComicSourceType $type, int $page): PageResult
+    /** The target width is ignored, for the reason given in ZipPageProvider. */
+    public function readPage(string $sourcePath, ComicSourceType $type, int $page, ?int $targetWidth = null): PageResult
     {
         $pages = $this->index($sourcePath, $type);
         if ($page < 1 || !isset($pages[$page - 1])) throw new \OutOfRangeException('Page not found.');

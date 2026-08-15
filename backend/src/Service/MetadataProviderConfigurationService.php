@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace App\Service;
 
 use App\Entity\MetadataProviderConfiguration;
-use App\Metadata\Provider\ProviderCredentials;
+use App\Metadata\Provider\SharedProviderCredentials;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
- * The one row holding provider credentials.
+ * The one row holding the installation's provider credentials and switches.
  *
  * Assigned id 1 and seeded by its migration, so a fresh install and an upgraded
  * one both find the same row rather than accumulating new ones.
  */
-final class MetadataProviderConfigurationService implements ProviderCredentials
+final class MetadataProviderConfigurationService implements SharedProviderCredentials
 {
     private ?MetadataProviderConfiguration $configuration = null;
 
@@ -51,27 +51,39 @@ final class MetadataProviderConfigurationService implements ProviderCredentials
             $this->entityManager->persist($edited);
         } elseif ($managed !== $edited) {
             $managed
-                ->setMetronUsername($edited->getMetronUsername())
-                ->setMetronPassword($edited->getMetronPassword())
-                ->setComicVineApiKey($edited->getComicVineApiKey());
+                ->setMetronToken($edited->getMetronToken())
+                ->setMetronSharedEnabled($edited->isMetronSharedEnabled())
+                ->setComicVineApiKey($edited->getComicVineApiKey())
+                ->setComicVineEnabled($edited->isComicVineEnabled())
+                ->setPersonalCredentialsEnabled($edited->arePersonalCredentialsEnabled());
             $this->configuration = $managed;
         }
 
         $this->entityManager->flush();
     }
 
-    public function metronUsername(): ?string
+    public function metronToken(): ?string
     {
-        return $this->get()->getMetronUsername();
+        return $this->get()->getMetronToken();
     }
 
-    public function metronPassword(): ?string
+    public function isMetronSharedEnabled(): bool
     {
-        return $this->get()->getMetronPassword();
+        return $this->get()->isMetronSharedEnabled();
     }
 
     public function comicVineApiKey(): ?string
     {
         return $this->get()->getComicVineApiKey();
+    }
+
+    public function isComicVineEnabled(): bool
+    {
+        return $this->get()->isComicVineEnabled();
+    }
+
+    public function arePersonalCredentialsEnabled(): bool
+    {
+        return $this->get()->arePersonalCredentialsEnabled();
     }
 }

@@ -102,7 +102,7 @@ describe("ShareComicsDialog", () => {
     );
 
     await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("checkbox", { name: "I understand" }));
+    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
     await user.click(screen.getByRole("button", { name: "Send 2 invitations" }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
@@ -151,7 +151,7 @@ describe("ShareComicsDialog", () => {
     );
 
     await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("checkbox", { name: "I understand" }));
+    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
     await user.click(screen.getByRole("button", { name: "Send 2 invitations" }));
 
     await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
@@ -189,7 +189,7 @@ describe("ShareComicsDialog", () => {
     await user.click(screen.getByRole("button", { name: "Check" }));
     expect(await screen.findByText("Jane Reader")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("checkbox", { name: "I understand" }));
+    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
     await user.click(screen.getByRole("button", { name: "Send invitation" }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
@@ -259,7 +259,7 @@ describe("ShareComicsDialog", () => {
     await user.clear(uses);
     await user.type(uses, "4");
 
-    await user.click(screen.getByRole("checkbox", { name: "I understand" }));
+    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
     await user.click(screen.getByRole("button", { name: "Create sharing code" }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
@@ -323,7 +323,7 @@ describe("ShareComicsDialog", () => {
     );
 
     await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("checkbox", { name: "I understand" }));
+    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
     await user.click(screen.getByRole("button", { name: "Send invitation" }));
 
     expect(await screen.findByText("This comic is already shared with that person."))
@@ -354,7 +354,7 @@ describe("ShareComicsDialog", () => {
     );
 
     await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("checkbox", { name: "I understand" }));
+    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
     await user.click(screen.getByRole("button", { name: "Send invitation" }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));

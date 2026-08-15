@@ -3,12 +3,13 @@ import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 
-const LAST_UPDATED = "5 August 2026";
+const LAST_UPDATED = "15 August 2026";
 
 function useLegalConfig() {
   const [config, setConfig] = useState({
     operator: "Panel Page Flip site operator",
     privacyEmail: null,
+    legalEmail: null,
   });
 
   useEffect(() => {
@@ -58,6 +59,7 @@ function LegalLayout({ title, children }) {
         <Link className="underline" to="/privacy">Privacy</Link>
         <Link className="underline" to="/terms">Terms</Link>
         <Link className="underline" to="/cookies">Cookies</Link>
+        <Link className="underline" to="/report-content">Report illegal content</Link>
         <Link className="underline" to="/">Home</Link>
       </nav>
     </div>
@@ -87,7 +89,9 @@ export function PrivacyPolicy() {
         <li>Reading activity: current page, completion status, and last-read time.</li>
         <li>Sharing data: recipient email addresses, expiring share tokens, and the identity of the person sharing.</li>
         <li>Dropbox data, when connected: encrypted OAuth credentials, import paths, and last-sync time.</li>
+        <li>Metadata-provider credentials, when you add your own: an encrypted API token, write-only after saving and removable at any time.</li>
         <li>Security and operations data: session identifiers, IP-based rate-limit entries, access logs, and administrator audit records.</li>
+        <li>Content reports: reporter contact details, the supplied allegation and references, review notes, linked internal records, and action history.</li>
       </ul>
 
       <h2>Why we process it</h2>
@@ -106,6 +110,24 @@ export function PrivacyPolicy() {
         We do not use advertising networks or third-party analytics.
       </p>
       <p>
+        <strong>Metadata providers.</strong> When you explicitly search for a comic’s
+        details, the provider you choose receives the identifying fields of that
+        search and nothing else: Metron receives the series name, the issue number and
+        the year; Comic Vine receives the series name and issue number as a single
+        search phrase. In particular the provider does not receive your identity
+        or email address, your file or Dropbox paths, your reading history, your tags,
+        or the comic file itself. A search only happens when you ask for one; uploading
+        a comic never contacts a provider. Results are cached on this server so the same
+        search is not repeated, and an administrator can turn provider access off for the
+        whole installation or for one account.
+      </p>
+      <p>
+        If you add your own provider token in your settings, searches use it instead of
+        the server’s. It is encrypted at rest, never shown again once saved, removable
+        from the same page, and deleted with your account. It is deliberately excluded
+        from the data export, because an export is a file that leaves the server.
+      </p>
+      <p>
         A provider may process data outside your country. Where GDPR requires it,
         the operator must use an appropriate transfer safeguard and processor agreement.
       </p>
@@ -117,6 +139,7 @@ export function PrivacyPolicy() {
         <li>Administrator audit records are deleted after 12 months.</li>
         <li>Expired verification, password-reset, and share tokens are removed by scheduled cleanup.</li>
         <li>Infrastructure access logs are retained according to the hosting configuration and should be limited to the shortest operationally necessary period.</li>
+        <li>Closed or rejected content reports are normally deleted after two years. Open cases and records subject to a legal hold or ongoing legal obligation are retained while needed.</li>
       </ul>
 
       <h2>Your rights</h2>
@@ -129,8 +152,9 @@ export function PrivacyPolicy() {
 
       <h2>Security</h2>
       <p>
-        Passwords are hashed, sessions use CSRF protection, and stored Dropbox
-        credentials are encrypted. No internet service can guarantee absolute security.
+        Passwords are hashed, sessions use CSRF protection, and stored Dropbox and
+        metadata-provider credentials are encrypted. No internet service can guarantee
+        absolute security.
       </p>
 
       <h2>Other people’s data</h2>
@@ -146,7 +170,7 @@ export function PrivacyPolicy() {
 }
 
 export function TermsOfService() {
-  const { operator, privacyEmail } = useLegalConfig();
+  const { operator, privacyEmail, legalEmail } = useLegalConfig();
 
   return (
     <LegalLayout title="Terms of Service">
@@ -166,8 +190,10 @@ export function TermsOfService() {
       <p>
         You retain rights in content you upload. You grant the operator only the
         permission needed to store, process, display, and share that content as you
-        direct through the service. Upload or share content only when you have the
-        necessary rights and permissions.
+        direct through the service. Upload content only when you are authorized to
+        host it, and use sharing only when you have the necessary right or authorization
+        to distribute it to the recipient. Owning or lawfully possessing a copy does
+        not necessarily grant a right to distribute it.
       </p>
 
       <h2>Acceptable use</h2>
@@ -185,8 +211,12 @@ export function TermsOfService() {
 
       <h2>Suspension and termination</h2>
       <p>
-        The operator may restrict an account to protect the service, comply with law,
-        or respond to a material breach. You may end these terms by deleting your account.
+        The operator may restrict sharing, revoke recipient access, quarantine or remove
+        content, or suspend an account to protect the service, comply with law, or respond
+        to a material breach. Repeated substantiated unlawful distribution may result in
+        account-level sharing restrictions or suspension. These are proportionate
+        administrative decisions, not an automatic strikes system. You may end these
+        terms by deleting your account.
       </p>
 
       <h2>Liability</h2>
@@ -196,7 +226,12 @@ export function TermsOfService() {
       </p>
 
       <h2>Contact</h2>
-      <p>Questions about these terms may be sent to <Contact email={privacyEmail} />.</p>
+      <p>
+        Questions about these terms may be sent to <Contact email={privacyEmail} />.
+        Notices about specific allegedly illegal material may be submitted through the{" "}
+        <Link className="underline" to="/report-content">Report illegal content</Link> form
+        {legalEmail ? <> or sent to <Contact email={legalEmail} /></> : null}.
+      </p>
     </LegalLayout>
   );
 }

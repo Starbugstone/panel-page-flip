@@ -30,6 +30,14 @@ final class PdfPageProvider implements ComicPageProviderInterface
     private const RENDER_TIMEOUT_SECONDS = 30;
     private const INSPECT_TIMEOUT_SECONDS = 15;
 
+    /**
+     * Bounds on what a caller's size hint may ask the renderer to draw. The
+     * ceiling is what a full-size reader page is worth; the floor keeps a
+     * thumbnail request from producing something too small to be a page.
+     */
+    private const MAX_RENDER_PIXELS = 2400;
+    private const MIN_RENDER_PIXELS = 320;
+
     /** @var array<string, ComicSourceInfo> */
     private array $inspections = [];
 
@@ -94,7 +102,7 @@ final class PdfPageProvider implements ComicPageProviderInterface
      * works on hosting that forbids running external programs at all. Poppler
      * is then what handles the pages that genuinely need drawing.
      */
-    public function readPage(string $sourcePath, ComicSourceType $type, int $page): PageResult
+    public function readPage(string $sourcePath, ComicSourceType $type, int $page, ?int $targetWidth = null): PageResult
     {
         $info = $this->pageCount($sourcePath);
         if ($page < 1 || $page > $info->pageCount) throw new \OutOfRangeException('Page not found.');
@@ -106,7 +114,7 @@ final class PdfPageProvider implements ComicPageProviderInterface
             throw new \RuntimeException('This page is not a single embedded image, and this server cannot run a PDF renderer. Poppler is needed to read this document.');
         }
 
-        return $this->render($sourcePath, $page);
+        return $this->render($sourcePath, $page, $targetWidth);
     }
 
     /**
@@ -132,23 +140,50 @@ final class PdfPageProvider implements ComicPageProviderInterface
         }
     }
 
-    private function render(string $sourcePath, int $page): PageResult
+    /**
+     * Draw one page, at roughly the size the caller means to serve it at.
+     *
+     * Rendering a 6000-pixel raster to hand a phone a 800-pixel image is the
+     * expensive way to get the same picture: the cost is paid in the renderer,
+     * not in the resize afterwards. The hint is clamped rather than trusted —
+     * it decides how much work this server does.
+     */
+    private function render(string $sourcePath, int $page, ?int $targetWidth = null): PageResult
     {
         $renderLock = $this->acquireRenderSlot();
         $directory = sys_get_temp_dir().'/comic-pdf-'.bin2hex(random_bytes(12));
         try {
             if (!mkdir($directory, 0700)) throw new \RuntimeException('Cannot create render directory.');
             $prefix = $directory.'/page';
-            $process = new Process(['pdftocairo', '-f', (string) $page, '-l', (string) $page, '-singlefile', '-scale-to', '2400', '-jpeg', '-jpegopt', 'quality=88', $sourcePath, $prefix]);
+            $process = new Process([...['pdftocairo', '-f', (string) $page, '-l', (string) $page, '-singlefile'], ...$this->scaleArguments($targetWidth), ...['-jpeg', '-jpegopt', 'quality=88', $sourcePath, $prefix]]);
             $process->setTimeout(self::RENDER_TIMEOUT_SECONDS); $process->run(); $output = $prefix.'.jpg';
             if (!$process->isSuccessful() || !is_file($output)) throw new \RuntimeException('PDF page rendering failed.');
             $content = file_get_contents($output); if ($content === false) throw new \RuntimeException('Rendered page could not be read.');
-            return PageResult::fromImageContent($content);
+            // Not source-sized: these dimensions describe this render, not the
+            // page, so nothing may record them as the page's geometry.
+            return PageResult::fromImageContent($content, false);
         } finally {
             foreach (glob($directory.'/*') ?: [] as $file) @unlink($file);
             @rmdir($directory);
             $renderLock->release();
         }
+    }
+
+    /**
+     * Without a hint the long side is fitted to the maximum, which is what a
+     * page read for its own sake — a cover, a geometry probe, an `original`
+     * request — should get. With one, the width is set and the height follows
+     * the page's own proportions.
+     *
+     * @return list<string>
+     */
+    private function scaleArguments(?int $targetWidth): array
+    {
+        if ($targetWidth === null) return ['-scale-to', (string) self::MAX_RENDER_PIXELS];
+
+        $width = max(self::MIN_RENDER_PIXELS, min(self::MAX_RENDER_PIXELS, $targetWidth));
+
+        return ['-scale-to-x', (string) $width, '-scale-to-y', '-1'];
     }
 
     /**

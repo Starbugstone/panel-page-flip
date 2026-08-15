@@ -8,6 +8,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider.jsx";
 import { Header } from "@/components/Header.jsx";
 import { CookieNotice } from "@/components/CookieNotice.jsx";
+import { Footer } from "@/components/Footer.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
 import { TagProvider } from "./hooks/use-tags.jsx";
 import { ComicLibraryProvider } from "./hooks/use-comic-library.jsx";
@@ -32,6 +33,7 @@ const UserSettings = lazy(() => import("./pages/UserSettings.jsx"));
 const PrivacyPolicy = lazy(() => import("./pages/LegalPages.jsx").then((module) => ({ default: module.PrivacyPolicy })));
 const TermsOfService = lazy(() => import("./pages/LegalPages.jsx").then((module) => ({ default: module.TermsOfService })));
 const CookieNoticePage = lazy(() => import("./pages/LegalPages.jsx").then((module) => ({ default: module.CookieNoticePage })));
+const ReportContent = lazy(() => import("./pages/ReportContent.jsx"));
 
 const queryClient = new QueryClient();
 const PageLoading = () => <div className="flex h-screen items-center justify-center">Loading...</div>;
@@ -92,6 +94,7 @@ const AppRoutes = () => {
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/cookies" element={<CookieNoticePage />} />
+            <Route path="/report-content" element={<ReportContent />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/upload" element={<ProtectedRoute><UploadComic /></ProtectedRoute>} />
             <Route path="/upload/bulk" element={<ProtectedRoute><BulkUploadComic /></ProtectedRoute>} />
@@ -108,6 +111,7 @@ const AppRoutes = () => {
             </Routes>
           </Suspense>
         </main>
+        <Footer />
         <CookieNotice />
       </div>
     </BrowserRouter>

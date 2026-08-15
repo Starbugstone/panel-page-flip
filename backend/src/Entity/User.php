@@ -93,9 +93,23 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $lastLoginAt = null;
 
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $sharingRestrictedAt = null;
+
     /** @var array<string, mixed>|null */
     #[ORM\Column(type: Types::JSON, nullable: true)]
     private ?array $readerPreferences = null;
+
+    /**
+     * Whether this user may spend external metadata-provider allowance.
+     *
+     * On by default so existing installations behave as they did; an
+     * administrator can withdraw it per user without disabling the provider for
+     * everybody. Local sources — ComicInfo.xml and the filename parser — are
+     * unaffected, because neither leaves the server.
+     */
+    #[ORM\Column(options: ['default' => true])]
+    private bool $metadataApiEnabled = true;
 
     /**
      * @var Collection<int, Comic>
@@ -292,6 +306,28 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
+    public function isSharingRestricted(): bool
+    {
+        return $this->sharingRestrictedAt !== null;
+    }
+
+    public function getSharingRestrictedAt(): ?\DateTimeImmutable
+    {
+        return $this->sharingRestrictedAt;
+    }
+
+    public function restrictSharing(): static
+    {
+        $this->sharingRestrictedAt ??= new \DateTimeImmutable();
+        return $this;
+    }
+
+    public function liftSharingRestriction(): static
+    {
+        $this->sharingRestrictedAt = null;
+        return $this;
+    }
+
     /**
      * @see PasswordAuthenticatedUserInterface
      */
@@ -372,6 +408,19 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
 
         return $this;
     }
+
+    public function isMetadataApiEnabled(): bool
+    {
+        return $this->metadataApiEnabled;
+    }
+
+    public function setMetadataApiEnabled(bool $metadataApiEnabled): static
+    {
+        $this->metadataApiEnabled = $metadataApiEnabled;
+
+        return $this;
+    }
+
 
     /**
      * @return Collection<int, Comic>

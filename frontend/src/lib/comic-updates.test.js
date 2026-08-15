@@ -63,4 +63,49 @@ describe("buildComicUpdatePayload", () => {
     expect(buildComicUpdatePayload(edited({ explicitContent: "yes" })).changes.explicitContent).toBe(false);
     expect(buildComicUpdatePayload(edited({ explicitContent: true })).changes.explicitContent).toBe(true);
   });
+
+  /**
+   * The same regression, one slice later: the review flow gained credits, an
+   * age rating and a language, and this payload is where they would go missing.
+   */
+  it("carries the fields the provider review flow can fill", () => {
+    const { changes } = buildComicUpdatePayload(edited({
+      issueCount: 75,
+      languageCode: "en",
+      ageRating: "Mature 17+",
+    }));
+
+    expect(changes).toMatchObject({
+      issueCount: 75,
+      languageCode: "en",
+      ageRating: "Mature 17+",
+    });
+  });
+
+  /**
+   * Credits and the accepted provider match are only sent when the editor
+   * resolved them. Defaulting them to null the way the scalar fields do would
+   * wipe both on every ordinary save.
+   */
+  it("leaves credits and the provider match out when the editor did not touch them", () => {
+    const { changes } = buildComicUpdatePayload(edited());
+
+    expect(changes).not.toHaveProperty("creators");
+    expect(changes).not.toHaveProperty("metadataProvider");
+    expect(changes).not.toHaveProperty("metadataExternalId");
+  });
+
+  it("carries the accepted provider match so a refresh can find it again", () => {
+    const { changes } = buildComicUpdatePayload(edited({
+      creators: { writer: ["Neil Gaiman"] },
+      metadataProvider: "metron",
+      metadataExternalId: "123925",
+    }));
+
+    expect(changes).toMatchObject({
+      creators: { writer: ["Neil Gaiman"] },
+      metadataProvider: "metron",
+      metadataExternalId: "123925",
+    });
+  });
 });

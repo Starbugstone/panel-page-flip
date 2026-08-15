@@ -26,7 +26,7 @@ const renderModal = (props = {}) => render(
 );
 
 const sendButton = () => screen.getByRole("button", { name: /send invitation/i });
-const acknowledgement = () => screen.getByRole("checkbox", { name: /i understand/i });
+const acknowledgement = () => screen.getByRole("checkbox", { name: /necessary rights or authorization/i });
 
 describe("ShareComicModal", () => {
   beforeEach(() => {

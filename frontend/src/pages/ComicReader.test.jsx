@@ -83,7 +83,9 @@ const renderReader = () => render(
 );
 
 const page = (n) => screen.findByAltText(new RegExp(`page ${n} of Sandman`, "i"));
-const pageBox = () => screen.getByLabelText(/go to page/i);
+// Exactly "Go to page": the thumbnail strip's buttons are labelled "Go to page
+// 3" and a loose match would find them too.
+const pageBox = () => screen.getByLabelText("Go to page");
 
 describe("ComicReader", () => {
   beforeEach(() => {
@@ -375,6 +377,94 @@ describe("ComicReader", () => {
       await waitFor(() => expect(FakeImage.instances.length).toBeGreaterThanOrEqual(3));
       const pageUrls = FakeImage.instances.map(({ src }) => src).filter((src) => src.includes("/pages/"));
       expect(new Set(pageUrls).size).toBe(pageUrls.length);
+    });
+  });
+
+  describe("how much page it asks for", () => {
+    const pageRequests = () => FakeImage.instances
+      .map(({ src }) => src)
+      .filter((src) => src.includes("/pages/") && !src.includes("variant=thumb"));
+
+    it("asks for a bounded size rather than the source scan", async () => {
+      renderReader();
+      await page(1);
+
+      pageRequests().forEach((src) => {
+        expect(src).toContain("variant=reader-");
+        expect(src).not.toContain("variant=original");
+      });
+    });
+
+    it("moves up a size when the reader zooms in", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      expect(pageRequests().every((src) => src.includes("variant=reader-medium"))).toBe(true);
+
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+
+      await waitFor(() => expect(pageRequests().some((src) => src.includes("variant=reader-large"))).toBe(true));
+    });
+
+    it("keeps showing the page it has while a larger one is on its way", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      // Nothing settles from here on, so the only image available is the one
+      // already on screen: a zoom must not blank the reader back to a skeleton.
+      FakeImage.policy = () => "hold";
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+
+      expect(await page(1)).toBeInTheDocument();
+    });
+  });
+
+  describe("the thumbnail navigator", () => {
+    it("stays out of the way until it is asked for", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      expect(screen.queryByRole("group", { name: /page thumbnails/i })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /show page thumbnails/i }));
+
+      expect(screen.getByRole("group", { name: /page thumbnails/i })).toBeInTheDocument();
+    });
+
+    it("turns to the page whose thumbnail was clicked", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /show page thumbnails/i }));
+      await user.click(screen.getByRole("button", { name: "Go to page 3" }));
+
+      expect(await page(3)).toBeInTheDocument();
+      expect(pageBox()).toHaveValue(3);
+    });
+  });
+
+  describe("page geometry", () => {
+    it("asks the server what shape the pages are, without downloading them", async () => {
+      renderReader();
+      await page(1);
+
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics/42/pages?from=1"));
+      expect(FakeImage.instances.map(({ src }) => src)).not.toContain("/api/comics/42/pages?from=1");
+    });
+
+    it("reads perfectly well when the server cannot say", async () => {
+      vi.mocked(api.get).mockImplementation((path) => {
+        if (path === "/api/reader/preferences") return Promise.resolve({ preferences: DEFAULT_READER_PREFERENCES });
+        if (path.includes("/pages?")) return Promise.reject(new Error("no manifest here"));
+        return Promise.resolve(comic());
+      });
+
+      renderReader();
+
+      expect(await page(1)).toBeInTheDocument();
     });
   });
 

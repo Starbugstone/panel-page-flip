@@ -36,6 +36,7 @@ export async function uploadComicInChunks({
       publisher: metadata.publisher || "",
       description: metadata.description || "",
       tags: metadata.tags || [],
+      folderId: metadata.folderId ?? null,
     },
   }, { signal });
 

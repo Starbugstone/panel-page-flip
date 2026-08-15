@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, RotateCcw, Trash2, Upload } from "lucide-react";
 import { uploadComicInChunks } from "@/hooks/use-chunked-upload";
 import { useAuth } from "@/hooks/use-auth";
@@ -11,6 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { FolderDestinationSelect } from "@/components/library/FolderDestinationSelect";
+import { useLibraryFolders } from "@/hooks/use-library-folders";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const MAX_PARALLEL_FILES = 2;
@@ -36,12 +38,17 @@ export default function BulkUploadQueue() {
   const { toast } = useToast();
   const { refreshSession } = useAuth();
   const { config } = useConfig();
+  const [searchParams] = useSearchParams();
+  const { folders, isLoading: foldersLoading } = useLibraryFolders();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
   const comicFormats = config.upload?.comicFormats || ["cbz"];
   const [rows, setRows] = useState([]);
   const [tagsInput, setTagsInput] = useState("");
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
+  const requestedFolder = searchParams.get("folder");
+  const [folderId, setFolderId] = useState(() => requestedFolder && /^\d+$/.test(requestedFolder) ? Number(requestedFolder) : null);
+  const selectedFolderId = folderId != null && (foldersLoading || folders.some((folder) => Number(folder.id) === folderId)) ? folderId : null;
   const controllers = useRef(new Map());
   const inputRef = useRef(null);
   const completed = rows.filter((row) => row.status === "done").length;
@@ -80,7 +87,7 @@ export default function BulkUploadQueue() {
     try {
       const result = await uploadComicInChunks({
         file: row.file,
-        metadata: { title: row.title, tags },
+        metadata: { title: row.title, tags, folderId: selectedFolderId },
         concurrentChunks,
         signal: controller.signal,
         onProgress: (progress) => updateRow(row.id, { progress }),
@@ -143,6 +150,7 @@ export default function BulkUploadQueue() {
           <Label htmlFor="bulk-tags">Tags applied to every comic (comma-separated)</Label>
           <Input id="bulk-tags" value={tagsInput} onChange={(event) => setTagsInput(event.target.value)} placeholder="manga, favorites, sci-fi" disabled={running} />
         </div>
+        <FolderDestinationSelect id="bulk-folder-destination" folders={folders} value={selectedFolderId} onChange={setFolderId} disabled={running || foldersLoading} />
 
         {rows.length > 0 && (
           <Table>
@@ -179,7 +187,7 @@ export default function BulkUploadQueue() {
           </div>
           <div className="flex gap-2">
             {allFinished && <Button variant="outline" asChild><Link to="/dashboard">View library</Link></Button>}
-            <Button onClick={startAll} disabled={running || !rows.some((row) => ["idle", "error", "cancelled"].includes(row.status) && row.title.trim())}>
+            <Button onClick={startAll} disabled={running || foldersLoading || !rows.some((row) => ["idle", "error", "cancelled"].includes(row.status) && row.title.trim())}>
               {running ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</> : "Start all"}
             </Button>
           </div>

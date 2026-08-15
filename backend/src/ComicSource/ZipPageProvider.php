@@ -24,7 +24,12 @@ final class ZipPageProvider implements ComicPageProviderInterface, ComicInfoSour
         return new ComicSourceInfo(count($this->pageIndex($sourcePath)));
     }
 
-    public function readPage(string $sourcePath, ComicSourceType $type, int $page): PageResult
+    /**
+     * The target width is ignored: an archive entry is the page, and resizing
+     * stored bytes belongs to the derivative pipeline, which caches what it
+     * produces rather than redoing it per request.
+     */
+    public function readPage(string $sourcePath, ComicSourceType $type, int $page, ?int $targetWidth = null): PageResult
     {
         $zip = new ZipArchive();
         if ($zip->open($sourcePath) !== true) throw new \RuntimeException('Failed to open ZIP source.');

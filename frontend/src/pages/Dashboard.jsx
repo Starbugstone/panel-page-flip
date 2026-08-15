@@ -1,471 +1,355 @@
-
-import { useCallback, useState, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { FolderCog, FolderInput, Folders, Grid3X3, List, Pencil, Trash2, Upload } from "lucide-react";
 import { ComicCard } from "@/components/ComicCard.jsx";
 import { ComicTableView } from "@/components/ComicTableView.jsx";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.jsx";
 import { SearchBar } from "@/components/SearchBar.jsx";
 import { Button } from "@/components/ui/button";
-import { Grid3X3, List, Upload } from "lucide-react";
-import { Link } from "react-router-dom";
-import { useToast } from "@/hooks/use-toast.js";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ComicEditDialog } from "@/components/ComicEditDialog.jsx";
 import { ShareComicModal } from "@/components/ShareComicModal.jsx";
 import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
+import { LibrarySidebar } from "@/components/library/LibrarySidebar";
+import { LibraryBreadcrumbs } from "@/components/library/LibraryBreadcrumbs";
+import { LibraryFolderCard } from "@/components/library/LibraryFolderCard";
+import { MoveToFolderDialog } from "@/components/library/MoveToFolderDialog";
+import { useToast } from "@/hooks/use-toast.js";
+import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
+import { useLibraryFolders } from "@/hooks/use-library-folders";
+import { useSharing } from "@/hooks/use-sharing.jsx";
 import { api } from "@/lib/api";
-import { logger } from "@/lib/logger";
 import { getComicProgressState } from "@/lib/comic-progress";
 import { buildComicUpdatePayload } from "@/lib/comic-updates";
-import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
-import { useSharing } from "@/hooks/use-sharing.jsx";
+import { foldersByParent } from "@/lib/library-folders";
 
-// Covers above the fold are worth fetching eagerly; the rest can wait until
-// they are scrolled towards.
 const EAGER_COVER_COUNT = 8;
+const VIEWS = new Set(["all", "mine", "shared", "reading", "unread", "dropbox"]);
 
 export default function Dashboard() {
-  // The library lives in a store, so returning from a comic re-renders the
-  // cards that are already loaded instead of clearing them and starting over.
-  const {
-    comics,
-    isLoading,
-    isRefreshing,
-    error,
-    loadLibrary,
-    updateComicProgress,
-    removeComicsFromLibrary,
-  } = useComicLibrary();
+  const { comics, isLoading, isRefreshing, error, loadLibrary, updateComicProgress, removeComicsFromLibrary } = useComicLibrary();
+  const { folders, isLoading: foldersLoading, createFolder, updateFolder, deleteFolder, moveComics } = useLibraryFolders();
   const { refreshSummary } = useSharing();
-  const [isSearching, setIsSearching] = useState(false); // Specific state for search operations
-  // Which half of the collection to show. Applied server-side, because the
-  // shared half is decided by access records the client cannot see.
-  const [ownership, setOwnership] = useState("all");
-  // A search keeps the current results visible under its own overlay; every
-  // other first-time load has nothing to show yet but the skeleton.
-  const showSkeleton = isLoading && !isSearching;
+  const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [isSearching, setIsSearching] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [editingComic, setEditingComic] = useState(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
-  const { toast } = useToast();
-  const lastComicsUrl = useRef('/api/comics');
-  const lastSearchQuery = useRef('');
-  // Searches can overlap. Only the last one started is allowed to take the
-  // overlay down, so a quick first result cannot uncover a search still running.
-  const searchRequestId = useRef(0);
-
-  // State for ShareComicModal
+  const [sort, setSort] = useState("title-asc");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [movingComic, setMovingComic] = useState(null);
+  const [movingFolder, setMovingFolder] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareModalComicId, setShareModalComicId] = useState(null);
   const [shareModalComicTitle, setShareModalComicTitle] = useState(null);
+  const lastComicsUrl = useRef("/api/comics");
+  const lastSearchQuery = useRef("");
+  const searchRequestId = useRef(0);
 
-  const fetchComicsFromApi = useCallback(async (url, fuzzyQuery = '') => {
+  const rawFolder = searchParams.get("folder");
+  const isFolderView = rawFolder !== null;
+  const activeFolderId = rawFolder && rawFolder !== "root" && /^\d+$/.test(rawFolder) ? Number(rawFolder) : null;
+  const requestedView = searchParams.get("view") || "all";
+  const activeView = VIEWS.has(requestedView) ? requestedView : "all";
+  const ownership = activeView === "mine" || activeView === "shared" ? activeView : "all";
+  const malformedFolder = rawFolder !== null && rawFolder !== "root" && !/^\d+$/.test(rawFolder);
+  const missingFolder = !foldersLoading && activeFolderId != null && !folders.some((folder) => Number(folder.id) === activeFolderId);
+  const invalidFolder = malformedFolder || missingFolder;
+
+  const navigateFolder = useCallback((folderId) => {
+    const next = new URLSearchParams();
+    next.set("folder", folderId == null ? "root" : String(folderId));
+    setSearchParams(next);
+    setSidebarOpen(false);
+  }, [setSearchParams]);
+
+  const navigateView = useCallback((view) => {
+    const next = new URLSearchParams();
+    if (view !== "all") next.set("view", view);
+    setSearchParams(next);
+    setSidebarOpen(false);
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    if (foldersLoading) return;
+    if (invalidFolder) {
+      const timer = window.setTimeout(() => navigateFolder(null), 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [foldersLoading, invalidFolder, navigateFolder]);
+
+  const fetchComicsFromApi = useCallback(async (url, fuzzyQuery = "") => {
     lastComicsUrl.current = url;
     lastSearchQuery.current = fuzzyQuery;
-    // A search keeps its own overlay over the results it is replacing; the store
-    // decides between the skeleton and a quiet refresh for everything else.
-    const isSearchRequest = Boolean(fuzzyQuery) || url.includes('tags=');
     const requestId = searchRequestId.current + 1;
     searchRequestId.current = requestId;
-    if (isSearchRequest) {
-      setIsSearching(true);
-    }
+    if (fuzzyQuery || url.includes("tags=")) setIsSearching(true);
     try {
       await loadLibrary({ url, fuzzyQuery });
     } finally {
-      // Any latest request may take the overlay down, not just a search: a plain
-      // reload started after a search is the one whose result is on screen, and
-      // leaving the flag to the search alone would strand the overlay.
-      if (searchRequestId.current === requestId) {
-        setIsSearching(false);
-      }
+      if (searchRequestId.current === requestId) setIsSearching(false);
     }
   }, [loadLibrary]);
 
-  const buildLibraryUrl = useCallback((tagNamesArray = []) => {
-    const queryParams = new URLSearchParams();
-    if (tagNamesArray.length > 0) {
-      queryParams.append('tags', tagNamesArray.join(','));
-    }
-    if (ownership !== 'all') {
-      queryParams.append('ownership', ownership);
-    }
-
-    const queryString = queryParams.toString();
-    return queryString ? `/api/comics?${queryString}` : '/api/comics';
-  }, [ownership]);
+  const buildLibraryUrl = useCallback((tagNames = [], includeLocation = true) => {
+    const query = new URLSearchParams();
+    if (tagNames.length > 0) query.set("tags", tagNames.join(","));
+    if (ownership !== "all") query.set("ownership", ownership);
+    if (includeLocation && isFolderView) query.set("folder", activeFolderId == null ? "root" : String(activeFolderId));
+    return query.size > 0 ? `/api/comics?${query}` : "/api/comics";
+  }, [activeFolderId, isFolderView, ownership]);
 
   const loadComics = useCallback(async () => {
-    setIsSearchActive(false); // Reset search active state
+    setIsSearchActive(false);
     await fetchComicsFromApi(buildLibraryUrl());
-  }, [fetchComicsFromApi, buildLibraryUrl]);
+  }, [buildLibraryUrl, fetchComicsFromApi]);
 
-  const fetchFilteredComics = async (searchQuery, tagNamesArray) => {
-    setIsSearchActive(!!searchQuery || (tagNamesArray && tagNamesArray.length > 0));
-    await fetchComicsFromApi(buildLibraryUrl(tagNamesArray || []), searchQuery);
-  };
-
-  // loadComics stays for "Try Again" and for clearing a search, where dropping
-  // the search state before the request is what the user just asked for. The
-  // initial load, and a change of ownership filter, go straight to the store:
-  // going through loadComics reset the search flag synchronously and rendered
-  // the empty-library copy for a frame before the results arrived.
   useEffect(() => {
+    // Resolve the viewer's private folder tree first. This avoids a guaranteed
+    // 400/404 request for malformed or stale bookmarked folder ids before the
+    // URL fallback can replace them with the root location.
+    if (isFolderView && (foldersLoading || invalidFolder)) return;
     const url = buildLibraryUrl();
     lastComicsUrl.current = url;
-    lastSearchQuery.current = '';
+    lastSearchQuery.current = "";
     const requestId = searchRequestId.current + 1;
     searchRequestId.current = requestId;
-
     let ignore = false;
-    loadLibrary({ url, fuzzyQuery: '' }).finally(() => {
-      if (ignore) return;
-      if (searchRequestId.current === requestId) setIsSearching(false);
-      setIsSearchActive(false);
+    loadLibrary({ url, fuzzyQuery: "" }).finally(() => {
+      if (!ignore && searchRequestId.current === requestId) setIsSearching(false);
+      if (!ignore) setIsSearchActive(false);
     });
-
     return () => { ignore = true; };
-  }, [buildLibraryUrl, loadLibrary]);
+  }, [buildLibraryUrl, foldersLoading, invalidFolder, isFolderView, loadLibrary]);
 
-  // Constants for input validation
-  const MAX_SEARCH_QUERY_LENGTH = 100;
-  const MAX_TAGS_COUNT = 10;
-  
-  const handleSearch = (params) => {
-    // Validate and sanitize search parameters
-    const sanitizedParams = {
-      query: params.query ? params.query.slice(0, MAX_SEARCH_QUERY_LENGTH) : "",
-      tags: params.tags ? params.tags.slice(0, MAX_TAGS_COUNT) : []
-    };
-    
-    // Show warning if input was truncated
-    if (params.query && params.query.length > MAX_SEARCH_QUERY_LENGTH) {
+  const handleSearch = async ({ query = "", tags = [] }) => {
+    const safeQuery = query.slice(0, 100);
+    const safeTags = tags.slice(0, 10);
+    if (query.length > safeQuery.length) {
       toast({
         title: "Search query truncated",
-        description: `Your search query was too long and has been truncated to ${MAX_SEARCH_QUERY_LENGTH} characters.`,
-        variant: "warning"
+        description: "Search queries are limited to 100 characters.",
+        variant: "warning",
       });
     }
-    
-    if (params.tags && params.tags.length > MAX_TAGS_COUNT) {
+    if (tags.length > safeTags.length) {
       toast({
         title: "Too many tags selected",
-        description: `Only the first ${MAX_TAGS_COUNT} tags will be used for filtering.`,
-        variant: "warning"
+        description: "Only the first 10 tags will be used for filtering.",
+        variant: "warning",
       });
     }
-    
-    if (!sanitizedParams.query && (!sanitizedParams.tags || sanitizedParams.tags.length === 0)) {
-      loadComics(); // Fetch all comics if search is cleared
-    } else {
-      fetchFilteredComics(sanitizedParams.query, sanitizedParams.tags);
+    if (!safeQuery && safeTags.length === 0) {
+      await loadComics();
+      return;
     }
+    setIsSearchActive(true);
+    const tagQuery = new URLSearchParams();
+    if (safeTags.length > 0) tagQuery.set("tags", safeTags.join(","));
+    await fetchComicsFromApi(tagQuery.size > 0 ? `/api/comics?${tagQuery}` : "/api/comics", safeQuery);
   };
+
+  const refreshCurrent = () => fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
 
   const resetReadingProgress = async (comicId) => {
-    try {
-      await api.post(`/api/comics/${comicId}/reading-progress/reset`, {});
-
-      updateComicProgress(comicId, null);
-
-      return true;
-    } catch (error) {
-      logger.error("Error resetting reading progress:", error);
-      throw error;
-    }
+    await api.post(`/api/comics/${comicId}/reading-progress/reset`, {});
+    updateComicProgress(comicId, null);
+    return true;
   };
-  
-  const handleEditComic = (comic) => {
-    setEditingComic(comic);
-    setIsEditDialogOpen(true);
-  };
-  
+
   const handleSaveComic = async (updatedComic) => {
-    try {
-      await api.patch("/api/comics", { updates: [buildComicUpdatePayload(updatedComic)] });
-      
-      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
-
-      return true;
-    } catch (error) {
-      logger.error("Error updating comic:", error);
-      throw error;
-    }
+    await api.patch("/api/comics", { updates: [buildComicUpdatePayload(updatedComic)] });
+    await refreshCurrent();
+    return true;
   };
 
   const deleteComic = async (comicId, { confirmOrphaned = false } = {}) => {
-    try {
-      await api.delete("/api/comics", { body: { comicIds: [comicId], confirmOrphaned } });
-
-      removeComicsFromLibrary([comicId]);
-
-      return true;
-    } catch (error) {
-      if (error.data?.code !== "orphaned_comics_confirmation_required") {
-        logger.error("Error deleting comic:", error);
-      }
-      throw error;
-    }
+    await api.delete("/api/comics", { body: { comicIds: [comicId], confirmOrphaned } });
+    removeComicsFromLibrary([comicId]);
+    return true;
   };
 
-  /**
-   * Hide a comic somebody else shared. Nothing is deleted: the owner keeps it,
-   * and the Sharing page can put it back while they still share it.
-   */
   const removeSharedComic = async (comic) => {
-    try {
-      await api.post(`/api/shares/${comic.shareId}/remove`, {});
-      removeComicsFromLibrary([comic.id]);
-      refreshSummary();
-    } catch (error) {
-      logger.error("Error removing a shared comic:", error);
-      throw error;
-    }
+    await api.post(`/api/shares/${comic.shareId}/remove`, {});
+    removeComicsFromLibrary([comic.id]);
+    refreshSummary();
   };
 
   const addTagToSelectedComics = async (comicIds, tag) => {
     try {
-      await api.patch("/api/comics", {
-        updates: comicIds.map((id) => ({ id, changes: { addTags: [tag] } })),
-      });
-      await fetchComicsFromApi(lastComicsUrl.current, lastSearchQuery.current);
+      await api.patch("/api/comics", { updates: comicIds.map((id) => ({ id, changes: { addTags: [tag] } })) });
+      await refreshCurrent();
       toast({ title: "Tag added", description: `Added “${tag}” to ${comicIds.length} comic(s).` });
-    } catch (error) {
-      logger.error("Error adding a tag to selected comics:", error);
-      toast({ title: "Bulk update failed", description: error.message, variant: "destructive" });
-      throw error;
+    } catch (requestError) {
+      toast({ title: "Bulk update failed", description: requestError.message, variant: "destructive" });
+      throw requestError;
     }
   };
 
   const deleteSelectedComics = async (comicIds, { confirmOrphaned = false } = {}) => {
     try {
-      const result = await api.delete("/api/comics", { body: { comicIds, confirmOrphaned } });
+      await api.delete("/api/comics", { body: { comicIds, confirmOrphaned } });
       removeComicsFromLibrary(comicIds);
-      const orphanCount = result.orphanedComicIds?.length || 0;
-      toast({
-        title: "Comics deleted",
-        description: orphanCount > 0
-          ? `${comicIds.length} ${comicIds.length === 1 ? "record" : "records"} removed; ${orphanCount} comic ${orphanCount === 1 ? "file was" : "files were"} already missing.`
-          : `${comicIds.length} ${comicIds.length === 1 ? "comic was" : "comics were"} removed from your library.`,
-      });
-    } catch (error) {
-      if (error.data?.code !== "orphaned_comics_confirmation_required") {
-        logger.error("Error deleting selected comics:", error);
-        toast({ title: "Bulk deletion failed", description: error.message, variant: "destructive" });
+      toast({ title: "Comics deleted", description: `${comicIds.length} comic(s) removed from your library.` });
+    } catch (requestError) {
+      if (requestError.data?.code !== "orphaned_comics_confirmation_required") {
+        toast({ title: "Bulk deletion failed", description: requestError.message, variant: "destructive" });
       }
-      throw error;
+      throw requestError;
     }
   };
 
-  // Filters now operate on the 'comics' state directly. A finished comic is no
-  // longer "currently reading", so it is classified by its progress state
-  // rather than by page number alone.
-  const isCompleted = (comic) => getComicProgressState(comic).label === "Fully read";
-  const inProgressComics = comics.filter(comic => comic.lastReadPage > 0 && !isCompleted(comic));
-  const unreadComics = comics.filter(comic => !comic.lastReadPage);
-  const dropboxComics = comics.filter(comic => comic.tags && comic.tags.includes('Dropbox'));
-
-  const comicTabs = [
-    { value: "all", label: "All Comics", items: comics, alwaysShown: true },
-    { value: "dropbox", label: "Dropbox", items: dropboxComics },
-    { value: "reading", label: "Currently Reading", items: inProgressComics },
-    { value: "unread", label: "Not Started", items: unreadComics },
-  ];
-
-  // Handlers for ShareComicModal
-  const handleOpenShareModal = (comicId, comicTitle) => {
-    setShareModalComicId(comicId);
-    setShareModalComicTitle(comicTitle);
-    setIsShareModalOpen(true);
+  const moveSelectedComics = async (comicIds, folderId) => {
+    try {
+      await moveComics(comicIds, folderId);
+      await refreshCurrent();
+      toast({ title: "Moved", description: `${comicIds.length} comic(s) moved.` });
+    } catch (requestError) {
+      toast({ title: "Move failed", description: requestError.message, variant: "destructive" });
+      throw requestError;
+    }
   };
 
-  const handleCloseShareModal = () => {
-    setIsShareModalOpen(false);
-    // Reset comic details for the modal, modal itself might have a delay for animation.
-    setShareModalComicId(null);
-    setShareModalComicTitle(null);
+  const createLibraryFolder = async (name, parentId) => {
+    try {
+      await createFolder(name, parentId);
+      toast({ title: "Folder created", description: `Created “${name}”.` });
+      return true;
+    } catch (requestError) {
+      toast({ title: "Could not create folder", description: requestError.message, variant: "destructive" });
+      return false;
+    }
   };
+
+  const renameCurrentFolder = async () => {
+    const folder = folders.find((item) => Number(item.id) === activeFolderId);
+    if (!folder) return;
+    const name = window.prompt("Rename folder", folder.name)?.trim();
+    if (!name || name === folder.name) return;
+    try {
+      await updateFolder(folder.id, { name });
+    } catch (requestError) {
+      toast({ title: "Could not rename folder", description: requestError.message, variant: "destructive" });
+    }
+  };
+
+  const deleteCurrentFolder = async () => {
+    const folder = folders.find((item) => Number(item.id) === activeFolderId);
+    if (!folder || !window.confirm(`Delete “${folder.name}”? No comic files will be deleted.`)) return;
+    try {
+      await deleteFolder(folder.id, false);
+      navigateFolder(folder.parentId);
+    } catch (requestError) {
+      if (requestError.data?.code !== "folder_deletion_confirmation_required") {
+        toast({ title: "Could not delete folder", description: requestError.message, variant: "destructive" });
+        return;
+      }
+      const summary = requestError.data.summary;
+      const destination = folder.parentId == null ? "My Library" : "the parent folder";
+      if (!window.confirm(`This removes ${summary.folderCount} folder(s). ${summary.comicCount} comic(s) will move to ${destination}. No comic files will be deleted.`)) return;
+      try {
+        await deleteFolder(folder.id, true);
+        navigateFolder(folder.parentId);
+      } catch (deleteError) {
+        toast({ title: "Could not delete folder", description: deleteError.message, variant: "destructive" });
+      }
+    }
+  };
+
+  const filteredComics = useMemo(() => {
+    let result = comics;
+    if (!isSearchActive && !isFolderView) {
+      if (activeView === "reading") result = result.filter((comic) => getComicProgressState(comic).label === "In progress");
+      if (activeView === "unread") result = result.filter((comic) => getComicProgressState(comic).label === "Not started");
+      if (activeView === "dropbox") result = result.filter((comic) => comic.tags?.includes("Dropbox"));
+    }
+    return [...result].sort((a, b) => {
+      if (sort === "title-desc") return (b.title || "").localeCompare(a.title || "");
+      if (sort === "uploaded-desc") return new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0);
+      if (sort === "uploaded-asc") return new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0);
+      if (sort === "updated-desc") return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
+      return (a.title || "").localeCompare(b.title || "");
+    });
+  }, [activeView, comics, isFolderView, isSearchActive, sort]);
+
+  const childFolders = useMemo(() => {
+    if (!isFolderView || isSearchActive) return [];
+    return foldersByParent(folders).get(activeFolderId) || [];
+  }, [activeFolderId, folders, isFolderView, isSearchActive]);
+  const folderNames = useMemo(() => new Map(folders.map((folder) => [Number(folder.id), folder.name])), [folders]);
+  const showSkeleton = (isLoading || foldersLoading) && !isSearching;
+  const hasContent = filteredComics.length > 0 || childFolders.length > 0;
+  const uploadUrl = isFolderView ? `/upload?folder=${activeFolderId == null ? "root" : activeFolderId}` : "/upload";
+
+  const sidebar = (
+    <LibrarySidebar folders={folders} activeFolderId={isFolderView ? activeFolderId : null} activeView={isFolderView ? "folders" : activeView} onFolderSelect={navigateFolder} onViewSelect={navigateView} onCreateFolder={createLibraryFolder} />
+  );
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-        <div className="flex items-center gap-3">
-          <h1 className="text-3xl font-comic">My Comic Library</h1>
-          {/* A background refresh keeps the cards it already has; this is the
-              only sign that fresher data is on its way. */}
-          {isRefreshing && (
-            <span className="text-sm text-muted-foreground" role="status">Refreshing…</span>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          {/* Owned and shared comics read the same way, so they live in one
-              collection; this is for the times you want to see only one. */}
-          <div className="flex rounded-md border p-1" role="group" aria-label="Show comics">
-            {[
-              { value: "all", label: "All" },
-              { value: "mine", label: "Mine" },
-              { value: "shared", label: "Shared with me" },
-            ].map(({ value, label }) => (
-              <Button
-                key={value}
-                variant={ownership === value ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setOwnership(value)}
-                aria-pressed={ownership === value}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
+      <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex items-center gap-3"><h1 className="text-3xl font-comic">My Comic Library</h1>{isRefreshing && <span className="text-sm text-muted-foreground" role="status">Refreshing…</span>}</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" className="lg:hidden" onClick={() => setSidebarOpen(true)}><Folders className="mr-2 h-4 w-4" />Folders</Button>
+          <select value={sort} onChange={(event) => setSort(event.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm" aria-label="Sort comics">
+            <option value="title-asc">Title A–Z</option><option value="title-desc">Title Z–A</option><option value="uploaded-desc">Recently added</option><option value="uploaded-asc">Oldest added</option><option value="updated-desc">Recently updated</option>
+          </select>
           <div className="flex rounded-md border p-1" aria-label="Library view">
-            <Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}>
-              <Grid3X3 className="mr-2 h-4 w-4" /> Grid
-            </Button>
-            <Button variant={viewMode === "table" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}>
-              <List className="mr-2 h-4 w-4" /> Table
-            </Button>
+            <Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("grid")} aria-pressed={viewMode === "grid"}><Grid3X3 className="mr-2 h-4 w-4" />Grid</Button>
+            <Button variant={viewMode === "table" ? "secondary" : "ghost"} size="sm" onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}><List className="mr-2 h-4 w-4" />Table</Button>
           </div>
-          <Link to="/upload">
-            <Button className="flex items-center gap-2">
-              <Upload size={16} />
-              Upload New Comic
-            </Button>
-          </Link>
+          <Button asChild><Link to={uploadUrl}><Upload className="mr-2 h-4 w-4" />Upload</Link></Button>
         </div>
       </div>
-      
-      <div className="mb-8 flex justify-center">
-        <SearchBar onSearch={handleSearch} isSearching={isSearching} />
-      </div>
-      
-      {/* Pending Shares Alert */}
+
+      <div className="mb-6 flex justify-center"><SearchBar onSearch={handleSearch} isSearching={isSearching} /></div>
       <PendingSharesAlert />
+      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}><SheetContent side="left"><SheetHeader className="mb-5"><SheetTitle>Library</SheetTitle></SheetHeader>{sidebar}</SheetContent></Sheet>
 
-      {/* Loading overlay for search operations */}
-      {isSearching && !showSkeleton && (
-        <div className="fixed inset-0 bg-background/50 backdrop-blur-sm z-50 flex items-center justify-center pointer-events-none">
-          <div className="bg-card p-6 rounded-lg shadow-lg flex items-center space-x-4 border">
-            <svg className="animate-spin h-8 w-8 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span className="text-lg font-medium">Searching comics...</span>
-          </div>
-        </div>
-      )}
-      
-      {showSkeleton ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="comic-card animate-pulse">
-              <div className="pt-[140%] bg-muted"></div>
-              <div className="p-4">
-                <div className="h-4 bg-muted rounded mb-2"></div>
-                <div className="h-3 bg-muted rounded w-2/3"></div>
-              </div>
+      <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <div className="hidden rounded-lg border bg-card p-3 lg:block">{sidebar}</div>
+        <main className="min-w-0 space-y-5">
+          {isFolderView && (
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2">
+              <LibraryBreadcrumbs folders={folders} folderId={activeFolderId} onNavigate={navigateFolder} />
+              {activeFolderId != null && <div className="flex gap-1"><Button variant="ghost" size="sm" onClick={() => setMovingFolder(true)}><FolderInput className="mr-1 h-4 w-4" />Move</Button><Button variant="ghost" size="sm" onClick={renameCurrentFolder}><Pencil className="mr-1 h-4 w-4" />Rename</Button><Button variant="ghost" size="sm" onClick={deleteCurrentFolder}><Trash2 className="mr-1 h-4 w-4" />Delete</Button></div>}
             </div>
-          ))}
-        </div>
-      ) : error ? (
-        <div className="text-center py-12">
-          <p className="text-xl text-destructive mb-4">{error}</p>
-          <Button onClick={loadComics}>Try Again</Button>
-        </div>
-      ) : comics.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-xl text-muted-foreground mb-4">
-            {isSearchActive
-              ? "No comics found matching your search"
-              : ownership === "shared"
-                ? "Nobody has shared a comic with you yet."
-                : "No comics in your library yet."}
-          </p>
-          {isSearchActive && (
-            <Button onClick={() => handleSearch({ query: "", tags: [] })}>
-              Clear Search
-            </Button>
           )}
-           {!isSearchActive && ownership === "shared" && (
-             <Link to="/sharing">
-              <Button variant="outline">Go to Sharing</Button>
-            </Link>
-           )}
-           {!isSearchActive && ownership !== "shared" && (
-             <Link to="/upload">
-              <Button>Upload Your First Comic</Button>
-            </Link>
-           )}
-        </div>
-      ) : viewMode === "table" ? (
-        <ComicTableView
-          comics={comics}
-          onEditComic={handleEditComic}
-          onBulkAddTag={addTagToSelectedComics}
-          onBulkDelete={deleteSelectedComics}
-        />
-      ) : (
-        <Tabs defaultValue="all" className="space-y-6">
-          <TabsList>
-            {comicTabs.map(({ value, label, items, alwaysShown }) => (
-              (alwaysShown || items.length > 0) && (
-                <TabsTrigger key={value} value={value}>
-                  {label} ({items.length})
-                </TabsTrigger>
-              )
-            ))}
-          </TabsList>
 
-          {comicTabs.map(({ value, items }) => (
-            <TabsContent key={value} value={value}>
-              {value === "dropbox" && (
-                <div className="mb-4 p-4 bg-muted rounded-lg">
-                  <p className="text-sm text-muted-foreground">
-                    Comics synced from your Dropbox account.
-                    <Link to="/dropbox-sync" className="text-primary hover:underline ml-1">
-                      Manage Dropbox sync →
-                    </Link>
-                  </p>
-                </div>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                {items.map((comic, index) => (
-                  <ComicCard
-                    key={comic.id}
-                    comic={comic}
-                    coverPriority={index < EAGER_COVER_COUNT}
-                    onResetProgress={resetReadingProgress}
-                    onEditComic={handleEditComic}
-                    onDeleteComic={deleteComic}
-                    onShareClick={handleOpenShareModal}
-                    onRemoveSharedComic={removeSharedComic}
-                  />
-                ))}
-              </div>
-            </TabsContent>
-          ))}
-        </Tabs>
-      )}
-      
-      {/* Comic Edit Dialog */}
-      {editingComic && (
-        <ComicEditDialog
-          comic={editingComic}
-          isOpen={isEditDialogOpen}
-          onClose={() => {
-            setIsEditDialogOpen(false);
-            setEditingComic(null);
-          }}
-          onSave={handleSaveComic}
-        />
-      )}
+          {isSearching && !showSkeleton && <div className="rounded-lg border bg-card p-4 text-center" role="status">Searching the whole library…</div>}
+          {showSkeleton ? (
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">{[...Array(6)].map((_, index) => <div key={index} className="animate-pulse"><div className="pt-[140%] bg-muted" /><div className="mt-2 h-4 rounded bg-muted" /></div>)}</div>
+          ) : error ? (
+            <div className="py-12 text-center"><p className="mb-4 text-xl text-destructive">{error}</p><Button onClick={loadComics}>Try Again</Button></div>
+          ) : !hasContent ? (
+            <div className="py-12 text-center"><FolderCog className="mx-auto mb-3 h-10 w-10 text-muted-foreground" /><p className="mb-4 text-xl text-muted-foreground">{isSearchActive ? "No comics found matching your search" : isFolderView ? "This folder is empty." : activeView === "shared" ? "Nobody has shared a comic with you yet." : "No comics in this view."}</p>{isSearchActive ? <Button onClick={() => handleSearch({ query: "", tags: [] })}>Clear Search</Button> : <Button asChild><Link to={uploadUrl}>Upload a comic</Link></Button>}</div>
+          ) : viewMode === "table" ? (
+            <div className="overflow-x-auto">
+              {childFolders.length > 0 && <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{childFolders.map((folder) => <LibraryFolderCard key={folder.id} folder={folder} onOpen={navigateFolder} />)}</div>}
+              <ComicTableView comics={filteredComics} folders={folders} onEditComic={(comic) => { setEditingComic(comic); setIsEditDialogOpen(true); }} onBulkAddTag={addTagToSelectedComics} onBulkDelete={deleteSelectedComics} onBulkMove={moveSelectedComics} />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+              {childFolders.map((folder) => <LibraryFolderCard key={folder.id} folder={folder} onOpen={navigateFolder} />)}
+              {filteredComics.map((comic, index) => <ComicCard key={comic.id} comic={comic} coverPriority={index < EAGER_COVER_COUNT} onResetProgress={resetReadingProgress} onEditComic={(item) => { setEditingComic(item); setIsEditDialogOpen(true); }} onDeleteComic={deleteComic} onShareClick={(id, title) => { setShareModalComicId(id); setShareModalComicTitle(title); setIsShareModalOpen(true); }} onRemoveSharedComic={removeSharedComic} onMoveComic={setMovingComic} locationName={isSearchActive || !isFolderView ? (comic.libraryFolderId == null ? "My Library" : folderNames.get(Number(comic.libraryFolderId))) : null} />)}
+            </div>
+          )}
+        </main>
+      </div>
 
-      {/* Share Comic Modal */}
-      <ShareComicModal
-        isOpen={isShareModalOpen}
-        onClose={handleCloseShareModal}
-        comicId={shareModalComicId}
-        comicTitle={shareModalComicTitle}
-        // apiBaseUrl can be passed if needed, otherwise modal uses its default
-      />
+      {editingComic && <ComicEditDialog comic={editingComic} isOpen={isEditDialogOpen} onClose={() => { setIsEditDialogOpen(false); setEditingComic(null); }} onSave={handleSaveComic} />}
+      <ShareComicModal isOpen={isShareModalOpen} onClose={() => { setIsShareModalOpen(false); setShareModalComicId(null); setShareModalComicTitle(null); }} comicId={shareModalComicId} comicTitle={shareModalComicTitle} />
+      <MoveToFolderDialog key={movingComic?.id ?? "no-comic"} open={Boolean(movingComic)} onOpenChange={(open) => { if (!open) setMovingComic(null); }} folders={folders} currentFolderId={movingComic?.libraryFolderId ?? null} itemCount={1} onMove={(folderId) => moveSelectedComics([movingComic.id], folderId)} />
+      <MoveToFolderDialog key={`folder-${activeFolderId}`} open={movingFolder} onOpenChange={setMovingFolder} folders={folders} currentFolderId={folders.find((folder) => Number(folder.id) === activeFolderId)?.parentId ?? null} movingFolderId={activeFolderId} itemCount={1} itemLabel="folder" onMove={async (parentId) => {
+        try {
+          await updateFolder(activeFolderId, { parentId });
+          toast({ title: "Folder moved" });
+        } catch (moveError) {
+          toast({ title: "Could not move folder", description: moveError.message, variant: "destructive" });
+          throw moveError;
+        }
+      }} />
     </div>
   );
 }

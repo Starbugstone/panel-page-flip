@@ -2,10 +2,11 @@
 
 namespace App\Service;
 
+use App\Enum\PageVariant;
 use Psr\Log\LoggerInterface;
 
 /**
- * Where generated page images live.
+ * Where generated page derivatives live.
  *
  * Split out from the delivery service so that ComicService can drop a comic's
  * pages when its source goes away without depending on the thing that produces
@@ -15,7 +16,12 @@ use Psr\Log\LoggerInterface;
  * Nothing here is authoritative. The directory can be deleted at any moment and
  * the only cost is regenerating pages, so every failure is logged and swallowed
  * rather than raised: a cache that cannot be written must not stop a page being
- * served.
+ * served. It also holds no user data in the quota sense — these are rebuildable
+ * server files, not the canonical comic.
+ *
+ * The variant is an enum rather than a string because these values become path
+ * segments. Nothing read out of a comic, and nothing out of a query string,
+ * reaches a filename here.
  */
 final class ComicPageCache
 {
@@ -25,9 +31,9 @@ final class ComicPageCache
     ) {
     }
 
-    public function read(int $comicId, int $page, string $fingerprint): ?string
+    public function read(int $comicId, int $page, string $fingerprint, PageVariant $variant): ?string
     {
-        $path = $this->path($comicId, $page, $fingerprint, false);
+        $path = $this->path($comicId, $page, $fingerprint, $variant, false);
         if ($path === null || !is_file($path)) return null;
 
         $contents = @file_get_contents($path);
@@ -44,39 +50,80 @@ final class ComicPageCache
      * never be handed a half-written page and two concurrent generations of
      * the same page cannot interleave.
      */
-    public function write(int $comicId, int $page, string $fingerprint, string $contents): void
+    public function write(int $comicId, int $page, string $fingerprint, PageVariant $variant, string $contents): void
     {
-        $path = $this->path($comicId, $page, $fingerprint, true);
+        $path = $this->path($comicId, $page, $fingerprint, $variant, true);
         if ($path === null) return;
 
-        $temporary = $path.'.'.bin2hex(random_bytes(6)).'.tmp';
-
-        // A short write, not just an outright failure: a disk that fills
-        // mid-write returns a byte count rather than false, and renaming that
-        // into place would serve a truncated page for the whole life of this
-        // fingerprint.
-        $written = @file_put_contents($temporary, $contents, LOCK_EX);
-        if ($written !== strlen($contents)) {
-            $this->logger?->warning('A comic page could not be cached.', [
-                'comic_id' => $comicId,
-                'written' => $written === false ? 'failed' : $written.' of '.strlen($contents),
-            ]);
-            @unlink($temporary);
-            return;
-        }
-
-        @chmod($temporary, 0644);
-        if (!@rename($temporary, $path)) @unlink($temporary);
+        $this->writeAtomically($path, $contents, $comicId);
     }
 
-    public function forget(int $comicId, int $page, string $fingerprint): void
+    public function forget(int $comicId, int $page, string $fingerprint, PageVariant $variant): void
     {
-        $path = $this->path($comicId, $page, $fingerprint, false);
+        $path = $this->path($comicId, $page, $fingerprint, $variant, false);
         if ($path !== null) @unlink($path);
     }
 
     /**
-     * Drop every cached page for a comic, so a re-uploaded comic reusing an
+     * What is known about the shape of this comic's pages.
+     *
+     * Kept beside the derivatives and keyed by the same fingerprint, so a
+     * replaced source cannot describe its predecessor's pages, and so deleting
+     * a comic takes its geometry with it.
+     *
+     * @return array<int, array{width: int, height: int}> keyed by logical page
+     */
+    public function readGeometry(int $comicId, string $fingerprint): array
+    {
+        $path = $this->geometryPath($comicId, $fingerprint, false);
+        if ($path === null || !is_file($path)) return [];
+
+        $contents = @file_get_contents($path);
+        if (!is_string($contents) || $contents === '') return [];
+
+        $decoded = json_decode($contents, true);
+        if (!is_array($decoded)) return [];
+
+        $geometry = [];
+        foreach ($decoded as $page => $size) {
+            if (!is_array($size)) continue;
+            $width = (int) ($size['width'] ?? 0);
+            $height = (int) ($size['height'] ?? 0);
+            if ((int) $page < 1 || $width < 1 || $height < 1) continue;
+
+            $geometry[(int) $page] = ['width' => $width, 'height' => $height];
+        }
+
+        return $geometry;
+    }
+
+    /**
+     * Add one page's geometry to what is already known.
+     *
+     * Read, merge, rename. Two requests learning about different pages at the
+     * same moment can lose one of the two entries; the loser is re-measured the
+     * next time that page is asked about, which is cheaper than holding a lock
+     * across the whole file for something nothing depends on being complete.
+     */
+    public function rememberGeometry(int $comicId, string $fingerprint, PageGeometry $geometry): void
+    {
+        $path = $this->geometryPath($comicId, $fingerprint, true);
+        if ($path === null) return;
+
+        $known = $this->readGeometry($comicId, $fingerprint);
+        if (($known[$geometry->page] ?? null) === ['width' => $geometry->width, 'height' => $geometry->height]) return;
+
+        $known[$geometry->page] = ['width' => $geometry->width, 'height' => $geometry->height];
+        ksort($known);
+
+        $encoded = json_encode($known);
+        if (!is_string($encoded)) return;
+
+        $this->writeAtomically($path, $encoded, $comicId);
+    }
+
+    /**
+     * Drop every derivative for a comic, so a re-uploaded comic reusing an
      * identifier cannot inherit the previous one's pages.
      */
     public function purge(int $comicId): void
@@ -137,7 +184,43 @@ final class ComicPageCache
         return $result;
     }
 
-    private function path(int $comicId, int $page, string $fingerprint, bool $create): ?string
+    private function writeAtomically(string $path, string $contents, int $comicId): void
+    {
+        $temporary = $path.'.'.bin2hex(random_bytes(6)).'.tmp';
+
+        // A short write, not just an outright failure: a disk that fills
+        // mid-write returns a byte count rather than false, and renaming that
+        // into place would serve a truncated page for the whole life of this
+        // fingerprint.
+        $written = @file_put_contents($temporary, $contents, LOCK_EX);
+        if ($written !== strlen($contents)) {
+            $this->logger?->warning('A comic page derivative could not be cached.', [
+                'comic_id' => $comicId,
+                'written' => $written === false ? 'failed' : $written.' of '.strlen($contents),
+            ]);
+            @unlink($temporary);
+            return;
+        }
+
+        @chmod($temporary, 0644);
+        if (!@rename($temporary, $path)) @unlink($temporary);
+    }
+
+    private function path(int $comicId, int $page, string $fingerprint, PageVariant $variant, bool $create): ?string
+    {
+        $directory = $this->comicDirectory($comicId, $create);
+
+        return $directory === null ? null : $directory.'/'.$page.'-'.$variant->value.'-'.$fingerprint.'.webp';
+    }
+
+    private function geometryPath(int $comicId, string $fingerprint, bool $create): ?string
+    {
+        $directory = $this->comicDirectory($comicId, $create);
+
+        return $directory === null ? null : $directory.'/geometry-'.$fingerprint.'.json';
+    }
+
+    private function comicDirectory(int $comicId, bool $create): ?string
     {
         $directory = $this->directory.'/'.$comicId;
 
@@ -146,6 +229,6 @@ final class ComicPageCache
             return null;
         }
 
-        return $directory.'/'.$page.'-'.$fingerprint.'.webp';
+        return $directory;
     }
 }

@@ -25,7 +25,14 @@ final class ProviderCandidateTest extends TestCase
             coverUrl: 'https://example.test/cover.jpg',
         );
 
-        self::assertSame([
+        $payload = $candidate->jsonSerialize();
+
+        self::assertSame('1939-05-01', $payload['publishedAt']);
+
+        // Compared by intersection rather than against the whole payload: the
+        // subject here is what the constructor round-trips, and a candidate
+        // gains fields as providers learn to report more of them.
+        $expected = [
             'provider' => 'comicvine',
             'externalId' => '4000-1',
             'series' => 'Batman',
@@ -37,6 +44,14 @@ final class ProviderCandidateTest extends TestCase
             'publishedAt' => '1939-05-01',
             'creators' => ['writer' => ['Kane']],
             'coverUrl' => 'https://example.test/cover.jpg',
-        ], $candidate->jsonSerialize());
+        ];
+        self::assertSame($expected, array_intersect_key($payload, $expected));
+    }
+
+    public function testJsonSerializeLeavesAMissingPublishedDateNull(): void
+    {
+        $candidate = new ProviderCandidate(provider: 'comicvine', externalId: '4000-1', series: 'Batman');
+
+        self::assertNull($candidate->jsonSerialize()['publishedAt']);
     }
 }

@@ -52,6 +52,8 @@ class ComicShareSerializer
         // lists what they shared would undo the feature entirely. They get the
         // name and the code instead, which is exactly what they were given.
         $hidden = $share->isRecipientAddressHiddenFromOwner();
+        $sharingUnavailable = ($share->getComic()?->isSharingRestricted() ?? false)
+            || ($share->getComic()?->isQuarantined() ?? false);
         // The recipient's handle as it is now, never the one stored on the
         // share. That one records how the relationship began and goes stale the
         // moment they rotate; showing it would offer the owner a retired code
@@ -77,6 +79,7 @@ class ComicShareSerializer
             // Resending only makes sense while the recipient still has a choice
             // to make and there is still a comic behind the invitation.
             'canResend' => !$share->isTombstoned()
+                && !$sharingUnavailable
                 && $share->getStatus() !== ComicShare::STATUS_ACCEPTED,
             'canRevoke' => !$share->isTombstoned()
                 && in_array($share->getStatus(), [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED], true),
@@ -90,6 +93,8 @@ class ComicShareSerializer
     {
         $owner = $share->getOwner();
         $needsConfirmation = $share->requiresAdultConfirmation();
+        $sharingUnavailable = ($share->getComic()?->isSharingRestricted() ?? false)
+            || ($share->getComic()?->isQuarantined() ?? false);
 
         return $this->common($share, $needsConfirmation) + [
             'ownerName' => $share->getOwnerNameSnapshot(),
@@ -99,8 +104,8 @@ class ComicShareSerializer
             // is pending, has a comic behind it and has not run out. Answering
             // an explicit one starts with the age gate, so the page has to be
             // able to tell "you may answer this" from "you may accept it now".
-            'canAnswer' => $share->isPending(),
-            'canRead' => $share->grantsReadAccess(),
+            'canAnswer' => !$sharingUnavailable && $share->isPending(),
+            'canRead' => !$sharingUnavailable && $share->grantsReadAccess(),
             'canRestore' => $share->grantsAccess() && $share->getRecipientRemovedAt() !== null,
             'canRemove' => $share->grantsAccess() && $share->getRecipientRemovedAt() === null,
             // A dead entry is one nothing can be done with any more; these are
@@ -149,6 +154,8 @@ class ComicShareSerializer
             'unavailableAt' => $share->getUnavailableAt()?->format('c'),
             'tombstoneReason' => $share->getTombstoneReason(),
             'isTombstoned' => $share->isTombstoned(),
+            'sharingRestricted' => $comic?->isSharingRestricted() ?? false,
+            'contentQuarantined' => $comic?->isQuarantined() ?? false,
         ];
     }
 }
