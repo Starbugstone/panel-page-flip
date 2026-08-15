@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Entity\User;
 use App\Entity\UserMetadataCredential;
+use App\Http\JsonRequestDecoder;
 use App\Service\AppDataEncryptionService;
 use App\Service\MetadataProviderConfigurationService;
 use App\Service\MetadataProviderRegistry;
@@ -68,11 +69,7 @@ class MetadataCredentialController extends AbstractController
         MetadataProviderConfigurationService $configuration
     ): JsonResponse {
         $user = $this->authenticatedUser();
-
-        $data = json_decode($request->getContent(), true);
-        if (!is_array($data)) {
-            return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
-        }
+        $data = JsonRequestDecoder::decode($request);
 
         // Clearing is always allowed, even when the server has stopped
         // accepting personal tokens: somebody whose stored token is no longer
@@ -158,8 +155,7 @@ class MetadataCredentialController extends AbstractController
             );
         }
 
-        $data = json_decode($request->getContent(), true);
-        $data = is_array($data) ? $data : [];
+        $data = JsonRequestDecoder::decode($request);
 
         $provider = $data['provider'] ?? null;
         $field = null;
