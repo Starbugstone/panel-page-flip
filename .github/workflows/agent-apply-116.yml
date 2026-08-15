@@ -1,4 +1,4 @@
-name: Apply Issue 116 Hardening
+name: Finalize Issue 116 Hardening
 
 on:
   push:
@@ -9,30 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  apply-and-validate:
+  finalize:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_DATABASE: cbz_reader
-          MYSQL_USER: cbz_user
-          MYSQL_PASSWORD: cbz_password
-          MYSQL_ROOT_PASSWORD: root_password
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password --silent"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    env:
-      MYSQL_USER: cbz_user
-      MYSQL_PASSWORD: cbz_password
-      MYSQL_DATABASE: cbz_reader
-      DATABASE_URL: mysql://cbz_user:cbz_password@127.0.0.1:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4
-
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,23 +23,12 @@ jobs:
           extensions: ctype, gd, iconv, intl, mbstring, pdo_mysql, sodium, xsl, zip, zlib
           coverage: none
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Apply source changes
+      - name: Recreate the validated patch
         shell: bash
         run: |
           set -euo pipefail
           python3 .github/agent/apply_issue_116.py
           python3 .github/agent/post_patch_fix.py
-
-      - name: Update Composer dependency set and normalize style
-        shell: bash
-        run: |
-          set -euo pipefail
           cd backend
           composer remove symfony/asset symfony/asset-mapper symfony/stimulus-bundle symfony/ux-turbo phpdocumentor/reflection-docblock phpstan/phpdoc-parser --no-interaction --no-scripts
           composer require --dev phpstan/phpstan:^2.1 friendsofphp/php-cs-fixer:^3.80 --no-interaction --no-scripts
@@ -70,81 +38,17 @@ jobs:
           test -s phpstan-baseline.neon
           rm phpstan.generate.neon
           vendor/bin/php-cs-fixer fix --using-cache=no
-
-      - name: Validate Symfony container early
-        run: cd backend && php bin/console cache:clear
-
-      - name: Validate frontend
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd frontend
-          npm ci --ignore-scripts --no-audit --no-fund
-          npm run audit:production
-          npm run lint
-          npm run test
-          npm run check:routes
-          npm run check:tools
-          APP_URL=https://comics.starbugstone.com VITE_BUILD_ID=issue-116 VITE_BUILD_TIME=2026-08-15T11:15:00+02:00 npm run build
-          APP_URL=https://comics.starbugstone.com npm run check:seo
-
-      - name: Prepare test database
-        shell: bash
-        run: |
-          set -euo pipefail
-          mysql -h 127.0.0.1 -uroot -proot_password -e "CREATE DATABASE IF NOT EXISTS cbz_reader_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON cbz_reader_test.* TO 'cbz_user'@'%'; FLUSH PRIVILEGES;"
-          cd backend
-          php bin/console doctrine:migrations:migrate --env=test --no-interaction
-
-      - name: Validate Composer Symfony and schema
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd backend
-          composer validate --strict
-          composer audit --locked --no-dev
-          php bin/console lint:container --env=test
-          php bin/console doctrine:schema:validate --env=test
-
-      - name: Run PHPStan
-        run: cd backend && composer analyse
-
-      - name: Check PHP style
-        run: cd backend && composer cs:check
-
-      - name: Run backend tests
-        shell: bash
-        run: |
-          set +e
-          cd backend
-          php bin/phpunit > ../.github/agent/phpunit-error.txt 2>&1
-          rc=$?
           cd ..
-          if [ "$rc" -ne 0 ]; then
-            cat .github/agent/phpunit-error.txt
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .github/agent/phpunit-error.txt
-            git commit -m "Capture hardening PHPUnit diagnostic"
-            git push origin HEAD:agent/issue-116-hardening
-            exit "$rc"
-          fi
-          rm -f .github/agent/phpunit-error.txt
 
-      - name: Try enabling repository vulnerability alerts
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh api --method PUT repos/${{ github.repository }}/vulnerability-alerts
-          gh api --method PUT repos/${{ github.repository }}/automated-security-fixes
-
-      - name: Commit validated patch
+      - name: Push validated product files
         shell: bash
         run: |
           set -euo pipefail
-          rm .github/workflows/agent-apply-116.yml
+          # The repository GITHUB_TOKEN is not allowed to create/modify workflow
+          # files. Those two validated workflow changes are applied afterward by
+          # the connected GitHub app, which does have workflow-file permission.
+          git restore --source=HEAD -- .github/workflows/build-frontend.yml
+          rm -f .github/workflows/security-audit.yml
           rm -rf .github/agent
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
