@@ -1,0 +1,88 @@
+name: Combined PHPUnit Diagnostic
+
+on:
+  push:
+    branches: [ci/combined-phpunit-diagnostic-117-118]
+
+permissions:
+  contents: read
+
+jobs:
+  combined-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out diagnostic branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Merge PR 118 and resolve the known subscriber conflict
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "integration-diagnostic"
+          git config user.email "integration-diagnostic@users.noreply.github.com"
+          git fetch origin agent/issue-116-hardening
+          set +e
+          git merge --no-commit --no-ff origin/agent/issue-116-hardening
+          merge_code=$?
+          set -e
+          if [ "$merge_code" -ne 0 ]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            expected="backend/src/EventSubscriber/MetadataProviderSecretsSubscriber.php"
+            if [ "$conflicts" != "$expected" ]; then
+              echo "::error title=Unexpected merge conflicts::$conflicts"
+              exit 1
+            fi
+            git checkout --ours -- "$expected"
+            git add "$expected"
+          fi
+          git diff --check --cached
+          git commit -m "Temporary combined integration merge"
+
+      - name: Start PHP and database containers
+        run: docker compose up -d --build database php
+
+      - name: Wait for MySQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..60}; do
+            if docker compose exec -T database sh -lc 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs database
+          exit 1
+
+      - name: Install backend dependencies
+        run: docker compose exec -T php composer install --no-interaction --no-progress
+
+      - name: Create isolated test database
+        run: |
+          docker compose exec -T database sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE}_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}_test.* TO '\''${MYSQL_USER}'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+
+      - name: Apply test migrations
+        run: docker compose exec -T php php bin/console doctrine:migrations:migrate --env=test --no-interaction
+
+      - name: Run combined PHPUnit and expose failure
+        shell: bash
+        run: |
+          set +e
+          docker compose exec -T php php bin/phpunit 2>&1 | tee /tmp/phpunit.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            echo "--- PHPUnit diagnostic tail ---"
+            tail -n 160 /tmp/phpunit.log
+            while IFS= read -r line; do
+              escaped="${line//'%'/'%25'}"
+              escaped="${escaped//$'\r'/'%0D'}"
+              echo "::error title=Combined PHPUnit::${escaped}"
+            done < <(tail -n 80 /tmp/phpunit.log)
+          fi
+          exit "$code"
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs
