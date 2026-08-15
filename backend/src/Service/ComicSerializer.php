@@ -9,6 +9,7 @@ use App\Entity\User;
 use App\Repository\ComicReadingProgressRepository;
 use App\Repository\ComicRepository;
 use App\Repository\ComicShareRepository;
+use App\Repository\LibraryFolderItemRepository;
 
 /**
  * Single source of truth for the shape of a comic in API responses.
@@ -22,7 +23,8 @@ class ComicSerializer
     public function __construct(
         private readonly ComicReadingProgressRepository $progressRepository,
         private readonly ComicRepository $comicRepository,
-        private readonly ComicShareRepository $shareRepository
+        private readonly ComicShareRepository $shareRepository,
+        private readonly LibraryFolderItemRepository $folderItemRepository
     ) {
     }
 
@@ -39,6 +41,7 @@ class ComicSerializer
         $progressByComicId = $this->progressRepository->findByUserIndexedByComic($viewer, $comics);
         $sharesByComicId = $this->shareRepository->findAccessIndexedByComic($viewer, $comics);
         $shareCountsByComicId = $this->shareRepository->countActiveSharesByComic($comics);
+        $folderIdsByComicId = $this->folderItemRepository->findFolderIdsByUserAndComics($viewer, $comics);
 
         $serialized = [];
         foreach ($comics as $comic) {
@@ -48,6 +51,7 @@ class ComicSerializer
                 $progressByComicId[$comic->getId()] ?? null,
                 $sharesByComicId[$comic->getId()] ?? null,
                 $shareCountsByComicId[$comic->getId()] ?? 0,
+                $folderIdsByComicId[$comic->getId()] ?? null,
                 $includeOwner
             );
         }
@@ -68,6 +72,7 @@ class ComicSerializer
             $this->progressRepository->findByUserAndComic($viewer, $comic),
             $isOwner ? null : $this->shareRepository->findAccessFor($viewer, $comic),
             $isOwner ? $this->shareRepository->countLiveSharesForComic($comic) : 0,
+            $this->folderItemRepository->findFolderIdsByUserAndComics($viewer, [$comic])[$comic->getId()] ?? null,
             $includeOwner
         );
     }
@@ -98,6 +103,7 @@ class ComicSerializer
         ?ComicReadingProgress $progress,
         ?ComicShare $share,
         int $sharedWithCount,
+        ?int $libraryFolderId,
         bool $includeOwner
     ): array {
         $owner = $comic->getOwner();
@@ -164,6 +170,9 @@ class ComicSerializer
             'canEdit' => $isOwner || $isAdmin,
             'canDelete' => $isOwner || $isAdmin,
             'canShare' => $isOwner,
+            // Always the authenticated viewer's placement. A recipient never
+            // sees (or changes) the owner's private organisation.
+            'libraryFolderId' => $libraryFolderId,
         ];
 
         if ($includeOwner) {

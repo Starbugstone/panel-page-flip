@@ -20,6 +20,8 @@ use App\Service\ComicSerializer;
 use App\Service\ComicShareService;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicFormatService;
+use App\Service\ComicLibraryQueryService;
+use App\Service\LibraryFolderService;
 use App\Enum\ComicSourceType;
 use App\Metadata\StructuredMetadataInput;
 use App\Service\ComicService;
@@ -195,7 +197,12 @@ class ComicController extends AbstractController
     }
     
     #[Route('', name: 'list', methods: ['GET'])]
-    public function list(Request $request, EntityManagerInterface $entityManager): JsonResponse
+    public function list(
+        Request $request,
+        EntityManagerInterface $entityManager,
+        ComicLibraryQueryService $libraryQuery,
+        LibraryFolderService $folderService
+    ): JsonResponse
     {
         // Get the current user
         $user = $this->getUser();
@@ -244,77 +251,28 @@ class ComicController extends AbstractController
             ]);
         }
 
-        $qb = $entityManager->createQueryBuilder();
-        $qb->select('c')
-            ->from(Comic::class, 'c');
-
-        // User Ownership Filter - only show all comics to admins in admin context
-        if (!$adminContext) {
-            // A collection is what the user owns plus what has been shared with
-            // them and not hidden. The shared half is resolved to ids first so
-            // the search and tag filters below apply to both halves through one
-            // query rather than two lists merged afterwards.
-            $ownership = $request->query->get('ownership', 'all');
-            if (!in_array($ownership, ['all', 'mine', 'shared'], true)) {
-                $ownership = 'all';
-            }
-
-            $sharedComicIds = $ownership === 'mine'
-                ? []
-                : $this->shareRepository->findVisibleCollectionComicIds($user);
-
-            if ($ownership === 'shared') {
-                // An empty IN () is not valid DQL, and a user with no shares
-                // must get an empty list rather than everybody's comics.
-                if ($sharedComicIds === []) {
-                    return $this->json(['comics' => []]);
+        $folderScope = null;
+        if ($request->query->has('folder')) {
+            $rawFolder = (string) $request->query->get('folder');
+            if ($rawFolder === 'root') {
+                $folderScope = 'root';
+            } elseif (ctype_digit($rawFolder) && (int) $rawFolder > 0) {
+                $folderScope = $folderService->findOwned($user, (int) $rawFolder);
+                if ($folderScope === null) {
+                    return $this->json(['message' => 'Folder not found.'], Response::HTTP_NOT_FOUND);
                 }
-                $qb->andWhere('c.id IN (:sharedComicIds)')
-                    ->setParameter('sharedComicIds', $sharedComicIds);
-            } elseif ($sharedComicIds === []) {
-                $qb->andWhere('c.owner = :owner')->setParameter('owner', $user);
             } else {
-                $qb->andWhere($qb->expr()->orX('c.owner = :owner', 'c.id IN (:sharedComicIds)'))
-                    ->setParameter('owner', $user)
-                    ->setParameter('sharedComicIds', $sharedComicIds);
-            }
-
-            /** @var TagRepository $tagRepository */
-            $tagRepository = $entityManager->getRepository(Tag::class);
-            if (!$tagRepository->hasLibraryHidingGlobalTag($tagNames)) {
-                $hiddenTagSubquery = $entityManager->createQueryBuilder()
-                    ->select('1')
-                    ->from(Tag::class, 'libraryHidingTag')
-                    ->join('libraryHidingTag.comics', 'hiddenComic')
-                    ->where('hiddenComic = c')
-                    ->andWhere('libraryHidingTag.hideFromLibrary = true')
-                    ->getDQL();
-                $qb->andWhere($qb->expr()->not($qb->expr()->exists($hiddenTagSubquery)));
+                return $this->json(['message' => 'Invalid folder.'], Response::HTTP_BAD_REQUEST);
             }
         }
 
-        // Search Filter
-        if ($search) {
-            $qb->andWhere($qb->expr()->orX(
-                $qb->expr()->like('LOWER(c.title)', ':search'),
-                $qb->expr()->like('LOWER(c.description)', ':search'),
-                $qb->expr()->like('LOWER(c.author)', ':search'),
-                $qb->expr()->like('LOWER(c.publisher)', ':search')
-            ))
-            ->setParameter('search', '%' . strtolower($search) . '%');
-        }
-
-        // Tags Filter - More efficient approach using JOIN, GROUP BY, and HAVING
-        if ($tagNames !== []) {
-            $qb->join('c.tags', 't')
-                ->andWhere('LOWER(t.name) IN (:tagNames)')
-                ->setParameter('tagNames', array_map('strtolower', $tagNames))
-                ->groupBy('c.id')
-                ->having('COUNT(DISTINCT t.id) = :tagCount')
-                ->setParameter('tagCount', count($tagNames));
-        }
-        
-        $comics = $qb->getQuery()->getResult();
+        $comics = $libraryQuery->findVisibleLibrary(
+            $user,
+            (string) $request->query->get('ownership', 'all'),
+            is_string($search) ? $search : null,
+            $tagNames,
+            $folderScope
+        );
 
         return $this->json([
             'comics' => $this->comicSerializer->serializeMany($comics, $user, $adminContext),
@@ -703,11 +661,12 @@ class ComicController extends AbstractController
     #[Route('', name: 'create', methods: ['POST'])]
     public function create(
         Request $request,
-        ComicService $comicService
+        ComicService $comicService,
+        LibraryFolderService $folderService
     ): JsonResponse {
         // Get the current user
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -724,10 +683,19 @@ class ComicController extends AbstractController
         $description = $request->request->get('description');
         $tagsString = $request->request->get('tags');
         $tags = $tagsString ? json_decode($tagsString, true) : [];
+        $folderId = $request->request->get('folderId');
 
         // Validate title
         if (!$title) {
             return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
+        }
+        if ($folderId !== null && $folderId !== '') {
+            if (!ctype_digit((string) $folderId) || (int) $folderId < 1 || $folderService->findOwned($user, (int) $folderId) === null) {
+                return $this->json(['message' => 'Folder not found.'], Response::HTTP_BAD_REQUEST);
+            }
+            $folderId = (int) $folderId;
+        } else {
+            $folderId = null;
         }
 
         try {
@@ -741,6 +709,7 @@ class ComicController extends AbstractController
                 $description,
                 $tags
             );
+            $folderService->placeUploadedComic($user, $comic, $folderId);
 
             return $this->json([
                 'message' => 'Comic uploaded successfully',
@@ -1051,7 +1020,7 @@ class ComicController extends AbstractController
     }
     
     #[Route('/upload/init', name: 'upload_init', methods: ['POST'])]
-    public function initUpload(Request $request): JsonResponse
+    public function initUpload(Request $request, LibraryFolderService $folderService): JsonResponse
     {
         // Get the current user
         $user = $this->getUser();
@@ -1070,7 +1039,22 @@ class ComicController extends AbstractController
             $this->assertSafeFileId($fileId);
             $filename = $this->assertSafeFilename((string) $data['filename']);
             $totalChunks = (int)$data['totalChunks'];
-            $metadata = $data['metadata'] ?? [];
+            $metadata = is_array($data['metadata'] ?? null) ? $data['metadata'] : [];
+
+            // Validate the destination while the upload starts. It is checked
+            // again after assembly, where a folder deleted during a long upload
+            // intentionally falls back to root instead of losing the archive.
+            if (array_key_exists('folderId', $metadata) && $metadata['folderId'] !== null && $metadata['folderId'] !== '') {
+                if ((!is_int($metadata['folderId']) && !(is_string($metadata['folderId']) && ctype_digit($metadata['folderId'])))
+                    || (int) $metadata['folderId'] < 1
+                    || $folderService->findOwned($user, (int) $metadata['folderId']) === null
+                ) {
+                    return $this->json(['message' => 'Folder not found.'], Response::HTTP_BAD_REQUEST);
+                }
+                $metadata['folderId'] = (int) $metadata['folderId'];
+            } else {
+                $metadata['folderId'] = null;
+            }
 
             if ($totalChunks < 1 || $totalChunks > $this->uploadMaxTotalChunks) {
                 return $this->json(['message' => 'Invalid chunk count'], Response::HTTP_BAD_REQUEST);
@@ -1228,7 +1212,8 @@ class ComicController extends AbstractController
     public function completeUpload(
         Request $request, 
         EntityManagerInterface $entityManager,
-        ComicService $comicService
+        ComicService $comicService,
+        LibraryFolderService $folderService
     ): JsonResponse {
         // Get the current user
         $user = $this->getUser();
@@ -1274,7 +1259,8 @@ class ComicController extends AbstractController
                     $metadataPath,
                     $user,
                     $entityManager,
-                    $comicService
+                    $comicService,
+                    $folderService
                 );
             } finally {
                 $this->releaseUploadLock($lock);
@@ -1303,7 +1289,8 @@ class ComicController extends AbstractController
         string $metadataPath,
         User $user,
         EntityManagerInterface $entityManager,
-        ComicService $comicService
+        ComicService $comicService,
+        LibraryFolderService $folderService
     ): JsonResponse {
         $metadata = json_decode((string) file_get_contents($metadataPath), true);
         if (!is_array($metadata) || !isset($metadata['totalChunks'], $metadata['filename'])) {
@@ -1394,6 +1381,12 @@ class ComicController extends AbstractController
             $comicMetadata['publisher'] ?? null,
             $comicMetadata['description'] ?? null,
             $comicMetadata['tags'] ?? []
+        );
+
+        $folderService->placeUploadedComic(
+            $user,
+            $comic,
+            isset($comicMetadata['folderId']) ? (int) $comicMetadata['folderId'] : null
         );
 
         // Clean up temp directory
