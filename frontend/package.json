@@ -15,7 +15,7 @@
     "check:tools": "node scripts/build-conversion-tools.mjs --check",
     "check:routes": "node ../scripts/generate-nginx-routes.mjs --index-html ./index.html --check",
     "check:seo": "node scripts/check-seo-build.mjs",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "preview": "vite preview"
   },
@@ -46,7 +46,7 @@
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.53.0",
     "react-router-dom": "^7.18.2",
-    "sonner": "^1.5.0",
+    "sonner": "^2.0.8",
     "tailwind-merge": "^2.5.2"
   },
   "devDependencies": {
@@ -54,7 +54,7 @@
     "@tailwindcss/typography": "^0.5.15",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.3",
+    "@testing-library/user-event": "^14.6.4",
     "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.9.0",

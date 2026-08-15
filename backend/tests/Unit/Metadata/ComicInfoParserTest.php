@@ -233,4 +233,62 @@ final class ComicInfoParserTest extends TestCase
     {
         return '<?xml version="1.0" encoding="utf-8"?><ComicInfo>'.$body.'</ComicInfo>';
     }
+
+    /**
+     * Genre and the free-text Tags list are read, but only as suggestions.
+     * Neither is trusted enough to reorganise a library on import.
+     */
+    public function testReadsClassificationWithoutTreatingItAsTags(): void
+    {
+        $info = (new ComicInfoParser())->parse(<<<'XML'
+            <?xml version="1.0"?>
+            <ComicInfo>
+              <Series>The Boys</Series>
+              <Genre>Superhero, Crime</Genre>
+              <Tags>mature, satire</Tags>
+              <Characters>Billy Butcher, Hughie Campbell</Characters>
+              <Teams>The Seven</Teams>
+              <Locations>New York</Locations>
+              <StoryArc>Herogasm</StoryArc>
+            </ComicInfo>
+            XML);
+
+        self::assertSame(['Superhero', 'Crime', 'mature', 'satire'], $info?->classification?->genres);
+        self::assertSame(['Billy Butcher', 'Hughie Campbell'], $info?->classification?->characters);
+        self::assertSame(['The Seven'], $info?->classification?->teams);
+        self::assertSame(['New York'], $info?->classification?->locations);
+        self::assertSame(['Herogasm'], $info?->classification?->storyArcs);
+    }
+
+    /** Everything here came out of an uploaded archive. */
+    public function testBoundsAndDeduplicatesClassificationValues(): void
+    {
+        $genres = implode(', ', array_merge(
+            ['Superhero', 'superhero', 'SUPERHERO'],
+            array_map(static fn (int $i): string => 'Genre '.$i, range(1, 100))
+        ));
+
+        $info = (new ComicInfoParser())->parse(sprintf(
+            '<?xml version="1.0"?><ComicInfo><Series>X</Series><Genre>%s</Genre></ComicInfo>',
+            $genres
+        ));
+
+        $found = $info?->classification?->genres ?? [];
+        self::assertLessThanOrEqual(40, count($found));
+        self::assertSame(['Superhero'], array_values(array_filter(
+            $found,
+            static fn (string $g): bool => strcasecmp($g, 'superhero') === 0
+        )));
+    }
+
+    /** A file whose only content is classification is still worth reading. */
+    public function testAFileCarryingOnlyClassificationIsNotEmpty(): void
+    {
+        $info = (new ComicInfoParser())->parse(
+            '<?xml version="1.0"?><ComicInfo><Genre>Horror</Genre></ComicInfo>'
+        );
+
+        self::assertNotNull($info);
+        self::assertSame(['Horror'], $info->classification?->genres);
+    }
 }

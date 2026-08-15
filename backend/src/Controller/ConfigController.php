@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Entity\User;
 use App\Service\ComicFormatService;
 use App\Service\MetadataProviderRegistry;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -21,7 +22,7 @@ class ConfigController extends AbstractController
     {
         // Get the current user
         $user = $this->getUser();
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], JsonResponse::HTTP_UNAUTHORIZED);
         }
 
@@ -34,13 +35,12 @@ class ConfigController extends AbstractController
                     array_values(array_filter($comicFormats->enabled(), $comicFormats->isEnabled(...)))
                 ),
             ],
-            // Which external providers are usable, so a lookup can be aimed at
-            // one instead of spending every provider's quota at once. Names
-            // only — the credentials behind them never leave the server.
-            'metadataProviders' => array_values(array_map(
-                static fn (array $provider): array => ['key' => $provider['key'], 'label' => $provider['label']],
-                array_filter($metadataProviders->status(), static fn (array $p): bool => $p['configured'])
-            )),
+            // Which external providers would answer *this* user, so a lookup
+            // can be aimed at one instead of spending every provider's quota at
+            // once, and so the editor can explain a provider it cannot offer.
+            // Names and reasons only — the credentials behind them never leave
+            // the server.
+            'metadataProviders' => $metadataProviders->statusFor($user),
         ]);
     }
 }

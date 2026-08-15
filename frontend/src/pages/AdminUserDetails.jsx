@@ -56,7 +56,7 @@ function AdminUserDetailsPage({ userId }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [form, setForm] = useState({ name: "", password: "", roles: [] });
+  const [form, setForm] = useState({ name: "", password: "", roles: [], metadataApiEnabled: true });
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isRotateOpen, setIsRotateOpen] = useState(false);
@@ -74,7 +74,12 @@ function AdminUserDetailsPage({ userId }) {
       .then((data) => {
         if (ignore) return;
         setUser(data.user);
-        setForm({ name: data.user.name || "", password: "", roles: [...(data.user.roles || [])] });
+        setForm({
+          name: data.user.name || "",
+          password: "",
+          roles: [...(data.user.roles || [])],
+          metadataApiEnabled: data.user.metadataApiEnabled !== false,
+        });
         setNotFound(false);
       })
       .catch((error) => {
@@ -106,6 +111,12 @@ function AdminUserDetailsPage({ userId }) {
     const rolesChanged = JSON.stringify([...form.roles].sort()) !== JSON.stringify([...(user.roles || [])].sort());
     if (rolesChanged && !isSelf) {
       payload.roles = Array.from(new Set([...form.roles, "ROLE_USER"]));
+    }
+
+    // Only sent when it changed, so an ordinary name edit does not restate a
+    // permission somebody else may have just altered.
+    if (form.metadataApiEnabled !== (user.metadataApiEnabled !== false)) {
+      payload.metadataApiEnabled = form.metadataApiEnabled;
     }
 
     if (Object.keys(payload).length === 0) {
@@ -305,6 +316,25 @@ function AdminUserDetailsPage({ userId }) {
                 <Label htmlFor="admin-user-role-admin" className="font-normal">
                   Administrator
                   {isSelf && <span className="ml-1 text-xs text-muted-foreground">(cannot change your own role)</span>}
+                </Label>
+              </div>
+              {/* Withdrawing this stops the account spending provider
+                  allowance. It does not touch metadata read from their own
+                  files or filenames, neither of which leaves the server. */}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="admin-user-metadata-api"
+                  checked={form.metadataApiEnabled}
+                  onCheckedChange={(checked) => setForm((current) => ({
+                    ...current,
+                    metadataApiEnabled: checked === true,
+                  }))}
+                />
+                <Label htmlFor="admin-user-metadata-api" className="font-normal">
+                  May look comics up with external metadata providers
+                  {user.hasPersonalMetadataCredential && (
+                    <span className="ml-1 text-xs text-muted-foreground">(has their own token)</span>
+                  )}
                 </Label>
               </div>
               <Button onClick={saveAccount} disabled={isSaving}>

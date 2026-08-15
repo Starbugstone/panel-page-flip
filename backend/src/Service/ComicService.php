@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\ComicSource\ComicPageProviderFactory;
@@ -23,8 +25,8 @@ class ComicService
         private readonly SluggerInterface $slugger,
         private readonly LoggerInterface $logger,
         private readonly FileQuarantineService $fileQuarantine,
+        private readonly StorageQuotaService $storageQuota,
         private readonly int $uploadMaxTotalBytes,
-        private readonly int $uploadUserQuotaBytes,
         private readonly ComicPageProviderFactory $pageProviderFactory,
         private readonly ComicFormatService $comicFormatService,
         private readonly ComicPageCache $pageCache,
@@ -64,9 +66,7 @@ class ComicService
             throw new \RuntimeException('Uploaded file is too large.');
         }
 
-        if ($this->wouldExceedQuota($user, $incomingSize)) {
-            throw new \RuntimeException('User storage quota exceeded.');
-        }
+        $quotaLock = $this->storageQuota->acquireAdmission($user, $incomingSize);
 
         $this->ensureDirectory($this->comicsDirectory);
         $userDirectory = $this->comicsDirectory . '/' . $user->getId();
@@ -147,6 +147,7 @@ class ComicService
             $comic->setCoverImagePath($coverPath);
             $this->entityManager->flush();
             $connection->commit();
+            $quotaLock->release();
 
             return $comic;
         } catch (\Throwable $e) {
@@ -181,6 +182,11 @@ class ComicService
         $comic->setReadingDirection($info->readingDirection);
         $comic->setCreators($info->creators);
         $comic->setPageMetadata($info->pagesAsArray());
+
+        // Structured metadata, and only that. The genres inside it are offered
+        // as tag suggestions in the editor and become tags only when somebody
+        // accepts them — an import must never invent categories in a library.
+        $comic->setClassification($info->classification);
 
         if (!$comic->getPublisher() && $info->publisher) {
             $comic->setPublisher($info->publisher);
@@ -245,10 +251,16 @@ class ComicService
         return $this->findComicSource($comic);
     }
 
-    public function readPage(Comic $comic, int $page): PageResult
+    /**
+     * @param int|null $targetWidth roughly how wide the page will be served.
+     *                              Providers that hand back stored bytes ignore
+     *                              it; one that draws the page uses it instead
+     *                              of rasterising detail nothing will keep.
+     */
+    public function readPage(Comic $comic, int $page, ?int $targetWidth = null): PageResult
     {
         $path = $this->locateComicSource($comic) ?? throw new \RuntimeException('Comic source is missing.');
-        return $this->pageProviderFactory->for($comic->getSourceType())->readPage($path, $comic->getSourceType(), $page);
+        return $this->pageProviderFactory->for($comic->getSourceType())->readPage($path, $comic->getSourceType(), $page, $targetWidth);
     }
 
     /** @param list<array{originalPath: string, quarantinePath: string}> $records */
@@ -307,18 +319,12 @@ class ComicService
      */
     public function wouldExceedQuota(User $user, int $additionalBytes): bool
     {
-        return $this->getUserStorageBytes($user) + $additionalBytes > $this->uploadUserQuotaBytes;
+        return $this->storageQuota->wouldExceedQuota($user, $additionalBytes);
     }
 
     public function getUserStorageBytes(User $user): int
     {
-        return (int) $this->entityManager->createQueryBuilder()
-            ->select('COALESCE(SUM(c.fileSize), 0)')
-            ->from(Comic::class, 'c')
-            ->where('c.owner = :owner')
-            ->setParameter('owner', $user)
-            ->getQuery()
-            ->getSingleScalarResult();
+        return $this->storageQuota->getUserStorageBytes($user);
     }
 
     /**

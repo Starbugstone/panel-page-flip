@@ -16,6 +16,10 @@ framework:
             policy: fixed_window
             limit: 5
             interval: '1 hour'
+        comic_search:
+            policy: sliding_window
+            limit: 10
+            interval: '1 minute'
         # Invitation sends and resends, per owner. Sliding rather than fixed so
         # the allowance cannot be doubled by sending across a window boundary.
         #
@@ -65,6 +69,15 @@ framework:
             limit: 150
             interval: '1 hour'
 
+        # Per-user fairness, separate from the ceiling above. The provider limit
+        # protects the upstream account; this protects the other people sharing
+        # it, so one enthusiastic library cannot spend the installation's whole
+        # allowance before anybody else opens an editor.
+        metadata_provider_user:
+            policy: sliding_window
+            limit: 40
+            interval: '1 hour'
+
 when@test:
     framework:
         rate_limiter:
@@ -76,6 +89,8 @@ when@test:
                 limit: 1000
             verification_resend:
                 limit: 1000
+            comic_search:
+                limit: 1000
             # Raised because the limiter is cache-backed while the database is
             # rolled back between tests: user ids come round again and inherit
             # an allowance a previous test spent. No test asserts this limit —
@@ -86,4 +101,6 @@ when@test:
             # Provider lookups are cache-backed like the others, so raise it
             # rather than have an unrelated test spend the allowance.
             metadata_provider:
+                limit: 1000
+            metadata_provider_user:
                 limit: 1000

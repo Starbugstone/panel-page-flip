@@ -12,17 +12,21 @@ use App\Enum\MetadataSource;
  */
 final class MetadataSuggestion implements \JsonSerializable
 {
+    /**
+     * @param string|int|array<string, list<string>>|null $current
+     * @param string|int|array<string, list<string>>      $suggested
+     */
     public function __construct(
         public readonly string $field,
-        public readonly string|int|null $current,
-        public readonly string|int $suggested,
+        public readonly string|int|array|null $current,
+        public readonly string|int|array $suggested,
         public readonly MetadataSource $source,
     ) {
     }
 
     public function fillsAGap(): bool
     {
-        return $this->current === null || $this->current === '';
+        return $this->current === null || $this->current === '' || $this->current === [];
     }
 
     /** @return array<string, mixed> */

@@ -6,6 +6,7 @@ use App\Entity\AdminAuditLog;
 use App\Entity\User;
 use App\Service\SecurityAuditLogger;
 use App\Tests\Factory\ComicFactory;
+use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 use App\Tests\Functional\SecurityLogAssertions;
 use Doctrine\ORM\EntityManagerInterface;
@@ -135,5 +136,25 @@ final class PrivacyControllerTest extends AbstractApiTestCase
 
         self::assertResponseStatusCodeSame(409);
         self::assertSame('The last administrator account cannot be deleted.', $payload['message']);
+    }
+
+    /**
+     * An export is a file that leaves the server, so a provider token has no
+     * business in it. Nothing about the token is the user's personal data in
+     * any sense an export serves — it is a credential for somebody else's API.
+     */
+    public function testTheExportDoesNotCarryAMetadataProviderToken(): void
+    {
+        $this->loginAs(UserFactory::createOne()->object());
+        $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
+        // The export is only worth checking if there was a token to leak.
+        self::assertResponseIsSuccessful();
+
+        $this->getJson('/api/privacy/export');
+
+        self::assertResponseIsSuccessful();
+        $body = (string) $this->browser()->getResponse()->getContent();
+        self::assertStringNotContainsString('personal-metron-token', $body);
+        self::assertStringNotContainsString('metronToken', $body);
     }
 }

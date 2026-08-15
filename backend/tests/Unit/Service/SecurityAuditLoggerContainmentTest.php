@@ -144,4 +144,3 @@ final class SecurityAuditLoggerContainmentTest extends TestCase
         );
     }
 }
-

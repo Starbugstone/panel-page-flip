@@ -32,7 +32,7 @@ final class ReaderPreferencesController extends AbstractController
         ReaderPreferences $readerPreferences,
         EntityManagerInterface $entityManager,
     ): JsonResponse {
-        $payload = json_decode($request->getContent(), true);
+        $payload = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($payload)) {
             return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
         }
