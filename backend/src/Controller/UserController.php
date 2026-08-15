@@ -26,14 +26,12 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 #[Route('/api/users', name: 'api_users_')]
 class UserController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     #[Route('', name: 'list', methods: ['GET'])]
     public function list(Request $request, EntityManagerInterface $entityManager, UserMetadataCredentialRepository $credentialRepository): JsonResponse
     {
-        // Get the current user and assert its type
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Check if user is an admin
         if (!in_array('ROLE_ADMIN', $user->getRoles())) {
@@ -98,11 +96,7 @@ class UserController extends AbstractController
     #[Route('/{id}', name: 'get', methods: ['GET'])]
     public function get(int $id, EntityManagerInterface $entityManager, UserMetadataCredentialRepository $credentialRepository): JsonResponse
     {
-        // Get the current user and assert its type
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Check if user is an admin or the requested user
         if (!in_array('ROLE_ADMIN', $user->getRoles()) && $user->getId() !== $id) {
@@ -249,11 +243,7 @@ class UserController extends AbstractController
         AdminAuditService $auditService,
         SecurityAuditLogger $securityLogger
     ): JsonResponse {
-        // Get the current user and assert its type
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Check if user is an admin or the requested user
         if (!in_array('ROLE_ADMIN', $user->getRoles()) && $user->getId() !== $id) {
@@ -433,11 +423,7 @@ class UserController extends AbstractController
         AccountDeletionService $accountDeletion,
         SecurityAuditLogger $securityLogger,
     ): JsonResponse {
-        // Get the current user and assert its type
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated or invalid user type'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Check if user is an admin
         if (!in_array('ROLE_ADMIN', $user->getRoles())) {

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\EventSubscriber;
 
+use App\Security\UnauthenticatedException;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\KernelEvents;
@@ -26,6 +28,18 @@ final class ApiExceptionSubscriber implements EventSubscriberInterface
         $exception = $event->getThrowable();
         if ($exception instanceof BadRequestHttpException) {
             $event->setResponse(new JsonResponse(['message' => $exception->getMessage()], $exception->getStatusCode()));
+
+            return;
+        }
+
+        // The one place the API says this. Runs ahead of the security
+        // listener's own 401 only because nothing reaches here unless the
+        // firewall already let the request through.
+        if ($exception instanceof UnauthenticatedException) {
+            $event->setResponse(new JsonResponse(
+                ['message' => $exception->getMessage()],
+                Response::HTTP_UNAUTHORIZED
+            ));
         }
     }
 }

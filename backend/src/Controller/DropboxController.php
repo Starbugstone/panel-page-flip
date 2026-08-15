@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
-use App\Entity\User;
 use App\Service\DropboxClientFactory;
 use App\Service\DropboxImportService;
 use App\Service\PublicUrl;
@@ -18,13 +17,14 @@ use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Session\SessionInterface;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Security\Http\Attribute\CurrentUser;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[Route('/api/dropbox')]
 class DropboxController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     private SessionInterface $session;
 
     public function __construct(
@@ -43,11 +43,9 @@ class DropboxController extends AbstractController
     }
 
     #[Route('/connect', name: 'dropbox_connect', methods: ['GET'])]
-    public function connect(#[CurrentUser] ?User $user): Response
+    public function connect(): Response
     {
-        if (!$user) {
-            return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Random state, echoed back by Dropbox, to protect the callback from CSRF.
         $state = bin2hex(random_bytes(16));
@@ -67,11 +65,9 @@ class DropboxController extends AbstractController
     }
 
     #[Route('/callback', name: 'dropbox_callback', methods: ['GET'])]
-    public function callback(Request $request, EntityManagerInterface $entityManager, #[CurrentUser] ?User $user): Response
+    public function callback(Request $request, EntityManagerInterface $entityManager): Response
     {
-        if (!$user) {
-            return $this->json(['error' => 'User not authenticated during callback'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $code = $request->query->get('code');
         $returnedState = $request->query->get('state');
@@ -125,11 +121,9 @@ class DropboxController extends AbstractController
     }
 
     #[Route('/status', name: 'dropbox_status', methods: ['GET'])]
-    public function status(#[CurrentUser] ?User $user): Response
+    public function status(): Response
     {
-        if (!$user) {
-            return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $connected = $user->hasDropboxConnection();
         $dropboxUser = null;
@@ -163,13 +157,10 @@ class DropboxController extends AbstractController
 
     #[Route('/disconnect', name: 'dropbox_disconnect', methods: ['POST'])]
     public function disconnect(
-        #[CurrentUser] ?User $user,
         EntityManagerInterface $entityManager,
         SecurityAuditLogger $securityLogger
     ): Response {
-        if (!$user) {
-            return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $user->setDropboxAccessToken(null);
         $user->setDropboxRefreshToken(null);
@@ -187,11 +178,9 @@ class DropboxController extends AbstractController
     }
 
     #[Route('/files', name: 'dropbox_files', methods: ['GET'])]
-    public function files(#[CurrentUser] ?User $user): Response
+    public function files(): Response
     {
-        if (!$user) {
-            return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         if (!$user->hasDropboxConnection()) {
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
@@ -221,11 +210,9 @@ class DropboxController extends AbstractController
     }
 
     #[Route('/import', name: 'dropbox_import_single', methods: ['POST'])]
-    public function importSingle(Request $request, #[CurrentUser] ?User $user, EntityManagerInterface $entityManager): Response
+    public function importSingle(Request $request, EntityManagerInterface $entityManager): Response
     {
-        if (!$user) {
-            return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         if (!$user->hasDropboxConnection()) {
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
@@ -283,11 +270,9 @@ class DropboxController extends AbstractController
     }
 
     #[Route('/sync', name: 'dropbox_sync', methods: ['POST'])]
-    public function sync(#[CurrentUser] ?User $user, EntityManagerInterface $entityManager): Response
+    public function sync(EntityManagerInterface $entityManager): Response
     {
-        if (!$user) {
-            return $this->json(['error' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         if (!$user->hasDropboxConnection()) {
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
