@@ -145,9 +145,36 @@ final class MetadataCredentialTest extends AbstractApiTestCase
     {
         $this->loginAs(UserFactory::createOne()->object());
 
-        $this->putJson('/api/me/metadata-credentials', ['metronToken' => str_repeat('a', 600)]);
+        $this->putJson('/api/me/metadata-credentials', ['metronToken' => str_repeat('a', 1_000)]);
 
         self::assertResponseStatusCodeSame(400);
+    }
+
+    /**
+     * The limit is in bytes, because the column holds ciphertext and a
+     * multibyte value passes a character count while still overflowing. Caught
+     * here rather than as a database error at flush time.
+     */
+    public function testAMultibyteTokenThatWouldOverflowTheColumnIsRejected(): void
+    {
+        $this->loginAs(UserFactory::createOne()->object());
+
+        // Well inside any character limit, four bytes each.
+        $this->putJson('/api/me/metadata-credentials', ['metronToken' => str_repeat('🔑', 300)]);
+
+        self::assertResponseStatusCodeSame(400);
+    }
+
+    /** A token right at the limit still round-trips through encryption. */
+    public function testATokenAtTheLimitIsStored(): void
+    {
+        $this->loginAs(UserFactory::createOne()->object());
+        $longest = str_repeat('a', AppDataEncryptionService::maxPlaintextBytes(1024));
+
+        $response = $this->putJson('/api/me/metadata-credentials', ['metronToken' => $longest]);
+
+        self::assertResponseIsSuccessful();
+        self::assertTrue($response['configured']['metron']);
     }
 
     public function testANonStringTokenIsRejected(): void

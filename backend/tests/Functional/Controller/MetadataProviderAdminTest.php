@@ -169,6 +169,19 @@ final class MetadataProviderAdminTest extends AbstractApiTestCase
         self::assertTrue($configured['comicvine']);
     }
 
+    /**
+     * The shared credentials had no length check at all, so an oversized value
+     * reached the column and failed at flush time as a database error.
+     */
+    public function testRejectsACredentialThatWouldOverflowTheColumn(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $this->putJson('/api/admin/metadata-providers', ['metronToken' => str_repeat('a', 1_000)]);
+
+        self::assertResponseStatusCodeSame(400);
+    }
+
     public function testRejectsACredentialThatIsNotAString(): void
     {
         $this->createAndLoginAdmin();

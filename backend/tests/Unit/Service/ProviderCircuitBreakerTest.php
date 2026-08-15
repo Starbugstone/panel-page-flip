@@ -90,6 +90,23 @@ final class ProviderCircuitBreakerTest extends TestCase
         self::assertNull($breaker->pausedFor('metron.def'));
     }
 
+    /**
+     * A provider answering `Retry-After: 0` is giving no useful guidance. Taken
+     * literally it pauses for no time and suppresses the failure count, so a
+     * provider stuck in that state would never be backed off at all.
+     */
+    public function testARetryAfterOfZeroStillCountsTowardsTheThreshold(): void
+    {
+        $breaker = $this->breaker();
+        $now = new \DateTimeImmutable('2026-08-15 12:00:00');
+
+        for ($i = 0; $i < 5; ++$i) {
+            $breaker->recordFailure('metron.abc', ProviderStatus::RateLimited, 0, $now);
+        }
+
+        self::assertNotNull($breaker->pausedFor('metron.abc', $now));
+    }
+
     /** A provider asking for a week off does not get one. */
     public function testAnAbsurdRetryAfterIsCapped(): void
     {

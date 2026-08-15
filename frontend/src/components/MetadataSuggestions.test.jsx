@@ -283,6 +283,58 @@ describe("MetadataSuggestions", () => {
     }));
   });
 
+  describe("refreshing a comic that was already matched", () => {
+    /**
+     * The point of remembering the external id: ask for that exact record
+     * again rather than re-running a fuzzy search and hoping for the same one.
+     */
+    it("asks for the stored record and renders what came back", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.post).mockResolvedValue({
+        candidate: { provider: "metron", externalId: "123925", series: "The Boys", confidence: "exact", publisher: "Dynamite" },
+        suggestions: [suggestion({ field: "publisher", suggested: "Dynamite", source: "provider" })],
+        tags: [],
+      });
+
+      render(
+        <MetadataSuggestions
+          comicId={7}
+          onAccept={vi.fn()}
+          metadataOrigin={{ provider: "metron", externalId: "123925" }}
+        />
+      );
+      await user.click(await screen.findByRole("button", { name: /refresh/i }));
+
+      await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/comics/7/metadata-refresh", {}));
+      expect(await screen.findByText("Publisher")).toBeInTheDocument();
+    });
+
+    /** Nothing to refresh means no button to press. */
+    it("offers no refresh until a record has been accepted", async () => {
+      render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
+      await screen.findByRole("button", { name: /^search /i });
+
+      expect(screen.queryByRole("button", { name: /refresh/i })).not.toBeInTheDocument();
+    });
+
+    /** A response carrying no record must not be rendered half-way. */
+    it("reports an empty response instead of crashing on it", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.post).mockResolvedValue({ suggestions: [], tags: [] });
+
+      render(
+        <MetadataSuggestions
+          comicId={7}
+          onAccept={vi.fn()}
+          metadataOrigin={{ provider: "metron", externalId: "123925" }}
+        />
+      );
+      await user.click(await screen.findByRole("button", { name: /refresh/i }));
+
+      expect(await screen.findByText(/came back empty/i)).toBeInTheDocument();
+    });
+  });
+
   it("says so when providers return nothing", async () => {
     const user = userEvent.setup();
 

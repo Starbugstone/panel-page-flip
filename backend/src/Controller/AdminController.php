@@ -7,6 +7,7 @@ use App\Entity\Comic;
 use App\Entity\User;
 use App\Repository\AdminAuditLogRepository;
 use App\Service\AdminAuditService;
+use App\Service\AppDataEncryptionService;
 use App\Service\ComicCleanupService;
 use App\Service\ComicFormatService;
 use App\Service\ComicPageDelivery;
@@ -30,6 +31,8 @@ use Symfony\Contracts\Cache\ItemInterface;
 #[Route('/api/admin', name: 'api_admin_')]
 class AdminController extends AbstractController
 {
+    private const SECRET_COLUMN_LENGTH = 1024;
+
     public function __construct(
         private readonly CacheInterface $cache,
         #[Autowire('%kernel.project_dir%')]
@@ -162,6 +165,14 @@ class AdminController extends AbstractController
                 return $this->json(['message' => sprintf('%s must be a string or null.', $field)], Response::HTTP_BAD_REQUEST);
             }
 
+            // The column holds ciphertext, which is longer than what went into
+            // it, so the limit comes from the column. Bytes rather than
+            // characters: a multibyte value passes a character count and still
+            // overflows, and that lands as a database error at flush time.
+            if (is_string($value) && strlen(trim($value)) > AppDataEncryptionService::maxPlaintextBytes(self::SECRET_COLUMN_LENGTH)) {
+                return $this->json(['message' => sprintf('%s is longer than a credential this provider issues.', $field)], Response::HTTP_BAD_REQUEST);
+            }
+
             $settings->{'set'.ucfirst($field)}($value);
         }
 
@@ -187,14 +198,18 @@ class AdminController extends AbstractController
         // and never which fields held what. The switches are not secrets and
         // are recorded in full: turning shared provider access on or off is
         // exactly the kind of change somebody later needs to be able to find.
-        $configuration->save();
+        //
+        // Logged before saving on purpose. The audit entry is persisted but not
+        // flushed, so save()'s flush commits the change and its record in one
+        // transaction — logging afterwards left a window where the credential
+        // change landed and the record it requires did not.
         $auditService->log($this->getAdminUser(), 'metadata_providers_updated', 'configuration', 1, [
             'configured' => array_column($providers->adminStatus($this->sharedSecrets($configuration), $configuration), 'configured', 'key'),
             'metronSharedEnabled' => $configuration->isMetronSharedEnabled(),
             'comicVineEnabled' => $configuration->isComicVineEnabled(),
             'personalCredentialsEnabled' => $configuration->arePersonalCredentialsEnabled(),
         ]);
-        $entityManager->flush();
+        $configuration->save();
 
         return $this->json([
             'providers' => $providers->adminStatus($this->sharedSecrets($configuration), $configuration),

@@ -74,6 +74,28 @@ final class ProviderQueryTest extends TestCase
         self::assertNull($query?->volume);
     }
 
+    /**
+     * "1.9" casting to 1 would search for a different volume than the form
+     * shows, and say nothing about having done so.
+     */
+    public function testIgnoresAStagedNumberThatIsNotAWholeNumber(): void
+    {
+        $comic = (new Comic())->setSeries('The Boys');
+
+        $query = ProviderQuery::staged($comic, ['year' => '1.9', 'volume' => '2e3']);
+
+        self::assertNull($query?->year);
+        self::assertNull($query?->volume);
+    }
+
+    public function testAcceptsAWholeNumberAsAStringOrAnInteger(): void
+    {
+        $comic = (new Comic())->setSeries('The Boys');
+
+        self::assertSame(2006, ProviderQuery::staged($comic, ['year' => '2006'])?->year);
+        self::assertSame(2006, ProviderQuery::staged($comic, ['year' => 2006])?->year);
+    }
+
     public function testIgnoresAStagedValueThatIsNotAScalar(): void
     {
         $comic = (new Comic())->setSeries('The Boys');

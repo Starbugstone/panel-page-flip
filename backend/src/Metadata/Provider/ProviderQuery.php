@@ -52,10 +52,17 @@ final class ProviderQuery
             return (is_string($value) || is_int($value)) && trim((string) $value) !== '' ? trim((string) $value) : null;
         };
 
+        // Integers only. is_numeric() would accept "1.9" and "2e3" and cast them
+        // to 1 and 2000, quietly searching for a different record than the one
+        // the form said.
         $number = static function (string $field) use ($staged): ?int {
             $value = $staged[$field] ?? null;
 
-            return is_numeric($value) ? (int) $value : null;
+            if (is_int($value)) {
+                return $value;
+            }
+
+            return is_string($value) && preg_match('/^-?\d+$/', trim($value)) === 1 ? (int) trim($value) : null;
         };
 
         return self::build(

@@ -123,7 +123,11 @@ final class ProviderQuotaTracker
             return max(0, (int) $value);
         }
 
-        $at = \DateTimeImmutable::createFromFormat(\DATE_RFC7231, $value);
+        // DATE_RFC7231 spells GMT as a literal, not a timezone directive, so a
+        // parse with no timezone would be read in whatever the server's default
+        // is. An hour out either way turns a real delay into zero or a wait
+        // nobody asked for.
+        $at = \DateTimeImmutable::createFromFormat(\DATE_RFC7231, $value, new \DateTimeZone('UTC'));
 
         return $at !== false ? max(0, $at->getTimestamp() - $now->getTimestamp()) : null;
     }

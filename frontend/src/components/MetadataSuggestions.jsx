@@ -153,6 +153,7 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
         provider: candidate.provider,
         externalId: candidate.externalId,
       });
+      if (!result?.candidate) throw new Error("That record came back empty.");
       setOpenRecord({ key: `${candidate.provider}-${candidate.externalId}`, ...result });
       if (result.tags) setTagSuggestions(result.tags);
     } catch (loadError) {
@@ -168,6 +169,8 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
     setError(null);
     try {
       const result = await api.post(`/api/comics/${comicId}/metadata-refresh`, {});
+      // A response without a record is not something to render half of.
+      if (!result?.candidate) throw new Error("That record came back empty.");
       setOpenRecord({ key: "refresh", ...result });
       if (result.tags) setTagSuggestions(result.tags);
     } catch (loadError) {
@@ -383,7 +386,7 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
         </div>
       )}
 
-      {openRecord && renderRecord(openRecord.candidate, openRecord.suggestions ?? [], `record-${openRecord.key}`)}
+      {openRecord?.candidate && renderRecord(openRecord.candidate, openRecord.suggestions ?? [], `record-${openRecord.key}`)}
 
       {candidates !== null && candidates.length === 0 && searchedProvider && (
         <p className="text-xs text-muted-foreground">

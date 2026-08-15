@@ -71,9 +71,12 @@ final class ProviderCircuitBreaker
         $state = $this->state($accountKey);
 
         // Whatever the provider asked for wins over anything computed here: it
-        // knows its own quota and we are guessing.
+        // knows its own quota and we are guessing. A delay of zero is not a
+        // request to wait, though — treated as one it would pause for no time
+        // at all *and* suppress the failure threshold below, so a provider
+        // answering `Retry-After: 0` forever would never be backed off.
         $pause = match (true) {
-            $retryAfterSeconds !== null => min($retryAfterSeconds, self::MAX_PAUSE_SECONDS),
+            $retryAfterSeconds !== null && $retryAfterSeconds > 0 => min($retryAfterSeconds, self::MAX_PAUSE_SECONDS),
             $status === ProviderStatus::Unauthorized => self::PAUSE_AFTER_UNAUTHORIZED_SECONDS,
             $status === ProviderStatus::RateLimited => self::PAUSE_AFTER_FAILURES_SECONDS,
             default => null,

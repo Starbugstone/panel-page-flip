@@ -174,7 +174,12 @@ final class MetadataAccessResolverTest extends TestCase
         self::assertSame('shared-token', $access->secret());
     }
 
-    /** With nothing shared to fall back to, it reads as unconfigured. */
+    /**
+     * With nothing shared to fall back to, the refusal is the shared account's
+     * own — here the administrator's switch, which the fixture leaves off. The
+     * status is asserted rather than just the refusal, because "not granted"
+     * covers four different reasons and only one of them is this one.
+     */
     public function testAnIgnoredPersonalTokenLeavesNothingToFallBackOn(): void
     {
         $resolver = $this->resolver(
@@ -185,7 +190,25 @@ final class MetadataAccessResolverTest extends TestCase
             personal: (new UserMetadataCredential())->setMetronToken('personal-token')
         );
 
-        self::assertFalse($resolver->resolve('metron', $this->user())->isGranted());
+        $access = $resolver->resolve('metron', $this->user());
+
+        self::assertFalse($access->isGranted());
+        self::assertSame(ProviderStatus::Disabled, $access->status);
+    }
+
+    /** And when the shared side is fully set up, it is what answers. */
+    public function testAnIgnoredPersonalTokenFallsBackToAConfiguredSharedOne(): void
+    {
+        $resolver = $this->resolver(
+            configuration: static function (MetadataProviderConfiguration $c): void {
+                $c->setMetronToken('shared-token')->setMetronSharedEnabled(true);
+                $c->setPersonalCredentialsEnabled(false);
+            },
+            metronSharedAllowedByEnvironment: true,
+            personal: (new UserMetadataCredential())->setMetronToken('personal-token')
+        );
+
+        self::assertSame('shared', $resolver->resolve('metron', $this->user())->origin);
     }
 
     public function testTheTwoProvidersAreSwitchedIndependently(): void

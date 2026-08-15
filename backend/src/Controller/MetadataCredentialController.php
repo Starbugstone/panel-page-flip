@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Entity\User;
 use App\Entity\UserMetadataCredential;
+use App\Service\AppDataEncryptionService;
 use App\Service\MetadataProviderConfigurationService;
 use App\Service\MetadataProviderRegistry;
 use App\Service\UserMetadataCredentialService;
@@ -28,8 +29,13 @@ use Symfony\Component\Routing\Attribute\Route;
 #[Route('/api/me/metadata-credentials', name: 'api_me_metadata_credentials_')]
 class MetadataCredentialController extends AbstractController
 {
-    /** Long enough for every token these providers issue. */
-    private const MAX_SECRET_LENGTH = 512;
+    /**
+     * The column holds ciphertext, which is longer than the token that went
+     * into it, so the limit is derived from the column rather than guessed.
+     * Counted in bytes: a multibyte value can pass a character count and still
+     * overflow, and the failure would land as a database error at flush time.
+     */
+    private const SECRET_COLUMN_LENGTH = 1024;
 
     private const FIELDS = [
         'metronToken' => ['metron', 'getMetronToken', 'setMetronToken'],
@@ -91,7 +97,7 @@ class MetadataCredentialController extends AbstractController
                 return $this->json(['message' => sprintf('%s must be a string or null.', $field)], Response::HTTP_BAD_REQUEST);
             }
 
-            if (is_string($value) && mb_strlen(trim($value)) > self::MAX_SECRET_LENGTH) {
+            if (is_string($value) && strlen(trim($value)) > AppDataEncryptionService::maxPlaintextBytes(self::SECRET_COLUMN_LENGTH)) {
                 return $this->json(['message' => sprintf('%s is longer than a token from this provider.', $field)], Response::HTTP_BAD_REQUEST);
             }
 

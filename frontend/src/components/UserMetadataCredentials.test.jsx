@@ -127,6 +127,21 @@ describe("UserMetadataCredentials", () => {
     });
   });
 
+  /** Leaving a secret in component state is what this panel avoids elsewhere. */
+  it("clears a typed token from state when the stored one is removed", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockResolvedValue(state({ configured: { metron: true, comicvine: false } }));
+
+    render(<UserMetadataCredentials />);
+
+    const field = await screen.findByLabelText(/metron api token/i);
+    await user.click(field);
+    await user.type(field, "typed-by-hand");
+    await user.click(screen.getByRole("button", { name: /^remove$/i }));
+
+    await waitFor(() => expect(screen.getByLabelText(/metron api token/i)).toHaveValue(""));
+  });
+
   it("reports what a test said without echoing the token", async () => {
     const user = userEvent.setup();
     render(<UserMetadataCredentials />);

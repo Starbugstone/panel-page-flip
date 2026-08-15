@@ -35,7 +35,15 @@ final class AdminMetadataApiAccessTest extends AbstractApiTestCase
         self::assertTrue($this->reload($target)->isMetadataApiEnabled());
     }
 
-    /** Otherwise a user could simply grant it back to themselves. */
+    /**
+     * Otherwise a user could simply grant it back to themselves.
+     *
+     * Refused at the firewall, which holds the whole /api/users namespace to
+     * ROLE_ADMIN — the controller's own check on this field is defence in depth
+     * behind that. Both the status and the stored value are asserted: a test
+     * that only checked the value would keep passing if the refusal moved or
+     * disappeared, since a rejected request leaves the field alone either way.
+     */
     public function testAUserCannotGrantThemselvesApiAccess(): void
     {
         $user = UserFactory::createOne(['metadataApiEnabled' => false])->object();
@@ -43,6 +51,7 @@ final class AdminMetadataApiAccessTest extends AbstractApiTestCase
 
         $this->patchJson(sprintf('/api/users/%d', $user->getId()), ['metadataApiEnabled' => true]);
 
+        self::assertResponseStatusCodeSame(403);
         self::assertFalse($this->reload($user)->isMetadataApiEnabled());
     }
 

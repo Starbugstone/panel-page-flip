@@ -82,13 +82,36 @@ final class ProviderQuotaTrackerTest extends TestCase
     /** Both forms are legal, and both turn up. */
     public function testReadsARetryAfterGivenAsAnHttpDate(): void
     {
-        $now = new \DateTimeImmutable('2026-08-15 12:00:00');
+        $now = new \DateTimeImmutable('2026-08-15 12:00:00', new \DateTimeZone('UTC'));
         $at = $now->modify('+90 seconds')->format(\DATE_RFC7231);
 
         self::assertSame(
             90,
             $this->tracker()->retryDelay($this->response(['Retry-After' => $at], 429), $now)
         );
+    }
+
+    /**
+     * RFC 7231 spells GMT as a literal rather than a timezone directive, so a
+     * parse that does not say UTC is read in the server's default zone. On a
+     * server an hour ahead that turns a real delay into zero.
+     */
+    public function testAnHttpDateIsReadAsUtcWhateverTheServerTimezoneIs(): void
+    {
+        $previous = date_default_timezone_get();
+        date_default_timezone_set('Europe/Paris');
+
+        try {
+            $now = new \DateTimeImmutable('2026-08-15 12:00:00', new \DateTimeZone('UTC'));
+            $at = $now->modify('+90 seconds')->format(\DATE_RFC7231);
+
+            self::assertSame(
+                90,
+                $this->tracker()->retryDelay($this->response(['Retry-After' => $at], 429), $now)
+            );
+        } finally {
+            date_default_timezone_set($previous);
+        }
     }
 
     public function testFallsBackToTheResetHeaderWhenThereIsNoRetryAfter(): void

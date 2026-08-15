@@ -371,10 +371,9 @@ of putting a switch outside it.
   those terms turns it off — in the environment, or in one click in the admin
   panel.
 
-**Comic Vine is gated even for a personal key.** Its terms are the installation's
-problem, not the individual's: bring-your-own-key is not a route around them, so
-whether this deployment may use Comic Vine at all stays the operator's answer to
-give.
+Both switches govern the credential the **installation** owns. Neither reaches a
+user's own token — see the personal-token rule above, which applies to Comic Vine
+exactly as it does to Metron.
 
 **Per-user access.** `User::$metadataApiEnabled` lets an administrator withdraw
 external lookups from one account, from the admin user page. Local sources —

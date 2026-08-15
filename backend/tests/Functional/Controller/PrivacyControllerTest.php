@@ -147,6 +147,8 @@ final class PrivacyControllerTest extends AbstractApiTestCase
     {
         $this->loginAs(UserFactory::createOne()->object());
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
+        // The export is only worth checking if there was a token to leak.
+        self::assertResponseIsSuccessful();
 
         $this->getJson('/api/privacy/export');
 

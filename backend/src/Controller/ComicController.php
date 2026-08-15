@@ -656,7 +656,7 @@ class ComicController extends AbstractController
             'tags' => $tagSuggestions->for($comic, $comic->getOwner() ?? $user),
             // Characters, teams, locations and story arcs. Shown as metadata and
             // never offered as tags — see ComicTagSuggestionService.
-            'classification' => $comic->getClassification(),
+            'classification' => $comic->getClassification()->jsonSerialize() ?: null,
             'origin' => $this->metadataOrigin($comic),
             // Which providers would answer this user, and why not when they
             // would not, so the editor can say something better than "no
@@ -767,7 +767,8 @@ class ComicController extends AbstractController
         EntityManagerInterface $entityManager,
         MetadataProviderRegistry $providers,
         ComicMetadataSuggestionService $suggestions,
-        ComicTagSuggestionService $tagSuggestions
+        ComicTagSuggestionService $tagSuggestions,
+        RateLimiterFactory $metadataProviderUserLimiter
     ): JsonResponse {
         $data = json_decode($request->getContent(), true);
         $data = is_array($data) ? $data : [];
@@ -779,7 +780,8 @@ class ComicController extends AbstractController
             $entityManager,
             $providers,
             $suggestions,
-            $tagSuggestions
+            $tagSuggestions,
+            $metadataProviderUserLimiter
         );
     }
 
@@ -797,7 +799,8 @@ class ComicController extends AbstractController
         EntityManagerInterface $entityManager,
         MetadataProviderRegistry $providers,
         ComicMetadataSuggestionService $suggestions,
-        ComicTagSuggestionService $tagSuggestions
+        ComicTagSuggestionService $tagSuggestions,
+        RateLimiterFactory $metadataProviderUserLimiter
     ): JsonResponse {
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if ($comic && $comic->getMetadataProvider() === null) {
@@ -814,7 +817,8 @@ class ComicController extends AbstractController
             $entityManager,
             $providers,
             $suggestions,
-            $tagSuggestions
+            $tagSuggestions,
+            $metadataProviderUserLimiter
         );
     }
 
@@ -832,7 +836,8 @@ class ComicController extends AbstractController
         EntityManagerInterface $entityManager,
         MetadataProviderRegistry $providers,
         ComicMetadataSuggestionService $suggestions,
-        ComicTagSuggestionService $tagSuggestions
+        ComicTagSuggestionService $tagSuggestions,
+        RateLimiterFactory $metadataProviderUserLimiter
     ): JsonResponse {
         $user = $this->getUser();
         if (!$user instanceof User) {
@@ -850,6 +855,17 @@ class ComicController extends AbstractController
 
         if ($providerKey === null || $externalId === null || $providers->get($providerKey) === null) {
             return $this->json(['message' => 'Name a provider and a record to look up.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        // The same allowance the search consumes. A detail lookup is an upstream
+        // request too, and a varying external id misses the cache, so leaving
+        // this route unmetered would have let one account spend the whole
+        // installation's quota through the fairness rule's back door.
+        if (!$metadataProviderUserLimiter->create((string) $user->getId())->consume()->isAccepted()) {
+            return $this->json(
+                ['message' => 'You have run a lot of metadata lookups recently. Try again shortly.'],
+                Response::HTTP_TOO_MANY_REQUESTS
+            );
         }
 
         $result = $providers->detail($providerKey, $externalId, $user);
@@ -2077,6 +2093,10 @@ class ComicController extends AbstractController
                 // StructuredMetadataInput once the comic is in hand; this list
                 // only decides which keys the endpoint will look at.
                 'series', 'issueNumber', 'issueCount', 'volume', 'publishedAt', 'languageCode', 'ageRating',
+                // Reviewed credits, and which external record was accepted. An
+                // unknown key here rejects the whole batch rather than being
+                // dropped, so a field the dialog can send has to be listed.
+                'creators', 'metadataProvider', 'metadataExternalId',
             ];
             if (array_diff(array_keys($changes), $allowedFields) !== []) {
                 return [];

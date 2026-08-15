@@ -108,9 +108,10 @@ export function PrivacyPolicy() {
       </p>
       <p>
         <strong>Metadata providers.</strong> When you explicitly search for a comic’s
-        details, the provider you choose — Metron or Comic Vine — receives the
-        identifying fields of that search: series name, issue number, year and volume.
-        Nothing else is sent. In particular the provider does not receive your identity
+        details, the provider you choose receives the identifying fields of that
+        search and nothing else: Metron receives the series name, the issue number and
+        the year; Comic Vine receives the series name and issue number as a single
+        search phrase. In particular the provider does not receive your identity
         or email address, your file or Dropbox paths, your reading history, your tags,
         or the comic file itself. A search only happens when you ask for one; uploading
         a comic never contacts a provider. Results are cached on this server so the same

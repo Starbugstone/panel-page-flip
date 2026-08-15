@@ -125,7 +125,9 @@ class ComicSerializer
             // Characters, teams, locations, story arcs and genres. Structured
             // metadata, not tags — the editor offers genres as tag suggestions
             // and the user decides; nothing here is a tag until they do.
-            'classification' => $comic->getClassification(),
+            // null rather than an empty object when there is nothing to say,
+            // matching what a provider candidate serialises to.
+            'classification' => $comic->getClassification()->jsonSerialize() ?: null,
             'metadataOrigin' => $comic->getMetadataProvider() === null ? null : [
                 'provider' => $comic->getMetadataProvider(),
                 'externalId' => $comic->getMetadataExternalId(),

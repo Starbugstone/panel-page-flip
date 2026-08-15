@@ -87,6 +87,11 @@ export function UserMetadataCredentials() {
     setBusy(true);
     try {
       setState(await api.put("/api/me/metadata-credentials", { [field]: null }));
+      // Anything typed into the box goes with it: leaving a secret in component
+      // state after removing the stored one is the thing this panel is careful
+      // about everywhere else.
+      setValues((current) => ({ ...current, [field]: "" }));
+      setEngaged((current) => ({ ...current, [field]: false }));
       setResult(null);
       // Removing it stops new requests. Metadata already accepted is yours and
       // stays exactly as it is.
