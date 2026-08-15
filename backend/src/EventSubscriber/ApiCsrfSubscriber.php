@@ -66,7 +66,7 @@ final class ApiCsrfSubscriber implements EventSubscriberInterface
     private function shouldValidate(Request $request): bool
     {
         $path = $request->getPathInfo();
-        if (!str_starts_with($path, '/api') || $request->isMethodSafe(false) || !$this->security->getUser()) {
+        if (!str_starts_with($path, '/api') || $request->isMethodSafe() || !$this->security->getUser()) {
             return false;
         }
 
