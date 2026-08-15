@@ -241,6 +241,10 @@ services:
         arguments:
             $logger: '@logger'
 
+    App\Service\PageDerivativeService:
+        arguments:
+            $logger: '@logger'
+
     App\Service\ComicCleanupService:
         arguments:
             $comicsDirectory: '%comics_directory%'

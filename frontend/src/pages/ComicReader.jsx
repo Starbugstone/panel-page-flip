@@ -1,7 +1,7 @@
-﻿import { useState, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button.jsx";
-import { ArrowLeft, ArrowRight, Info, Maximize, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Info, LayoutGrid, Maximize, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast.js";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { Progress } from "@/components/ui/progress.jsx";
@@ -14,18 +14,22 @@ import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 import { useReaderNavigation } from "@/hooks/use-reader-navigation";
 import { useReaderPreferences } from "@/hooks/use-reader-preferences.jsx";
 import { useReaderWakeLock } from "@/hooks/use-reader-wake-lock";
-import { createComicPageUrls } from "@/lib/reader-pages";
+import { usePageVariant } from "@/hooks/use-page-variant";
+import { usePageGeometry } from "@/hooks/use-page-geometry";
+import { createComicPageUrls, withForcedReload } from "@/lib/reader-pages";
 import { ReaderSettings } from "@/components/reader/ReaderSettings";
+import { ReaderThumbnailStrip } from "@/components/reader/ReaderThumbnailStrip";
 import { SinglePageReader } from "@/components/reader/SinglePageReader";
 
 export default function ComicReader() {
   const { comicId } = useParams();
   const [comic, setComic] = useState(null);
   const [loadError, setLoadError] = useState(null);
-  const [comicPages, setComicPages] = useState([]);
+  const [pageCount, setPageCount] = useState(0);
   const [isFetchingComic, setIsFetchingComic] = useState(true); // For overall comic data
   const [imageCache, setImageCache] = useState({});
   const [showDebug, setShowDebug] = useState(false); // For debug panel
+  const [showThumbnails, setShowThumbnails] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -35,6 +39,13 @@ export default function ComicReader() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { updateComicProgress } = useComicLibrary();
+  // Which size of page this screen is worth asking for. Zoom raises it a rung;
+  // nothing here ever reaches for the source scan.
+  const pageVariant = usePageVariant(imageContainerRef, { zoomLevel: isZoomed ? zoomLevel : 1 });
+  const comicPages = useMemo(
+    () => createComicPageUrls(comicId, pageCount, pageVariant),
+    [comicId, pageCount, pageVariant]
+  );
   const {
     currentPage,
     currentPageRef,
@@ -53,14 +64,19 @@ export default function ComicReader() {
     resetPreferences,
   } = useReaderPreferences(toast);
   useReaderWakeLock(settings.wakeLock);
-  
+  const { geometry: pageGeometry } = usePageGeometry(comicId, pageCount, currentPage);
+
   // Refs for async operations
   const progressAbortController = useRef(null);
   const loadQueueRef = useRef([]); // Queue of pages to load
   const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
   const isMountedRef = useRef(true); // Progress saves outlive the component; used to suppress late toasts
   const progressRevisionRef = useRef(0); // Orders progress saves that may reach the server out of order
-  
+  // Which variant each cached page was fetched at. A page is only "there" if it
+  // is there at the size currently being asked for; after an upgrade the old
+  // image stays on screen and is replaced when the larger one arrives.
+  const loadedVariantsRef = useRef({});
+
   const CACHE_SIZE_FORWARD = 5;
   const CACHE_SIZE_BACKWARD = 5;
 
@@ -177,26 +193,26 @@ export default function ComicReader() {
       setIsFetchingComic(true);
       setLoadError(null);
       setComic(null);
-      setComicPages([]);
+      setPageCount(0);
       resetPage(0, 0);
       setImageCache({});
+      loadedVariantsRef.current = {};
       try {
         const data = await api.get(`/api/comics/${comicId}`);
         if (!active) return;
         setComic(data.comic);
 
         if (data.comic && data.comic.pageCount > 0) {
-          const pages = createComicPageUrls(comicId, data.comic.pageCount);
-          setComicPages(pages);
+          setPageCount(data.comic.pageCount);
           // Continue the server's revision sequence, otherwise a reopened
           // reader would start below the stored value and every save would
           // look stale.
           progressRevisionRef.current = data.comic.readingProgress?.revision || 0;
 
           if (data.comic.readingProgress && data.comic.readingProgress.currentPage) {
-            resetPage(data.comic.readingProgress.currentPage - 1, pages.length);
+            resetPage(data.comic.readingProgress.currentPage - 1, data.comic.pageCount);
           } else {
-            resetPage(0, pages.length);
+            resetPage(0, data.comic.pageCount);
           }
         } else {
           toast({
@@ -204,7 +220,7 @@ export default function ComicReader() {
             description: "This comic cannot be displayed as it has no pages.",
             variant: "destructive",
           });
-          setComicPages([]);
+          setPageCount(0);
           // Potentially navigate away or show a different message
         }
 
@@ -252,29 +268,56 @@ export default function ComicReader() {
 
   // Object to track in-progress loads to prevent duplicate requests
   const loadingPagesRef = useRef({});
-  
+
+  // A page counts as ready only at the size currently being asked for. After a
+  // resize or a zoom, the image on screen is still shown — it is simply no
+  // longer the one this reader wants, so it is fetched again in the background.
+  const isPageReady = useCallback((pageIndex) => {
+    const cached = imageCache[pageIndex];
+
+    return Boolean(cached)
+      && cached !== 'loading'
+      && cached !== 'failed'
+      && loadedVariantsRef.current[pageIndex] === pageVariant;
+  }, [imageCache, pageVariant]);
+
   // Function to load a single page and add it to the cache
   const loadPageIntoCache = useCallback((pageIndex) => {
     if (pageIndex < 0 || pageIndex >= comicPages.length) return Promise.resolve(); // Out of bounds
-    
-    // If already fully loaded in cache, no need to load again
-    if (imageCache[pageIndex] && imageCache[pageIndex] !== 'loading' && imageCache[pageIndex] !== 'failed') {
-      return Promise.resolve();
-    }
-    
-    // If this page is already being loaded, return the existing promise
-    if (loadingPagesRef.current[pageIndex]) {
-      return loadingPagesRef.current[pageIndex];
-    }
-    
-    // Mark as loading in the cache
-    setImageCache(prev => ({
-      ...prev,
-      [pageIndex]: 'loading'
-    }));
-    
-    // Create a new promise for this load
-    const loadPromise = new Promise((resolve, reject) => {
+
+    if (isPageReady(pageIndex)) return Promise.resolve();
+
+    // A load already running for this exact size is the one to wait on. One
+    // running for a smaller size is not: settling on it would hand back the
+    // image the upgrade exists to replace.
+    const inFlight = loadingPagesRef.current[pageIndex];
+    if (inFlight && inFlight.variant === pageVariant) return inFlight.promise;
+
+    const entry = { variant: pageVariant, promise: null };
+    // Only the newest load for a page may write to the cache. A slow small
+    // image landing after a fast large one would otherwise put the small one
+    // back and the reader would never settle on the size it asked for.
+    const isCurrentLoad = () => loadingPagesRef.current[pageIndex] === entry;
+
+    // The request goes out now; saying so is a render, and one render inside
+    // another's commit is what the loading effect would otherwise cause on
+    // every page turn. Nothing waits on the flag - the image is already on its
+    // way, and the tracker above is what stops a second request for it.
+    queueMicrotask(() => {
+      if (!isCurrentLoad()) return;
+
+      setImageCache(prev => {
+        const showing = prev[pageIndex];
+        // Upgrading in place leaves the smaller page up: blanking the reader to
+        // a skeleton because the window grew would be a worse picture, not a
+        // better one.
+        return showing && showing !== 'loading' && showing !== 'failed'
+          ? prev
+          : { ...prev, [pageIndex]: 'loading' };
+      });
+    });
+
+    entry.promise = new Promise((resolve, reject) => {
       // The plain page URL, deliberately: the endpoint is cacheable, so asking
       // for it again is answered by the browser without touching the network.
       // A cache-busting parameter here would make every page a fresh download.
@@ -283,34 +326,39 @@ export default function ComicReader() {
 
       img.onload = () => {
         // Only update cache if this page is still in the cache window
-        if (isInCacheWindow(pageIndex)) {
-          setImageCache(prev => ({ ...prev, [pageIndex]: img }));
+        if (isCurrentLoad()) {
+          if (isInCacheWindow(pageIndex)) {
+            loadedVariantsRef.current[pageIndex] = entry.variant;
+            setImageCache(prev => ({ ...prev, [pageIndex]: img }));
+          }
+          delete loadingPagesRef.current[pageIndex];
         }
-        // Remove from loading tracker
-        delete loadingPagesRef.current[pageIndex];
         resolve(img);
       };
-      
+
       img.onerror = () => {
-        // Update cache with failed status
-        setImageCache(prev => ({
-          ...prev,
-          [pageIndex]: 'failed'
-        }));
-        // Remove from loading tracker
-        delete loadingPagesRef.current[pageIndex];
+        if (isCurrentLoad()) {
+          // A failed upgrade keeps whatever is already on screen: the reader
+          // can still read the page, just not at the larger size.
+          setImageCache(prev => (
+            prev[pageIndex] && prev[pageIndex] !== 'loading'
+              ? prev
+              : { ...prev, [pageIndex]: 'failed' }
+          ));
+          delete loadingPagesRef.current[pageIndex];
+        }
         reject();
       };
-      
+
       img.src = url;
     });
-    
+
     // Store the promise in the loading tracker
-    loadingPagesRef.current[pageIndex] = loadPromise;
-    
-    return loadPromise;
-  }, [imageCache, comicPages, isInCacheWindow]);
-  
+    loadingPagesRef.current[pageIndex] = entry;
+
+    return entry.promise;
+  }, [comicPages, isInCacheWindow, isPageReady, pageVariant]);
+
   // Function to process the load queue
   //
   // The drain step is a local function rather than the callback calling itself.
@@ -356,49 +404,50 @@ export default function ComicReader() {
     // Calculate range of pages to cache
     const startPage = Math.max(0, currentPageIndex - CACHE_SIZE_BACKWARD);
     const endPage = Math.min(comicPages.length - 1, currentPageIndex + CACHE_SIZE_FORWARD);
-    
+
+    // A page already in flight is left alone; anything else that is not ready
+    // at the current size is worth queueing, including one cached at a smaller
+    // size that a resize has since outgrown.
+    const shouldQueue = (pageIndex) => !isPageReady(pageIndex) && imageCache[pageIndex] !== 'loading';
+
     // Priority 1: Next page
-    if (currentPageIndex + 1 <= endPage && 
-        (!imageCache[currentPageIndex + 1] || imageCache[currentPageIndex + 1] === 'failed')) {
+    if (currentPageIndex + 1 <= endPage && shouldQueue(currentPageIndex + 1)) {
       loadQueueRef.current.push(currentPageIndex + 1);
     }
-    
+
     // Priority 2: Previous page
-    if (currentPageIndex - 1 >= startPage && 
-        (!imageCache[currentPageIndex - 1] || imageCache[currentPageIndex - 1] === 'failed')) {
+    if (currentPageIndex - 1 >= startPage && shouldQueue(currentPageIndex - 1)) {
       loadQueueRef.current.push(currentPageIndex - 1);
     }
-    
+
     // Priority 3: Pages ahead of current
     for (let i = currentPageIndex + 2; i <= endPage; i++) {
-      if (!imageCache[i] || imageCache[i] === 'failed') {
+      if (shouldQueue(i)) {
         loadQueueRef.current.push(i);
       }
     }
-    
+
     // Priority 4: Pages before current
     for (let i = currentPageIndex - 2; i >= startPage; i--) {
-      if (!imageCache[i] || imageCache[i] === 'failed') {
+      if (shouldQueue(i)) {
         loadQueueRef.current.push(i);
       }
     }
-    
+
     // Start processing the queue if there are pages to load
     if (loadQueueRef.current.length > 0) {
       processLoadQueue();
     }
-  }, [processLoadQueue, imageCache, comicPages.length, currentPageRef]);
-  
+  }, [processLoadQueue, imageCache, isPageReady, comicPages.length, currentPageRef]);
+
   // Function to clean up the cache (remove pages outside the window)
   const cleanupCache = useCallback(() => {
-    setImageCache(prev => {
-      const startPage = Math.max(0, currentPageRef.current - CACHE_SIZE_BACKWARD);
-      const endPage = Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
+    const startPage = Math.max(0, currentPageRef.current - CACHE_SIZE_BACKWARD);
+    const endPage = Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
+    const isOutsideWindow = (pageIndex) => pageIndex < startPage || pageIndex > endPage;
 
-      const stale = Object.keys(prev).filter(key => {
-        const pageKey = parseInt(key, 10);
-        return pageKey < startPage || pageKey > endPage;
-      });
+    setImageCache(prev => {
+      const stale = Object.keys(prev).filter(key => isOutsideWindow(parseInt(key, 10)));
 
       // Returning a new object when nothing was evicted would change the cache
       // identity, re-run the effect that schedules this cleanup, and spin the
@@ -408,6 +457,12 @@ export default function ComicReader() {
       const newCache = { ...prev };
       stale.forEach(key => delete newCache[key]);
       return newCache;
+    });
+
+    // An evicted page has to forget what size it was, or coming back to it
+    // would count as ready with nothing in the cache to show.
+    Object.keys(loadedVariantsRef.current).forEach(key => {
+      if (isOutsideWindow(parseInt(key, 10))) delete loadedVariantsRef.current[key];
     });
   }, [comicPages.length, currentPageRef]);
   
@@ -424,13 +479,15 @@ export default function ComicReader() {
     // every page turn during a load leaves a timer behind that fires against a
     // page the reader has moved on from.
     let cancelled = false;
-    if (cachedImage && cachedImage !== 'loading' && cachedImage !== 'failed') {
-      // Already cached, so the render above is already showing it. Fill in the
-      // pages around it once the current one has settled.
+    if (isPageReady(currentPage)) {
+      // Already cached at the size being asked for, so the render above is
+      // showing it. Fill in the pages around it once this one has settled.
       queueTimer = setTimeout(() => { queuePagesToLoad(); }, 100);
     } else if (cachedImage !== 'failed') {
-      // Not cached yet. The cache entry is what the view reads, so putting the
-      // page in it is the whole job - there is no separate flag to raise.
+      // Not cached yet, or cached at a size this reader has outgrown. The cache
+      // entry is what the view reads, so putting the page in it is the whole
+      // job - there is no separate flag to raise.
+      //
       loadPageIntoCache(currentPage)
         .then(() => {
           if (cancelled || currentPageRef.current !== currentPage) return;
@@ -438,7 +495,7 @@ export default function ComicReader() {
         })
         .catch(() => {/* the cache records the failure; see above */});
     }
-    
+
     // Schedule cache cleanup after a delay
     const cleanupTimer = setTimeout(() => {
       cleanupCache();
@@ -449,7 +506,7 @@ export default function ComicReader() {
       clearTimeout(cleanupTimer);
       clearTimeout(queueTimer);
     };
-  }, [currentPage, comicPages, imageCache, queuePagesToLoad, cleanupCache, loadPageIntoCache, currentPageRef]);
+  }, [currentPage, comicPages, imageCache, isPageReady, queuePagesToLoad, cleanupCache, loadPageIntoCache, currentPageRef]);
 
 
 
@@ -532,6 +589,7 @@ export default function ComicReader() {
 
     img.onload = () => {
       delete loadingPagesRef.current[pageToReload];
+      loadedVariantsRef.current[pageToReload] = pageVariant;
       setImageCache(prev => ({ ...prev, [pageToReload]: img }));
       settleForcedLoad(img);
 
@@ -582,10 +640,10 @@ export default function ComicReader() {
     // A caller is not guaranteed; without this a failed reload would surface as
     // an unhandled rejection on top of the toast that already reports it.
     forcedLoad.catch(() => {});
-    loadingPagesRef.current[pageToReload] = forcedLoad;
+    loadingPagesRef.current[pageToReload] = { variant: pageVariant, promise: forcedLoad };
 
-    img.src = `${comicPages[pageToReload]}?_force_reload=${Date.now()}`;
-  }, [comicPages, currentPage, currentPageRef, toast]);
+    img.src = withForcedReload(comicPages[pageToReload]);
+  }, [comicPages, currentPage, currentPageRef, pageVariant, toast]);
 
   const handleScreenNavClick = (direction) => {
     if (direction === 'left') {
@@ -858,9 +916,22 @@ export default function ComicReader() {
               </>
             )}
             
+            <Button
+              variant="outline"
+              size="icon"
+              className="opacity-80 hover:opacity-100 bg-card/80"
+              onClick={() => setShowThumbnails((shown) => !shown)}
+              aria-label={showThumbnails ? "Hide page thumbnails" : "Show page thumbnails"}
+              aria-expanded={showThumbnails}
+              aria-controls="reader-thumbnail-strip"
+              title="Page thumbnails"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+
             {/* Debug button */}
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="icon"
               className="opacity-80 hover:opacity-100 bg-card/80"
               onClick={() => setShowDebug(!showDebug)}
@@ -877,6 +948,12 @@ export default function ComicReader() {
               <h3 className="font-bold mb-2">Debug Info</h3>
               <p>Current page: {currentPage + 1}</p>
               <p>Total pages: {comicPages.length}</p>
+              <p>Variant: {pageVariant}</p>
+              <p>
+                Page size: {pageGeometry[currentPage + 1]
+                  ? `${pageGeometry[currentPage + 1].width}×${pageGeometry[currentPage + 1].height}`
+                  : 'unknown'}
+              </p>
               <p>Loading: {isPageImageLoading ? 'Yes' : 'No'}</p>
               <p>Cached pages: {Object.keys(imageCache).length}</p>
               <p>Cache window: {Math.max(0, currentPage - CACHE_SIZE_BACKWARD) + 1} - {Math.min(comicPages.length - 1, currentPage + CACHE_SIZE_FORWARD) + 1}</p>
@@ -917,7 +994,20 @@ export default function ComicReader() {
           )}
         </SinglePageReader>
       </div>
-      
+
+      {/* Page navigator. Same derivative pipeline as the page itself, one rung
+          down: a thumbnail is a page, so it is behind the same authorization. */}
+      {showThumbnails && comicPages.length > 0 && (
+        <ReaderThumbnailStrip
+          key={`${comicId}-${comicPages.length}`}
+          comicId={comicId}
+          pageCount={comicPages.length}
+          currentPage={currentPage}
+          geometry={pageGeometry}
+          onSelect={goToPage}
+        />
+      )}
+
       {/* Reader controls - different styling in fullscreen mode */}
       <div
         role="group"
