@@ -48,6 +48,7 @@ jobs:
           vendor/bin/phpstan analyse -c phpstan.generate.neon --generate-baseline=phpstan-baseline.neon --no-progress || true
           test -s phpstan-baseline.neon
           rm phpstan.generate.neon
+          vendor/bin/php-cs-fixer fix --using-cache=no
 
       - name: Validate Symfony container early
         shell: bash
