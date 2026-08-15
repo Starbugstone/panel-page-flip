@@ -391,12 +391,6 @@ parameters:
 			path: src/Entity/User.php
 
 		-
-			message: '#^Method Symfony\\Component\\HttpFoundation\\Request\:\:isMethodSafe\(\) invoked with 1 parameter, 0 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: src/EventSubscriber/ApiCsrfSubscriber.php
-
-		-
 			message: '#^Class App\\Repository\\AdminAuditLogRepository has PHPDoc tag @method for method findBy\(\) parameter \#1 \$criteria with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
