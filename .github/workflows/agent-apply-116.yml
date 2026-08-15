@@ -77,8 +77,14 @@ jobs:
           docker compose logs database
           exit 1
 
-      - name: Install backend dependencies
-        run: docker compose exec -T php composer install --no-interaction --no-progress
+      - name: Install backend dependencies without scripts
+        run: docker compose exec -T php composer install --no-interaction --no-progress --no-scripts
+
+      - name: Clear Symfony cache
+        run: docker compose exec -T php php bin/console cache:clear
+
+      - name: Install Symfony assets
+        run: docker compose exec -T php php bin/console assets:install public
 
       - name: Prepare and migrate test database
         shell: bash
