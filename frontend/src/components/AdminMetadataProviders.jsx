@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { providerStatusStyle } from "@/lib/provider-status";
 
 /**
  * Credentials are write-only here, because the server never sends them back.
@@ -39,15 +40,6 @@ const describeQuota = (quota) => {
   const reset = quota.resetsAt ? new Date(quota.resetsAt * 1000).toLocaleTimeString() : null;
   const limit = quota.limit === undefined ? "" : ` of ${quota.limit}`;
   return `${quota.remaining}${limit} left${reset ? `, resets ${reset}` : ""}`;
-};
-
-const STATUS_STYLES = {
-  ok: "text-green-600",
-  unconfigured: "text-muted-foreground",
-  unauthorized: "text-destructive",
-  rate_limited: "text-amber-600",
-  unreachable: "text-destructive",
-  failed: "text-destructive",
 };
 
 export function AdminMetadataProviders() {
@@ -308,7 +300,7 @@ export function AdminMetadataProviders() {
             {results.map((result) => (
               <p key={result.key} className="text-sm">
                 <span className="font-medium">{result.label}: </span>
-                <span className={STATUS_STYLES[result.status] ?? "text-muted-foreground"}>{result.message}</span>
+                <span className={providerStatusStyle(result.status)}>{result.message}</span>
               </p>
             ))}
           </div>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { providerStatusStyle } from "@/lib/provider-status";
 
 /**
  * Only ever a token, never a provider account password. A token can be revoked
@@ -25,15 +26,6 @@ const FIELDS = [
     hint: "From comicvine.gamespot.com/api. Your own key keeps working even when this server's shared Comic Vine access is switched off. Comic Vine's published terms are non-commercial use only, and obtaining a key is you accepting them.",
   },
 ];
-
-const STATUS_STYLES = {
-  ok: "text-green-600",
-  unconfigured: "text-muted-foreground",
-  unauthorized: "text-destructive",
-  rate_limited: "text-amber-600",
-  unreachable: "text-destructive",
-  failed: "text-destructive",
-};
 
 /**
  * Your own metadata-provider tokens.
@@ -202,7 +194,7 @@ export function UserMetadataCredentials() {
             </div>
 
             {result?.provider === field.provider && (
-              <p className={`text-sm ${STATUS_STYLES[result.status] ?? "text-muted-foreground"}`}>{result.message}</p>
+              <p className={`text-sm ${providerStatusStyle(result.status)}`}>{result.message}</p>
             )}
           </div>
         ))}

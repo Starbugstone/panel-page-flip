@@ -18,8 +18,6 @@ final class Classification implements \JsonSerializable
     private const MAX_VALUES_PER_FIELD = 40;
     private const MAX_VALUE_LENGTH = 120;
 
-    public const FIELDS = ['genres', 'characters', 'teams', 'locations', 'storyArcs'];
-
     /**
      * @param list<string> $genres
      * @param list<string> $characters

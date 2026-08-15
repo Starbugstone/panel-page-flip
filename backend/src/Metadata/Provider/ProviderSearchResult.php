@@ -41,12 +41,6 @@ final class ProviderSearchResult implements \JsonSerializable
         return new self($access->provider, $access->status, $access->message, []);
     }
 
-    /** @param list<ProviderCandidate> $candidates */
-    public function withCandidates(array $candidates): self
-    {
-        return new self($this->provider, $this->status, $this->message, $candidates, $this->origin);
-    }
-
     public function isOk(): bool
     {
         return $this->status === ProviderStatus::Ok;

@@ -41,16 +41,4 @@ enum ProviderStatus: string
 
     /** It answered, but with something we could not use. */
     case Failed = 'failed';
-
-    /**
-     * Whether asking again shortly is worth doing. A refused key is not going
-     * to start working on a retry; a rate limit is.
-     */
-    public function isTransient(): bool
-    {
-        return match ($this) {
-            self::RateLimited, self::Paused, self::Unreachable, self::Failed => true,
-            default => false,
-        };
-    }
 }

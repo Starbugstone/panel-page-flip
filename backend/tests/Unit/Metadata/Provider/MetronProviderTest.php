@@ -274,7 +274,7 @@ final class MetronProviderTest extends TestCase
     }
 
     /** @dataProvider verificationCases */
-    public function testSaysWhatHappenedWhenATokenIsTested(int $httpCode, string $expected): void
+    public function testSaysWhatHappenedWhenATokenIsTested(int $httpCode, ProviderStatus $expected): void
     {
         $provider = $this->provider(new MockResponse('{"results":[]}', ['http_code' => $httpCode]));
 
@@ -283,18 +283,18 @@ final class MetronProviderTest extends TestCase
 
     public function verificationCases(): iterable
     {
-        yield 'accepted' => [200, 'ok'];
-        yield 'refused' => [401, 'unauthorized'];
-        yield 'forbidden' => [403, 'unauthorized'];
-        yield 'rate limited' => [429, 'rate_limited'];
-        yield 'server error' => [500, 'failed'];
+        yield 'accepted' => [200, ProviderStatus::Ok];
+        yield 'refused' => [401, ProviderStatus::Unauthorized];
+        yield 'forbidden' => [403, ProviderStatus::Unauthorized];
+        yield 'rate limited' => [429, ProviderStatus::RateLimited];
+        yield 'server error' => [500, ProviderStatus::Failed];
     }
 
     public function testSaysThereIsNothingToTestWithoutAToken(): void
     {
         $verification = $this->provider(null)->verify(null);
 
-        self::assertSame('unconfigured', $verification->status);
+        self::assertSame(ProviderStatus::Unconfigured, $verification->status);
         self::assertStringContainsString('token', $verification->message);
     }
 
@@ -304,7 +304,7 @@ final class MetronProviderTest extends TestCase
             throw new \Symfony\Component\HttpClient\Exception\TransportException('no route to host');
         });
 
-        self::assertSame('unreachable', $this->provider(null, client: $client)->verify('token')->status);
+        self::assertSame(ProviderStatus::Unreachable, $this->provider(null, client: $client)->verify('token')->status);
     }
 
     /** Verification asks the live service, so a cached search cannot answer it. */

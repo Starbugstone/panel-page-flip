@@ -121,7 +121,7 @@ final class MetadataProviderRegistry
                 return [
                     'key' => $provider->key(),
                     'label' => $provider->label(),
-                    'status' => $result->status,
+                    'status' => $result->status->value,
                     'message' => $result->message,
                 ];
             },

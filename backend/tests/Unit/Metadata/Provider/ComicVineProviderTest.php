@@ -184,7 +184,7 @@ final class ComicVineProviderTest extends TestCase
     }
 
     /** @dataProvider verificationCases */
-    public function testSaysWhatHappenedWhenCredentialsAreTested(mixed $body, int $httpCode, string $expected): void
+    public function testSaysWhatHappenedWhenCredentialsAreTested(mixed $body, int $httpCode, ProviderStatus $expected): void
     {
         $payload = is_array($body)
             ? json_encode(['status_code' => $body[0]] + (isset($body[1]) ? ['error' => $body[1]] : []))
@@ -197,22 +197,22 @@ final class ComicVineProviderTest extends TestCase
 
     public function verificationCases(): iterable
     {
-        yield 'accepted' => [[1], 200, 'ok'];
-        yield 'rejected key' => [[100, 'Invalid API Key'], 200, 'unauthorized'];
-        yield 'key with no access' => [[102], 200, 'unauthorized'];
-        yield 'rate limited' => [[107], 200, 'rate_limited'];
-        yield 'some other api error' => [[104, 'Filter Error'], 200, 'failed'];
-        yield 'rejected with a status code' => ['', 401, 'unauthorized'];
-        yield 'forbidden' => ['', 403, 'unauthorized'];
-        yield 'rate limited by status code' => ['', 429, 'rate_limited'];
-        yield 'http failure' => ['', 503, 'failed'];
+        yield 'accepted' => [[1], 200, ProviderStatus::Ok];
+        yield 'rejected key' => [[100, 'Invalid API Key'], 200, ProviderStatus::Unauthorized];
+        yield 'key with no access' => [[102], 200, ProviderStatus::Unauthorized];
+        yield 'rate limited' => [[107], 200, ProviderStatus::RateLimited];
+        yield 'some other api error' => [[104, 'Filter Error'], 200, ProviderStatus::Failed];
+        yield 'rejected with a status code' => ['', 401, ProviderStatus::Unauthorized];
+        yield 'forbidden' => ['', 403, ProviderStatus::Unauthorized];
+        yield 'rate limited by status code' => ['', 429, ProviderStatus::RateLimited];
+        yield 'http failure' => ['', 503, ProviderStatus::Failed];
     }
 
     public function testSaysThereIsNothingToTestWithoutAKey(): void
     {
         $verification = $this->provider(null)->verify(null);
 
-        self::assertSame('unconfigured', $verification->status);
+        self::assertSame(ProviderStatus::Unconfigured, $verification->status);
         self::assertStringContainsString('API key', $verification->message);
     }
 
@@ -222,7 +222,7 @@ final class ComicVineProviderTest extends TestCase
             throw new \Symfony\Component\HttpClient\Exception\TransportException('no route to host');
         });
 
-        self::assertSame('unreachable', $this->provider(null, client: $client)->verify('key')->status);
+        self::assertSame(ProviderStatus::Unreachable, $this->provider(null, client: $client)->verify('key')->status);
     }
 
     private function provider(?MockResponse $response, ?MockHttpClient $client = null): ComicVineProvider
