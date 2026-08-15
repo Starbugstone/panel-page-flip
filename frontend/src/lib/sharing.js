@@ -56,6 +56,10 @@ export function describeReceivedShare(share) {
     return tombstoneExplanation(share.tombstoneReason);
   }
 
+  if (share.sharingRestricted || share.contentQuarantined) {
+    return "Access to this shared comic has been temporarily restricted by the service administrator.";
+  }
+
   switch (share.status) {
     case SHARE_STATUS.REVOKED:
       return "The owner has stopped sharing this comic with you.";
@@ -300,10 +304,11 @@ export const SHARE_RESPONSIBILITY_NOTICE = "You are responsible for the content 
   + "Only share material you are allowed to distribute, and make sure adult or explicit comics "
   + "are correctly marked as Explicit content (18+) before sending them.";
 
-export const SHARE_RESPONSIBILITY_ACK_LABEL = "I understand";
+export const SHARE_RESPONSIBILITY_ACK_LABEL =
+  "I confirm that I have the necessary rights or authorization to share this material with the recipient.";
 
 export const SHARING_PAGE_RESPONSIBILITY_REMINDER =
-  "You are responsible for the content you share and for marking explicit material correctly.";
+  "You are responsible for the content you share, for having the necessary rights or authorization to distribute it, and for marking explicit material correctly.";
 
 export const EXPLICIT_FLAG_LABEL = "Explicit content (18+)";
 

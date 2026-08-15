@@ -9,6 +9,7 @@ function useLegalConfig() {
   const [config, setConfig] = useState({
     operator: "Panel Page Flip site operator",
     privacyEmail: null,
+    legalEmail: null,
   });
 
   useEffect(() => {
@@ -58,6 +59,7 @@ function LegalLayout({ title, children }) {
         <Link className="underline" to="/privacy">Privacy</Link>
         <Link className="underline" to="/terms">Terms</Link>
         <Link className="underline" to="/cookies">Cookies</Link>
+        <Link className="underline" to="/report-content">Report illegal content</Link>
         <Link className="underline" to="/">Home</Link>
       </nav>
     </div>
@@ -89,6 +91,7 @@ export function PrivacyPolicy() {
         <li>Dropbox data, when connected: encrypted OAuth credentials, import paths, and last-sync time.</li>
         <li>Metadata-provider credentials, when you add your own: an encrypted API token, write-only after saving and removable at any time.</li>
         <li>Security and operations data: session identifiers, IP-based rate-limit entries, access logs, and administrator audit records.</li>
+        <li>Content reports: reporter contact details, the supplied allegation and references, review notes, linked internal records, and action history.</li>
       </ul>
 
       <h2>Why we process it</h2>
@@ -136,6 +139,7 @@ export function PrivacyPolicy() {
         <li>Administrator audit records are deleted after 12 months.</li>
         <li>Expired verification, password-reset, and share tokens are removed by scheduled cleanup.</li>
         <li>Infrastructure access logs are retained according to the hosting configuration and should be limited to the shortest operationally necessary period.</li>
+        <li>Closed or rejected content reports are normally deleted after two years. Open cases and records subject to a legal hold or ongoing legal obligation are retained while needed.</li>
       </ul>
 
       <h2>Your rights</h2>
@@ -166,7 +170,7 @@ export function PrivacyPolicy() {
 }
 
 export function TermsOfService() {
-  const { operator, privacyEmail } = useLegalConfig();
+  const { operator, privacyEmail, legalEmail } = useLegalConfig();
 
   return (
     <LegalLayout title="Terms of Service">
@@ -186,8 +190,10 @@ export function TermsOfService() {
       <p>
         You retain rights in content you upload. You grant the operator only the
         permission needed to store, process, display, and share that content as you
-        direct through the service. Upload or share content only when you have the
-        necessary rights and permissions.
+        direct through the service. Upload content only when you are authorized to
+        host it, and use sharing only when you have the necessary right or authorization
+        to distribute it to the recipient. Owning or lawfully possessing a copy does
+        not necessarily grant a right to distribute it.
       </p>
 
       <h2>Acceptable use</h2>
@@ -205,8 +211,12 @@ export function TermsOfService() {
 
       <h2>Suspension and termination</h2>
       <p>
-        The operator may restrict an account to protect the service, comply with law,
-        or respond to a material breach. You may end these terms by deleting your account.
+        The operator may restrict sharing, revoke recipient access, quarantine or remove
+        content, or suspend an account to protect the service, comply with law, or respond
+        to a material breach. Repeated substantiated unlawful distribution may result in
+        account-level sharing restrictions or suspension. These are proportionate
+        administrative decisions, not an automatic strikes system. You may end these
+        terms by deleting your account.
       </p>
 
       <h2>Liability</h2>
@@ -216,7 +226,12 @@ export function TermsOfService() {
       </p>
 
       <h2>Contact</h2>
-      <p>Questions about these terms may be sent to <Contact email={privacyEmail} />.</p>
+      <p>
+        Questions about these terms may be sent to <Contact email={privacyEmail} />.
+        Notices about specific allegedly illegal material may be submitted through the{" "}
+        <Link className="underline" to="/report-content">Report illegal content</Link> form
+        {legalEmail ? <> or sent to <Contact email={legalEmail} /></> : null}.
+      </p>
     </LegalLayout>
   );
 }

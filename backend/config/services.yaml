@@ -16,6 +16,9 @@ parameters:
     privacy_operator_default: 'Panel Page Flip site operator'
     privacy_operator: '%env(default:privacy_operator_default:PRIVACY_OPERATOR)%'
     privacy_email: '%env(default:mailer_from_address:PRIVACY_EMAIL)%'
+    legal_email: '%env(default:privacy_email:LEGAL_EMAIL)%'
+    content_report_retention_days: '%env(int:default:content_report_retention_days_default:CONTENT_REPORT_RETENTION_DAYS)%'
+    content_report_retention_days_default: 730
     max_concurrent_uploads: '%env(int:default:max_concurrent_uploads_default:MAX_CONCURRENT_UPLOADS)%'
     max_concurrent_uploads_default: 3
     upload_max_chunk_bytes: 2097152
@@ -156,6 +159,10 @@ services:
     App\Service\ComicShareService:
         arguments:
             $shareInvitationLimiter: '@limiter.share_invitation'
+
+    App\Controller\ContentReportController:
+        arguments:
+            $contentReportLimiter: '@limiter.content_report'
             
     # Test mail command with mailer configuration
     App\Command\TestMailCommand:

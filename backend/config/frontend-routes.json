@@ -3,7 +3,8 @@
     { "path": "/", "changefreq": "monthly", "priority": "1.0" },
     { "path": "/privacy", "changefreq": "yearly", "priority": "0.3" },
     { "path": "/terms", "changefreq": "yearly", "priority": "0.3" },
-    { "path": "/cookies", "changefreq": "yearly", "priority": "0.3" }
+    { "path": "/cookies", "changefreq": "yearly", "priority": "0.3" },
+    { "path": "/report-content", "changefreq": "yearly", "priority": "0.4" }
   ],
   "noindex": [
     "/login",

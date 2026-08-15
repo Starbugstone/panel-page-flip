@@ -173,6 +173,12 @@ class Comic
     #[ORM\Column(options: ['default' => false])]
     private bool $explicitContent = false;
 
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $sharingRestrictedAt = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $quarantinedAt = null;
+
     public function __construct()
     {
         $this->uploadedAt = new \DateTimeImmutable();
@@ -579,6 +585,50 @@ class Comic
     {
         $this->explicitContent = $explicitContent;
 
+        return $this;
+    }
+
+    public function isSharingRestricted(): bool
+    {
+        return $this->sharingRestrictedAt !== null || $this->quarantinedAt !== null;
+    }
+
+    public function getSharingRestrictedAt(): ?\DateTimeImmutable
+    {
+        return $this->sharingRestrictedAt;
+    }
+
+    public function restrictSharing(): static
+    {
+        $this->sharingRestrictedAt ??= new \DateTimeImmutable();
+        return $this;
+    }
+
+    public function liftSharingRestriction(): static
+    {
+        $this->sharingRestrictedAt = null;
+        return $this;
+    }
+
+    public function isQuarantined(): bool
+    {
+        return $this->quarantinedAt !== null;
+    }
+
+    public function getQuarantinedAt(): ?\DateTimeImmutable
+    {
+        return $this->quarantinedAt;
+    }
+
+    public function quarantine(): static
+    {
+        $this->quarantinedAt ??= new \DateTimeImmutable();
+        return $this->restrictSharing();
+    }
+
+    public function liftQuarantine(): static
+    {
+        $this->quarantinedAt = null;
         return $this;
     }
 

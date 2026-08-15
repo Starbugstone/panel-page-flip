@@ -27,6 +27,6 @@ describe("shared frontend route manifest", () => {
   });
 
   it("only places public informational pages in the sitemap", () => {
-    expect(manifest.indexable.map((route) => route.path)).toEqual(["/", "/privacy", "/terms", "/cookies"]);
+    expect(manifest.indexable.map((route) => route.path)).toEqual(["/", "/privacy", "/terms", "/cookies", "/report-content"]);
   });
 });

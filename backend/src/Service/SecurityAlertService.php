@@ -60,6 +60,9 @@ class SecurityAlertService
         'roles_before',
         'roles_after',
         'count',
+        'report_id',
+        'category',
+        'review_path',
     ];
 
     public function __construct(

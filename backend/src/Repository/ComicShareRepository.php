@@ -374,6 +374,8 @@ class ComicShareRepository extends ServiceEntityRepository
             ->innerJoin('s.comic', 'c')
             ->andWhere('s.status = :accepted')
             ->andWhere('s.unavailableAt IS NULL')
+            ->andWhere('c.sharingRestrictedAt IS NULL')
+            ->andWhere('c.quarantinedAt IS NULL')
             ->andWhere('c.explicitContent = false OR s.adultConfirmedAt IS NOT NULL')
             ->setParameter('accepted', ComicShare::STATUS_ACCEPTED);
     }

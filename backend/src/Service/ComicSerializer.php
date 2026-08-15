@@ -180,7 +180,12 @@ class ComicSerializer
             'sharedWithCount' => $isOwner ? $sharedWithCount : null,
             'canEdit' => $isOwner || $isAdmin,
             'canDelete' => $isOwner || $isAdmin,
-            'canShare' => $isOwner,
+            'sharingRestricted' => $comic->isSharingRestricted(),
+            'contentQuarantined' => $comic->isQuarantined(),
+            'canShare' => $isOwner
+                && !$viewer->isSharingRestricted()
+                && !$comic->isSharingRestricted()
+                && !$comic->isQuarantined(),
             // Always the authenticated viewer's placement. A recipient never
             // sees (or changes) the owner's private organisation.
             'libraryFolderId' => $libraryFolderId,
