@@ -13,6 +13,7 @@ use App\Repository\TagRepository;
 use App\Security\Voter\ComicVoter;
 use App\Service\AdminAuditService;
 use App\Service\ComicMetadataSuggestionService;
+use App\Service\ComicTagSuggestionService;
 use App\Service\MetadataProviderRegistry;
 use App\Service\ComicPageDelivery;
 use App\Service\ComicSerializer;
@@ -617,9 +618,11 @@ class ComicController extends AbstractController
     public function metadataSuggestions(
         int $id,
         EntityManagerInterface $entityManager,
-        ComicMetadataSuggestionService $suggestions
+        ComicMetadataSuggestionService $suggestions,
+        ComicTagSuggestionService $tagSuggestions
     ): JsonResponse {
-        if (!$this->getUser() instanceof User) {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -634,7 +637,12 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN);
         }
 
-        return $this->json(['suggestions' => $suggestions->for($comic)]);
+        return $this->json([
+            'suggestions' => $suggestions->for($comic),
+            // Tags the library already has that look like they belong to this
+            // comic. Existing ones only; nothing here creates a tag.
+            'tags' => $tagSuggestions->for($comic, $user),
+        ]);
     }
 
     /**
