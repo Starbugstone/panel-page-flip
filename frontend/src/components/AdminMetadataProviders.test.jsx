@@ -25,6 +25,50 @@ describe("AdminMetadataProviders", () => {
     vi.mocked(api.post).mockReset().mockResolvedValue({ results: [] });
   });
 
+  describe("keeping the browser's saved logins out", () => {
+    /**
+     * The failure this guards against is not cosmetic: a site login autofilled
+     * into these boxes and saved becomes a Metron credential, and is then sent
+     * to metron.cloud as HTTP Basic auth.
+     */
+    it("asks the browser not to autofill, in the ways browsers actually honour", async () => {
+      render(<AdminMetadataProviders />);
+      await screen.findByText("Metron");
+
+      for (const label of [/metron username/i, /metron password/i, /comic vine api key/i]) {
+        const field = screen.getByLabelText(label);
+        // Chrome ignores "off" on credential fields; it respects this.
+        expect(field, String(label)).toHaveAttribute("autocomplete", "new-password");
+        // Nothing autofills a field it cannot write to.
+        expect(field, String(label)).toHaveAttribute("readonly");
+        // The common password managers each have their own opt-out.
+        expect(field, String(label)).toHaveAttribute("data-lpignore", "true");
+      }
+    });
+
+    it("becomes writable once the admin puts a cursor in it", async () => {
+      const user = userEvent.setup();
+      render(<AdminMetadataProviders />);
+      await screen.findByText("Metron");
+
+      const field = screen.getByLabelText(/comic vine api key/i);
+      await user.click(field);
+
+      expect(field).not.toHaveAttribute("readonly");
+      await user.type(field, "typed-by-hand");
+      expect(field).toHaveValue("typed-by-hand");
+    });
+
+    it("does not have credential-shaped field names", async () => {
+      render(<AdminMetadataProviders />);
+      await screen.findByText("Metron");
+
+      const name = screen.getByLabelText(/metron password/i).getAttribute("name");
+      expect(name).not.toMatch(/^password$/i);
+      expect(name).toMatch(/^provider-/);
+    });
+  });
+
   describe("testing credentials", () => {
     /**
      * The point of the button: find out whether a credential works before

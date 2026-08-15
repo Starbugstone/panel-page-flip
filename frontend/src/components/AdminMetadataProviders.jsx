@@ -43,6 +43,9 @@ export function AdminMetadataProviders() {
   const [providers, setProviders] = useState(null);
   const [values, setValues] = useState({});
   const [results, setResults] = useState(null);
+  // Which fields the admin has actually put a cursor in. See the readOnly note
+  // on the inputs below.
+  const [engaged, setEngaged] = useState({});
   const [busy, setBusy] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -59,11 +62,20 @@ export function AdminMetadataProviders() {
 
   // Sends what is typed, so a credential can be tested before it is stored.
   // Anything left blank falls back to what the server already has.
+  /**
+   * Only fields the admin actually typed in. Belt and braces against autofill:
+   * even if something did get written into a box nobody touched, it is not
+   * sent, so a working credential cannot be replaced by one nobody chose.
+   */
+  const entered = () => Object.fromEntries(
+    Object.entries(values).filter(([field, value]) => value !== "" && engaged[field])
+  );
+
   const test = async () => {
     setBusy(true);
     setResults(null);
     try {
-      const payload = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== ""));
+      const payload = entered();
       const result = await api.post("/api/admin/metadata-providers/verify", payload);
       setResults(result.results ?? []);
     } catch (error) {
@@ -74,9 +86,7 @@ export function AdminMetadataProviders() {
   };
 
   const save = async () => {
-    const payload = Object.fromEntries(
-      Object.entries(values).filter(([, value]) => value !== "")
-    );
+    const payload = entered();
 
     if (Object.keys(payload).length === 0) {
       toast({ title: "Nothing to save", description: "Enter a credential first." });
@@ -89,6 +99,7 @@ export function AdminMetadataProviders() {
       setProviders(result.providers);
       // Never keep a secret in component state once it has been stored.
       setValues({});
+      setEngaged({});
       setResults(null);
       toast({ title: "Credentials saved", description: "Metadata lookups now use them." });
     } catch (error) {
@@ -148,10 +159,26 @@ export function AdminMetadataProviders() {
           {FIELDS.map((field) => (
             <div key={field.name} className="space-y-1.5">
               <Label htmlFor={field.name}>{field.label}</Label>
+              {/* A browser fills a saved site login into anything that looks
+                  like one, and a username box above a password box looks
+                  exactly like one. Chrome ignores autocomplete="off" here by
+                  design, so three things keep it out: "new-password", which it
+                  does respect; names that do not read as credentials; and
+                  opening read-only, because nothing autofills a field it
+                  cannot write to. The cost of getting this wrong is not a
+                  nuisance — it is the operator's own password stored as a
+                  Metron credential and then sent to metron.cloud. */}
               <Input
                 id={field.name}
+                name={`provider-${field.name}`}
                 type={field.type}
-                autoComplete="off"
+                autoComplete="new-password"
+                readOnly={!engaged[field.name]}
+                onFocus={() => setEngaged((current) => ({ ...current, [field.name]: true }))}
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore="true"
+                data-form-type="other"
                 value={values[field.name] ?? ""}
                 disabled={busy}
                 placeholder={configured[field.provider] ? "Stored — enter a new value to replace it" : ""}
