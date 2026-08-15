@@ -47,18 +47,20 @@ final class TestEmailVerificationCommand extends Command
         $io->title('Email Verification Test');
 
         try {
-            $user = $this->userRepository->findOneBy(['email' => $email]);
-            if ($user === null) {
-                $user = new User();
-                $user->setEmail($email);
-                $user->setName('Test User');
-                // bcrypt hash for the documented local-test password "password".
-                $user->setPassword('$2y$13$hMmMQVwloXHjhKs.EuiGJOsWQR0eBGGE/rYFcUmFmPQhO9VLWvLK6');
-                $user->setRoles(['ROLE_USER']);
-                $this->entityManager->persist($user);
+            if ($this->userRepository->findOneBy(['email' => $email]) !== null) {
+                $io->error('Refusing to modify an existing account. Use a dedicated email address that is not already registered.');
+
+                return Command::FAILURE;
             }
 
+            $user = new User();
+            $user->setEmail($email);
+            $user->setName('Test User');
+            // bcrypt hash for the documented local-test password "password".
+            $user->setPassword('$2y$13$hMmMQVwloXHjhKs.EuiGJOsWQR0eBGGE/rYFcUmFmPQhO9VLWvLK6');
+            $user->setRoles(['ROLE_USER']);
             $user->setIsEmailVerified(false);
+            $this->entityManager->persist($user);
             $this->entityManager->flush();
 
             // Exercise the same token lifecycle and mailer as production rather
