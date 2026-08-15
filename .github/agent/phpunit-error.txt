@@ -2,35 +2,37 @@ PHPUnit 9.6.35 by Sebastian Bergmann and contributors.
 
 Testing 
 .....................SSSSSSS.SS................................  63 / 630 ( 10%)
-.................................F............................. 126 / 630 ( 20%)
+............................................................... 126 / 630 ( 20%)
 ..............................................S................ 189 / 630 ( 30%)
 ............................................................... 252 / 630 ( 40%)
 ............................................................... 315 / 630 ( 50%)
 ............................................................... 378 / 630 ( 60%)
-............E.....F............................................ 441 / 630 ( 70%)
+................F.F............................................ 441 / 630 ( 70%)
 ............................................................... 504 / 630 ( 80%)
 ............................................................... 567 / 630 ( 90%)
 ............................................................... 630 / 630 (100%)
 
 
-Time: 00:15.247, Memory: 110.51 MB
-
-There was 1 error:
-
-1) App\Tests\Functional\Controller\DropboxConnectionStateTest::testAnAccountWithNoDropboxCredentialsIsRefused
-Undefined array key "error"
-
-/home/runner/work/panel-page-flip/panel-page-flip/backend/tests/Functional/Controller/DropboxConnectionStateTest.php:67
-/home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/phpunit/phpunit/phpunit:107
-
---
+Time: 00:21.134, Memory: 110.51 MB
 
 There were 2 failures:
 
-1) App\Tests\Unit\Metadata\ComicInfoParserTest::testDoesNotExpandRecursiveEntities
-Failed asserting that 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is null.
+1) App\Tests\Functional\Controller\ExplicitShareControllerTest::testAComicIsNotExplicitUntilItsOwnerSaysSo
+Failed asserting that the Response status code is 400.
+HTTP/1.1 200 OK
+Cache-Control: max-age=0, must-revalidate, private
+Content-Type:  application/json
+Date:          Sat, 15 Aug 2026 11:56:54 GMT
+Expires:       Sat, 15 Aug 2026 11:56:54 GMT
+Set-Cookie:    XSRF-TOKEN=280b427f8024329a45ffc9.dRVR_nxXVnx3GKuav_seew9x0_HacPUYUBxnxMuHrrE.OnQFkyMIYg4SepvR-sN5F0BDmMHsRMRzOHMJppPT_PkDYmKoD2UGNjEvwA; path=/; samesite=lax
+X-Request-Id:  0824f89408275df0
+X-Robots-Tag:  noindex
 
-/home/runner/work/panel-page-flip/panel-page-flip/backend/tests/Unit/Metadata/ComicInfoParserTest.php:178
+{"message":"Comic updated successfully","comic":{"id":150,"title":"Necessitatibus aspernatur qui."}}
+
+/home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/symfony/framework-bundle/Test/BrowserKitAssertionsTrait.php:150
+/home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/symfony/framework-bundle/Test/BrowserKitAssertionsTrait.php:40
+/home/runner/work/panel-page-flip/panel-page-flip/backend/tests/Functional/Controller/ExplicitShareControllerTest.php:46
 /home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/phpunit/phpunit/phpunit:107
 
 2) App\Tests\Functional\Controller\ExplicitShareControllerTest::testAScalarJsonBodyIsRejectedRatherThanFatal
@@ -38,10 +40,10 @@ Failed asserting that the Response is successful.
 HTTP/1.1 400 Bad Request
 Cache-Control: max-age=0, must-revalidate, private
 Content-Type:  application/json
-Date:          Sat, 15 Aug 2026 11:53:43 GMT
-Expires:       Sat, 15 Aug 2026 11:53:43 GMT
-Set-Cookie:    XSRF-TOKEN=89.4UE7z4m_TbHg-ihVqHq_fHWcR0CdmHj1cXDS782sLJ0.rQVRvfPZP9vXzUsU-RLvSB_4HgiroC-dHxWglf3tW8uzLVX60-Z037fLXw; path=/; samesite=lax
-X-Request-Id:  7ac3711440a6cb71
+Date:          Sat, 15 Aug 2026 11:56:54 GMT
+Expires:       Sat, 15 Aug 2026 11:56:54 GMT
+Set-Cookie:    XSRF-TOKEN=fc6e48180808566d72.0USJJDCaZtpU-kAkk7JYX4dNcw-6lYesYoRSHIZM8iA.5X3mCWL9Kpk6mQEU3-MxGu11KlzpysbVI8oRL_QUpnOEM8VUcsNVjQ3JKw; path=/; samesite=lax
+X-Request-Id:  fb9ef55768720ec9
 X-Robots-Tag:  noindex
 
 {"message":"JSON payload must be an object or array."}
@@ -51,5 +53,5 @@ X-Robots-Tag:  noindex
 /home/runner/work/panel-page-flip/panel-page-flip/backend/tests/Functional/Controller/ExplicitShareControllerTest.php:98
 /home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/phpunit/phpunit/phpunit:107
 
-ERRORS!
-Tests: 630, Assertions: 2403, Errors: 1, Failures: 2, Skipped: 10.
+FAILURES!
+Tests: 630, Assertions: 2403, Failures: 2, Skipped: 10.
