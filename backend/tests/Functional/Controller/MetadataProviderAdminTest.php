@@ -28,17 +28,47 @@ final class MetadataProviderAdminTest extends AbstractApiTestCase
 
     /**
      * The environment's half of each switch is reported, so an administrator
-     * can see why a toggle they turned on is not taking effect. Both default to
-     * off and fail closed.
+     * can see why a toggle they turned on is not taking effect.
+     *
+     * The two defaults differ on purpose. Shared Metron spends a token this
+     * installation owns, so it is opted into. Comic Vine is allowed unless
+     * somebody switches it off: a self-hosted library is inside its
+     * non-commercial terms, and shipping it disabled would make every operator
+     * hunt for a switch to get behaviour they were already entitled to.
      */
-    public function testReportsWhetherTheEnvironmentAllowsSharedAccess(): void
+    public function testReportsWhetherTheEnvironmentAllowsEachProvider(): void
     {
         $this->createAndLoginAdmin();
 
         $environment = $this->getJson('/api/admin/metadata-providers')['environment'];
 
         self::assertFalse($environment['metronSharedEnabled']);
-        self::assertFalse($environment['comicVineEnabled']);
+        self::assertTrue($environment['comicVineEnabled']);
+    }
+
+    /** Configuring a key is enough; there is no second switch to find. */
+    public function testComicVineIsEnabledOutOfTheBox(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $enabled = array_column($this->getJson('/api/admin/metadata-providers')['providers'], 'enabled', 'key');
+
+        self::assertTrue($enabled['comicvine']);
+        self::assertFalse($enabled['metron']);
+    }
+
+    /**
+     * The point of the switch: a deployment that stops satisfying Comic Vine's
+     * terms turns it off here rather than in a code change.
+     */
+    public function testAnAdministratorCanTurnComicVineOff(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $response = $this->putJson('/api/admin/metadata-providers', ['comicVineEnabled' => false]);
+
+        self::assertResponseIsSuccessful();
+        self::assertFalse(array_column($response['providers'], 'enabled', 'key')['comicvine']);
     }
 
     /** There is nowhere here to put a Metron account password any more. */
@@ -57,10 +87,11 @@ final class MetadataProviderAdminTest extends AbstractApiTestCase
     {
         $this->createAndLoginAdmin();
 
-        $response = $this->putJson('/api/admin/metadata-providers', [
+        $this->putJson('/api/admin/metadata-providers', [
             'metronSharedEnabled' => true,
-            'comicVineEnabled' => true,
+            'comicVineEnabled' => false,
         ]);
+        $response = $this->putJson('/api/admin/metadata-providers', ['comicVineEnabled' => true]);
 
         self::assertResponseIsSuccessful();
         $enabled = array_column($response['providers'], 'enabled', 'key');

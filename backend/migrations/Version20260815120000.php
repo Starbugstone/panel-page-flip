@@ -36,13 +36,9 @@ final class Version20260815120000 extends AbstractMigration
                 DROP COLUMN metron_password,
                 ADD metron_token VARCHAR(1024) DEFAULT NULL,
                 ADD metron_shared_enabled TINYINT(1) DEFAULT 0 NOT NULL,
-                ADD comic_vine_enabled TINYINT(1) DEFAULT 0 NOT NULL,
+                ADD comic_vine_enabled TINYINT(1) DEFAULT 1 NOT NULL,
                 MODIFY comic_vine_api_key VARCHAR(1024) DEFAULT NULL
         SQL);
-
-        // An installation that already had a Comic Vine key was using it, so
-        // leaving it configured-but-off would silently break a working setup.
-        $this->addSql('UPDATE metadata_provider_configuration SET comic_vine_enabled = 1 WHERE comic_vine_api_key IS NOT NULL');
 
         $this->addSql(<<<'SQL'
             CREATE TABLE user_metadata_credential (

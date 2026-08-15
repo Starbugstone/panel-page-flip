@@ -39,12 +39,16 @@ class MetadataProviderConfiguration
     private ?string $comicVineApiKey = null;
 
     /**
-     * Off by default, and separately from Metron. Comic Vine's published terms
-     * are non-commercial only, so an installation has to say out loud that it
-     * is entitled to use it rather than inheriting it from a shipped default.
+     * On by default, and switchable separately from Metron.
+     *
+     * Comic Vine's published terms are non-commercial only, which the ordinary
+     * self-hosted deployment satisfies. An installation that stops satisfying
+     * them turns this off — the switch exists so that is one click rather than a
+     * code change, not so that every operator has to find it before the feature
+     * works at all.
      */
-    #[ORM\Column(options: ['default' => false])]
-    private bool $comicVineEnabled = false;
+    #[ORM\Column(options: ['default' => true])]
+    private bool $comicVineEnabled = true;
 
     public function getMetronToken(): ?string
     {

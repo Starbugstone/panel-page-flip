@@ -340,14 +340,26 @@ AND a token is configured
 AND the circuit breaker is not holding the account off
 ```
 
-The environment flag is checked **first** and **fails closed**. Unset means off.
-An operator who turned shared access off must not be overrulable from inside the
-application — that is the whole point of putting a switch outside it.
+The environment flag is checked **first**, and an operator who turned a provider
+off must not be overrulable from inside the application — that is the whole point
+of putting a switch outside it.
 
-**Comic Vine is gated even for a personal key.** Its published terms are
-non-commercial use only, and a user supplying their own key does not waive them.
-Bring-your-own-key is not a route around a provider's terms, so the installation
-still has to declare Comic Vine usable at all.
+**The two defaults differ, deliberately:**
+
+- **Shared Metron is off unless set.** It spends a token the installation owns on
+  behalf of every user, so it is opted into rather than inherited from a shipped
+  default. A personal Metron token is unaffected by it.
+- **Comic Vine is on by default.** This is self-hosted software and its ordinary
+  deployment is somebody's own library, which is squarely inside Comic Vine's
+  non-commercial terms. Shipping it disabled would make every operator hunt for a
+  switch to get behaviour they were already entitled to. A deployment that leaves
+  those terms turns it off — in the environment, or in one click in the admin
+  panel.
+
+**Comic Vine is gated even for a personal key.** Its terms are the installation's
+problem, not the individual's: bring-your-own-key is not a route around them, so
+whether this deployment may use Comic Vine at all stays the operator's answer to
+give.
 
 **Per-user access.** `User::$metadataApiEnabled` lets an administrator withdraw
 external lookups from one account, from the admin user page. Local sources —
@@ -572,7 +584,9 @@ Admin → Metadata → Test will report it as "Metron refused the token".
    setting silently turned off is one somebody has to notice.
 3. **Whether a personal Comic Vine key bypasses the global switch.** No. The
    provider's terms are the installation's problem, not the individual's, and
-   BYOK is not a licence.
+   BYOK is not a licence. The switch is on by default, though — the ordinary
+   self-hosted deployment is inside those terms, and a default that made everyone
+   go looking for a toggle would be protecting nobody.
 4. **Whether to cascade to a second provider on failure.** No. Spending another
    account's quota to hide the first one's outage is exactly the silent
    overspending the one-provider rule exists to prevent.

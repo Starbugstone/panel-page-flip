@@ -110,10 +110,16 @@ Important configuration variables:
 - `MAX_CONCURRENT_UPLOADS` — frontend upload concurrency returned by the application config endpoint
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REDIRECT_URI` — optional Dropbox OAuth settings
 - `DROPBOX_APP_FOLDER`, `DROPBOX_SYNC_LIMIT`, `DROPBOX_RATE_LIMIT` — optional Dropbox import settings
-- `METRON_SHARED_ENABLED`, `COMIC_VINE_SHARED_ENABLED` — whether this server may
-  spend a shared metadata-provider account. Both default to off and fail closed;
-  an administrator's setting cannot override them. Comics are still described by
-  their own `ComicInfo.xml` and filenames either way. See
+- `METRON_SHARED_ENABLED` — whether this server may spend its own Metron account
+  on behalf of every user. Off unless set; a user's personal Metron token is
+  unaffected by it.
+- `COMIC_VINE_SHARED_ENABLED` — whether this deployment may use Comic Vine at
+  all. On by default, since a self-hosted library is inside Comic Vine's
+  non-commercial terms; turn it off if yours stops being. An administrator can
+  also switch it off from Admin → Metadata.
+
+  Neither can be overridden from inside the application, and comics are still
+  described by their own `ComicInfo.xml` and filenames either way. See
   [`docs/metadata-enrichment.md`](docs/metadata-enrichment.md).
 
 Never commit `.env.local`, `.env.prod.local`, `scripts/.env.deploy`, credentials, or production keys.

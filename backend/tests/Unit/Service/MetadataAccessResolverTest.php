@@ -117,9 +117,9 @@ final class MetadataAccessResolverTest extends TestCase
     }
 
     /**
-     * Comic Vine's terms are non-commercial only, and a user's own key does not
-     * waive them — so a personal key is still gated on the installation having
-     * declared the service usable.
+     * Comic Vine's terms are the installation's problem, not the individual's,
+     * so a personal key does not open a switch an operator closed. The switch
+     * is on by default — this is the case where somebody turned it off.
      */
     public function testAPersonalComicVineKeyDoesNotBypassTheGlobalSwitch(): void
     {

@@ -99,12 +99,15 @@ final class MetadataAccessResolver
     }
 
     /**
-     * Comic Vine's published terms are non-commercial use only, and a user
-     * supplying their own key does not waive them. So a personal key is still
-     * gated on the installation having declared Comic Vine usable at all —
-     * bring-your-own-key is not a way around the provider's terms, and the
-     * environment flag is where an operator records that it is entitled to use
-     * the service.
+     * Comic Vine is allowed unless somebody switched it off — a self-hosted
+     * personal library is inside its non-commercial terms, and shipping it
+     * disabled would make every operator find a switch to get behaviour they
+     * were already entitled to.
+     *
+     * A personal key is gated by the same two switches rather than bypassing
+     * them. Bring-your-own-key is not a way around a provider's terms: whether
+     * this deployment may use Comic Vine at all is the operator's answer to
+     * give, not an individual user's.
      */
     private function resolveComicVine(User $user): ProviderAccess
     {
