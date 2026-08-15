@@ -74,4 +74,50 @@ class AdminControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
         self::assertSame([], $payload['logs']);
     }
+
+    public function testAdminCanReadComicFormats(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $payload = $this->getJson('/api/admin/comic-formats');
+
+        self::assertResponseIsSuccessful();
+        self::assertTrue($payload['formats']['cbz']['enabled']);
+        self::assertArrayHasKey('delivery', $payload);
+    }
+
+    public function testAdminCanVerifyComicFormats(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $payload = $this->postJson('/api/admin/comic-formats/verify');
+
+        self::assertResponseIsSuccessful();
+        self::assertArrayHasKey('formats', $payload);
+        self::assertArrayHasKey('delivery', $payload);
+    }
+
+    public function testAdminCleanupDryRunReturnsAScan(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $payload = $this->postJson('/api/admin/cleanup/dry-run');
+
+        self::assertResponseIsSuccessful();
+        self::assertArrayHasKey('orphanedComics', $payload['cleanup']);
+        self::assertArrayHasKey('orphanedCovers', $payload['cleanup']);
+        self::assertArrayHasKey('totals', $payload['cleanup']);
+    }
+
+    public function testAdminCleanupApplyReturnsTheScanResult(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $payload = $this->postJson('/api/admin/cleanup/apply');
+
+        self::assertResponseIsSuccessful();
+        self::assertArrayNotHasKey('error', $payload['cleanup']);
+        self::assertArrayHasKey('orphanedComics', $payload['cleanup']['quarantined']);
+        self::assertArrayHasKey('orphanedCovers', $payload['cleanup']['quarantined']);
+    }
 }
