@@ -12,7 +12,10 @@ use Symfony\Component\Lock\LockInterface;
 
 final class StorageQuotaService
 {
-    private const LOCK_TTL_SECONDS = 300.0;
+    // Keep the admission lock comfortably beyond the configured 300-second PHP
+    // execution ceiling so a long validation/finalization cannot lose serialization
+    // immediately before committing its storage usage.
+    private const LOCK_TTL_SECONDS = 900.0;
 
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
