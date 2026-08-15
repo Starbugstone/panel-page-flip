@@ -11,16 +11,19 @@
 #    SSH (set SSH_HOST in scripts/.env.deploy and use --ssh).
 #
 # Usage:
-#   ./scripts/post-deploy.sh                # health -> migrate -> cache-clear (HTTP)
+#   ./scripts/post-deploy.sh                # health -> migrate -> cache-clear -> smoke (HTTP)
 #   ./scripts/post-deploy.sh --action health
 #   ./scripts/post-deploy.sh --action migrate
 #   ./scripts/post-deploy.sh --action cache-clear
+#   ./scripts/post-deploy.sh --action smoke
 #   ./scripts/post-deploy.sh --ssh          # use SSH instead of HTTP
 # =============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+RELEASE_DIR="$REPO_ROOT/release"
 ENV_FILE="$SCRIPT_DIR/.env.deploy"
 
 log()  { printf "\033[1;36m[post]\033[0m %s\n" "$*"; }
@@ -51,14 +54,14 @@ done
 
 # Default sequence when no action requested.
 if [ "${#ACTIONS[@]}" -eq 0 ]; then
-    ACTIONS=(health migrate upgrade-data cache-clear)
+    ACTIONS=(health migrate upgrade-data cache-clear smoke)
 fi
 
 # Validate every action.
 for a in "${ACTIONS[@]}"; do
     case "$a" in
-        health|migrate|upgrade-data|cache-clear|about) ;;
-        *) fail "Unknown action: $a (allowed: health migrate upgrade-data cache-clear about)" ;;
+        health|migrate|upgrade-data|cache-clear|about|smoke) ;;
+        *) fail "Unknown action: $a (allowed: health migrate upgrade-data cache-clear about smoke)" ;;
     esac
 done
 
@@ -88,6 +91,66 @@ http_call() {
     if [ "$code" != "200" ]; then
         fail "HTTP $code from server. See output above."
     fi
+}
+
+# =============================================================================
+# Public smoke test
+# =============================================================================
+smoke_call() {
+    local base_url="${PUBLIC_URL%/}"
+    local spa_out api_out expected_entry api_code
+    spa_out="$(mktemp)"
+    api_out="$(mktemp)"
+
+    log "Smoke GET ${base_url}/admin"
+    if ! curl -fsS "${base_url}/admin" -o "$spa_out"; then
+        rm -f "$spa_out" "$api_out"
+        fail "SPA smoke request failed for /admin."
+    fi
+    if ! grep -q "Panel Page Flip" "$spa_out"; then
+        rm -f "$spa_out" "$api_out"
+        fail "/admin did not return the Panel Page Flip SPA."
+    fi
+
+    # If the release exists locally, prove production is serving this build's
+    # entry chunk rather than merely returning some older valid SPA shell.
+    if [ -f "$RELEASE_DIR/backend/public/index.html" ]; then
+        expected_entry="$(grep -oE 'src="/assets/[^"]+\.js"' "$RELEASE_DIR/backend/public/index.html" | head -n 1 | sed -E 's/^src="([^"]+)"$/\1/' || true)"
+        [ -n "$expected_entry" ] || { rm -f "$spa_out" "$api_out"; fail "Could not find the Vite entry chunk in release index.html."; }
+        if ! grep -Fq "$expected_entry" "$spa_out"; then
+            rm -f "$spa_out" "$api_out"
+            fail "Production /admin is not serving this release's entry chunk ($expected_entry)."
+        fi
+        log "Smoke GET ${base_url}${expected_entry}"
+        if ! curl -fsS -o /dev/null "${base_url}${expected_entry}"; then
+            rm -f "$spa_out" "$api_out"
+            fail "Current Vite entry chunk is not fetchable from production."
+        fi
+    else
+        warn "No local release/index.html; skipping exact entry-chunk comparison."
+    fi
+
+    log "Smoke POST ${base_url}/api/login"
+    api_code="$(curl -sS -o "$api_out" -w "%{http_code}" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        --data '{}' \
+        "${base_url}/api/login")"
+    case "$api_code" in
+        400|401) ;;
+        *)
+            cat "$api_out"
+            rm -f "$spa_out" "$api_out"
+            fail "/api/login smoke check returned HTTP $api_code (expected 400 or 401)."
+            ;;
+    esac
+    if grep -qi '<!doctype html' "$api_out"; then
+        rm -f "$spa_out" "$api_out"
+        fail "/api/login returned SPA HTML; API routing is broken."
+    fi
+
+    rm -f "$spa_out" "$api_out"
+    log "Smoke checks passed."
 }
 
 # =============================================================================
@@ -124,7 +187,9 @@ ssh_call() {
 # =============================================================================
 for a in "${ACTIONS[@]}"; do
     log "===== ${a} ====="
-    if [ "$USE_SSH" = "1" ]; then
+    if [ "$a" = "smoke" ]; then
+        smoke_call
+    elif [ "$USE_SSH" = "1" ]; then
         ssh_call "$a"
     else
         http_call "$a"

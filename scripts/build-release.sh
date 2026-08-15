@@ -79,6 +79,24 @@ done
 
 # --- preflight ----------------------------------------------------------------
 require_command docker
+require_command git
+
+log "Verifying checkout matches origin/main"
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    fail "Production releases must be built from a Git checkout."
+fi
+if ! git remote get-url origin >/dev/null 2>&1; then
+    fail "Git remote 'origin' is not configured."
+fi
+if ! git fetch --quiet origin main; then
+    fail "Could not refresh origin/main; refusing to build from an unverifiable checkout."
+fi
+LOCAL_HEAD="$(git rev-parse HEAD)"
+REMOTE_MAIN="$(git rev-parse refs/remotes/origin/main)"
+if [ "$LOCAL_HEAD" != "$REMOTE_MAIN" ]; then
+    fail "Refusing production release: local HEAD ${LOCAL_HEAD:0:12} does not match origin/main ${REMOTE_MAIN:0:12}. Run: git switch main && git pull --ff-only origin main"
+fi
+log "Checkout is current at ${LOCAL_HEAD:0:12}"
 
 if [ ! -f "$ENV_FILE" ]; then
     fail "Missing $ENV_FILE — copy scripts/.env.deploy.example and fill it in."
