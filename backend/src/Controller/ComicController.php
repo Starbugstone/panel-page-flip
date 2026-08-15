@@ -708,8 +708,7 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN);
         }
 
-        $data = json_decode($request->getContent(), true);
-        $data = is_array($data) ? $data : [];
+        $data = \App\Http\JsonRequestDecoder::decode($request);
 
         $only = $data['provider'] ?? null;
         if ($only !== null && (!is_string($only) || $providers->get($only) === null)) {
@@ -776,8 +775,7 @@ class ComicController extends AbstractController
         ComicTagSuggestionService $tagSuggestions,
         RateLimiterFactory $metadataProviderUserLimiter
     ): JsonResponse {
-        $data = json_decode($request->getContent(), true);
-        $data = is_array($data) ? $data : [];
+        $data = \App\Http\JsonRequestDecoder::decode($request);
 
         return $this->respondWithRecord(
             $id,
