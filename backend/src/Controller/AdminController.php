@@ -12,6 +12,7 @@ use App\Service\ComicFormatService;
 use App\Service\ComicPageDelivery;
 use App\Enum\ComicSourceType;
 use App\Service\DropboxImportService;
+use App\Metadata\Provider\StaticProviderCredentials;
 use App\Service\MetadataProviderConfigurationService;
 use App\Service\MetadataProviderRegistry;
 use App\Service\Pagination\PaginationRequest;
@@ -76,6 +77,33 @@ class AdminController extends AbstractController
 
         // Whether a provider is configured, never what it was configured with.
         return $this->json(['providers' => $providers->status()]);
+    }
+
+    /**
+     * Try credentials against the live services and report what each said.
+     *
+     * Accepts credentials in the body so they can be tested before they are
+     * saved — the alternative is storing something unverified and finding out
+     * later that no lookup ever worked. Anything the body omits falls back to
+     * what is already stored, so testing one provider does not mean retyping
+     * the other's.
+     */
+    #[Route('/metadata-providers/verify', name: 'metadata_providers_verify', methods: ['POST'])]
+    public function verifyMetadataProviders(
+        Request $request,
+        MetadataProviderConfigurationService $configuration,
+        MetadataProviderRegistry $providers
+    ): JsonResponse {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
+        $submitted = json_decode($request->getContent(), true);
+        if (!is_array($submitted)) {
+            $submitted = [];
+        }
+
+        return $this->json([
+            'results' => $providers->verify(StaticProviderCredentials::preferring($submitted, $configuration)),
+        ]);
     }
 
     #[Route('/metadata-providers', name: 'metadata_providers_update', methods: ['PUT'])]

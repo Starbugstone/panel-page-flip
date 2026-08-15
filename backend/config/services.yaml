@@ -160,6 +160,11 @@ services:
         arguments:
             $providers: !tagged_iterator app.metadata_provider
 
+    # A provider injected with credentials always means the stored ones. The
+    # other implementation carries credentials out of a request so they can be
+    # tested before they are saved, and is built by hand at that one call site.
+    App\Metadata\Provider\ProviderCredentials: '@App\Service\MetadataProviderConfigurationService'
+
     App\Metadata\Provider\MetronProvider:
         arguments:
             $metadataProviderLimiter: '@limiter.metadata_provider'

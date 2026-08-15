@@ -66,6 +66,44 @@ final class MetronProvider implements MetadataProviderInterface
         });
     }
 
+    public function verify(ProviderCredentials $candidate): ProviderVerification
+    {
+        $username = $candidate->metronUsername();
+        $password = $candidate->metronPassword();
+
+        if ($username === null || $password === null) {
+            return ProviderVerification::unconfigured('Metron needs both a username and a password.');
+        }
+
+        try {
+            // The cheapest authenticated call there is: one row of a list that
+            // always exists. Enough to prove the credentials, and small enough
+            // to be polite about asking.
+            $response = $this->httpClient->request('GET', self::BASE_URL.'/series/', [
+                'auth_basic' => [$username, $password],
+                'query' => ['page' => 1],
+                'timeout' => self::TIMEOUT_SECONDS,
+            ]);
+
+            return match (true) {
+                $response->getStatusCode() === 200 => ProviderVerification::ok('Metron accepted the credentials.'),
+                in_array($response->getStatusCode(), [401, 403], true) => ProviderVerification::unauthorized(
+                    'Metron refused the username or password.'
+                ),
+                $response->getStatusCode() === 429 => ProviderVerification::rateLimited(
+                    'Metron is rate limiting this server. The credentials may still be fine; try again shortly.'
+                ),
+                default => ProviderVerification::failed(
+                    sprintf('Metron answered with HTTP %d.', $response->getStatusCode())
+                ),
+            };
+        } catch (\Throwable $exception) {
+            $this->logger?->info('Metron verification could not reach the service.', ['reason' => $exception->getMessage()]);
+
+            return ProviderVerification::unreachable('Metron could not be reached from this server.');
+        }
+    }
+
     /** @return list<ProviderCandidate> */
     private function request(ProviderQuery $query): array
     {

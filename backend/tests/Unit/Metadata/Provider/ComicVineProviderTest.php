@@ -92,6 +92,55 @@ final class ComicVineProviderTest extends TestCase
         ));
     }
 
+    /**
+     * @dataProvider verificationCases
+     * @param array<string, mixed>|string $body
+     */
+    public function testSaysWhatHappenedWhenCredentialsAreTested(array|string $body, int $httpCode, string $expected): void
+    {
+        $provider = $this->provider(new MockResponse(
+            is_array($body) ? (json_encode($body) ?: '') : $body,
+            ['http_code' => $httpCode]
+        ));
+
+        self::assertSame($expected, $provider->verify(self::credentials(true))->status);
+    }
+
+    public function verificationCases(): iterable
+    {
+        yield 'accepted' => [['status_code' => 1, 'results' => []], 200, 'ok'];
+        // Comic Vine puts a rejected key in the body of a 200, so a status-only
+        // check would call a bad key a success.
+        yield 'rejected key' => [['status_code' => 100, 'error' => 'Invalid API Key'], 200, 'unauthorized'];
+        yield 'key with no access' => [['status_code' => 102], 200, 'unauthorized'];
+        yield 'rate limited' => [['status_code' => 107], 200, 'rate_limited'];
+        yield 'some other api error' => [['status_code' => 104, 'error' => 'Filter Error'], 200, 'failed'];
+        // Observed against the live API: /issues/ answers 401 for a bad key
+        // rather than the documented 200-with-error-body. Both mean the same
+        // thing to whoever typed the key.
+        yield 'rejected with a status code' => ['', 401, 'unauthorized'];
+        yield 'forbidden' => ['', 403, 'unauthorized'];
+        yield 'rate limited by status code' => ['', 429, 'rate_limited'];
+        yield 'http failure' => ['', 503, 'failed'];
+    }
+
+    public function testSaysThereIsNothingToTestWithoutAKey(): void
+    {
+        $verification = $this->provider(null)->verify(self::credentials(false));
+
+        self::assertSame('unconfigured', $verification->status);
+        self::assertStringContainsString('API key', $verification->message);
+    }
+
+    public function testDistinguishesAnUnreachableServiceFromARejectedKey(): void
+    {
+        $client = new MockHttpClient(static function (): never {
+            throw new \Symfony\Component\HttpClient\Exception\TransportException('dns failure');
+        });
+
+        self::assertSame('unreachable', $this->provider(null, client: $client)->verify(self::credentials(true))->status);
+    }
+
     private function provider(?MockResponse $response, bool $configured = true, ?MockHttpClient $client = null): ComicVineProvider
     {
         return new ComicVineProvider(

@@ -29,10 +29,20 @@ const FIELDS = [
   },
 ];
 
+const STATUS_STYLES = {
+  ok: "text-green-600",
+  unconfigured: "text-muted-foreground",
+  unauthorized: "text-destructive",
+  rate_limited: "text-amber-600",
+  unreachable: "text-destructive",
+  failed: "text-destructive",
+};
+
 export function AdminMetadataProviders() {
   const { toast } = useToast();
   const [providers, setProviders] = useState(null);
   const [values, setValues] = useState({});
+  const [results, setResults] = useState(null);
   const [busy, setBusy] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -46,6 +56,22 @@ export function AdminMetadataProviders() {
   }, []);
 
   const configured = Object.fromEntries((providers ?? []).map((p) => [p.key, p.configured]));
+
+  // Sends what is typed, so a credential can be tested before it is stored.
+  // Anything left blank falls back to what the server already has.
+  const test = async () => {
+    setBusy(true);
+    setResults(null);
+    try {
+      const payload = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== ""));
+      const result = await api.post("/api/admin/metadata-providers/verify", payload);
+      setResults(result.results ?? []);
+    } catch (error) {
+      toast({ title: "Could not test credentials", description: error.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const save = async () => {
     const payload = Object.fromEntries(
@@ -63,6 +89,7 @@ export function AdminMetadataProviders() {
       setProviders(result.providers);
       // Never keep a secret in component state once it has been stored.
       setValues({});
+      setResults(null);
       toast({ title: "Credentials saved", description: "Metadata lookups now use them." });
     } catch (error) {
       toast({ title: "Could not save credentials", description: error.message, variant: "destructive" });
@@ -79,6 +106,7 @@ export function AdminMetadataProviders() {
         : { comicVineApiKey: null };
       const result = await api.put("/api/admin/metadata-providers", payload);
       setProviders(result.providers);
+      setResults(null);
       toast({ title: "Credentials removed", description: `${provider} lookups are disabled.` });
     } catch (error) {
       toast({ title: "Could not remove credentials", description: error.message, variant: "destructive" });
@@ -134,7 +162,20 @@ export function AdminMetadataProviders() {
           ))}
         </div>
 
-        <div className="flex justify-end">
+        {results && (
+          <div className="space-y-2 rounded-md border p-3">
+            <p className="text-sm font-medium">Test results</p>
+            {results.map((result) => (
+              <p key={result.key} className="text-sm">
+                <span className="font-medium">{result.label}: </span>
+                <span className={STATUS_STYLES[result.status] ?? "text-muted-foreground"}>{result.message}</span>
+              </p>
+            ))}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" disabled={busy} onClick={test}>Test credentials</Button>
           <Button disabled={busy} onClick={save}>Save credentials</Button>
         </div>
       </CardContent>
