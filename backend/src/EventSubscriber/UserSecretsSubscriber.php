@@ -22,11 +22,12 @@ use Doctrine\ORM\Events;
 #[AsDoctrineListener(event: Events::postUpdate)]
 final class UserSecretsSubscriber
 {
-    /** @var array<int, array{access: ?string, refresh: ?string}> */
-    private array $logicalSnapshots = [];
+    /** @var \WeakMap<User, array{access: ?string, refresh: ?string}> */
+    private \WeakMap $logicalSnapshots;
 
     public function __construct(private readonly AppDataEncryptionService $encryption)
     {
+        $this->logicalSnapshots = new \WeakMap();
     }
 
     public function postLoad(PostLoadEventArgs $args): void
@@ -55,7 +56,7 @@ final class UserSecretsSubscriber
             return;
         }
 
-        $snapshot = $this->logicalSnapshots[spl_object_id($user)] ?? [
+        $snapshot = $this->logicalSnapshots[$user] ?? [
             'access' => $user->getDropboxAccessToken(),
             'refresh' => $user->getDropboxRefreshToken(),
         ];
@@ -104,7 +105,7 @@ final class UserSecretsSubscriber
 
         $user->setDropboxAccessToken($access);
         $user->setDropboxRefreshToken($refresh);
-        $this->logicalSnapshots[$oid] = ['access' => $access, 'refresh' => $refresh];
+        $this->logicalSnapshots[$user] = ['access' => $access, 'refresh' => $refresh];
 
         // The representation changed, not the logical value. Synchronizing the
         // UnitOfWork snapshot is what prevents a later unrelated flush from
