@@ -1,23 +1,24 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Tests\Unit\Service;
 
 use App\Service\AppDataEncryptionService;
 use PHPUnit\Framework\TestCase;
 
-class AppDataEncryptionServiceTest extends TestCase
+final class AppDataEncryptionServiceTest extends TestCase
 {
     private AppDataEncryptionService $encryption;
 
     protected function setUp(): void
     {
-        $this->encryption = new AppDataEncryptionService('test-only-application-data-key');
+        $this->encryption = new AppDataEncryptionService(str_repeat('ab', SODIUM_CRYPTO_SECRETBOX_KEYBYTES));
     }
 
     public function testEncryptsAndDecryptsSecrets(): void
     {
         $encrypted = $this->encryption->encrypt('dropbox-refresh-token');
-
         self::assertNotSame('dropbox-refresh-token', $encrypted);
         self::assertTrue($this->encryption->isEncrypted($encrypted));
         self::assertSame('dropbox-refresh-token', $this->encryption->decrypt($encrypted));
@@ -25,22 +26,16 @@ class AppDataEncryptionServiceTest extends TestCase
 
     public function testEncryptionIsNonDeterministic(): void
     {
-        self::assertNotSame(
-            $this->encryption->encrypt('same-secret'),
-            $this->encryption->encrypt('same-secret')
-        );
+        self::assertNotSame($this->encryption->encrypt('same-secret'), $this->encryption->encrypt('same-secret'));
     }
 
     public function testAlreadyEncryptedValueIsNotEncryptedAgain(): void
     {
         $encrypted = $this->encryption->encrypt('token');
-
         self::assertSame($encrypted, $this->encryption->encrypt($encrypted));
     }
 
-    /**
-     * @dataProvider passthroughValues
-     */
+    /** @dataProvider passthroughValues */
     public function testEmptyValuesPassThrough(?string $value): void
     {
         self::assertSame($value, $this->encryption->encrypt($value));
@@ -75,10 +70,24 @@ class AppDataEncryptionServiceTest extends TestCase
     public function testAcceptsHexAndBase64EncodedKeys(): void
     {
         $rawKey = random_bytes(SODIUM_CRYPTO_SECRETBOX_KEYBYTES);
-
         foreach ([bin2hex($rawKey), base64_encode($rawKey)] as $encodedKey) {
             $service = new AppDataEncryptionService($encodedKey);
             self::assertSame('value', $service->decrypt($service->encrypt('value')));
         }
+    }
+
+    /** @dataProvider invalidKeys */
+    public function testRejectsArbitraryOrMalformedKeys(string $key): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new AppDataEncryptionService($key);
+    }
+
+    public function invalidKeys(): iterable
+    {
+        yield 'human passphrase' => ['ChangeMeInEnvLocal'];
+        yield 'short hex' => ['deadbeef'];
+        yield 'wrong base64 length' => [base64_encode('too-short')];
+        yield 'empty' => [''];
     }
 }
