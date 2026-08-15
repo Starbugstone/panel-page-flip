@@ -16,31 +16,77 @@ use Symfony\Contracts\Cache\CacheInterface;
 
 final class MetronProviderTest extends TestCase
 {
+    /**
+     * The payload here is a real row from Metron's issue list, keys and all.
+     * The list carries no publisher and no description — those are on
+     * /issue/{id}/ — so a candidate from a search cannot have them.
+     */
     public function testTurnsResultsIntoCandidates(): void
     {
         $provider = $this->provider(new MockResponse(json_encode([
+            'count' => 1,
             'results' => [[
-                'id' => 42,
+                'id' => 123925,
+                'series' => ['id' => 7969, 'name' => 'The Boys', 'volume' => 1, 'year_began' => 2006],
                 'number' => '7',
-                'issue' => 'The Long Halloween',
-                'desc' => 'A killer strikes on holidays.',
+                'issue' => 'The Boys (2006) #7',
                 'cover_date' => '1997-04-09',
-                'image' => 'https://metron.cloud/cover.jpg',
-                'series' => ['name' => 'Batman', 'volume' => 1996],
-                'publisher' => ['name' => 'DC'],
+                'store_date' => null,
+                'image' => 'https://static.metron.cloud/media/issue/cover.jpg',
+                'cover_hash' => 'afd2e409a6187b66',
+                'modified' => '2024-12-18T12:56:44.058359-05:00',
             ]],
         ]) ?: ''));
 
-        $candidates = $provider->search(new ProviderQuery('Batman', '7'));
+        $candidates = $provider->search(new ProviderQuery('The Boys', '7'));
 
         self::assertCount(1, $candidates);
         self::assertSame('metron', $candidates[0]->provider);
-        self::assertSame('42', $candidates[0]->externalId);
-        self::assertSame('Batman', $candidates[0]->series);
+        self::assertSame('123925', $candidates[0]->externalId);
+        self::assertSame('The Boys', $candidates[0]->series);
         self::assertSame('7', $candidates[0]->issueNumber);
-        self::assertSame(1996, $candidates[0]->volume);
-        self::assertSame('DC', $candidates[0]->publisher);
+        self::assertSame(1, $candidates[0]->volume);
+        self::assertSame('The Boys (2006) #7', $candidates[0]->title);
         self::assertSame('1997-04-09', $candidates[0]->publishedAt?->format('Y-m-d'));
+        self::assertSame('https://static.metron.cloud/media/issue/cover.jpg', $candidates[0]->coverUrl);
+
+        // Not available from a search, and claimed by nothing.
+        self::assertNull($candidates[0]->publisher);
+        self::assertNull($candidates[0]->summary);
+    }
+
+    /**
+     * Metron matches a series name loosely: asking for "The Boys" really does
+     * return "Adventures of The Dover Boys" among 165 results. Whoever is
+     * choosing should not have to scroll past it.
+     */
+    public function testPutsTheClosestSeriesMatchFirst(): void
+    {
+        $row = static fn (int $id, string $series): array => [
+            'id' => $id,
+            'series' => ['name' => $series, 'volume' => 1],
+            'number' => '1',
+            'cover_date' => '2006-01-01',
+        ];
+
+        $provider = $this->provider(new MockResponse(json_encode([
+            'results' => [
+                $row(1, 'Adventures of The Dover Boys'),
+                $row(2, 'The Boys Presents'),
+                $row(3, 'The Boys'),
+                $row(4, 'Herogasm'),
+            ],
+        ]) ?: ''));
+
+        $order = array_map(
+            static fn ($candidate): string => $candidate->series,
+            $provider->search(new ProviderQuery('The Boys'))
+        );
+
+        self::assertSame(
+            ['The Boys', 'The Boys Presents', 'Adventures of The Dover Boys', 'Herogasm'],
+            $order
+        );
     }
 
     public function testSaysNothingWhenUnconfigured(): void

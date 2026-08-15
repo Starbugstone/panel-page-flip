@@ -144,7 +144,12 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      {/* The form is taller than a laptop viewport once suggestions are in it,
+          and a dialog that cannot scroll puts Save off the bottom of the screen
+          with no way to reach it. The fields scroll; the title and the buttons
+          stay where they are. dvh rather than vh so mobile browser chrome does
+          not hide the footer. */}
+      <DialogContent className="sm:max-w-[500px] flex max-h-[90dvh] flex-col">
         <DialogHeader>
           <DialogTitle>Edit Comic Details</DialogTitle>
           {/* Radix wires this to the dialog as its accessible description, so a
@@ -156,7 +161,7 @@ function ComicEditDialogForm({ comic, isOpen, onClose, onSave }) {
           </DialogDescription>
         </DialogHeader>
         
-        <div className="grid gap-4 py-4">
+        <div className="-mx-6 grid min-h-0 flex-1 gap-4 overflow-y-auto px-6 py-4">
           <div className="grid gap-2">
             <Label htmlFor="title">Title *</Label>
             <Input
