@@ -31,6 +31,8 @@ use Symfony\Component\Security\Http\Attribute\CurrentUser;
 #[Route('/api/shares')]
 class ShareController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     public function __construct(
         private readonly ComicShareRepository $shareRepository,
         private readonly ComicShareService $shareService,
@@ -42,11 +44,9 @@ class ShareController extends AbstractController
 
     /** Comics this user has shared, grouped by comic. */
     #[Route('/shared-by-me', name: 'app_shares_by_me', methods: ['GET'])]
-    public function sharedByMe(#[CurrentUser] ?User $user): JsonResponse
+    public function sharedByMe(): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Only shares on comics the owner still has: a deleted comic leaves this
         // list entirely, and the tombstone it leaves behind belongs to the
@@ -79,11 +79,9 @@ class ShareController extends AbstractController
 
     /** Invitations, accepted shares and tombstones addressed to this user. */
     #[Route('/shared-with-me', name: 'app_shares_with_me', methods: ['GET'])]
-    public function sharedWithMe(#[CurrentUser] ?User $user): JsonResponse
+    public function sharedWithMe(): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $shares = $this->shareRepository->findAllForRecipient($user);
 
@@ -94,11 +92,9 @@ class ShareController extends AbstractController
 
     /** Counts for the navigation badge and the dashboard alert. */
     #[Route('/summary', name: 'app_shares_summary', methods: ['GET'])]
-    public function summary(#[CurrentUser] ?User $user): JsonResponse
+    public function summary(): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         return $this->json([
             'pendingInvitations' => $this->shareRepository->countPendingForRecipient($user),
@@ -107,11 +103,9 @@ class ShareController extends AbstractController
     }
 
     #[Route('/comics/{comicId}/invitations', name: 'app_shares_invite', methods: ['POST'], requirements: ['comicId' => '\d+'])]
-    public function invite(int $comicId, Request $request, #[CurrentUser] ?User $user): JsonResponse
+    public function invite(int $comicId, Request $request): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $this->entityManager->getRepository(Comic::class)->find($comicId);
         if (!$comic) {
@@ -128,19 +122,15 @@ class ShareController extends AbstractController
             return $this->json(['message' => 'A recipient email address is required.'], Response::HTTP_BAD_REQUEST);
         }
 
-        try {
-            $invitation = $this->shareService->invite(
-                $comic,
-                $user,
-                $email,
-                // Strictly true: a missing key, a string "true" or anything else
-                // truthy is not somebody having read the notice and ticked the
-                // box, and this timestamp is meant to record that they did.
-                (is_array($data) ? ($data['senderResponsibilityAccepted'] ?? null) : null) === true
-            );
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $invitation = $this->shareService->invite(
+            $comic,
+            $user,
+            $email,
+            // Strictly true: a missing key, a string "true" or anything else
+            // truthy is not somebody having read the notice and ticked the
+            // box, and this timestamp is meant to record that they did.
+            (is_array($data) ? ($data['senderResponsibilityAccepted'] ?? null) : null) === true
+        );
 
         return $this->json([
             'message' => 'Invitation sent.',
@@ -160,11 +150,7 @@ class ShareController extends AbstractController
             return $share;
         }
 
-        try {
-            $invitation = $this->shareService->resend($share);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $invitation = $this->shareService->resend($share);
 
         return $this->json([
             'message' => 'Invitation resent.',
@@ -190,11 +176,9 @@ class ShareController extends AbstractController
     }
 
     #[Route('/comics/{comicId}', name: 'app_shares_stop_all', methods: ['DELETE'], requirements: ['comicId' => '\d+'])]
-    public function stopSharing(int $comicId, #[CurrentUser] ?User $user): JsonResponse
+    public function stopSharing(int $comicId): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $this->entityManager->getRepository(Comic::class)->find($comicId);
         if (!$comic) {
@@ -223,11 +207,7 @@ class ShareController extends AbstractController
     #[Route('/invitations/{token}', name: 'app_shares_invitation_preview', methods: ['GET'])]
     public function previewInvitation(string $token, #[CurrentUser] ?User $user): JsonResponse
     {
-        try {
-            $invitation = $this->shareService->resolveInvitation($token);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $invitation = $this->shareService->resolveInvitation($token);
 
         $share = $invitation->getComicShare();
         $comic = $share->getComic();
@@ -284,11 +264,9 @@ class ShareController extends AbstractController
      * something a link preview could make on somebody's behalf.
      */
     #[Route('/invitations/{token}/confirm-adult', name: 'app_shares_invitation_confirm_adult', methods: ['POST'])]
-    public function confirmAdultForInvitation(string $token, Request $request, #[CurrentUser] ?User $user): JsonResponse
+    public function confirmAdultForInvitation(string $token, Request $request): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         if (!$this->isAdultConfirmed($request)) {
             return $this->json([
@@ -297,12 +275,8 @@ class ShareController extends AbstractController
             ], Response::HTTP_BAD_REQUEST);
         }
 
-        try {
-            $invitation = $this->shareService->resolveInvitation($token);
-            $share = $this->shareService->confirmAdult($invitation->getComicShare(), $user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $invitation = $this->shareService->resolveInvitation($token);
+        $share = $this->shareService->confirmAdult($invitation->getComicShare(), $user);
 
         return $this->json([
             'message' => 'Age confirmed.',
@@ -328,11 +302,7 @@ class ShareController extends AbstractController
             ], Response::HTTP_BAD_REQUEST);
         }
 
-        try {
-            $this->shareService->confirmAdult($share, $user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $this->shareService->confirmAdult($share, $user);
 
         return $this->json([
             'message' => 'Age confirmed.',
@@ -355,18 +325,12 @@ class ShareController extends AbstractController
     }
 
     #[Route('/invitations/{token}/accept', name: 'app_shares_invitation_accept', methods: ['POST'])]
-    public function acceptInvitation(string $token, #[CurrentUser] ?User $user): JsonResponse
+    public function acceptInvitation(string $token): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
-        try {
-            $invitation = $this->shareService->resolveInvitation($token);
-            $share = $this->shareService->accept($invitation, $user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $invitation = $this->shareService->resolveInvitation($token);
+        $share = $this->shareService->accept($invitation, $user);
 
         return $this->json([
             'message' => 'Comic added to your collection.',
@@ -375,18 +339,12 @@ class ShareController extends AbstractController
     }
 
     #[Route('/invitations/{token}/decline', name: 'app_shares_invitation_decline', methods: ['POST'])]
-    public function declineInvitation(string $token, #[CurrentUser] ?User $user): JsonResponse
+    public function declineInvitation(string $token): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
-        try {
-            $invitation = $this->shareService->resolveInvitation($token);
-            $this->shareService->decline($invitation, $user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $invitation = $this->shareService->resolveInvitation($token);
+        $this->shareService->decline($invitation, $user);
 
         return $this->json(['message' => 'Invitation declined.']);
     }
@@ -406,11 +364,7 @@ class ShareController extends AbstractController
             return $share;
         }
 
-        try {
-            $this->shareService->acceptShare($share, $user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $this->shareService->acceptShare($share, $user);
 
         return $this->json([
             'message' => 'Comic added to your collection.',
@@ -426,11 +380,7 @@ class ShareController extends AbstractController
             return $share;
         }
 
-        try {
-            $this->shareService->declineShare($share, $user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $this->shareService->declineShare($share, $user);
 
         return $this->json(['message' => 'Invitation declined.']);
     }
@@ -444,11 +394,7 @@ class ShareController extends AbstractController
             return $share;
         }
 
-        try {
-            $this->shareService->removeFromCollection($share);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $this->shareService->removeFromCollection($share);
 
         return $this->json([
             'message' => 'Removed from your collection.',
@@ -464,11 +410,7 @@ class ShareController extends AbstractController
             return $share;
         }
 
-        try {
-            $this->shareService->restoreToCollection($share);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $this->shareService->restoreToCollection($share);
 
         return $this->json([
             'message' => 'Restored to your collection.',
@@ -484,11 +426,9 @@ class ShareController extends AbstractController
      * owner still shares cannot be swept away by mistake.
      */
     #[Route('/tombstones', name: 'app_shares_clear_tombstones', methods: ['DELETE'])]
-    public function clearTombstones(Request $request, #[CurrentUser] ?User $user): JsonResponse
+    public function clearTombstones(Request $request): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
         $shareIds = null;
@@ -511,9 +451,7 @@ class ShareController extends AbstractController
     /** The share, or the response to return instead of acting on it. */
     private function findOwnedShare(int $id, ?User $user): ComicShare|JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $share = $this->shareRepository->find($id);
         // A share the caller does not own is reported as missing rather than
@@ -528,9 +466,7 @@ class ShareController extends AbstractController
     /** The share, or the response to return instead of acting on it. */
     private function findReceivedShare(int $id, ?User $user): ComicShare|JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $share = $this->shareRepository->find($id);
         if (!$share || !$this->isRecipient($share, $user)) {

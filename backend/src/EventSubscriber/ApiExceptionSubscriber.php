@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\EventSubscriber;
 
 use App\Security\UnauthenticatedException;
+use App\Service\ShareException;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -40,6 +41,16 @@ final class ApiExceptionSubscriber implements EventSubscriberInterface
                 ['message' => $exception->getMessage()],
                 Response::HTTP_UNAUTHORIZED
             ));
+
+            return;
+        }
+
+        // A sharing failure already knows its own status and body — it was
+        // written to be read by whoever triggered it. Rendering it here means
+        // it reaches the caller intact from wherever it was raised, including
+        // the services controllers call without wrapping.
+        if ($exception instanceof ShareException) {
+            $event->setResponse(new JsonResponse($exception->toPayload(), $exception->getStatusCode()));
         }
     }
 }

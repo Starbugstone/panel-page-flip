@@ -6,6 +6,7 @@ namespace App\Tests\Unit\EventSubscriber;
 
 use App\EventSubscriber\ApiExceptionSubscriber;
 use App\Security\UnauthenticatedException;
+use App\Service\ShareException;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
@@ -46,6 +47,42 @@ final class ApiExceptionSubscriberTest extends TestCase
             ['message' => 'Malformed JSON.'],
             json_decode((string) $response->getContent(), true, flags: JSON_THROW_ON_ERROR)
         );
+    }
+
+    public function testAShareFailureKeepsItsOwnStatusAndBody(): void
+    {
+        $event = $this->exceptionEvent(
+            '/api/shares/comics/1/invitations',
+            new ShareException('You have already invited them.', 429)
+        );
+
+        (new ApiExceptionSubscriber())->onException($event);
+
+        $response = $event->getResponse();
+        self::assertNotNull($response);
+        self::assertSame(429, $response->getStatusCode());
+        self::assertSame(
+            ['message' => 'You have already invited them.'],
+            json_decode((string) $response->getContent(), true, flags: JSON_THROW_ON_ERROR)
+        );
+    }
+
+    /**
+     * The code is what a client branches on — the age gate opens on this and
+     * not on the wording — so it has to survive being rendered here.
+     */
+    public function testAShareFailureCarriesItsCodeWhenItHasOne(): void
+    {
+        $event = $this->exceptionEvent('/api/shares/comics/1/invitations', new ShareException(
+            'The recipient has not confirmed they are 18 or older.',
+            403,
+            ShareException::CODE_ADULT_CONFIRMATION_REQUIRED
+        ));
+
+        (new ApiExceptionSubscriber())->onException($event);
+
+        $payload = json_decode((string) $event->getResponse()?->getContent(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame(ShareException::CODE_ADULT_CONFIRMATION_REQUIRED, $payload['code']);
     }
 
     /**

@@ -2180,11 +2180,7 @@ class ComicController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager
     ): Response {
-        /** @var \App\Entity\User|null $currentUser */
-        $currentUser = $this->currentUser();
-        if ($currentUser === null) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $currentUser = $this->requireUser();
 
         // The owner id in the URL only has to agree with the comic; whether this
         // request may see the cover is the voter's decision, so a recipient's

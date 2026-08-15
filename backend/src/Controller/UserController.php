@@ -12,7 +12,6 @@ use App\Service\AdminAuditService;
 use App\Service\PasswordValidator;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
-use App\Service\ShareException;
 use App\Service\SharingCodeService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -507,13 +506,9 @@ class UserController extends AbstractController
             return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
         }
 
-        try {
-            // The service owns generation, uniqueness and the security record,
-            // so this path and the user's own cannot drift apart.
-            $sharingCodes->rotateCode($targetUser, $admin);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        // The service owns generation, uniqueness and the security record,
+        // so this path and the user's own cannot drift apart.
+        $sharingCodes->rotateCode($targetUser, $admin);
 
         // Ids only in the administrative trail as well — neither the old code
         // nor the new one is written down anywhere.
