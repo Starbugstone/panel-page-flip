@@ -12,6 +12,27 @@ jobs:
   apply-and-validate:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: cbz_reader
+          MYSQL_USER: cbz_user
+          MYSQL_PASSWORD: cbz_password
+          MYSQL_ROOT_PASSWORD: root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      MYSQL_USER: cbz_user
+      MYSQL_PASSWORD: cbz_password
+      MYSQL_DATABASE: cbz_reader
+      DATABASE_URL: mysql://cbz_user:cbz_password@127.0.0.1:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4
+
     steps:
       - uses: actions/checkout@v7
         with:
@@ -36,7 +57,7 @@ jobs:
           python3 .github/agent/apply_issue_116.py
           python3 .github/agent/post_patch_fix.py
 
-      - name: Update Composer dependency set
+      - name: Update Composer dependency set and normalize style
         shell: bash
         run: |
           set -euo pipefail
@@ -51,23 +72,7 @@ jobs:
           vendor/bin/php-cs-fixer fix --using-cache=no
 
       - name: Validate Symfony container early
-        shell: bash
-        run: |
-          set +e
-          cd backend
-          php bin/console cache:clear > ../.github/agent/cache-clear-error.txt 2>&1
-          rc=$?
-          cd ..
-          if [ "$rc" -ne 0 ]; then
-            cat .github/agent/cache-clear-error.txt
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .github/agent/cache-clear-error.txt
-            git commit -m "Capture hardening cache diagnostic"
-            git push origin HEAD:agent/issue-116-hardening
-            exit "$rc"
-          fi
-          rm -f .github/agent/cache-clear-error.txt
+        run: cd backend && php bin/console cache:clear
 
       - name: Validate frontend
         shell: bash
@@ -83,57 +88,32 @@ jobs:
           APP_URL=https://comics.starbugstone.com VITE_BUILD_ID=issue-116 VITE_BUILD_TIME=2026-08-15T11:15:00+02:00 npm run build
           APP_URL=https://comics.starbugstone.com npm run check:seo
 
-      - name: Start backend and database
+      - name: Prepare test database
         shell: bash
         run: |
           set -euo pipefail
-          docker compose up -d --build database php
-          for attempt in {1..60}; do
-            if docker compose exec -T database sh -lc 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'; then
-              exit 0
-            fi
-            sleep 2
-          done
-          docker compose logs database
-          exit 1
-
-      - name: Install backend dependencies without scripts
-        run: docker compose exec -T php composer install --no-interaction --no-progress --no-scripts
-
-      - name: Clear Symfony cache
-        run: docker compose exec -T php php bin/console cache:clear
-
-      - name: Install Symfony assets
-        run: docker compose exec -T php php bin/console assets:install public
-
-      - name: Prepare and migrate test database
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker compose exec -T database sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE}_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}_test.* TO '\''${MYSQL_USER}'\''@'\''%'\''; FLUSH PRIVILEGES;"'
-          docker compose exec -T php php bin/console doctrine:migrations:migrate --env=test --no-interaction
+          mysql -h 127.0.0.1 -uroot -proot_password -e "CREATE DATABASE IF NOT EXISTS cbz_reader_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON cbz_reader_test.* TO 'cbz_user'@'%'; FLUSH PRIVILEGES;"
+          cd backend
+          php bin/console doctrine:migrations:migrate --env=test --no-interaction
 
       - name: Validate Composer Symfony and schema
         shell: bash
         run: |
           set -euo pipefail
-          docker compose exec -T php composer validate --strict
-          docker compose exec -T php composer audit --locked --no-dev
-          docker compose exec -T php php bin/console lint:container --env=test
-          docker compose exec -T php php bin/console doctrine:schema:validate --env=test
+          cd backend
+          composer validate --strict
+          composer audit --locked --no-dev
+          php bin/console lint:container --env=test
+          php bin/console doctrine:schema:validate --env=test
 
       - name: Run PHPStan
-        run: docker compose exec -T php composer analyse
+        run: cd backend && composer analyse
 
       - name: Check PHP style
-        run: docker compose exec -T php composer cs:check
+        run: cd backend && composer cs:check
 
       - name: Run backend tests
-        run: docker compose exec -T php php bin/phpunit
-
-      - name: Show backend logs on failure
-        if: failure()
-        run: docker compose logs
+        run: cd backend && php bin/phpunit
 
       - name: Try enabling repository vulnerability alerts
         continue-on-error: true
