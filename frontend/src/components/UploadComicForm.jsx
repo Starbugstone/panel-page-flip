@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2, Upload, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useChunkedUpload } from "@/hooks/use-chunked-upload";
@@ -16,6 +16,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { FolderDestinationSelect } from "@/components/library/FolderDestinationSelect";
+import { useLibraryFolders } from "@/hooks/use-library-folders";
 
 const STATUS_LABELS = {
   initialising: "Preparing upload…",
@@ -28,10 +30,12 @@ const DEFAULT_COMIC_FORMATS = ["cbz"];
 
 export default function UploadComicForm() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const { refreshSession } = useAuth();
   const { config } = useConfig();
   const { tags: availableTags, addTagToCache } = useTags();
+  const { folders, isLoading: foldersLoading } = useLibraryFolders();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
   const comicFormats = config.upload?.comicFormats || DEFAULT_COMIC_FORMATS;
   const { start, cancel, status, progress } = useChunkedUpload({ concurrentChunks });
@@ -43,6 +47,9 @@ export default function UploadComicForm() {
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState("");
   const [dragging, setDragging] = useState(false);
+  const requestedFolder = searchParams.get("folder");
+  const [folderId, setFolderId] = useState(() => requestedFolder && /^\d+$/.test(requestedFolder) ? Number(requestedFolder) : null);
+  const selectedFolderId = folderId != null && (foldersLoading || folders.some((folder) => Number(folder.id) === folderId)) ? folderId : null;
   const inputRef = useRef(null);
 
   const chooseFile = useCallback((candidate) => {
@@ -77,12 +84,12 @@ export default function UploadComicForm() {
     }
 
     try {
-      const result = await start(file, { title, author, tags });
+      const result = await start(file, { title, author, tags, folderId: selectedFolderId });
       result.comic?.tags?.forEach((tag) => {
         if (tag?.id && tag?.name) addTagToCache(tag);
       });
       toast({ title: "Upload successful", description: `${title} is now in your library.` });
-      setTimeout(() => navigate("/dashboard"), 900);
+      setTimeout(() => navigate(`/dashboard?folder=${selectedFolderId == null ? "root" : selectedFolderId}`), 900);
     } catch (error) {
       toast({
         title: error.message === "Upload cancelled" ? "Upload cancelled" : "Upload failed",
@@ -97,7 +104,7 @@ export default function UploadComicForm() {
       <CardHeader>
         <CardTitle className="text-2xl font-comic">Upload New Comic</CardTitle>
         <CardDescription>
-          Upload one comic here, or <Link className="text-comic-purple underline" to="/upload/bulk">upload several at once</Link>.
+          Upload one comic here, or <Link className="text-comic-purple underline" to={`/upload/bulk?folder=${selectedFolderId == null ? "root" : selectedFolderId}`}>upload several at once</Link>.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -187,11 +194,12 @@ export default function UploadComicForm() {
               ))}
             </div>
           </div>
+          <FolderDestinationSelect folders={folders} value={selectedFolderId} onChange={setFolderId} disabled={uploading} />
         </form>
       </CardContent>
       <CardFooter className="justify-between">
         <Button variant="outline" type="button" onClick={() => uploading ? cancel() : navigate(-1)}>{uploading ? "Cancel upload" : "Back"}</Button>
-        <Button type="submit" form="upload-form" disabled={!file || !title.trim() || uploading}>
+        <Button type="submit" form="upload-form" disabled={!file || !title.trim() || uploading || foldersLoading}>
           {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</> : "Upload Comic"}
         </Button>
       </CardFooter>

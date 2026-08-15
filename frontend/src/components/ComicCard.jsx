@@ -13,6 +13,8 @@ import {
   MoreVertical,
   Share2Icon,
   Users,
+  FolderInput,
+  Folder,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useState } from "react";
@@ -30,6 +32,8 @@ export function ComicCard({
   onDeleteComic,
   onShareClick,
   onRemoveSharedComic,
+  onMoveComic,
+  locationName,
 }) {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -160,6 +164,11 @@ export function ComicCard({
           <CardContent className="p-4">
             <h3 className="font-bold truncate">{comic.title}</h3>
             <p className="text-sm text-muted-foreground truncate">{comic.author}</p>
+            {locationName && (
+              <p className="mt-1 flex items-center gap-1 truncate text-xs text-muted-foreground">
+                <Folder className="h-3 w-3 shrink-0" /> {locationName}
+              </p>
+            )}
 
             {comic.sharedWithCount > 0 && (
               <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
@@ -211,6 +220,12 @@ export function ComicCard({
                 just opened. The menu is outside the card's Link, so there is no
                 navigation left to cancel. */}
             <DropdownMenuContent align="end">
+              {onMoveComic && (
+                <DropdownMenuItem onSelect={() => onMoveComic(comic)}>
+                  <FolderInput className="mr-2 h-4 w-4" />
+                  Move to folder
+                </DropdownMenuItem>
+              )}
               {canEdit && (
                 <DropdownMenuItem onSelect={() => onEditComic(comic)}>
                   <Edit className="mr-2 h-4 w-4" />

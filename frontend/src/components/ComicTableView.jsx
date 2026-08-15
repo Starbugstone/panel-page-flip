@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Edit, Eye, Tags, Trash2 } from "lucide-react";
+import { Edit, Eye, FolderInput, Tags, Trash2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,26 +15,24 @@ import { useTags } from "@/hooks/use-tags.jsx";
 import { describeTagSubmission } from "@/lib/tag-suggestions";
 import { formatDate } from "@/lib/format";
 import { describeBulkShareImpactOfDeletion } from "@/lib/sharing";
+import { MoveToFolderDialog } from "@/components/library/MoveToFolderDialog";
 
 /**
- * Whether the bulk controls may act on a row.
- *
- * Driven by what the server says this viewer may do rather than by whether the
- * comic happens to be shared, so the two can never disagree. Both bulk actions
- * are owner actions, so a row has to satisfy both to be selectable — leaving
- * one in would let the user build a selection the server rejects as a whole.
+ * Owner-only actions are derived from server capabilities. Selection itself is
+ * broader because personal folder moves are valid for shared comics too.
  */
-const isSelectable = (comic) => comic.canEdit !== false && comic.canDelete !== false;
+const isOwnerActionEligible = (comic) => comic.canEdit !== false && comic.canDelete !== false;
 
-export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete }) {
+export function ComicTableView({ comics, folders = [], onEditComic, onBulkAddTag, onBulkDelete, onBulkMove }) {
   const { tags: availableTags } = useTags();
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [tagName, setTagName] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false);
   const [orphanedComics, setOrphanedComics] = useState([]);
   const comicIds = useMemo(
-    () => comics.filter(isSelectable).map((comic) => comic.id),
+    () => comics.map((comic) => comic.id),
     [comics]
   );
   const selectedComicIds = comicIds.filter((comicId) => selectedIds.has(comicId));
@@ -44,14 +42,15 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
   // reader derives from this instead, and the checkbox, the counter, the
   // warning and the request cannot describe different sets of comics.
   const selectedComics = useMemo(
-    () => comics.filter((comic) => isSelectable(comic) && selectedIds.has(comic.id)),
+    () => comics.filter((comic) => selectedIds.has(comic.id)),
     [comics, selectedIds]
   );
   const bulkShareImpact = useMemo(
     () => describeBulkShareImpactOfDeletion(selectedComics),
     [selectedComics]
   );
-  const isChecked = (comic) => isSelectable(comic) && selectedIds.has(comic.id);
+  const ownerActionsAllowed = selectedComics.length > 0 && selectedComics.every(isOwnerActionEligible);
+  const isChecked = (comic) => selectedIds.has(comic.id);
 
   const toggleAll = (checked) => {
     setSelectedIds(checked ? new Set(comicIds) : new Set());
@@ -70,6 +69,7 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
   // spelling of "Sci Fi".
   const tagSubmission = describeTagSubmission(availableTags, tagName);
   const canAddTag = selectedComicIds.length > 0
+    && ownerActionsAllowed
     && !isUpdating
     && (tagSubmission.status === "existing" || tagSubmission.status === "new");
 
@@ -105,23 +105,38 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
     }
   };
 
+  const moveSelected = async (folderId) => {
+    await onBulkMove(selectedComicIds, folderId);
+    setSelectedIds(new Set());
+  };
+
+  const folderNames = useMemo(() => new Map(folders.map((folder) => [Number(folder.id), folder.name])), [folders]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
         <p className="text-sm font-medium" aria-live="polite">
           {selectedComicIds.length} of {comicIds.length} selected
-          {comicIds.length !== comics.length && (
+          {selectedComics.length > 0 && !ownerActionsAllowed && (
             <span className="ml-1 font-normal text-muted-foreground">
-              ({comics.length - comicIds.length} not yours to change)
+              (Move is available; tagging and deletion require owned comics only)
             </span>
           )}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            onClick={() => setIsMoveDialogOpen(true)}
+            disabled={selectedComicIds.length === 0 || isUpdating || !onBulkMove}
+          >
+            <FolderInput className="mr-2 h-4 w-4" />
+            Move selected
+          </Button>
           <TagCombobox
             value={tagName}
             onChange={setTagName}
             onSubmit={(name) => addTag(name)}
-            disabled={selectedComicIds.length === 0 || isUpdating}
+            disabled={selectedComicIds.length === 0 || isUpdating || !ownerActionsAllowed}
             placeholder="Tag selected comics"
             label="Tag selected comics"
             className="sm:w-56"
@@ -137,7 +152,7 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
           <Button
             variant="destructive"
             onClick={() => setIsDeleteDialogOpen(true)}
-            disabled={selectedComicIds.length === 0 || isUpdating}
+            disabled={selectedComicIds.length === 0 || isUpdating || !ownerActionsAllowed}
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Delete selected
@@ -159,6 +174,7 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
               <TableHead>Comic</TableHead>
               <TableHead>Author</TableHead>
               <TableHead>Tags</TableHead>
+              <TableHead>Location</TableHead>
               <TableHead className="w-64">Progress</TableHead>
               <TableHead>Uploaded</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -173,10 +189,7 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
                     <Checkbox
                       checked={isChecked(comic)}
                       onCheckedChange={(checked) => toggleComic(comic.id, checked)}
-                      disabled={!isSelectable(comic)}
-                      aria-label={isSelectable(comic)
-                        ? `Select ${comic.title}`
-                        : `${comic.title} is not yours to change and cannot be selected`}
+                      aria-label={`Select ${comic.title}`}
                     />
                   </TableCell>
                   <TableCell>
@@ -196,6 +209,9 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
                       {(comic.tags || []).slice(0, 3).map((tag) => <TagBadge key={tag} tag={tag} hideFromLibrary={comic.hiddenTagNames?.includes(tag)} />)}
                       {(comic.tags || []).length > 3 && <Badge variant="outline">+{comic.tags.length - 3}</Badge>}
                     </div>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {comic.libraryFolderId == null ? "My Library" : folderNames.get(Number(comic.libraryFolderId)) || "Unknown folder"}
                   </TableCell>
                   <TableCell>
                     <div className="space-y-2">
@@ -272,6 +288,14 @@ export function ComicTableView({ comics, onEditComic, onBulkAddTag, onBulkDelete
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <MoveToFolderDialog
+        open={isMoveDialogOpen}
+        onOpenChange={setIsMoveDialogOpen}
+        folders={folders}
+        currentFolderId={null}
+        itemCount={selectedComicIds.length}
+        onMove={moveSelected}
+      />
     </div>
   );
 }
