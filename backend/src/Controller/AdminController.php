@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
 use App\Entity\AdminAuditLog;
@@ -62,7 +64,7 @@ class AdminController extends AbstractController
     public function updateComicFormats(Request $request, ComicFormatService $formats, AdminAuditService $auditService, EntityManagerInterface $entityManager): JsonResponse
     {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data) || !is_array($data['enabled'] ?? null)) return $this->json(['message' => 'Enabled formats must be an array.'], Response::HTTP_BAD_REQUEST);
         try {
             $enabled = array_map(static fn (mixed $value): ComicSourceType => ComicSourceType::from((string) $value), $data['enabled']);
@@ -117,7 +119,7 @@ class AdminController extends AbstractController
     ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
-        $submitted = json_decode($request->getContent(), true);
+        $submitted = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($submitted)) {
             $submitted = [];
         }
@@ -148,7 +150,7 @@ class AdminController extends AbstractController
     ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data)) {
             return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
         }

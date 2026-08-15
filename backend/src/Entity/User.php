@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Entity;
 
 use App\Repository\UserRepository;
@@ -75,17 +77,6 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(type: 'boolean')]
     private bool $isEmailVerified = false;
     
-    /**
-     * Email verification token
-     */
-    #[ORM\Column(length: 255, nullable: true)]
-    private ?string $emailVerificationToken = null;
-    
-    /**
-     * When the email verification token expires
-     */
-    #[ORM\Column(nullable: true)]
-    private ?\DateTimeImmutable $emailVerificationTokenExpiresAt = null;
 
     /**
      * @var string The hashed password
@@ -546,43 +537,4 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
     
-    public function getEmailVerificationToken(): ?string
-    {
-        return $this->emailVerificationToken;
-    }
-
-    public function setEmailVerificationToken(?string $token): static
-    {
-        $this->emailVerificationToken = $token;
-        return $this;
-    }
-
-    public function getEmailVerificationTokenExpiresAt(): ?\DateTimeImmutable
-    {
-        return $this->emailVerificationTokenExpiresAt;
-    }
-
-    public function setEmailVerificationTokenExpiresAt(?\DateTimeImmutable $expiresAt): static
-    {
-        $this->emailVerificationTokenExpiresAt = $expiresAt;
-        return $this;
-    }
-    
-    public function isEmailVerificationTokenExpired(): bool
-    {
-        if (!$this->emailVerificationToken || !$this->emailVerificationTokenExpiresAt) {
-            return true;
-        }
-        
-        return $this->emailVerificationTokenExpiresAt < new \DateTimeImmutable();
-    }
-    
-    public function generateEmailVerificationToken(): string
-    {
-        $plainToken = bin2hex(random_bytes(32));
-        $this->emailVerificationToken = hash('sha256', $plainToken);
-        $this->emailVerificationTokenExpiresAt = (new \DateTimeImmutable())->modify('+24 hours');
-        
-        return $plainToken;
-    }
 }

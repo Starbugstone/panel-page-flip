@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
 use App\Entity\Tag;
@@ -140,7 +142,7 @@ class TagController extends AbstractController
      */
     private function decodePayload(Request $request): array|JsonResponse
     {
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data)) {
             return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
         }

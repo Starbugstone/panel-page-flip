@@ -75,7 +75,7 @@ export function AuthProvider({ children }) {
     clearClientSession();
 
     try {
-      await api.post("/api/logout_user", {}, { notifyUnauthorized: false });
+      await api.post("/api/logout", {}, { notifyUnauthorized: false });
     } catch (error) {
       logger.warn("Logout request failed after clearing the local session:", error.message);
     }

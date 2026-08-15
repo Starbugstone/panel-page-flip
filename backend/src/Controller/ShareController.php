@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
 use App\Entity\Comic;
@@ -120,7 +122,7 @@ class ShareController extends AbstractController
             return $this->json(['message' => 'You can only share comics you own.'], Response::HTTP_FORBIDDEN);
         }
 
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         $email = is_array($data) ? ($data['email'] ?? null) : null;
         if (!is_string($email)) {
             return $this->json(['message' => 'A recipient email address is required.'], Response::HTTP_BAD_REQUEST);
@@ -347,7 +349,7 @@ class ShareController extends AbstractController
      */
     private function isAdultConfirmed(Request $request): bool
     {
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
 
         return is_array($data) && ($data['adultConfirmed'] ?? null) === true;
     }
@@ -488,7 +490,7 @@ class ShareController extends AbstractController
             return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
         }
 
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         $shareIds = null;
 
         if (is_array($data) && array_key_exists('shareIds', $data)) {

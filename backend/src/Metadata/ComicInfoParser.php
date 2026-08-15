@@ -42,6 +42,10 @@ final class ComicInfoParser
             return null;
         }
 
+        if (preg_match('/<!DOCTYPE/i', $xml) === 1) {
+            return null;
+        }
+
         $root = $this->rootElement($xml);
         if ($root === null) {
             return null;

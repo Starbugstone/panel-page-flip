@@ -3,8 +3,9 @@
 # deploy-ftp.sh
 # -----------------------------------------------------------------------------
 # Mirrors the ./release tree to a remote FTP/FTPS server using lftp inside Docker.
-# Safe-mode by default: never deletes anything on the server, never touches
-# the user-content folders.
+# Safe-mode by default: never deletes application/server state and never
+# touches user-content folders. Generated public/assets/ is the one exception:
+# it is mirrored exactly so obsolete content-hashed Vite chunks are pruned.
 #
 # Usage:
 #   ./scripts/deploy-ftp.sh                  # full upload (safe mode, no delete)
@@ -165,6 +166,22 @@ done
 
 LFTP_MIRROR="mirror --reverse --continue --parallel=${FTP_PARALLEL} --verbose ${DRY_FLAG} ${DELETE_FLAG} ${EXCL_STR} ${LOCAL_DIR}/ ${REMOTE_DIR}/"
 
+# The normal mirror is deliberately non-destructive unless --delete is passed,
+# because production contains server-managed state. Vite's generated assets are
+# different: the release directory is authoritative and hashed filenames change
+# every build. Mirror that one directory with --delete so dead chunks do not
+# accumulate. Requiring index.html prevents --skip-frontend builds from wiping
+# the live asset directory.
+ASSET_PRUNE_COMMAND=""
+ASSET_LOCAL_DIR="$RELEASE_DIR/backend/public/assets"
+ASSET_REMOTE_DIR="${FTP_REMOTE_ROOT%/}/backend/public/assets"
+if [ -d "$ASSET_LOCAL_DIR" ] && [ -f "$RELEASE_DIR/backend/public/index.html" ]; then
+    ASSET_PRUNE_COMMAND="mirror --reverse --continue --parallel=${FTP_PARALLEL} --verbose ${DRY_FLAG} --delete ${ASSET_LOCAL_DIR}/ ${ASSET_REMOTE_DIR}/"
+    log "Generated asset cleanup: enabled for public/assets/"
+else
+    warn "Generated asset cleanup skipped (no built frontend assets/index.html in release)."
+fi
+
 # --- run inside docker --------------------------------------------------------
 log "Starting lftp via docker (this may take a while)..."
 
@@ -179,6 +196,7 @@ lftp <<'LFTPEOF'
 ${LFTP_SETTINGS}
 ${LFTP_OPEN}
 ${LFTP_MIRROR}
+${ASSET_PRUNE_COMMAND}
 bye
 LFTPEOF
 " \
