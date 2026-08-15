@@ -14,5 +14,6 @@ final class LegalConfigControllerTest extends AbstractApiTestCase
         self::assertNotEmpty($payload['operator']);
         self::assertNotEmpty($payload['privacyEmail']);
         self::assertStringContainsString('@', $payload['privacyEmail']);
+        self::assertStringContainsString('@', $payload['legalEmail']);
     }
 }

@@ -163,7 +163,12 @@ class ComicSerializer
             'sharedWithCount' => $isOwner ? $sharedWithCount : null,
             'canEdit' => $isOwner || $isAdmin,
             'canDelete' => $isOwner || $isAdmin,
-            'canShare' => $isOwner,
+            'sharingRestricted' => $comic->isSharingRestricted(),
+            'contentQuarantined' => $comic->isQuarantined(),
+            'canShare' => $isOwner
+                && !$viewer->isSharingRestricted()
+                && !$comic->isSharingRestricted()
+                && !$comic->isQuarantined(),
         ];
 
         if ($includeOwner) {

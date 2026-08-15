@@ -61,6 +61,7 @@ security:
         - { path: ^/api/email-verification/verify, roles: PUBLIC_ACCESS }
         - { path: ^/api/email-verification/resend$, roles: PUBLIC_ACCESS }
         - { path: ^/api/legal-config$, roles: PUBLIC_ACCESS }
+        - { path: ^/api/content-reports$, methods: [POST], roles: PUBLIC_ACCESS }
         # Reading an invitation is public so somebody who does not have an
         # account yet can see what they are being offered before creating one.
         # It is a GET that changes nothing; accepting and declining are POSTs on

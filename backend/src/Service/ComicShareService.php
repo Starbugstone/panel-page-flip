@@ -80,6 +80,7 @@ class ComicShareService
         bool $senderResponsibilityAccepted
     ): IssuedInvitation {
         $this->assertSenderResponsibility($senderResponsibilityAccepted);
+        $this->assertSharingAvailable($comic, $owner);
         $email = $this->assertInvitableRecipient($owner, $recipientEmail);
         $reusable = $this->assertNoLiveInvitation($comic, $email);
 
@@ -159,6 +160,7 @@ class ComicShareService
             $comicId = (int) $comic->getId();
 
             try {
+                $this->assertSharingAvailable($comic, $owner);
                 $invitable[$comicId] = [$comic, $this->assertNoLiveInvitation($comic, $email)];
             } catch (ShareException $exception) {
                 $outcomes[$comicId] = $this->describeFailure($exception);
@@ -278,6 +280,7 @@ class ComicShareService
         User $recipient,
         \DateTimeImmutable $acknowledgedAt
     ): array {
+        $this->assertSharingAvailable($comic, $owner);
         $email = ComicShare::normaliseEmail((string) $recipient->getEmail());
         $share = $this->shareRepository->findForComicAndRecipient($comic, $email);
 
@@ -351,6 +354,8 @@ class ComicShareService
             throw new ShareException('This comic is no longer available to share.', 410);
         }
 
+        $this->assertSharingAvailable($comic, $owner);
+
         if ($share->getStatus() === ComicShare::STATUS_ACCEPTED) {
             throw new ShareException('That invitation has already been accepted.', 409);
         }
@@ -394,6 +399,10 @@ class ComicShareService
 
         if ($share->isTombstoned() || $share->getComic() === null) {
             throw new ShareException('The shared comic is no longer available.', 410);
+        }
+
+        if ($share->getComic()->isSharingRestricted() || $share->getComic()->isQuarantined()) {
+            throw new ShareException('This shared comic is temporarily unavailable.', 410);
         }
 
         if ($share->getStatus() === ComicShare::STATUS_REVOKED) {
@@ -458,6 +467,10 @@ class ComicShareService
     public function acceptShare(ComicShare $share, User $recipient): ComicShare
     {
         $this->assertRecipient($share, $recipient);
+        $comic = $share->getComic();
+        if ($comic === null || $comic->isSharingRestricted() || $comic->isQuarantined()) {
+            throw new ShareException('This shared comic is temporarily unavailable.', 410);
+        }
         $this->assertAnswerable($share);
         // The warning on the invitation page is a prompt; this is the boundary.
         // Accepting is what puts a comic in somebody's collection, so an
@@ -1143,6 +1156,17 @@ class ComicShareService
 
         if ($share->isExpired()) {
             throw new ShareException('This invitation has expired.', 410);
+        }
+    }
+
+    private function assertSharingAvailable(Comic $comic, User $owner): void
+    {
+        if ($owner->isSharingRestricted()) {
+            throw new ShareException('Sharing for this account has been restricted by the service administrator.', 403);
+        }
+
+        if ($comic->isSharingRestricted() || $comic->isQuarantined()) {
+            throw new ShareException('Sharing for this item has been temporarily restricted by the service administrator.', 403);
         }
     }
 
