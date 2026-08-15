@@ -27,7 +27,7 @@ final class UserSecretsSubscriber
 
     public function __construct(private readonly AppDataEncryptionService $encryption)
     {
-        $this->logicalSnapshots = new \WeakMap();
+        $this->logicalSnapshots = new \WeakMap(); // @phpstan-ignore assign.propertyType (WeakMap TValue is invariant)
     }
 
     public function postLoad(PostLoadEventArgs $args): void
@@ -105,7 +105,8 @@ final class UserSecretsSubscriber
 
         $user->setDropboxAccessToken($access);
         $user->setDropboxRefreshToken($refresh);
-        $this->logicalSnapshots[$user] = ['access' => $access, 'refresh' => $refresh];
+        $snapshots = $this->logicalSnapshots;
+        $snapshots[$user] = ['access' => $access, 'refresh' => $refresh];
 
         // The representation changed, not the logical value. Synchronizing the
         // UnitOfWork snapshot is what prevents a later unrelated flush from

@@ -27,7 +27,7 @@ final class MetadataProviderSecretsSubscriber
 
     public function __construct(private readonly AppDataEncryptionService $encryption)
     {
-        $this->logicalSnapshots = new \WeakMap();
+        $this->logicalSnapshots = new \WeakMap(); // @phpstan-ignore assign.propertyType (WeakMap TValue is invariant)
     }
 
     public function postLoad(PostLoadEventArgs $args): void
@@ -107,7 +107,8 @@ final class MetadataProviderSecretsSubscriber
 
         $configuration->setMetronPassword($metron);
         $configuration->setComicVineApiKey($comicVine);
-        $this->logicalSnapshots[$configuration] = ['metron' => $metron, 'comicVine' => $comicVine];
+        $snapshots = $this->logicalSnapshots;
+        $snapshots[$configuration] = ['metron' => $metron, 'comicVine' => $comicVine];
 
         $unitOfWork = $entityManager->getUnitOfWork();
         $unitOfWork->setOriginalEntityProperty($oid, 'metronPassword', $metron);
