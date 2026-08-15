@@ -34,7 +34,37 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/agent/apply_issue_116.py
-          python3 -c 'from pathlib import Path; p=Path("backend/config/services.yaml"); s=p.read_text(); line="            $uploadUserQuotaBytes: '\''%upload_user_quota_bytes%'\''\n"; marker="    App\\Service\\StorageQuotaService:\n        arguments:\n\n"; s=s.replace(marker, "    App\\Service\\StorageQuotaService:\n        arguments:\n"+line, 1); before, sep, after=s.rpartition(line); s=(before+after) if sep else s; p.write_text(s)'
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('backend/config/services.yaml')
+          s = p.read_text()
+          line = "            $uploadUserQuotaBytes: '%upload_user_quota_bytes%'\n"
+          marker = "    App\\Service\\StorageQuotaService:\n        arguments:\n\n"
+          s = s.replace(marker, "    App\\Service\\StorageQuotaService:\n        arguments:\n" + line, 1)
+          before, sep, after = s.rpartition(line)
+          if sep:
+              s = before + after
+          p.write_text(s)
+
+          p = Path('backend/src/Service/EmailVerificationService.php')
+          s = p.read_text()
+          old = """    public function issue(User $user): string
+    {
+        $this->removeTokensFor($user);
+        $token = new EmailVerificationToken($user);
+"""
+          new = """    public function issue(User $user): string
+    {
+        if ($user->getId() !== null) {
+            $this->removeTokensFor($user);
+        }
+        $token = new EmailVerificationToken($user);
+"""
+          if old not in s:
+              raise SystemExit('EmailVerificationService issue() marker not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
 
       - name: Update Composer dependency set
         shell: bash
@@ -48,6 +78,25 @@ jobs:
           vendor/bin/phpstan analyse -c phpstan.generate.neon --generate-baseline=phpstan-baseline.neon --no-progress || true
           test -s phpstan-baseline.neon
           rm phpstan.generate.neon
+
+      - name: Validate Symfony container early
+        shell: bash
+        run: |
+          set +e
+          cd backend
+          php bin/console cache:clear > ../.github/agent/cache-clear-error.txt 2>&1
+          rc=$?
+          cd ..
+          if [ "$rc" -ne 0 ]; then
+            cat .github/agent/cache-clear-error.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/agent/cache-clear-error.txt
+            git commit -m "Capture hardening cache diagnostic"
+            git push origin HEAD:agent/issue-116-hardening
+            exit "$rc"
+          fi
+          rm -f .github/agent/cache-clear-error.txt
 
       - name: Validate frontend
         shell: bash
@@ -128,8 +177,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm .github/workflows/agent-apply-116.yml .github/agent/apply_issue_116.py
-          rmdir .github/agent 2>/dev/null || true
+          rm .github/workflows/agent-apply-116.yml
+          rm -rf .github/agent
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
