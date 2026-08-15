@@ -135,6 +135,7 @@ final class AdminContentReportController extends AbstractController
         $comic = $report->getLinkedComic();
         $share = $report->getLinkedShare();
         $user = $report->getLinkedUser();
+        $reviewer = $report->getReviewedByAdmin();
 
         return [
             'id' => $report->getId(),
@@ -151,9 +152,9 @@ final class AdminContentReportController extends AbstractController
             'createdAt' => $report->getCreatedAt()->format(DATE_ATOM),
             'updatedAt' => $report->getUpdatedAt()->format(DATE_ATOM),
             'reviewedAt' => $report->getReviewedAt()?->format(DATE_ATOM),
-            'reviewedBy' => $report->getReviewedByAdmin() ? [
-                'id' => $report->getReviewedByAdmin()?->getId(),
-                'name' => $report->getReviewedByAdmin()?->getName(),
+            'reviewedBy' => $reviewer ? [
+                'id' => $reviewer->getId(),
+                'name' => $reviewer->getName(),
             ] : null,
             'resolutionCode' => $report->getResolutionCode(),
             'resolutionNote' => $report->getResolutionNote(),
@@ -186,6 +187,11 @@ final class AdminContentReportController extends AbstractController
         return $user;
     }
 
+    /**
+     * @template T of object
+     * @param class-string<T> $class
+     * @return T|null
+     */
     private function findNullable(EntityManagerInterface $entityManager, string $class, mixed $id): ?object
     {
         if ($id === null || $id === '') {

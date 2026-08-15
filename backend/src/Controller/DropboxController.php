@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
 use App\Entity\User;
@@ -229,7 +231,7 @@ class DropboxController extends AbstractController
             return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
         }
 
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         $filePath = is_array($data) ? ($data['path'] ?? null) : null;
         $fileName = is_array($data) ? ($data['fileName'] ?? null) : null;
         $filePath = is_string($filePath) && $filePath !== '' ? $filePath : null;

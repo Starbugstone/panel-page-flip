@@ -33,6 +33,7 @@ class ContentReport
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
+    // @phpstan-ignore property.unusedType (assigned by Doctrine after insert)
     private ?int $id = null;
 
     #[ORM\Column(length: 200)]

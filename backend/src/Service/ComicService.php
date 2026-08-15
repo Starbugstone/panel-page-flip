@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\ComicSource\ComicPageProviderFactory;
@@ -23,8 +25,8 @@ class ComicService
         private readonly SluggerInterface $slugger,
         private readonly LoggerInterface $logger,
         private readonly FileQuarantineService $fileQuarantine,
+        private readonly StorageQuotaService $storageQuota,
         private readonly int $uploadMaxTotalBytes,
-        private readonly int $uploadUserQuotaBytes,
         private readonly ComicPageProviderFactory $pageProviderFactory,
         private readonly ComicFormatService $comicFormatService,
         private readonly ComicPageCache $pageCache,
@@ -64,9 +66,7 @@ class ComicService
             throw new \RuntimeException('Uploaded file is too large.');
         }
 
-        if ($this->wouldExceedQuota($user, $incomingSize)) {
-            throw new \RuntimeException('User storage quota exceeded.');
-        }
+        $quotaLock = $this->storageQuota->acquireAdmission($user, $incomingSize);
 
         $this->ensureDirectory($this->comicsDirectory);
         $userDirectory = $this->comicsDirectory . '/' . $user->getId();
@@ -147,6 +147,7 @@ class ComicService
             $comic->setCoverImagePath($coverPath);
             $this->entityManager->flush();
             $connection->commit();
+            $quotaLock->release();
 
             return $comic;
         } catch (\Throwable $e) {
@@ -307,18 +308,12 @@ class ComicService
      */
     public function wouldExceedQuota(User $user, int $additionalBytes): bool
     {
-        return $this->getUserStorageBytes($user) + $additionalBytes > $this->uploadUserQuotaBytes;
+        return $this->storageQuota->wouldExceedQuota($user, $additionalBytes);
     }
 
     public function getUserStorageBytes(User $user): int
     {
-        return (int) $this->entityManager->createQueryBuilder()
-            ->select('COALESCE(SUM(c.fileSize), 0)')
-            ->from(Comic::class, 'c')
-            ->where('c.owner = :owner')
-            ->setParameter('owner', $user)
-            ->getQuery()
-            ->getSingleScalarResult();
+        return $this->storageQuota->getUserStorageBytes($user);
     }
 
     /**

@@ -1,40 +1,37 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
-use App\Entity\User;
+use App\Http\JsonRequestDecoder;
 use App\Repository\UserRepository;
 use App\Service\ApiRateLimiter;
+use App\Service\EmailVerificationMailer;
+use App\Service\EmailVerificationResult;
+use App\Service\EmailVerificationService;
 use App\Service\PublicUrl;
 use App\Service\SecurityAuditLogger;
-use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 #[Route('/api/email-verification')]
-class EmailVerificationController extends AbstractController
+final class EmailVerificationController extends AbstractController
 {
+    private const RESEND_MESSAGE = 'If your email exists and still needs verification, a verification email has been sent.';
+
     public function __construct(private readonly PublicUrl $publicUrl)
     {
     }
 
-    #[Route('/verify/{token}', name: 'app_email_verification_verify', methods: ['GET'])]
-    public function verify(
-        string $token,
-        UserRepository $userRepository,
-        EntityManagerInterface $entityManager,
-        SecurityAuditLogger $securityLogger
-    ): Response {
-        $user = $userRepository->findOneBy(['emailVerificationToken' => hash('sha256', $token)]);
-
-        if (!$user) {
-            // The token is not logged, only the fact that one did not match. A
-            // verification link is a bearer credential, and a security log is a
-            // file somebody else may be allowed to read.
+    #[Route('/verify/{token}', name: 'app_email_verification_verify', methods: ['GET'], requirements: ['token' => '[A-Fa-f0-9]{64}'])]
+    public function verify(string $token, EmailVerificationService $verification, SecurityAuditLogger $securityLogger): Response
+    {
+        $result = $verification->verify($token);
+        if ($result->status === EmailVerificationResult::INVALID || $result->user === null) {
             $securityLogger->suspicious(
                 SecurityAuditLogger::AUTHENTICATION_FAILED,
                 'verify:' . $securityLogger->clientIp(),
@@ -42,28 +39,16 @@ class EmailVerificationController extends AbstractController
                 $securityLogger->failedLoginThreshold()
             );
 
-            return $this->redirectToFrontend('verification-failed', 'Invalid verification token');
+            return $this->redirectToFrontend('verification-failed', 'Invalid or expired verification token');
         }
 
-        if ($user->isEmailVerified()) {
+        if ($result->status === EmailVerificationResult::ALREADY_VERIFIED) {
             return $this->redirectToFrontend('verification-success', 'Your email has already been verified');
         }
 
-        if ($user->isEmailVerificationTokenExpired()) {
-            return $this->redirectToFrontend('verification-failed', 'Verification token has expired');
-        }
-
-        // Verify the user's email
-        $user->setIsEmailVerified(true);
-        $user->setEmailVerificationToken(null);
-        $user->setEmailVerificationTokenExpiresAt(null);
-
-        $entityManager->persist($user);
-        $entityManager->flush();
-
         $securityLogger->audit(SecurityAuditLogger::USER_EMAIL_VERIFIED, [
-            'actor_user_id' => $user->getId(),
-            'target_user_id' => $user->getId(),
+            'actor_user_id' => $result->user->getId(),
+            'target_user_id' => $result->user->getId(),
             'target_type' => 'user',
             'verified_by_admin' => false,
         ]);
@@ -74,93 +59,43 @@ class EmailVerificationController extends AbstractController
     #[Route('/resend', name: 'app_email_verification_resend', methods: ['POST'])]
     public function resendVerificationEmail(
         Request $request,
-        EntityManagerInterface $entityManager,
-        UserRepository $userRepository,
+        UserRepository $users,
         ApiRateLimiter $rateLimiter,
-        \Symfony\Component\Mailer\MailerInterface $mailer,
-        UrlGeneratorInterface $urlGenerator,
-        \Twig\Environment $twig,
+        EmailVerificationService $verification,
+        EmailVerificationMailer $verificationMailer,
         SecurityAuditLogger $securityLogger
     ): JsonResponse {
         if ($rateLimitResponse = $rateLimiter->limit($request, 'verification_resend')) {
             return $rateLimitResponse;
         }
 
-        $data = json_decode($request->getContent(), true);
+        $data = JsonRequestDecoder::decode($request);
         $email = $data['email'] ?? null;
-
-        if (!$email) {
+        if (!is_string($email) || trim($email) === '') {
             return $this->json(['message' => 'Email is required'], Response::HTTP_BAD_REQUEST);
         }
 
-        $user = $userRepository->findOneBy(['email' => $email]);
-
-        if (!$user) {
-            // Don't reveal that the user doesn't exist for security reasons
-            return $this->json(['message' => 'If your email exists in our system, a verification email has been sent'], Response::HTTP_OK);
+        $user = $users->findOneBy(['email' => trim($email)]);
+        if ($user !== null && !$user->isEmailVerified()) {
+            $plainToken = $verification->issue($user);
+            $verificationMailer->send($user, $plainToken);
+            $securityLogger->audit(SecurityAuditLogger::USER_VERIFICATION_RESENT, [
+                'actor_user_id' => $user->getId(),
+                'target_user_id' => $user->getId(),
+                'target_type' => 'user',
+            ]);
         }
 
-        if ($user->isEmailVerified()) {
-            return $this->json(['message' => 'Your email is already verified'], Response::HTTP_OK);
-        }
-
-        // Generate a new verification token
-        $token = $user->generateEmailVerificationToken();
-        $entityManager->persist($user);
-        $entityManager->flush();
-
-        // Send verification email
-        $this->sendVerificationEmail($user, $token, $mailer, $urlGenerator, $twig);
-
-        $securityLogger->audit(SecurityAuditLogger::USER_VERIFICATION_RESENT, [
-            'actor_user_id' => $user->getId(),
-            'target_user_id' => $user->getId(),
-            'target_type' => 'user',
-        ]);
-
-        return $this->json(['message' => 'Verification email has been sent'], Response::HTTP_OK);
-    }
-
-    private function sendVerificationEmail(
-        User $user,
-        string $token,
-        \Symfony\Component\Mailer\MailerInterface $mailer,
-        UrlGeneratorInterface $urlGenerator,
-        \Twig\Environment $twig
-    ): void {
-        // Generate the API verification URL (backend)
-        $apiVerificationUrl = $this->generateUrl(
-            'app_email_verification_verify',
-            ['token' => $token],
-            UrlGeneratorInterface::ABSOLUTE_URL
-        );
-        
-        // Get the mailer configuration
-        $fromEmail = $this->getParameter('mailer_from_address') ?: 'noreply@comicreader.example.com';
-        $fromName = $this->getParameter('mailer_from_name') ?: 'Comic Reader';
-        
-        $email = (new \Symfony\Component\Mime\Email())
-            ->from(new \Symfony\Component\Mime\Address($fromEmail, $fromName))
-            ->to($user->getEmail())
-            ->subject('Verify your email address')
-            ->html(
-                $twig->render('emails/email_verification.html.twig', [
-                    'user' => $user,
-                    'verificationUrl' => $apiVerificationUrl
-                ])
-            );
-
-        $mailer->send($email);
+        return $this->json(['message' => self::RESEND_MESSAGE], Response::HTTP_OK);
     }
 
     private function redirectToFrontend(string $status, string $message): Response
     {
-        $redirectUrl = sprintf('%s?status=%s&message=%s',
+        return $this->redirect(sprintf(
+            '%s?status=%s&message=%s',
             $this->publicUrl->to('/email-verification'),
-            urlencode($status), 
+            urlencode($status),
             urlencode($message)
-        );
-        
-        return $this->redirect($redirectUrl);
+        ));
     }
 }

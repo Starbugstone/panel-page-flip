@@ -20,6 +20,10 @@ framework:
             policy: sliding_window
             limit: 5
             interval: '1 hour'
+        comic_search:
+            policy: sliding_window
+            limit: 10
+            interval: '1 minute'
         # Invitation sends and resends, per owner. Sliding rather than fixed so
         # the allowance cannot be doubled by sending across a window boundary.
         #
@@ -81,6 +85,8 @@ when@test:
             verification_resend:
                 limit: 1000
             content_report:
+                limit: 1000
+            comic_search:
                 limit: 1000
             # Raised because the limiter is cache-backed while the database is
             # rolled back between tests: user ids come round again and inherit

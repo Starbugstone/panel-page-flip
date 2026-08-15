@@ -18,4 +18,17 @@ final class RegistrationTermsTest extends AbstractApiTestCase
         self::assertSame('Validation failed', $payload['message']);
         self::assertArrayHasKey('[agreeTerms]', $payload['errors']);
     }
+
+    public function testRegistrationAcceptsPlainPasswordFallback(): void
+    {
+        $payload = $this->postJson('/api/register', [
+            'email' => 'plain-password@test.local',
+            'plainPassword' => 'Valid!Password123',
+            'name' => 'Plain Password Test',
+            'agreeTerms' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(201);
+        self::assertTrue($payload['requiresVerification']);
+    }
 }

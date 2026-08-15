@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
 use App\Service\ResetPasswordService;
@@ -10,6 +12,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Validator\Constraints as Assert;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
@@ -34,9 +37,9 @@ class ResetPasswordController extends AbstractController
                 return $rateLimitResponse;
             }
 
-            $data = json_decode($request->getContent(), true);
+            $data = \App\Http\JsonRequestDecoder::decode($request);
             $email = $data['email'] ?? '';
-            
+
             // Validate email
             $emailConstraint = new Assert\Email();
             $errors = $this->validator->validate($email, $emailConstraint);
@@ -46,13 +49,15 @@ class ResetPasswordController extends AbstractController
             }
 
             // Process the password reset request
-            $result = $this->resetPasswordService->sendPasswordResetEmail($email);
-            
+            $this->resetPasswordService->sendPasswordResetEmail($email);
+
             // Always return success for security reasons, even if email doesn't exist
             return $this->json(['message' => 'If an account exists with that email, you will receive password reset instructions.']);
+        } catch (BadRequestHttpException $e) {
+            return $this->json(['message' => $e->getMessage()], $e->getStatusCode());
         } catch (\Exception $e) {
             $this->logger->warning('Forgot password request failed.', ['exception' => $e]);
-            
+
             return $this->json(['message' => 'An error occurred processing your request.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
@@ -72,7 +77,7 @@ class ResetPasswordController extends AbstractController
     #[Route('/reset-password/reset/{token}', name: 'app_reset_password_reset', methods: ['POST'])]
     public function resetPassword(Request $request, string $token): JsonResponse
     {
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         $password = $data['password'] ?? '';
 
         // Validate password

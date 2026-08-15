@@ -5,12 +5,10 @@ namespace App\Service;
 use App\Entity\Comic;
 use App\Entity\ContentReport;
 use App\Entity\User;
-use Doctrine\ORM\EntityManagerInterface;
 
 final class ContentRestrictionService
 {
     public function __construct(
-        private readonly EntityManagerInterface $entityManager,
         private readonly ComicShareService $shares,
         private readonly SecurityAuditLogger $auditLogger,
     ) {

@@ -1,8 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
-class AppDataEncryptionService
+final class AppDataEncryptionService
 {
     private const PREFIX = 'enc:v1:';
 
@@ -28,6 +30,8 @@ class AppDataEncryptionService
     public function decrypt(?string $value): ?string
     {
         if ($value === null || $value === '' || !$this->isEncrypted($value)) {
+            // Legacy plaintext remains readable so the explicit migration
+            // command can encrypt it. New writes are always encrypted.
             return $value;
         }
 
@@ -39,7 +43,6 @@ class AppDataEncryptionService
         $nonce = substr($payload, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
         $ciphertext = substr($payload, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
         $plaintext = sodium_crypto_secretbox_open($ciphertext, $nonce, $this->key);
-
         if ($plaintext === false) {
             throw new \RuntimeException('Unable to decrypt application data. Verify APP_DATA_KEY.');
         }
@@ -54,15 +57,20 @@ class AppDataEncryptionService
 
     private function normaliseKey(string $key): string
     {
+        if (ctype_xdigit($key) && strlen($key) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES * 2) {
+            $decoded = hex2bin($key);
+            if ($decoded !== false) {
+                return $decoded;
+            }
+        }
+
         $decoded = base64_decode($key, true);
         if ($decoded !== false && strlen($decoded) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
             return $decoded;
         }
 
-        if (ctype_xdigit($key) && strlen($key) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES * 2) {
-            return hex2bin($key);
-        }
-
-        return hash('sha256', $key, true);
+        throw new \InvalidArgumentException(
+            'APP_DATA_KEY must be exactly 32 random bytes encoded as 64 hexadecimal characters or Base64.'
+        );
     }
 }
