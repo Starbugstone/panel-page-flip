@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 
 const mocks = vi.hoisted(() => ({ toast: vi.fn() }));
 
-vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), put: vi.fn() } }));
+vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), put: vi.fn(), post: vi.fn() } }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 
 const providers = (metron = false, comicvine = false) => ({
@@ -22,6 +22,86 @@ describe("AdminMetadataProviders", () => {
     mocks.toast.mockClear();
     vi.mocked(api.get).mockReset().mockResolvedValue(providers());
     vi.mocked(api.put).mockReset().mockResolvedValue(providers(true, true));
+    vi.mocked(api.post).mockReset().mockResolvedValue({ results: [] });
+  });
+
+  describe("testing credentials", () => {
+    /**
+     * The point of the button: find out whether a credential works before
+     * committing to storing it.
+     */
+    it("tests what was typed without saving it", async () => {
+      const user = userEvent.setup();
+      render(<AdminMetadataProviders />);
+      await screen.findByText("Metron");
+
+      await user.type(screen.getByLabelText(/comic vine api key/i), "cv-key");
+      await user.click(screen.getByRole("button", { name: /test credentials/i }));
+
+      await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+        "/api/admin/metadata-providers/verify",
+        { comicVineApiKey: "cv-key" }
+      ));
+      expect(api.put).not.toHaveBeenCalled();
+    });
+
+    it("shows what each provider said", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.post).mockResolvedValue({
+        results: [
+          { key: "metron", label: "Metron", status: "ok", message: "Metron accepted the credentials." },
+          { key: "comicvine", label: "Comic Vine", status: "unauthorized", message: "Comic Vine rejected the API key." },
+        ],
+      });
+
+      render(<AdminMetadataProviders />);
+      await screen.findByText("Metron");
+      await user.click(screen.getByRole("button", { name: /test credentials/i }));
+
+      expect(await screen.findByText(/Metron accepted the credentials/)).toBeInTheDocument();
+      expect(screen.getByText(/Comic Vine rejected the API key/)).toBeInTheDocument();
+    });
+
+    /** Testing with empty boxes falls back to whatever is already stored. */
+    it("sends nothing when no credential was typed", async () => {
+      const user = userEvent.setup();
+      render(<AdminMetadataProviders />);
+      await screen.findByText("Metron");
+
+      await user.click(screen.getByRole("button", { name: /test credentials/i }));
+
+      await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/admin/metadata-providers/verify", {}));
+    });
+
+    it("drops stale results once something is saved", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.post).mockResolvedValue({
+        results: [{ key: "metron", label: "Metron", status: "ok", message: "Metron accepted the credentials." }],
+      });
+
+      render(<AdminMetadataProviders />);
+      await screen.findByText("Metron");
+      await user.click(screen.getByRole("button", { name: /test credentials/i }));
+      await screen.findByText(/Metron accepted the credentials/);
+
+      await user.type(screen.getByLabelText(/comic vine api key/i), "cv-key");
+      await user.click(screen.getByRole("button", { name: /save credentials/i }));
+
+      await waitFor(() => expect(screen.queryByText(/Metron accepted the credentials/)).not.toBeInTheDocument());
+    });
+
+    it("reports a failed test without breaking the panel", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.post).mockRejectedValue(new Error("network down"));
+
+      render(<AdminMetadataProviders />);
+      await screen.findByText("Metron");
+      await user.click(screen.getByRole("button", { name: /test credentials/i }));
+
+      await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Could not test credentials" })
+      ));
+    });
   });
 
   it("reports which providers are configured", async () => {

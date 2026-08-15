@@ -115,6 +115,61 @@ final class MetadataProviderAdminTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(403);
     }
 
+    /**
+     * Nothing is configured, so both should say there is nothing to test rather
+     * than reaching out and failing. No network is touched.
+     */
+    public function testTestingWithNothingConfiguredSaysSo(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $results = $this->postJson('/api/admin/metadata-providers/verify')['results'];
+
+        self::assertResponseIsSuccessful();
+        self::assertSame(['comicvine', 'metron'], $this->sortedKeys($results));
+        foreach ($results as $result) {
+            self::assertSame('unconfigured', $result['status']);
+            self::assertNotSame('', $result['message']);
+        }
+    }
+
+    /** Results describe what happened; they never quote the credential back. */
+    public function testTestResultsDoNotEchoTheCredential(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $this->postJson('/api/admin/metadata-providers/verify', ['comicVineApiKey' => 'comicvine-key-placeholder']);
+
+        self::assertStringNotContainsString(
+            'comicvine-key-placeholder',
+            (string) $this->browser()->getResponse()->getContent()
+        );
+    }
+
+    public function testTestingIsAdministratorsOnly(): void
+    {
+        $this->createAndLoginUser();
+
+        $this->postJson('/api/admin/metadata-providers/verify', ['comicVineApiKey' => 'x']);
+
+        self::assertResponseStatusCodeSame(403);
+    }
+
+    /** Testing must never store anything — that is what Save is for. */
+    public function testTestingDoesNotStoreTheCredential(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $this->postJson('/api/admin/metadata-providers/verify', ['comicVineApiKey' => 'comicvine-key-placeholder']);
+
+        $configured = array_column(
+            $this->getJson('/api/admin/metadata-providers')['providers'],
+            'configured',
+            'key'
+        );
+        self::assertFalse($configured['comicvine']);
+    }
+
     /** @param array<int, array<string, mixed>> $providers */
     private function sortedKeys(array $providers): array
     {

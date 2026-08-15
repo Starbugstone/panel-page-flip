@@ -21,4 +21,14 @@ interface MetadataProviderInterface
      * @return list<ProviderCandidate>
      */
     public function search(ProviderQuery $query): array;
+
+    /**
+     * Try the given credentials against the live service and say what happened.
+     *
+     * Takes its credentials as an argument rather than using the configured
+     * ones, so an administrator can test what they have just typed before
+     * saving it. Never cached — a cached answer to "does this key work" is
+     * worthless, since the question is only ever asked when something changed.
+     */
+    public function verify(ProviderCredentials $candidate): ProviderVerification;
 }

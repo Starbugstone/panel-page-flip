@@ -117,6 +117,63 @@ final class MetronProviderTest extends TestCase
         self::assertNotEmpty(array_filter($seen['headers'], static fn ($h) => str_starts_with(strtolower((string) $h), 'authorization:')));
     }
 
+    /** @dataProvider verificationCases */
+    public function testSaysWhatHappenedWhenCredentialsAreTested(int $httpCode, string $expected): void
+    {
+        $provider = $this->provider(new MockResponse('{"results":[]}', ['http_code' => $httpCode]));
+
+        self::assertSame($expected, $provider->verify(self::credentials(true))->status);
+    }
+
+    public function verificationCases(): iterable
+    {
+        yield 'accepted' => [200, 'ok'];
+        yield 'refused' => [401, 'unauthorized'];
+        yield 'forbidden' => [403, 'unauthorized'];
+        yield 'rate limited' => [429, 'rate_limited'];
+        yield 'server error' => [500, 'failed'];
+    }
+
+    public function testSaysThereIsNothingToTestWithoutBothHalves(): void
+    {
+        $onlyUsername = new class implements \App\Metadata\Provider\ProviderCredentials {
+            public function metronUsername(): ?string { return 'librarian'; }
+            public function metronPassword(): ?string { return null; }
+            public function comicVineApiKey(): ?string { return null; }
+        };
+
+        $verification = $this->provider(null)->verify($onlyUsername);
+
+        self::assertSame('unconfigured', $verification->status);
+        self::assertStringContainsString('username and a password', $verification->message);
+    }
+
+    public function testDistinguishesAnUnreachableServiceFromRefusedCredentials(): void
+    {
+        $client = new MockHttpClient(static function (): never {
+            throw new \Symfony\Component\HttpClient\Exception\TransportException('no route to host');
+        });
+
+        self::assertSame('unreachable', $this->provider(null, client: $client)->verify(self::credentials(true))->status);
+    }
+
+    /** Verification asks the live service, so a cached search cannot answer it. */
+    public function testVerificationIsNotServedFromTheSearchCache(): void
+    {
+        $calls = 0;
+        $client = new MockHttpClient(function () use (&$calls): MockResponse {
+            ++$calls;
+
+            return new MockResponse('{"results":[]}');
+        });
+
+        $provider = $this->provider(null, client: $client);
+        $provider->verify(self::credentials(true));
+        $provider->verify(self::credentials(true));
+
+        self::assertSame(2, $calls);
+    }
+
     private function provider(?MockResponse $response, bool $configured = true, ?MockHttpClient $client = null): MetronProvider
     {
         return new MetronProvider(

@@ -68,6 +68,55 @@ final class ComicVineProvider implements MetadataProviderInterface
         });
     }
 
+    public function verify(ProviderCredentials $candidate): ProviderVerification
+    {
+        $key = $candidate->comicVineApiKey();
+        if ($key === null) {
+            return ProviderVerification::unconfigured('Comic Vine needs an API key.');
+        }
+
+        try {
+            $response = $this->httpClient->request('GET', self::BASE_URL.'/issues/', [
+                'query' => ['api_key' => $key, 'format' => 'json', 'limit' => 1],
+                'headers' => ['User-Agent' => self::USER_AGENT],
+                'timeout' => self::TIMEOUT_SECONDS,
+            ]);
+
+            // Comic Vine rejects a key two different ways depending on the
+            // endpoint: an HTTP 401 here, and a 200 carrying an error code
+            // elsewhere. Both mean the same thing to whoever typed it, so both
+            // are reported as a refused key rather than as "HTTP 401".
+            if (in_array($response->getStatusCode(), [401, 403], true)) {
+                return ProviderVerification::unauthorized('Comic Vine rejected the API key.');
+            }
+
+            if ($response->getStatusCode() === 429) {
+                return ProviderVerification::rateLimited('Comic Vine is rate limiting this server. Try again shortly.');
+            }
+
+            if ($response->getStatusCode() !== 200) {
+                return ProviderVerification::failed(sprintf('Comic Vine answered with HTTP %d.', $response->getStatusCode()));
+            }
+
+            $payload = $response->toArray(false);
+
+            return match ((int) ($payload['status_code'] ?? 0)) {
+                1 => ProviderVerification::ok('Comic Vine accepted the key.'),
+                100, 102 => ProviderVerification::unauthorized('Comic Vine rejected the API key.'),
+                107 => ProviderVerification::rateLimited('Comic Vine is rate limiting this server. Try again shortly.'),
+                default => ProviderVerification::failed(sprintf(
+                    'Comic Vine returned error %s: %s',
+                    (string) ($payload['status_code'] ?? '?'),
+                    (string) ($payload['error'] ?? 'no reason given')
+                )),
+            };
+        } catch (\Throwable $exception) {
+            $this->logger?->info('Comic Vine verification could not reach the service.', ['reason' => $exception->getMessage()]);
+
+            return ProviderVerification::unreachable('Comic Vine could not be reached from this server.');
+        }
+    }
+
     /** @return list<ProviderCandidate> */
     private function request(ProviderQuery $query): array
     {

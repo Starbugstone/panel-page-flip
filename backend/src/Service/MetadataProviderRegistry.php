@@ -6,6 +6,7 @@ namespace App\Service;
 
 use App\Entity\Comic;
 use App\Metadata\Provider\MetadataProviderInterface;
+use App\Metadata\Provider\ProviderCredentials;
 use App\Metadata\Provider\ProviderQuery;
 
 /**
@@ -50,6 +51,28 @@ final class MetadataProviderRegistry
                 'label' => $provider->label(),
                 'configured' => $provider->isConfigured(),
             ],
+            $this->all()
+        );
+    }
+
+    /**
+     * Test each provider against the given credentials.
+     *
+     * @return list<array{key: string, label: string, status: string, message: string}>
+     */
+    public function verify(ProviderCredentials $candidate): array
+    {
+        return array_map(
+            static function (MetadataProviderInterface $provider) use ($candidate): array {
+                $result = $provider->verify($candidate);
+
+                return [
+                    'key' => $provider->key(),
+                    'label' => $provider->label(),
+                    'status' => $result->status,
+                    'message' => $result->message,
+                ];
+            },
             $this->all()
         );
     }
