@@ -22,11 +22,12 @@ use Doctrine\ORM\Events;
 #[AsDoctrineListener(event: Events::postUpdate)]
 final class MetadataProviderSecretsSubscriber
 {
-    /** @var array<int, array{metron: ?string, comicVine: ?string}> */
-    private array $logicalSnapshots = [];
+    /** @var \WeakMap<MetadataProviderConfiguration, array{metron: ?string, comicVine: ?string}> */
+    private \WeakMap $logicalSnapshots;
 
     public function __construct(private readonly AppDataEncryptionService $encryption)
     {
+        $this->logicalSnapshots = new \WeakMap();
     }
 
     public function postLoad(PostLoadEventArgs $args): void
@@ -55,7 +56,7 @@ final class MetadataProviderSecretsSubscriber
             return;
         }
 
-        $snapshot = $this->logicalSnapshots[spl_object_id($configuration)] ?? [
+        $snapshot = $this->logicalSnapshots[$configuration] ?? [
             'metron' => $configuration->getMetronPassword(),
             'comicVine' => $configuration->getComicVineApiKey(),
         ];
@@ -106,7 +107,7 @@ final class MetadataProviderSecretsSubscriber
 
         $configuration->setMetronPassword($metron);
         $configuration->setComicVineApiKey($comicVine);
-        $this->logicalSnapshots[$oid] = ['metron' => $metron, 'comicVine' => $comicVine];
+        $this->logicalSnapshots[$configuration] = ['metron' => $metron, 'comicVine' => $comicVine];
 
         $unitOfWork = $entityManager->getUnitOfWork();
         $unitOfWork->setOriginalEntityProperty($oid, 'metronPassword', $metron);
