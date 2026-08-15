@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
 use App\Service\ResetPasswordService;
@@ -34,7 +36,7 @@ class ResetPasswordController extends AbstractController
                 return $rateLimitResponse;
             }
 
-            $data = json_decode($request->getContent(), true);
+            $data = \App\Http\JsonRequestDecoder::decode($request);
             $email = $data['email'] ?? '';
             
             // Validate email
@@ -72,7 +74,7 @@ class ResetPasswordController extends AbstractController
     #[Route('/reset-password/reset/{token}', name: 'app_reset_password_reset', methods: ['POST'])]
     public function resetPassword(Request $request, string $token): JsonResponse
     {
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         $password = $data['password'] ?? '';
 
         // Validate password

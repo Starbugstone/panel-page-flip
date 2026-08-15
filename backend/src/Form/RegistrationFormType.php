@@ -27,7 +27,7 @@ class RegistrationFormType extends AbstractType
                     ]),
                 ],
             ])
-            ->add('plainPassword', PasswordType::class, [ // Changed from RepeatedType
+            ->add('plainPassword', PasswordType::class, [
                                 'constraints' => [ // Moved constraints here
                     new NotBlank([
                         'message' => 'Please enter a password',

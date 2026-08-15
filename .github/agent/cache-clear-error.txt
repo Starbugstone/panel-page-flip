@@ -1,9 +1,0 @@
-
-In DefinitionErrorExceptionPass.php line 51:
-                                                                               
-  Cannot autowire service "App\Command\TestApiEndpointsCommand": argument "$c  
-  lient" of method "__construct()" references interface "Symfony\Contracts\Ht  
-  tpClient\HttpClientInterface" but no such service exists. You should maybe   
-  alias this interface to the existing "monolog.http_client" service.          
-                                                                               
-

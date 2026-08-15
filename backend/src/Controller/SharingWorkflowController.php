@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
 use App\Entity\ComicShare;
@@ -103,7 +105,7 @@ final class SharingWorkflowController extends AbstractController
             return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
         }
 
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         $code = is_array($data) ? ($data['sharingCode'] ?? null) : null;
 
         if (!is_string($code)) {
@@ -134,7 +136,7 @@ final class SharingWorkflowController extends AbstractController
             return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
         }
 
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data)) {
             return $this->json(['message' => 'Invalid request body.'], Response::HTTP_BAD_REQUEST);
         }
