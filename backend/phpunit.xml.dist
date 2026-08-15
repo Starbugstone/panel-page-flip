@@ -12,6 +12,14 @@
     <php>
         <ini name="display_errors" value="1" />
         <ini name="error_reporting" value="-1" />
+        <!--
+            The whole suite runs in one process and peaks around 250M, against
+            a container limit of 256M — close enough that it exhausted memory
+            partway through a run rather than reliably. Raised here, where it
+            applies to whoever runs the tests, rather than in the image, so it
+            does not quietly become production's limit too.
+        -->
+        <ini name="memory_limit" value="512M" />
         <server name="APP_ENV" value="test" force="true" />
         <server name="SHELL_VERBOSITY" value="-1" />
         <server name="SYMFONY_PHPUNIT_REMOVE" value="" />

@@ -44,7 +44,11 @@ class LibraryFolderItemRepository extends ServiceEntityRepository
         return $indexed;
     }
 
-    /** @param list<LibraryFolder> $folders @return list<LibraryFolderItem> */
+    /**
+     * @param list<LibraryFolder> $folders
+     *
+     * @return list<LibraryFolderItem>
+     */
     public function findInFolders(User $user, array $folders): array
     {
         if ($folders === []) {
