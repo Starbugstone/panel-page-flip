@@ -41,6 +41,22 @@ final class ProviderSearchResult implements \JsonSerializable
         return new self($access->provider, $access->status, $access->message, []);
     }
 
+    /**
+     * The same answer, attributed to whoever is asking now.
+     *
+     * A cached result carries the origin of the caller that populated it, and
+     * the cache key deliberately ignores who asked — that is how one person's
+     * lookup saves another's allowance. The provenance is not shareable in the
+     * same way: telling somebody their personal token was spent when the
+     * installation's was is exactly the thing this field exists to get right.
+     */
+    public function withOrigin(?string $origin): self
+    {
+        return $origin === $this->origin
+            ? $this
+            : new self($this->provider, $this->status, $this->message, $this->candidates, $origin);
+    }
+
     public function isOk(): bool
     {
         return $this->status === ProviderStatus::Ok;

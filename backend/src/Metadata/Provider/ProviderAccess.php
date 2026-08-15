@@ -32,6 +32,21 @@ final class ProviderAccess
      */
     public static function granted(string $provider, string $origin, string $secret): self
     {
+        // A blank secret is not a credential, and this is the boundary that has
+        // to say so. Left through it would spend a request to earn a 401 — but
+        // the sharper consequence is accountKey() collapsing to the hash of an
+        // empty string, which is the bucket for the circuit breaker, the quota
+        // record and the per-provider rate limit. Two unrelated blank
+        // credentials would share all three.
+        //
+        // No current caller can produce one: both credential entities run their
+        // setters through blankToNull(). That is an invariant held by two other
+        // classes, though, and this one should not depend on their good manners.
+        $secret = trim($secret);
+        if ($secret === '') {
+            return self::denied($provider, ProviderStatus::Unconfigured, 'No usable credential for this provider.');
+        }
+
         return new self($provider, ProviderStatus::Ok, '', $origin, $secret);
     }
 

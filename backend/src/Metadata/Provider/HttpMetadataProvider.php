@@ -102,7 +102,7 @@ abstract class HttpMetadataProvider implements MetadataProviderInterface
         callable $produce,
         ProviderAccess $access
     ): ProviderSearchResult {
-        return $this->cache->get(
+        $result = $this->cache->get(
             $key,
             function (ItemInterface $item, bool &$save) use ($ttlSeconds, $produce, $access): ProviderSearchResult {
                 $item->expiresAfter($ttlSeconds);
@@ -126,6 +126,11 @@ abstract class HttpMetadataProvider implements MetadataProviderInterface
                 return $result;
             }
         );
+
+        // The candidates are shared; the provenance is not. A cache entry keeps
+        // the origin of whoever populated it, so without this a user on their
+        // own token would be told the shared one answered, and the reverse.
+        return $result->withOrigin($access->origin);
     }
 
     /**

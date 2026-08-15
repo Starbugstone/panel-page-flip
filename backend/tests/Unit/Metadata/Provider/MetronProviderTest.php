@@ -225,6 +225,33 @@ final class MetronProviderTest extends TestCase
     }
 
     /**
+     * The cache key is the question, not the asker, so one entry serves
+     * everybody — that is how one lookup saves another's allowance. The
+     * provenance cannot be shared the same way: a cached answer must not tell
+     * somebody their own token was spent when the shared one populated it.
+     */
+    public function testACachedAnswerIsAttributedToWhoeverAsksForIt(): void
+    {
+        $calls = 0;
+        $client = new MockHttpClient(function () use (&$calls): MockResponse {
+            ++$calls;
+
+            return new MockResponse('{"results":[]}');
+        });
+
+        $provider = $this->provider(null, client: $client);
+        $shared = ProviderAccess::granted('metron', 'shared', 'shared-token');
+        $personal = ProviderAccess::granted('metron', 'personal', 'personal-token');
+
+        self::assertSame('shared', $provider->search(new ProviderQuery('Batman'), $shared)->origin);
+        self::assertSame('personal', $provider->search(new ProviderQuery('Batman'), $personal)->origin);
+
+        // Still one upstream request: the candidates were shared, only the
+        // attribution changed.
+        self::assertSame(1, $calls);
+    }
+
+    /**
      * A thirty-second outage must not become a comic that permanently has no
      * match. Only an answer is worth remembering.
      */
