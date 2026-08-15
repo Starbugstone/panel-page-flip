@@ -3,7 +3,7 @@
 namespace App\Controller;
 
 use App\Entity\User;
-use App\Entity\UserMetadataCredential;
+use App\Repository\UserMetadataCredentialRepository;
 use App\Repository\UserRepository;
 use App\Service\AccountDeletionService;
 use App\Service\AdminAuditService;
@@ -25,7 +25,7 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 class UserController extends AbstractController
 {
     #[Route('', name: 'list', methods: ['GET'])]
-    public function list(Request $request, EntityManagerInterface $entityManager): JsonResponse
+    public function list(Request $request, EntityManagerInterface $entityManager, UserMetadataCredentialRepository $credentialRepository): JsonResponse
     {
         // Get the current user and assert its type
         $user = $this->getUser();
@@ -51,8 +51,7 @@ class UserController extends AbstractController
         // One query for the whole page rather than one per row: the personal
         // credential is not an association on User, precisely so that loading a
         // user never drags it along.
-        $withCredential = $entityManager->getRepository(UserMetadataCredential::class)
-            ->findUserIdsWithCredential(array_map(static fn (User $u): int => $u->getId(), $page->items));
+        $withCredential = $credentialRepository->findUserIdsWithCredential(array_map(static fn (User $u): int => $u->getId(), $page->items));
 
         $usersArray = array_map(
             fn (User $u): array => $this->serializeUser(
@@ -95,7 +94,7 @@ class UserController extends AbstractController
     }
 
     #[Route('/{id}', name: 'get', methods: ['GET'])]
-    public function get(int $id, EntityManagerInterface $entityManager): JsonResponse
+    public function get(int $id, EntityManagerInterface $entityManager, UserMetadataCredentialRepository $credentialRepository): JsonResponse
     {
         // Get the current user and assert its type
         $user = $this->getUser();
@@ -117,7 +116,7 @@ class UserController extends AbstractController
         $userData = $this->serializeUser(
             $targetUser,
             null,
-            $entityManager->getRepository(UserMetadataCredential::class)->findForUser($targetUser) !== null
+            $credentialRepository->findForUser($targetUser) !== null
         );
 
         // The admin user page needs enough to explain why an account can or
@@ -317,7 +316,7 @@ class UserController extends AbstractController
         // An administrator's switch, never the user's own: withdrawing external
         // metadata access from yourself is not a thing anybody needs, and
         // allowing it here would let a user grant it back.
-        if (array_key_exists('metadataApiEnabled', $data ?? []) && in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+        if (array_key_exists('metadataApiEnabled', $data) && in_array('ROLE_ADMIN', $user->getRoles(), true)) {
             if (!is_bool($data['metadataApiEnabled'])) {
                 return $this->json(['message' => 'metadataApiEnabled must be true or false'], Response::HTTP_BAD_REQUEST);
             }

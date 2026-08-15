@@ -27,6 +27,7 @@ final class ProviderLookup implements \JsonSerializable
     ) {
     }
 
+    /** @param list<ProviderSearchResult> $providers */
     public static function nothingToAsk(array $providers): self
     {
         return new self([], $providers);

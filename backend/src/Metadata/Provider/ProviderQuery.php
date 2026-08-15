@@ -66,7 +66,7 @@ final class ProviderQuery
         };
 
         return self::build(
-            $text('series') ?? $comic->getSeries() ?? $guess?->series ?? $comic->getTitle(),
+            $text('series') ?? $comic->getSeries() ?? $guess->series ?? $comic->getTitle(),
             $text('issueNumber') ?? $comic->getIssueNumber() ?? $guess?->issueNumber,
             $number('year') ?? ($comic->getPublishedAt() !== null ? (int) $comic->getPublishedAt()->format('Y') : null) ?? $guess?->year,
             $number('volume') ?? $comic->getVolume() ?? $guess?->volume,

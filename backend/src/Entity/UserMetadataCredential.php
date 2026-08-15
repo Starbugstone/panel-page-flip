@@ -25,6 +25,8 @@ class UserMetadataCredential
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
+    // Doctrine assigns generated IDs during persistence/hydration.
+    // @phpstan-ignore property.unusedType
     private ?int $id = null;
 
     /**
