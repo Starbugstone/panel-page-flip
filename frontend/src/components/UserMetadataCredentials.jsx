@@ -22,7 +22,7 @@ const FIELDS = [
     provider: "comicvine",
     name: "comicVineApiKey",
     label: "Comic Vine API key",
-    hint: "From comicvine.gamespot.com/api. Comic Vine's published terms are non-commercial use only, and supplying your own key does not change them — this server still has to allow Comic Vine at all.",
+    hint: "From comicvine.gamespot.com/api. Your own key keeps working even when this server's shared Comic Vine access is switched off. Comic Vine's published terms are non-commercial use only, and obtaining a key is you accepting them.",
   },
 ];
 
@@ -126,6 +126,10 @@ export function UserMetadataCredentials() {
 
   const configured = state?.configured ?? {};
   const providers = state?.providers ?? [];
+  // Switched off, the panel still shows what is stored and still lets it be
+  // removed — a token that has stopped being used is one somebody may well
+  // want off this server.
+  const accepted = state?.personalCredentialsEnabled !== false;
 
   return (
     <Card>
@@ -144,6 +148,14 @@ export function UserMetadataCredentials() {
           <p className="rounded-md border p-3 text-sm text-amber-600">
             An administrator has turned off external metadata lookups for your account. Metadata read from
             your files and their names is unaffected.
+          </p>
+        )}
+
+        {!accepted && (
+          <p className="rounded-md border p-3 text-sm text-amber-600">
+            This server does not accept personal provider tokens. Searches use the credentials an
+            administrator configured. Anything you saved earlier is kept but not used, and you can still
+            remove it.
           </p>
         )}
 
@@ -171,7 +183,7 @@ export function UserMetadataCredentials() {
               data-bwignore="true"
               data-form-type="other"
               value={values[field.name] ?? ""}
-              disabled={busy}
+              disabled={busy || !accepted}
               placeholder={configured[field.provider] ? "Stored — enter a new value to replace it" : ""}
               onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
             />
@@ -179,7 +191,7 @@ export function UserMetadataCredentials() {
             <p className="text-xs text-muted-foreground">{field.hint}</p>
 
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => test(field.name, field.provider)}>
+              <Button variant="outline" size="sm" disabled={busy || !accepted} onClick={() => test(field.name, field.provider)}>
                 Test
               </Button>
               {configured[field.provider] && (
@@ -211,7 +223,7 @@ export function UserMetadataCredentials() {
         </div>
 
         <div className="flex justify-end">
-          <Button disabled={busy} onClick={save}>Save tokens</Button>
+          <Button disabled={busy || !accepted} onClick={save}>Save tokens</Button>
         </div>
       </CardContent>
     </Card>

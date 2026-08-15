@@ -37,6 +37,7 @@ final class Version20260815120000 extends AbstractMigration
                 ADD metron_token VARCHAR(1024) DEFAULT NULL,
                 ADD metron_shared_enabled TINYINT(1) DEFAULT 0 NOT NULL,
                 ADD comic_vine_enabled TINYINT(1) DEFAULT 1 NOT NULL,
+                ADD personal_credentials_enabled TINYINT(1) DEFAULT 1 NOT NULL,
                 MODIFY comic_vine_api_key VARCHAR(1024) DEFAULT NULL
         SQL);
 
@@ -47,7 +48,7 @@ final class Version20260815120000 extends AbstractMigration
                 metron_token VARCHAR(1024) DEFAULT NULL,
                 comic_vine_api_key VARCHAR(1024) DEFAULT NULL,
                 updated_at DATETIME NOT NULL COMMENT '(DC2Type:datetime_immutable)',
-                UNIQUE INDEX UNIQ_user_metadata_credential_user (user_id),
+                UNIQUE INDEX UNIQ_3251D476A76ED395 (user_id),
                 PRIMARY KEY(id)
             ) DEFAULT CHARACTER SET utf8mb4 COLLATE `utf8mb4_unicode_ci` ENGINE = InnoDB
         SQL);
@@ -92,6 +93,7 @@ final class Version20260815120000 extends AbstractMigration
                 DROP COLUMN metron_token,
                 DROP COLUMN metron_shared_enabled,
                 DROP COLUMN comic_vine_enabled,
+                DROP COLUMN personal_credentials_enabled,
                 ADD metron_username VARCHAR(255) DEFAULT NULL,
                 ADD metron_password VARCHAR(512) DEFAULT NULL,
                 MODIFY comic_vine_api_key VARCHAR(512) DEFAULT NULL

@@ -50,6 +50,20 @@ class MetadataProviderConfiguration
     #[ORM\Column(options: ['default' => true])]
     private bool $comicVineEnabled = true;
 
+    /**
+     * Whether users may bring their own provider tokens.
+     *
+     * On by default: a personal token costs the installation nothing, since it
+     * spends the user's own allowance. Turning it off is for a deployment that
+     * wants exactly one outbound credential and knows which one it is.
+     *
+     * Switching it off stops personal tokens being *used*; it does not delete
+     * them. Somebody who turns it back on should not find that everybody's
+     * token was thrown away in the meantime.
+     */
+    #[ORM\Column(options: ['default' => true])]
+    private bool $personalCredentialsEnabled = true;
+
     public function getMetronToken(): ?string
     {
         return $this->metronToken;
@@ -94,6 +108,18 @@ class MetadataProviderConfiguration
     public function setComicVineEnabled(bool $comicVineEnabled): static
     {
         $this->comicVineEnabled = $comicVineEnabled;
+
+        return $this;
+    }
+
+    public function arePersonalCredentialsEnabled(): bool
+    {
+        return $this->personalCredentialsEnabled;
+    }
+
+    public function setPersonalCredentialsEnabled(bool $personalCredentialsEnabled): static
+    {
+        $this->personalCredentialsEnabled = $personalCredentialsEnabled;
 
         return $this;
     }

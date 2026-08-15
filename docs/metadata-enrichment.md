@@ -328,8 +328,23 @@ point that decides between them:
 
 | Source | Who pays | Notes |
 | --- | --- | --- |
-| A user's own token | Them | Preferred whenever present. Survives the shared switch being off. |
+| A user's own token | Them | Answers on its own, for **both** providers. None of the shared switches apply. |
 | The installation's shared token | Everybody | Gated on the full conjunction below. |
+
+**A personal token answers first and answers alone.** It spends its owner's
+allowance rather than anybody else's, so the switches governing the shared
+account have nothing to say about it — those exist to control who may spend the
+installation's credential, and a personal token is not one. Metron and Comic Vine
+behave identically here; an earlier cut gated Comic Vine's personal key behind
+the shared switch, and the asymmetry was the surprising part rather than the
+protection.
+
+Whether users may bring a token at all is itself an administrator's switch —
+`personalCredentialsEnabled`, on by default. Turning it off makes the resolver
+ignore stored tokens and **fall back to the shared credential**; it does not stop
+the lookup and does not delete anything. A user whose token has stopped being
+used can still see that it is stored and still remove it, which is why clearing
+a token stays permitted while setting one is refused.
 
 Shared access is:
 
@@ -582,11 +597,18 @@ Admin → Metadata → Test will report it as "Metron refused the token".
 2. **What a circuit breaker is allowed to change.** Nothing persistent. It pauses
    an account and expires; it never edits a setting a person chose, because a
    setting silently turned off is one somebody has to notice.
-3. **Whether a personal Comic Vine key bypasses the global switch.** No. The
-   provider's terms are the installation's problem, not the individual's, and
-   BYOK is not a licence. The switch is on by default, though — the ordinary
-   self-hosted deployment is inside those terms, and a default that made everyone
-   go looking for a toggle would be protecting nobody.
+3. **Whether a personal Comic Vine key bypasses the global switch.** Yes, and it
+   does the same for Metron. The switch governs the credential the installation
+   owns. Somebody using their own key against their own library is the party
+   Comic Vine's terms bind, and obtaining a key is them accepting those terms —
+   so the operator's switch stops the operator's key, not theirs. Gating it both
+   ways made the two providers behave differently for no benefit anybody could
+   name.
+4. **Whether an administrator can refuse personal tokens outright.** Yes, one
+   switch for all providers, on by default. A deployment that wants exactly one
+   outbound credential and wants to know which one it is can have that. It
+   ignores stored tokens rather than deleting them, because somebody turning it
+   back on should not find everybody's token was thrown away meanwhile.
 4. **Whether to cascade to a second provider on failure.** No. Spending another
    account's quota to hide the first one's outage is exactly the silent
    overspending the one-provider rule exists to prevent.

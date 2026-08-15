@@ -16,6 +16,7 @@ use Zenstruck\Foundry\Test\ResetDatabase;
  *   - DAMA transactional rollback per test (via the bundle and listener).
  *   - A pre-booted KernelBrowser via {@see browser()}.
  *   - Helpers to authenticate users and post JSON.
+ *   - A clean rate-limiter cache per test.
  */
 abstract class AbstractApiTestCase extends WebTestCase
 {
@@ -30,6 +31,14 @@ abstract class AbstractApiTestCase extends WebTestCase
 
         $this->client = static::createClient();
         $this->client->disableReboot();
+
+        // The limiters are cache-backed and keyed by user id, while the database
+        // is rolled back between tests — so ids come round again and a test can
+        // inherit an allowance an earlier one already spent. That made failures
+        // depend on execution order and on how many users unrelated tests
+        // happened to create. Clearing the pool makes every limiter test see the
+        // full allowance, whichever order they run in.
+        static::getContainer()->get('cache.rate_limiter')->clear();
     }
 
     protected function browser(): KernelBrowser

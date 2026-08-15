@@ -91,6 +91,9 @@ class AdminController extends AbstractController
                 'metronSharedEnabled' => $this->metronSharedAllowedByEnvironment,
                 'comicVineEnabled' => $this->comicVineSharedAllowedByEnvironment,
             ],
+            // Not per-provider: it governs whether users may bring a token at
+            // all, for any provider.
+            'settings' => ['personalCredentialsEnabled' => $configuration->arePersonalCredentialsEnabled()],
         ]);
     }
 
@@ -162,7 +165,13 @@ class AdminController extends AbstractController
             $settings->{'set'.ucfirst($field)}($value);
         }
 
-        foreach (['metronSharedEnabled' => 'setMetronSharedEnabled', 'comicVineEnabled' => 'setComicVineEnabled'] as $field => $setter) {
+        $switches = [
+            'metronSharedEnabled' => 'setMetronSharedEnabled',
+            'comicVineEnabled' => 'setComicVineEnabled',
+            'personalCredentialsEnabled' => 'setPersonalCredentialsEnabled',
+        ];
+
+        foreach ($switches as $field => $setter) {
             if (!array_key_exists($field, $data)) {
                 continue;
             }
@@ -183,6 +192,7 @@ class AdminController extends AbstractController
             'configured' => array_column($providers->adminStatus($this->sharedSecrets($configuration), $configuration), 'configured', 'key'),
             'metronSharedEnabled' => $configuration->isMetronSharedEnabled(),
             'comicVineEnabled' => $configuration->isComicVineEnabled(),
+            'personalCredentialsEnabled' => $configuration->arePersonalCredentialsEnabled(),
         ]);
         $entityManager->flush();
 
@@ -192,6 +202,7 @@ class AdminController extends AbstractController
                 'metronSharedEnabled' => $this->metronSharedAllowedByEnvironment,
                 'comicVineEnabled' => $this->comicVineSharedAllowedByEnvironment,
             ],
+            'settings' => ['personalCredentialsEnabled' => $configuration->arePersonalCredentialsEnabled()],
         ]);
     }
 

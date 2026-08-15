@@ -117,24 +117,78 @@ final class MetadataAccessResolverTest extends TestCase
     }
 
     /**
-     * Comic Vine's terms are the installation's problem, not the individual's,
-     * so a personal key does not open a switch an operator closed. The switch
-     * is on by default — this is the case where somebody turned it off.
+     * A personal key spends its owner's allowance, so the switches governing the
+     * installation's shared key have nothing to say about it. Comic Vine behaves
+     * exactly like Metron here — the asymmetry was the surprising part.
      */
-    public function testAPersonalComicVineKeyDoesNotBypassTheGlobalSwitch(): void
+    public function testAPersonalComicVineKeyWorksWhateverTheSharedSwitchesSay(): void
     {
         $resolver = $this->resolver(
             configuration: static function (MetadataProviderConfiguration $c): void {
-                $c->setComicVineEnabled(true);
+                $c->setComicVineEnabled(false);
             },
             comicVineSharedAllowedByEnvironment: false,
             personal: (new UserMetadataCredential())->setComicVineApiKey('personal-key')
         );
 
+        $access = $resolver->resolve('comicvine', $this->user());
+
+        self::assertTrue($access->isGranted());
+        self::assertSame('personal', $access->origin);
+        self::assertSame('personal-key', $access->secret());
+    }
+
+    /** Without a personal key, the shared switches are what is left to consult. */
+    public function testTheSharedComicVineSwitchStillStopsTheSharedKey(): void
+    {
+        $resolver = $this->resolver(
+            configuration: static function (MetadataProviderConfiguration $c): void {
+                $c->setComicVineApiKey('shared-key')->setComicVineEnabled(false);
+            },
+            comicVineSharedAllowedByEnvironment: true
+        );
+
         self::assertSame(ProviderStatus::Disabled, $resolver->resolve('comicvine', $this->user())->status);
     }
 
-    public function testComicVineIsDisableableIndependentlyOfMetron(): void
+    /**
+     * Turning personal tokens off falls back to the installation's credential
+     * rather than stopping the lookup: the point of the switch is that there is
+     * exactly one outbound credential, not that nobody may search.
+     */
+    public function testPersonalTokensAreIgnoredWhenTheAdministratorTurnsThemOff(): void
+    {
+        $resolver = $this->resolver(
+            configuration: static function (MetadataProviderConfiguration $c): void {
+                $c->setMetronToken('shared-token')->setMetronSharedEnabled(true);
+                $c->setPersonalCredentialsEnabled(false);
+            },
+            metronSharedAllowedByEnvironment: true,
+            personal: (new UserMetadataCredential())->setMetronToken('personal-token')
+        );
+
+        $access = $resolver->resolve('metron', $this->user());
+
+        self::assertTrue($access->isGranted());
+        self::assertSame('shared', $access->origin);
+        self::assertSame('shared-token', $access->secret());
+    }
+
+    /** With nothing shared to fall back to, it reads as unconfigured. */
+    public function testAnIgnoredPersonalTokenLeavesNothingToFallBackOn(): void
+    {
+        $resolver = $this->resolver(
+            configuration: static function (MetadataProviderConfiguration $c): void {
+                $c->setPersonalCredentialsEnabled(false);
+            },
+            metronSharedAllowedByEnvironment: true,
+            personal: (new UserMetadataCredential())->setMetronToken('personal-token')
+        );
+
+        self::assertFalse($resolver->resolve('metron', $this->user())->isGranted());
+    }
+
+    public function testTheTwoProvidersAreSwitchedIndependently(): void
     {
         $resolver = $this->resolver(
             configuration: static function (MetadataProviderConfiguration $c): void {
@@ -232,6 +286,7 @@ final class MetadataAccessResolverTest extends TestCase
             public function isMetronSharedEnabled(): bool { return $this->settings->isMetronSharedEnabled(); }
             public function comicVineApiKey(): ?string { return $this->settings->getComicVineApiKey(); }
             public function isComicVineEnabled(): bool { return $this->settings->isComicVineEnabled(); }
+            public function arePersonalCredentialsEnabled(): bool { return $this->settings->arePersonalCredentialsEnabled(); }
         };
     }
 

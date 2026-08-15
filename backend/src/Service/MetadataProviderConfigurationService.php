@@ -54,7 +54,8 @@ final class MetadataProviderConfigurationService implements SharedProviderCreden
                 ->setMetronToken($edited->getMetronToken())
                 ->setMetronSharedEnabled($edited->isMetronSharedEnabled())
                 ->setComicVineApiKey($edited->getComicVineApiKey())
-                ->setComicVineEnabled($edited->isComicVineEnabled());
+                ->setComicVineEnabled($edited->isComicVineEnabled())
+                ->setPersonalCredentialsEnabled($edited->arePersonalCredentialsEnabled());
             $this->configuration = $managed;
         }
 
@@ -79,5 +80,10 @@ final class MetadataProviderConfigurationService implements SharedProviderCreden
     public function isComicVineEnabled(): bool
     {
         return $this->get()->isComicVineEnabled();
+    }
+
+    public function arePersonalCredentialsEnabled(): bool
+    {
+        return $this->get()->arePersonalCredentialsEnabled();
     }
 }

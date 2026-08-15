@@ -113,13 +113,16 @@ Important configuration variables:
 - `METRON_SHARED_ENABLED` — whether this server may spend its own Metron account
   on behalf of every user. Off unless set; a user's personal Metron token is
   unaffected by it.
-- `COMIC_VINE_SHARED_ENABLED` — whether this deployment may use Comic Vine at
-  all. On by default, since a self-hosted library is inside Comic Vine's
+- `COMIC_VINE_SHARED_ENABLED` — whether this server may spend its own Comic Vine
+  key. On by default, since a self-hosted library is inside Comic Vine's
   non-commercial terms; turn it off if yours stops being. An administrator can
   also switch it off from Admin → Metadata.
 
-  Neither can be overridden from inside the application, and comics are still
-  described by their own `ComicInfo.xml` and filenames either way. See
+  Neither can be overridden from inside the application. Both govern the
+  credentials the *server* owns — a user who adds their own provider token in
+  their settings uses that instead, unless an administrator has turned personal
+  tokens off. Comics are still described by their own `ComicInfo.xml` and
+  filenames whatever these say. See
   [`docs/metadata-enrichment.md`](docs/metadata-enrichment.md).
 
 Never commit `.env.local`, `.env.prod.local`, `scripts/.env.deploy`, credentials, or production keys.

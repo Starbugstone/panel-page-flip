@@ -208,6 +208,7 @@ final class MetadataProviderRegistryTest extends TestCase
             public function isMetronSharedEnabled(): bool { return $this->settings->isMetronSharedEnabled(); }
             public function comicVineApiKey(): ?string { return $this->settings->getComicVineApiKey(); }
             public function isComicVineEnabled(): bool { return $this->settings->isComicVineEnabled(); }
+            public function arePersonalCredentialsEnabled(): bool { return $this->settings->arePersonalCredentialsEnabled(); }
         };
     }
 

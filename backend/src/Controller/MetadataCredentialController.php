@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Entity\User;
 use App\Entity\UserMetadataCredential;
+use App\Service\MetadataProviderConfigurationService;
 use App\Service\MetadataProviderRegistry;
 use App\Service\UserMetadataCredentialService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -36,11 +37,14 @@ class MetadataCredentialController extends AbstractController
     ];
 
     #[Route('', name: 'show', methods: ['GET'])]
-    public function show(MetadataProviderRegistry $providers, UserMetadataCredentialService $credentials): JsonResponse
-    {
+    public function show(
+        MetadataProviderRegistry $providers,
+        UserMetadataCredentialService $credentials,
+        MetadataProviderConfigurationService $configuration
+    ): JsonResponse {
         $user = $this->authenticatedUser();
 
-        return $this->json($this->describe($user, $providers, $credentials));
+        return $this->json($this->describe($user, $providers, $credentials, $configuration));
     }
 
     /**
@@ -54,13 +58,25 @@ class MetadataCredentialController extends AbstractController
     public function update(
         Request $request,
         MetadataProviderRegistry $providers,
-        UserMetadataCredentialService $credentials
+        UserMetadataCredentialService $credentials,
+        MetadataProviderConfigurationService $configuration
     ): JsonResponse {
         $user = $this->authenticatedUser();
 
         $data = json_decode($request->getContent(), true);
         if (!is_array($data)) {
             return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        // Clearing is always allowed, even when the server has stopped
+        // accepting personal tokens: somebody whose stored token is no longer
+        // being used should be able to take it off this server. Only *setting*
+        // one is refused.
+        if (!$configuration->arePersonalCredentialsEnabled() && !$this->onlyClears($data)) {
+            return $this->json(
+                ['message' => 'This server does not accept personal provider tokens.'],
+                Response::HTTP_FORBIDDEN
+            );
         }
 
         $credential = $credentials->editable($user);
@@ -84,16 +100,24 @@ class MetadataCredentialController extends AbstractController
 
         $credentials->save($user, $credential);
 
-        return $this->json($this->describe($user, $providers, $credentials));
+        return $this->json($this->describe($user, $providers, $credentials, $configuration));
     }
 
+    /**
+     * Deliberately still allowed when personal tokens are switched off. Somebody
+     * whose stored token has stopped being used should be able to take it off
+     * this server rather than be told the button is unavailable.
+     */
     #[Route('', name: 'delete', methods: ['DELETE'])]
-    public function delete(MetadataProviderRegistry $providers, UserMetadataCredentialService $credentials): JsonResponse
-    {
+    public function delete(
+        MetadataProviderRegistry $providers,
+        UserMetadataCredentialService $credentials,
+        MetadataProviderConfigurationService $configuration
+    ): JsonResponse {
         $user = $this->authenticatedUser();
         $credentials->remove($user);
 
-        return $this->json($this->describe($user, $providers, $credentials));
+        return $this->json($this->describe($user, $providers, $credentials, $configuration));
     }
 
     /**
@@ -107,13 +131,23 @@ class MetadataCredentialController extends AbstractController
     public function verify(
         Request $request,
         MetadataProviderRegistry $providers,
-        UserMetadataCredentialService $credentials
+        UserMetadataCredentialService $credentials,
+        MetadataProviderConfigurationService $configuration
     ): JsonResponse {
         $user = $this->authenticatedUser();
 
         if (!$user->isMetadataApiEnabled()) {
             return $this->json(
                 ['message' => 'External metadata lookups are turned off for this account.'],
+                Response::HTTP_FORBIDDEN
+            );
+        }
+
+        // Testing a token this server would never use is a question with no
+        // useful answer, and it spends a request finding it out.
+        if (!$configuration->arePersonalCredentialsEnabled()) {
+            return $this->json(
+                ['message' => 'This server does not accept personal provider tokens.'],
                 Response::HTTP_FORBIDDEN
             );
         }
@@ -147,9 +181,29 @@ class MetadataCredentialController extends AbstractController
         return $this->json(['result' => $result]);
     }
 
-    /** @return array<string, mixed> */
-    private function describe(User $user, MetadataProviderRegistry $providers, UserMetadataCredentialService $credentials): array
+    /**
+     * Whether a payload only removes tokens, rather than setting any.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function onlyClears(array $data): bool
     {
+        foreach (self::FIELDS as $field => $_) {
+            if (array_key_exists($field, $data) && $data[$field] !== null && $data[$field] !== '') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    private function describe(
+        User $user,
+        MetadataProviderRegistry $providers,
+        UserMetadataCredentialService $credentials,
+        MetadataProviderConfigurationService $configuration
+    ): array {
         $credential = $credentials->for($user);
 
         $configured = [];
@@ -161,6 +215,9 @@ class MetadataCredentialController extends AbstractController
             'configured' => $configured,
             'updatedAt' => $credential?->getUpdatedAt()?->format(\DateTimeInterface::ATOM),
             'metadataApiEnabled' => $user->isMetadataApiEnabled(),
+            // A stored token that is no longer being used still shows as
+            // configured, because it still exists and can still be removed.
+            'personalCredentialsEnabled' => $configuration->arePersonalCredentialsEnabled(),
             // Which provider a search would actually use, and why not when none
             // would. The same view the comic editor gets, so the two pages
             // cannot disagree about what is switched on.

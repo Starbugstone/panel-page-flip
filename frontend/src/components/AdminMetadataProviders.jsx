@@ -54,6 +54,7 @@ export function AdminMetadataProviders() {
   const { toast } = useToast();
   const [providers, setProviders] = useState(null);
   const [environment, setEnvironment] = useState(null);
+  const [settings, setSettings] = useState(null);
   const [values, setValues] = useState({});
   const [results, setResults] = useState(null);
   // Which fields the admin has actually put a cursor in. See the readOnly note
@@ -69,6 +70,7 @@ export function AdminMetadataProviders() {
         if (cancelled) return;
         setProviders(result.providers);
         setEnvironment(result.environment ?? null);
+        setSettings(result.settings ?? null);
         setLoadError(null);
       })
       .catch((error) => { if (!cancelled) setLoadError(error.message); })
@@ -116,6 +118,7 @@ export function AdminMetadataProviders() {
       const result = await api.put("/api/admin/metadata-providers", payload);
       setProviders(result.providers);
       setEnvironment(result.environment ?? environment);
+      setSettings(result.settings ?? settings);
       // Never keep a secret in component state once it has been stored.
       setValues({});
       setEngaged({});
@@ -135,6 +138,7 @@ export function AdminMetadataProviders() {
       const result = await api.put("/api/admin/metadata-providers", payload);
       setProviders(result.providers);
       setEnvironment(result.environment ?? environment);
+      setSettings(result.settings ?? settings);
       setResults(null);
       // Removing the key stops new requests. It does not touch metadata anybody
       // has already accepted, which is theirs now.
@@ -165,6 +169,23 @@ export function AdminMetadataProviders() {
     }
   };
 
+  /**
+   * Whether users may bring their own token. Not per-provider: it governs the
+   * whole idea, for every provider at once.
+   */
+  const setPersonalCredentials = async (enabled) => {
+    setBusy(true);
+    try {
+      const result = await api.put("/api/admin/metadata-providers", { personalCredentialsEnabled: enabled });
+      setProviders(result.providers);
+      setSettings(result.settings ?? settings);
+    } catch (error) {
+      toast({ title: "Could not change the setting", description: error.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const allowedByEnvironment = (providerKey) => (providerKey === "metron"
     ? environment?.metronSharedEnabled
     : environment?.comicVineEnabled) !== false;
@@ -176,8 +197,8 @@ export function AdminMetadataProviders() {
         <CardDescription>
           Optional. Without credentials, comics are still described by their own ComicInfo.xml and their
           filenames — providers only add a second opinion, and nothing they return is applied without a
-          person accepting it. Users can also bring their own token in their settings, which spends their
-          allowance rather than this server's.
+          person accepting it. These credentials are the server's; a user who adds their own token in
+          their settings uses that instead, and spends their own allowance rather than this server's.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -213,6 +234,7 @@ export function AdminMetadataProviders() {
               <p className="text-xs text-amber-600">
                 Turned off for this server by {provider.key === "metron" ? "METRON_SHARED_ENABLED" : "COMIC_VINE_SHARED_ENABLED"}.
                 The environment has the final word, so this switch has no effect until that changes.
+                A user's own token is unaffected either way.
               </p>
             )}
 
@@ -257,6 +279,28 @@ export function AdminMetadataProviders() {
             </div>
           ))}
         </div>
+
+        {/* A personal token spends its owner's allowance, not this server's, so
+            it is allowed unless an administrator wants exactly one outbound
+            credential and wants to know which one it is. Turning it off stops
+            stored tokens being used; it does not delete them. */}
+        <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={settings?.personalCredentialsEnabled !== false}
+            disabled={busy || settings === null}
+            onChange={(event) => setPersonalCredentials(event.target.checked)}
+          />
+          <span>
+            Allow users to add their own provider tokens
+            <span className="block text-xs text-muted-foreground">
+              A personal token is used in preference to this server's and spends its owner's allowance.
+              Switching this off falls back to the credentials above; tokens users already saved are kept,
+              not deleted.
+            </span>
+          </span>
+        </label>
 
         {results && (
           <div className="space-y-2 rounded-md border p-3">

@@ -203,4 +203,64 @@ final class MetadataCredentialTest extends AbstractApiTestCase
         self::assertFalse($byKey['metron']['available']);
         self::assertNotSame('', $byKey['metron']['message']);
     }
+
+    /**
+     * An administrator can decide this server uses exactly one outbound
+     * credential and knows which one it is.
+     */
+    public function testATokenCannotBeAddedWhenTheServerDoesNotAcceptThem(): void
+    {
+        $this->disablePersonalCredentials();
+        $this->loginAs(UserFactory::createOne()->object());
+
+        $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
+
+        self::assertResponseStatusCodeSame(403);
+    }
+
+    public function testATokenCannotBeTestedWhenTheServerDoesNotAcceptThem(): void
+    {
+        $this->disablePersonalCredentials();
+        $this->loginAs(UserFactory::createOne()->object());
+
+        $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'metron']);
+
+        self::assertResponseStatusCodeSame(403);
+    }
+
+    /**
+     * Switching it off stops a token being used; it does not throw it away.
+     * Somebody turning it back on should not find everybody's token deleted.
+     */
+    public function testAStoredTokenSurvivesTheSwitchAndIsStillRemovable(): void
+    {
+        $user = UserFactory::createOne()->object();
+        $this->loginAs($user);
+        $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
+
+        $this->disablePersonalCredentials();
+        $this->loginAs($user);
+
+        $state = $this->getJson('/api/me/metadata-credentials');
+        self::assertTrue($state['configured']['metron']);
+        self::assertFalse($state['personalCredentialsEnabled']);
+
+        // Removing is deliberately still allowed: a token that has stopped being
+        // used is one somebody may well want off this server. Both routes to it
+        // work — the per-field clear the panel uses, and the whole-record delete.
+        $cleared = $this->putJson('/api/me/metadata-credentials', ['metronToken' => null]);
+        self::assertResponseIsSuccessful();
+        self::assertFalse($cleared['configured']['metron']);
+
+        $after = $this->deleteJson('/api/me/metadata-credentials');
+        self::assertResponseIsSuccessful();
+        self::assertFalse($after['configured']['metron']);
+    }
+
+    private function disablePersonalCredentials(): void
+    {
+        $this->createAndLoginAdmin();
+        $this->putJson('/api/admin/metadata-providers', ['personalCredentialsEnabled' => false]);
+        self::assertResponseIsSuccessful();
+    }
 }

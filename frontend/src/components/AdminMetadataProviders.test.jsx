@@ -10,11 +10,14 @@ const mocks = vi.hoisted(() => ({ toast: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), put: vi.fn(), post: vi.fn() } }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 
-const providers = (metron = false, comicvine = false) => ({
+const providers = (metron = false, comicvine = false, overrides = {}) => ({
   providers: [
-    { key: "metron", label: "Metron", configured: metron },
-    { key: "comicvine", label: "Comic Vine", configured: comicvine },
+    { key: "metron", label: "Metron", configured: metron, enabled: false, quota: {} },
+    { key: "comicvine", label: "Comic Vine", configured: comicvine, enabled: true, quota: {} },
   ],
+  environment: { metronSharedEnabled: false, comicVineEnabled: true },
+  settings: { personalCredentialsEnabled: true },
+  ...overrides,
 });
 
 describe("AdminMetadataProviders", () => {
@@ -214,5 +217,50 @@ describe("AdminMetadataProviders", () => {
     render(<AdminMetadataProviders />);
 
     expect(await screen.findByText(/forbidden/i)).toBeInTheDocument();
+  });
+
+  describe("tokens users bring themselves", () => {
+    /**
+     * A personal token spends its owner's allowance, not this server's, so it
+     * is allowed unless an administrator wants exactly one outbound credential.
+     */
+    it("is allowed by default", async () => {
+      render(<AdminMetadataProviders />);
+
+      const toggle = await screen.findByRole("checkbox", { name: /allow users to add their own provider tokens/i });
+      expect(toggle).toBeChecked();
+    });
+
+    it("can be turned off, and says what that falls back to", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.put).mockResolvedValue(
+        providers(true, true, { settings: { personalCredentialsEnabled: false } })
+      );
+
+      render(<AdminMetadataProviders />);
+      await user.click(await screen.findByRole("checkbox", { name: /allow users to add their own provider tokens/i }));
+
+      await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+        "/api/admin/metadata-providers",
+        { personalCredentialsEnabled: false }
+      ));
+      expect(screen.getByText(/tokens users already saved are kept/i)).toBeInTheDocument();
+    });
+
+    /**
+     * The environment veto governs this server's shared credential. Saying so
+     * matters, because otherwise an administrator reads it as "Comic Vine is
+     * off" and wonders why a user is still getting results.
+     */
+    it("says the environment veto does not reach a personal token", async () => {
+      vi.mocked(api.get).mockResolvedValue(
+        providers(true, true, { environment: { metronSharedEnabled: false, comicVineEnabled: false } })
+      );
+
+      render(<AdminMetadataProviders />);
+
+      // One notice per vetoed provider.
+      expect(await screen.findAllByText(/a user's own token is unaffected either way/i)).toHaveLength(2);
+    });
   });
 });

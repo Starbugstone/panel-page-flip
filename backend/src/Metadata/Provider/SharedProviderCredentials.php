@@ -20,4 +20,6 @@ interface SharedProviderCredentials
     public function comicVineApiKey(): ?string;
 
     public function isComicVineEnabled(): bool;
+
+    public function arePersonalCredentialsEnabled(): bool;
 }
