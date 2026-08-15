@@ -34,37 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/agent/apply_issue_116.py
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('backend/config/services.yaml')
-          s = p.read_text()
-          line = "            $uploadUserQuotaBytes: '%upload_user_quota_bytes%'\n"
-          marker = "    App\\Service\\StorageQuotaService:\n        arguments:\n\n"
-          s = s.replace(marker, "    App\\Service\\StorageQuotaService:\n        arguments:\n" + line, 1)
-          before, sep, after = s.rpartition(line)
-          if sep:
-              s = before + after
-          p.write_text(s)
-
-          p = Path('backend/src/Service/EmailVerificationService.php')
-          s = p.read_text()
-          old = """    public function issue(User $user): string
-    {
-        $this->removeTokensFor($user);
-        $token = new EmailVerificationToken($user);
-"""
-          new = """    public function issue(User $user): string
-    {
-        if ($user->getId() !== null) {
-            $this->removeTokensFor($user);
-        }
-        $token = new EmailVerificationToken($user);
-"""
-          if old not in s:
-              raise SystemExit('EmailVerificationService issue() marker not found')
-          p.write_text(s.replace(old, new, 1))
-          PY
+          python3 .github/agent/post_patch_fix.py
 
       - name: Update Composer dependency set
         shell: bash
