@@ -1,0 +1,55 @@
+PHPUnit 9.6.35 by Sebastian Bergmann and contributors.
+
+Testing 
+.....................SSSSSSS.SS................................  63 / 630 ( 10%)
+.................................F............................. 126 / 630 ( 20%)
+..............................................S................ 189 / 630 ( 30%)
+............................................................... 252 / 630 ( 40%)
+............................................................... 315 / 630 ( 50%)
+............................................................... 378 / 630 ( 60%)
+............E.....F............................................ 441 / 630 ( 70%)
+............................................................... 504 / 630 ( 80%)
+............................................................... 567 / 630 ( 90%)
+............................................................... 630 / 630 (100%)
+
+
+Time: 00:15.247, Memory: 110.51 MB
+
+There was 1 error:
+
+1) App\Tests\Functional\Controller\DropboxConnectionStateTest::testAnAccountWithNoDropboxCredentialsIsRefused
+Undefined array key "error"
+
+/home/runner/work/panel-page-flip/panel-page-flip/backend/tests/Functional/Controller/DropboxConnectionStateTest.php:67
+/home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/phpunit/phpunit/phpunit:107
+
+--
+
+There were 2 failures:
+
+1) App\Tests\Unit\Metadata\ComicInfoParserTest::testDoesNotExpandRecursiveEntities
+Failed asserting that 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' is null.
+
+/home/runner/work/panel-page-flip/panel-page-flip/backend/tests/Unit/Metadata/ComicInfoParserTest.php:178
+/home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/phpunit/phpunit/phpunit:107
+
+2) App\Tests\Functional\Controller\ExplicitShareControllerTest::testAScalarJsonBodyIsRejectedRatherThanFatal
+Failed asserting that the Response is successful.
+HTTP/1.1 400 Bad Request
+Cache-Control: max-age=0, must-revalidate, private
+Content-Type:  application/json
+Date:          Sat, 15 Aug 2026 11:53:43 GMT
+Expires:       Sat, 15 Aug 2026 11:53:43 GMT
+Set-Cookie:    XSRF-TOKEN=89.4UE7z4m_TbHg-ihVqHq_fHWcR0CdmHj1cXDS782sLJ0.rQVRvfPZP9vXzUsU-RLvSB_4HgiroC-dHxWglf3tW8uzLVX60-Z037fLXw; path=/; samesite=lax
+X-Request-Id:  7ac3711440a6cb71
+X-Robots-Tag:  noindex
+
+{"message":"JSON payload must be an object or array."}
+
+/home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/symfony/framework-bundle/Test/BrowserKitAssertionsTrait.php:150
+/home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/symfony/framework-bundle/Test/BrowserKitAssertionsTrait.php:35
+/home/runner/work/panel-page-flip/panel-page-flip/backend/tests/Functional/Controller/ExplicitShareControllerTest.php:98
+/home/runner/work/panel-page-flip/panel-page-flip/backend/vendor/phpunit/phpunit/phpunit:107
+
+ERRORS!
+Tests: 630, Assertions: 2403, Errors: 1, Failures: 2, Skipped: 10.
