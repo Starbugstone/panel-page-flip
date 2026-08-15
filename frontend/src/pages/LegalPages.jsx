@@ -89,6 +89,7 @@ export function PrivacyPolicy() {
         <li>Reading activity: current page, completion status, and last-read time.</li>
         <li>Sharing data: recipient email addresses, expiring share tokens, and the identity of the person sharing.</li>
         <li>Dropbox data, when connected: encrypted OAuth credentials, import paths, and last-sync time.</li>
+        <li>Metadata-provider credentials, when you add your own: an encrypted API token, write-only after saving and removable at any time.</li>
         <li>Security and operations data: session identifiers, IP-based rate-limit entries, access logs, and administrator audit records.</li>
         <li>Content reports: reporter contact details, the supplied allegation and references, review notes, linked internal records, and action history.</li>
       </ul>
@@ -107,6 +108,24 @@ export function PrivacyPolicy() {
         If you connect Dropbox, Dropbox receives API requests needed to list and
         import the files you select. Dropbox is optional and can be disconnected.
         We do not use advertising networks or third-party analytics.
+      </p>
+      <p>
+        <strong>Metadata providers.</strong> When you explicitly search for a comic’s
+        details, the provider you choose receives the identifying fields of that
+        search and nothing else: Metron receives the series name, the issue number and
+        the year; Comic Vine receives the series name and issue number as a single
+        search phrase. In particular the provider does not receive your identity
+        or email address, your file or Dropbox paths, your reading history, your tags,
+        or the comic file itself. A search only happens when you ask for one; uploading
+        a comic never contacts a provider. Results are cached on this server so the same
+        search is not repeated, and an administrator can turn provider access off for the
+        whole installation or for one account.
+      </p>
+      <p>
+        If you add your own provider token in your settings, searches use it instead of
+        the server’s. It is encrypted at rest, never shown again once saved, removable
+        from the same page, and deleted with your account. It is deliberately excluded
+        from the data export, because an export is a file that leaves the server.
       </p>
       <p>
         A provider may process data outside your country. Where GDPR requires it,
@@ -133,8 +152,9 @@ export function PrivacyPolicy() {
 
       <h2>Security</h2>
       <p>
-        Passwords are hashed, sessions use CSRF protection, and stored Dropbox
-        credentials are encrypted. No internet service can guarantee absolute security.
+        Passwords are hashed, sessions use CSRF protection, and stored Dropbox and
+        metadata-provider credentials are encrypted. No internet service can guarantee
+        absolute security.
       </p>
 
       <h2>Other people’s data</h2>

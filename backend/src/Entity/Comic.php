@@ -4,6 +4,7 @@ namespace App\Entity;
 
 use App\Enum\ComicSourceType;
 use App\Enum\ReadingDirection;
+use App\Metadata\Classification;
 use App\Metadata\ComicPageInfo;
 use App\Repository\ComicRepository;
 use Doctrine\Common\Collections\ArrayCollection;
@@ -118,6 +119,37 @@ class Comic
      */
     #[ORM\Column(type: Types::JSON, nullable: true)]
     private ?array $pageMetadata = null;
+
+    /**
+     * What a source said this comic is about: genres, characters, teams,
+     * locations, story arcs.
+     *
+     * Deliberately not tags. Only genres are ever offered as tag suggestions,
+     * and only the user turns one into a tag — a crossover names dozens of
+     * characters, and a library whose categories were generated that way is
+     * nobody's categorisation.
+     *
+     * @var array<string, list<string>>|null
+     */
+    #[ORM\Column(type: Types::JSON, nullable: true)]
+    private ?array $classification = null;
+
+    /**
+     * Which external record this comic was last matched to.
+     *
+     * Kept so a refresh can ask for that exact record instead of re-running a
+     * fuzzy search. It records what was chosen, not that every current value
+     * still comes from it: the user is free to edit any field afterwards and
+     * usually does.
+     */
+    #[ORM\Column(length: 32, nullable: true)]
+    private ?string $metadataProvider = null;
+
+    #[ORM\Column(length: 64, nullable: true)]
+    private ?string $metadataExternalId = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $metadataFetchedAt = null;
 
     /**
      * Source path in the owner's Dropbox, set only for comics pulled in by the
@@ -455,6 +487,56 @@ class Comic
     public function setPageMetadata(array $pageMetadata): static
     {
         $this->pageMetadata = $pageMetadata === [] ? null : $pageMetadata;
+
+        return $this;
+    }
+
+    public function getClassification(): Classification
+    {
+        return Classification::fromArray($this->classification ?? []);
+    }
+
+    public function setClassification(?Classification $classification): static
+    {
+        $stored = $classification?->jsonSerialize() ?? [];
+        $this->classification = $stored === [] ? null : $stored;
+
+        return $this;
+    }
+
+    public function getMetadataProvider(): ?string
+    {
+        return $this->metadataProvider;
+    }
+
+    public function getMetadataExternalId(): ?string
+    {
+        return $this->metadataExternalId;
+    }
+
+    public function getMetadataFetchedAt(): ?\DateTimeImmutable
+    {
+        return $this->metadataFetchedAt;
+    }
+
+    /**
+     * Set together or cleared together: an external id without the provider
+     * that issued it cannot be looked up again, so half a reference is worse
+     * than none.
+     */
+    public function setMetadataOrigin(?string $provider, ?string $externalId, ?\DateTimeImmutable $fetchedAt = null): static
+    {
+        if ($provider === null || $externalId === null || $provider === '' || $externalId === '') {
+            $this->metadataProvider = null;
+            $this->metadataExternalId = null;
+            $this->metadataFetchedAt = null;
+
+            return $this;
+        }
+
+        $this->metadataProvider = mb_substr($provider, 0, 32);
+        $this->metadataExternalId = mb_substr($externalId, 0, 64);
+        $this->metadataFetchedAt = $fetchedAt ?? new \DateTimeImmutable();
 
         return $this;
     }
