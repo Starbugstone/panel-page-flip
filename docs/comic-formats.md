@@ -39,7 +39,9 @@ A PDF's page count is cached exactly as a CBZ's page index is, keyed by path, mo
 
 Whatever a comic was stored as, a page normally leaves the server as WebP. Normally rather than always: where conversion is not possible the provider's own bytes are served instead, and the `Content-Type` says which happened.
 
-The source providers hand back whatever the page happens to be — a JPEG out of a CBZ, a PNG repacked from a PDF bitmap, a rendered page from Poppler — which would otherwise make a reader's bandwidth depend on how the uploader happened to export their comic. Each page is converted once, cached, and served from the cache afterwards.
+The source providers hand back whatever the page happens to be — a JPEG out of a CBZ, a PNG repacked from a PDF bitmap, a rendered page from Poppler — which would otherwise make a reader's bandwidth depend on how the uploader happened to export their comic. Each page is converted once, at the size that was asked for, cached, and served from the cache afterwards.
+
+A page is also delivered in one of a fixed set of sizes rather than at whatever dimensions the uploader exported, so a phone does not download a 4000-pixel scan to fill 400 CSS pixels. A PDF page that has to be drawn is drawn near the requested size rather than rasterised at full resolution and shrunk. The variants, the page-geometry manifest, the thumbnail navigator and the cache's invalidation rules are described in [page-derivatives.md](page-derivatives.md).
 
 Generated pages live under `var/page-cache/{comicId}/`, deliberately outside the web root: they are derived from comics whose access is checked on every request, so they must never be reachable by guessing a URL. The cache holds nothing authoritative and can be deleted at any time; entries are keyed by the source's modification time and size, so replacing a comic's file cannot serve pages from the previous one. Deleting a comic drops its pages with it.
 
@@ -57,4 +59,4 @@ Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed 
 
 Direct uploads, chunked uploads, Dropbox sync, and `app:import-comics` all use the same enabled-format and provider validation pipeline. A configured format whose runtime later disappears is omitted from uploader configuration and rejected until the runtime is restored or the format is disabled.
 
-Upload size and per-user storage quota continue to apply to the original canonical source. Generated PDF pages are temporary until the derivative cache pipeline is introduced.
+Upload size and per-user storage quota continue to apply to the original canonical source. Generated pages, including rendered PDF ones, are rebuildable server cache and count towards nobody's quota.
