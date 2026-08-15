@@ -77,20 +77,37 @@ jobs:
           docker compose logs database
           exit 1
 
-      - name: Validate backend
+      - name: Install backend dependencies
+        run: docker compose exec -T php composer install --no-interaction --no-progress
+
+      - name: Prepare and migrate test database
         shell: bash
         run: |
           set -euo pipefail
-          docker compose exec -T php composer install --no-interaction --no-progress
           docker compose exec -T database sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE}_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}_test.* TO '\''${MYSQL_USER}'\''@'\''%'\''; FLUSH PRIVILEGES;"'
           docker compose exec -T php php bin/console doctrine:migrations:migrate --env=test --no-interaction
+
+      - name: Validate Composer Symfony and schema
+        shell: bash
+        run: |
+          set -euo pipefail
           docker compose exec -T php composer validate --strict
           docker compose exec -T php composer audit --locked --no-dev
           docker compose exec -T php php bin/console lint:container --env=test
           docker compose exec -T php php bin/console doctrine:schema:validate --env=test
-          docker compose exec -T php composer analyse
-          docker compose exec -T php composer cs:check
-          docker compose exec -T php php bin/phpunit
+
+      - name: Run PHPStan
+        run: docker compose exec -T php composer analyse
+
+      - name: Check PHP style
+        run: docker compose exec -T php composer cs:check
+
+      - name: Run backend tests
+        run: docker compose exec -T php php bin/phpunit
+
+      - name: Show backend logs on failure
+        if: failure()
+        run: docker compose logs
 
       - name: Try enabling repository vulnerability alerts
         continue-on-error: true
