@@ -30,6 +30,16 @@ abstract class AbstractApiTestCase extends WebTestCase
 
         $this->client = static::createClient();
         $this->client->disableReboot();
+
+        // The limiters are filesystem-cached, so an allowance outlives both the
+        // per-test rollback and the run itself: ids come round again and
+        // inherit what an earlier test — or yesterday's run — already spent.
+        // Left alone, the suite passes from cold and then fails on the next
+        // run against the same var/cache. Tests that assert a limit spend it
+        // themselves, so starting every test from a full allowance is what
+        // they already assume.
+        $limiterCache = static::getContainer()->get('cache.rate_limiter');
+        $limiterCache->clear();
     }
 
     protected function browser(): KernelBrowser
