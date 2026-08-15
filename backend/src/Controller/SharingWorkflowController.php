@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Entity\ComicShare;
-use App\Entity\User;
-use App\Service\ShareException;
 use App\Service\SharingCodeRecipient;
 use App\Service\SharingCodeService;
 use App\Service\SharingWorkflowService;
@@ -15,11 +13,12 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Security\Http\Attribute\CurrentUser;
 
 #[Route('/api/shares')]
 final class SharingWorkflowController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     public function __construct(
         private readonly SharingWorkflowService $workflow,
         private readonly SharingCodeService $sharingCodes,
@@ -27,11 +26,9 @@ final class SharingWorkflowController extends AbstractController
     }
 
     #[Route('/recent-recipients', name: 'app_shares_recent_recipients', methods: ['GET'])]
-    public function recentRecipients(#[CurrentUser] ?User $user): JsonResponse
+    public function recentRecipients(): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         return $this->json([
             'recipients' => $this->workflow->recentRecipients($user),
@@ -47,17 +44,11 @@ final class SharingWorkflowController extends AbstractController
      * conversation it was pasted into.
      */
     #[Route('/my-code', name: 'app_shares_my_code', methods: ['GET'])]
-    public function myCode(#[CurrentUser] ?User $user): JsonResponse
+    public function myCode(): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
-        try {
-            $this->sharingCodes->codeFor($user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $this->sharingCodes->codeFor($user);
 
         return $this->json($this->sharingCodes->describe($user));
     }
@@ -72,17 +63,11 @@ final class SharingWorkflowController extends AbstractController
      * survives untouched.
      */
     #[Route('/my-code/rotate', name: 'app_shares_rotate_my_code', methods: ['POST'])]
-    public function rotateMyCode(#[CurrentUser] ?User $user): JsonResponse
+    public function rotateMyCode(): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
-        try {
-            $this->sharingCodes->rotateCode($user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $this->sharingCodes->rotateCode($user);
 
         return $this->json([
             'message' => 'Your sharing code has been replaced. The old one no longer works.',
@@ -99,11 +84,9 @@ final class SharingWorkflowController extends AbstractController
      * or whether the account exists when the code does not resolve.
      */
     #[Route('/resolve-code', name: 'app_shares_resolve_code', methods: ['POST'])]
-    public function resolveCode(Request $request, #[CurrentUser] ?User $user): JsonResponse
+    public function resolveCode(Request $request): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
         $code = is_array($data) ? ($data['sharingCode'] ?? null) : null;
@@ -112,11 +95,7 @@ final class SharingWorkflowController extends AbstractController
             return $this->json(['message' => 'A sharing code is required.'], Response::HTTP_BAD_REQUEST);
         }
 
-        try {
-            $recipient = $this->sharingCodes->resolve($code, $user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $recipient = $this->sharingCodes->resolve($code, $user);
 
         if ($recipient === null) {
             return $this->json(['message' => 'That sharing code is not valid.'], Response::HTTP_NOT_FOUND);
@@ -130,11 +109,9 @@ final class SharingWorkflowController extends AbstractController
     }
 
     #[Route('/invitations/bulk', name: 'app_shares_bulk_invite', methods: ['POST'])]
-    public function bulkInvite(Request $request, #[CurrentUser] ?User $user): JsonResponse
+    public function bulkInvite(Request $request): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data)) {
@@ -154,11 +131,7 @@ final class SharingWorkflowController extends AbstractController
         $viaSharingCode = null;
 
         if (is_string($rawSharingCode) && trim($rawSharingCode) !== '') {
-            try {
-                $recipient = $this->sharingCodes->resolve($rawSharingCode, $user);
-            } catch (ShareException $exception) {
-                return $this->json($exception->toPayload(), $exception->getStatusCode());
-            }
+            $recipient = $this->sharingCodes->resolve($rawSharingCode, $user);
 
             if ($recipient === null) {
                 return $this->json([
@@ -212,21 +185,17 @@ final class SharingWorkflowController extends AbstractController
             $comicIds[] = $comicId;
         }
 
-        try {
-            $result = $this->workflow->inviteMany(
-                $comicIds,
-                $user,
-                $email,
-                true,
-                $viaSharingCode
-            );
-        } catch (ShareException $exception) {
-            // The whole batch was refused before anything was created — an
-            // exhausted invitation allowance, or a recipient the sender may not
-            // invite. Reported as one failure with its real status rather than
-            // as a per-comic result, because nothing was attempted.
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        // The whole batch was refused before anything was created — an
+        // exhausted invitation allowance, or a recipient the sender may not
+        // invite. Reported as one failure with its real status rather than
+        // as a per-comic result, because nothing was attempted.
+        $result = $this->workflow->inviteMany(
+            $comicIds,
+            $user,
+            $email,
+            true,
+            $viaSharingCode
+        );
 
         $status = $result['created'] === $result['total']
             ? Response::HTTP_CREATED

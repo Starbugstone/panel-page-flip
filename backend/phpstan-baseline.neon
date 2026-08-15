@@ -109,12 +109,6 @@ parameters:
 			path: src/Controller/AdminController.php
 
 		-
-			message: '#^Call to an undefined method Symfony\\Component\\Security\\Core\\User\\UserInterface\:\:getId\(\)\.$#'
-			identifier: method.notFound
-			count: 6
-			path: src/Controller/ComicController.php
-
-		-
 			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 3
@@ -129,18 +123,6 @@ parameters:
 		-
 			message: '#^Method App\\Controller\\ComicController\:\:getMimeTypeForExtension\(\) is unused\.$#'
 			identifier: method.unused
-			count: 1
-			path: src/Controller/ComicController.php
-
-		-
-			message: '#^Negated boolean expression is always true\.$#'
-			identifier: booleanNot.alwaysTrue
-			count: 1
-			path: src/Controller/ComicController.php
-
-		-
-			message: '#^Parameter \#2 \$user of method App\\Service\\ComicService\:\:uploadComic\(\) expects App\\Entity\\User, Symfony\\Component\\Security\\Core\\User\\UserInterface given\.$#'
-			identifier: argument.type
 			count: 1
 			path: src/Controller/ComicController.php
 
@@ -275,6 +257,24 @@ parameters:
 			identifier: property.unusedType
 			count: 1
 			path: src/Entity/Comic.php
+
+		-
+			message: '#^Property App\\Entity\\LibraryFolder\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
+			identifier: property.unusedType
+			count: 1
+			path: src/Entity/LibraryFolder.php
+
+		-
+			message: '#^Property App\\Entity\\LibraryFolder\:\:\$parentScope is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/LibraryFolder.php
+
+		-
+			message: '#^Property App\\Entity\\LibraryFolderItem\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
+			identifier: property.unusedType
+			count: 1
+			path: src/Entity/LibraryFolderItem.php
 
 		-
 			message: '#^Property App\\Entity\\Comic\:\:\$readingProgresses with generic interface Doctrine\\Common\\Collections\\Collection does not specify its types\: TKey, T$#'

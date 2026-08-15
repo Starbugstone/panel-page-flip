@@ -9,6 +9,9 @@ use App\Tests\Functional\AbstractApiTestCase;
 
 class AdminControllerTest extends AbstractApiTestCase
 {
+    /** @var list<string> */
+    private array $stagedFiles = [];
+
     public function testEmptyComicFormatUpdateAlwaysKeepsCbzEnabled(): void
     {
         $this->createAndLoginAdmin();
@@ -73,5 +76,92 @@ class AdminControllerTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame([], $payload['logs']);
+    }
+
+    public function testAdminCanReadComicFormats(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $payload = $this->getJson('/api/admin/comic-formats');
+
+        self::assertResponseIsSuccessful();
+        self::assertTrue($payload['formats']['cbz']['enabled']);
+        self::assertArrayHasKey('delivery', $payload);
+    }
+
+    public function testAdminCanVerifyComicFormats(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $payload = $this->postJson('/api/admin/comic-formats/verify');
+
+        self::assertResponseIsSuccessful();
+        self::assertArrayHasKey('formats', $payload);
+        self::assertArrayHasKey('delivery', $payload);
+    }
+
+    public function testAdminCleanupDryRunReportsOrphansWithoutRemovingThem(): void
+    {
+        $this->createAndLoginAdmin();
+        $orphan = $this->stageOrphanedComic();
+
+        $payload = $this->postJson('/api/admin/cleanup/dry-run');
+
+        self::assertResponseIsSuccessful();
+        self::assertArrayNotHasKey('error', $payload['cleanup']);
+        self::assertContains(
+            basename($orphan),
+            array_column($payload['cleanup']['orphanedComics'], 'filename')
+        );
+        self::assertFileExists($orphan, 'A dry run must not remove anything.');
+    }
+
+    public function testAdminCleanupApplyQuarantinesTheOrphansItFound(): void
+    {
+        $this->createAndLoginAdmin();
+        $orphan = $this->stageOrphanedComic();
+
+        $payload = $this->postJson('/api/admin/cleanup/apply');
+
+        self::assertResponseIsSuccessful();
+        self::assertArrayNotHasKey('error', $payload['cleanup']);
+        self::assertGreaterThanOrEqual(1, $payload['cleanup']['quarantined']['orphanedComics']);
+        self::assertArrayHasKey('orphanedCovers', $payload['cleanup']['quarantined']);
+        self::assertFileDoesNotExist($orphan);
+    }
+
+    /**
+     * A comic file on disk that no row points at, which is the whole of what
+     * the sweep looks for.
+     *
+     * Staged by the test rather than assumed: the configured comics directory
+     * does not exist in a fresh checkout, and a scan that cannot find it
+     * reports an error instead of a result — so without this the assertions
+     * below would pass against a directory that was never read.
+     */
+    private function stageOrphanedComic(): string
+    {
+        $directory = (string) self::getContainer()->getParameter('comics_directory');
+        if (!is_dir($directory) && !mkdir($directory, 0777, true) && !is_dir($directory)) {
+            self::fail(sprintf('Could not create the comics directory "%s".', $directory));
+        }
+
+        $path = $directory . '/orphan-' . bin2hex(random_bytes(8)) . '.cbz';
+        file_put_contents($path, 'not a real archive');
+        $this->stagedFiles[] = $path;
+
+        return $path;
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->stagedFiles as $path) {
+            if (is_file($path)) {
+                unlink($path);
+            }
+        }
+        $this->stagedFiles = [];
+
+        parent::tearDown();
     }
 }

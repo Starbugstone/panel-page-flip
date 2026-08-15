@@ -2,7 +2,6 @@
 
 namespace App\Controller;
 
-use App\Entity\User;
 use App\Service\ComicFormatService;
 use App\Service\MetadataProviderRegistry;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -13,6 +12,8 @@ use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 #[Route('/api/config', name: 'api_config_')]
 class ConfigController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     #[Route('', name: 'get', methods: ['GET'])]
     public function getConfig(
         ParameterBagInterface $params,
@@ -20,11 +21,7 @@ class ConfigController extends AbstractController
         MetadataProviderRegistry $metadataProviders
     ): JsonResponse
     {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], JsonResponse::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Return only the configuration values that are safe to expose to the frontend
         return $this->json([

@@ -78,15 +78,33 @@ final class ComicPageDelivery
     }
 
     /**
+     * Width and height from an image header, or null when the bytes are not an
+     * image this server can read.
+     *
+     * getimagesizefromstring() returns false for anything it cannot parse, and
+     * a zero dimension for a header it can parse but that describes nothing —
+     * both mean the same thing to every caller here.
+     *
+     * @return array{int, int}|null
+     */
+    private function dimensions(string $bytes): ?array
+    {
+        $size = @getimagesizefromstring($bytes);
+        if (!is_array($size) || $size[0] < 1 || $size[1] < 1) return null;
+
+        return [$size[0], $size[1]];
+    }
+
+    /**
      * The dimensions of an encoded image, read from its header rather than by
      * decoding it. Null when the bytes are not an image this server can read.
      */
     public function measure(string $bytes, int $page): ?PageGeometry
     {
-        $size = @getimagesizefromstring($bytes);
-        if (!is_array($size) || ($size[0] ?? 0) < 1 || ($size[1] ?? 0) < 1) return null;
+        $dimensions = $this->dimensions($bytes);
+        if ($dimensions === null) return null;
 
-        return new PageGeometry($page, (int) $size[0], (int) $size[1]);
+        return new PageGeometry($page, $dimensions[0], $dimensions[1]);
     }
 
     /**
@@ -99,10 +117,10 @@ final class ComicPageDelivery
      */
     public function encode(PageResult $source, ?int $maxWidth, int $quality): ?PageResult
     {
-        $size = @getimagesizefromstring($source->content);
-        if (!is_array($size) || ($size[0] ?? 0) < 1 || ($size[1] ?? 0) < 1) return null;
+        $dimensions = $this->dimensions($source->content);
+        if ($dimensions === null) return null;
 
-        [$width, $height] = [(int) $size[0], (int) $size[1]];
+        [$width, $height] = $dimensions;
         if ($width * $height > self::MAX_PIXELS) return null;
 
         $targetWidth = $maxWidth !== null && $width > $maxWidth ? $maxWidth : $width;

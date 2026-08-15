@@ -30,6 +30,8 @@ use Symfony\Component\Routing\Attribute\Route;
 #[Route('/api/me/metadata-credentials', name: 'api_me_metadata_credentials_')]
 class MetadataCredentialController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     /**
      * The column holds ciphertext, which is longer than the token that went
      * into it, so the limit is derived from the column rather than guessed.
@@ -49,7 +51,7 @@ class MetadataCredentialController extends AbstractController
         UserMetadataCredentialService $credentials,
         MetadataProviderConfigurationService $configuration
     ): JsonResponse {
-        $user = $this->authenticatedUser();
+        $user = $this->requireUser();
 
         return $this->json($this->describe($user, $providers, $credentials, $configuration));
     }
@@ -68,7 +70,7 @@ class MetadataCredentialController extends AbstractController
         UserMetadataCredentialService $credentials,
         MetadataProviderConfigurationService $configuration
     ): JsonResponse {
-        $user = $this->authenticatedUser();
+        $user = $this->requireUser();
         $data = JsonRequestDecoder::decode($request);
 
         // Clearing is always allowed, even when the server has stopped
@@ -117,7 +119,7 @@ class MetadataCredentialController extends AbstractController
         UserMetadataCredentialService $credentials,
         MetadataProviderConfigurationService $configuration
     ): JsonResponse {
-        $user = $this->authenticatedUser();
+        $user = $this->requireUser();
         $credentials->remove($user);
 
         return $this->json($this->describe($user, $providers, $credentials, $configuration));
@@ -137,7 +139,7 @@ class MetadataCredentialController extends AbstractController
         UserMetadataCredentialService $credentials,
         MetadataProviderConfigurationService $configuration
     ): JsonResponse {
-        $user = $this->authenticatedUser();
+        $user = $this->requireUser();
 
         if (!$user->isMetadataApiEnabled()) {
             return $this->json(
@@ -232,15 +234,5 @@ class MetadataCredentialController extends AbstractController
         $getter = self::FIELDS[$field][1] ?? null;
 
         return $getter === null ? null : $credential?->{$getter}();
-    }
-
-    private function authenticatedUser(): User
-    {
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            throw $this->createAccessDeniedException('User not authenticated');
-        }
-
-        return $user;
     }
 }

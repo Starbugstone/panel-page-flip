@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Entity\ShareClaimCode;
-use App\Entity\User;
 use App\Service\ShareClaimCodeService;
-use App\Service\ShareException;
 use App\Service\SharingCodeFormat;
 use App\Service\SharingWorkflowService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -15,7 +13,6 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Security\Http\Attribute\CurrentUser;
 
 /**
  * Codes an owner hands out to give comics away without knowing an address.
@@ -27,6 +24,8 @@ use Symfony\Component\Security\Http\Attribute\CurrentUser;
 #[Route('/api/shares/claim-codes')]
 final class ShareClaimCodeController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     public function __construct(private readonly ShareClaimCodeService $claimCodes)
     {
     }
@@ -39,11 +38,9 @@ final class ShareClaimCodeController extends AbstractController
      * the owner asks after a code has stopped working, not while it still does.
      */
     #[Route('', name: 'app_share_claim_codes_list', methods: ['GET'])]
-    public function list(#[CurrentUser] ?User $user): JsonResponse
+    public function list(): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         return $this->json([
             'codes' => array_map(
@@ -56,11 +53,9 @@ final class ShareClaimCodeController extends AbstractController
     }
 
     #[Route('', name: 'app_share_claim_codes_create', methods: ['POST'])]
-    public function create(Request $request, #[CurrentUser] ?User $user): JsonResponse
+    public function create(Request $request): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data)) {
@@ -105,19 +100,15 @@ final class ShareClaimCodeController extends AbstractController
             return $this->json(['message' => 'Choose how many times the code may be used.'], Response::HTTP_BAD_REQUEST);
         }
 
-        try {
-            ['code' => $code, 'plaintext' => $plaintext] = $this->claimCodes->issue(
-                $comicIds,
-                $user,
-                (int) $rawUses,
-                // Strictly true, the same rule the emailed invitation applies:
-                // a missing key or a truthy string is not somebody having read
-                // the notice and ticked the box.
-                ($data['senderResponsibilityAccepted'] ?? null) === true
-            );
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        ['code' => $code, 'plaintext' => $plaintext] = $this->claimCodes->issue(
+            $comicIds,
+            $user,
+            (int) $rawUses,
+            // Strictly true, the same rule the emailed invitation applies:
+            // a missing key or a truthy string is not somebody having read
+            // the notice and ticked the box.
+            ($data['senderResponsibilityAccepted'] ?? null) === true
+        );
 
         return $this->json([
             'message' => 'Sharing code created.',
@@ -129,17 +120,11 @@ final class ShareClaimCodeController extends AbstractController
     }
 
     #[Route('/{id}', name: 'app_share_claim_codes_revoke', methods: ['DELETE'], requirements: ['id' => '\d+'])]
-    public function revoke(int $id, #[CurrentUser] ?User $user): JsonResponse
+    public function revoke(int $id): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
-        try {
-            $this->claimCodes->revoke($id, $user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $this->claimCodes->revoke($id, $user);
 
         return $this->json(['message' => 'Sharing code withdrawn.']);
     }
@@ -151,11 +136,9 @@ final class ShareClaimCodeController extends AbstractController
      * creates have to belong to somebody.
      */
     #[Route('/redeem', name: 'app_share_claim_codes_redeem', methods: ['POST'], priority: 1)]
-    public function redeem(Request $request, #[CurrentUser] ?User $user): JsonResponse
+    public function redeem(Request $request): JsonResponse
     {
-        if (!$user) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
         $code = is_array($data) ? ($data['code'] ?? null) : null;
@@ -164,11 +147,7 @@ final class ShareClaimCodeController extends AbstractController
             return $this->json(['message' => 'A sharing code is required.'], Response::HTTP_BAD_REQUEST);
         }
 
-        try {
-            $result = $this->claimCodes->redeem($code, $user);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $result = $this->claimCodes->redeem($code, $user);
 
         return $this->json($result);
     }

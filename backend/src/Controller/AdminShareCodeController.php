@@ -8,7 +8,6 @@ use App\Repository\ShareClaimCodeRepository;
 use App\Service\ExpiredShareCleanupService;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\ShareClaimCodeService;
-use App\Service\ShareException;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -85,11 +84,7 @@ final class AdminShareCodeController extends AbstractController
         /** @var User $admin */
         $admin = $this->getUser();
 
-        try {
-            $code = $this->claimCodeService->revokeAsAdministrator($id, $admin);
-        } catch (ShareException $exception) {
-            return $this->json($exception->toPayload(), $exception->getStatusCode());
-        }
+        $code = $this->claimCodeService->revokeAsAdministrator($id, $admin);
 
         return $this->json([
             'message' => 'Sharing code withdrawn. Comics already claimed through it are unaffected.',

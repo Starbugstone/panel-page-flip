@@ -19,14 +19,12 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 #[Route('/api/tags', name: 'api_tags_')]
 class TagController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     #[Route('', name: 'list', methods: ['GET'])]
     public function list(Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $showAll = $request->query->getBoolean('all');
         $isAdminContext = $request->query->getBoolean('adminContext');
@@ -81,11 +79,7 @@ class TagController extends AbstractController
         EntityManagerInterface $entityManager,
         ValidatorInterface $validator
     ): JsonResponse {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $data = $this->decodePayload($request);
         if ($data instanceof JsonResponse) {
@@ -237,11 +231,7 @@ class TagController extends AbstractController
         EntityManagerInterface $entityManager,
         ValidatorInterface $validator
     ): JsonResponse {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Get tag by id
         $tag = $entityManager->getRepository(Tag::class)->find($id);
@@ -316,11 +306,7 @@ class TagController extends AbstractController
     #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
     public function delete(int $id, EntityManagerInterface $entityManager): JsonResponse
     {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Get tag by id
         $tag = $entityManager->getRepository(Tag::class)->find($id);
@@ -353,11 +339,7 @@ class TagController extends AbstractController
     #[Route('/search', name: 'search', methods: ['GET'])]
     public function search(Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Get query parameter
         $query = $request->query->get('q', '');

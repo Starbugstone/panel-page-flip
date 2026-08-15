@@ -51,6 +51,8 @@ use Symfony\Component\Routing\Attribute\Route;
 #[Route('/api/comics', name: 'api_comics_')]
 class ComicController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     private const FILE_ID_REGEX = '/^[A-Za-z0-9\-]{8,64}$/';
 
     /**
@@ -178,11 +180,7 @@ class ComicController extends AbstractController
         LibraryFolderService $folderService
     ): JsonResponse
     {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Get search parameters
         $search = $request->query->get('search');
@@ -260,10 +258,7 @@ class ComicController extends AbstractController
         SecurityAuditLogger $securityLogger,
         MetadataProviderRegistry $providers
     ): JsonResponse {
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data)) {
@@ -403,10 +398,7 @@ class ComicController extends AbstractController
         ComicShareService $shareService,
         SecurityAuditLogger $securityLogger
     ): JsonResponse {
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
         $comicIds = is_array($data) ? $this->normaliseBulkComicIds($data['comicIds'] ?? null) : [];
@@ -526,11 +518,7 @@ class ComicController extends AbstractController
     #[Route('/{id}', name: 'get', methods: ['GET'])]
     public function get(int $id, EntityManagerInterface $entityManager): JsonResponse
     {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
@@ -559,10 +547,7 @@ class ComicController extends AbstractController
         ComicTagSuggestionService $tagSuggestions,
         MetadataProviderRegistry $providers
     ): JsonResponse {
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
@@ -623,10 +608,7 @@ class ComicController extends AbstractController
         ComicMetadataSuggestionService $suggestions,
         RateLimiterFactory $metadataProviderUserLimiter
     ): JsonResponse {
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
@@ -772,10 +754,7 @@ class ComicController extends AbstractController
         ComicTagSuggestionService $tagSuggestions,
         RateLimiterFactory $metadataProviderUserLimiter
     ): JsonResponse {
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
@@ -858,11 +837,7 @@ class ComicController extends AbstractController
         ComicService $comicService,
         LibraryFolderService $folderService
     ): JsonResponse {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         // Get uploaded file
         $comicFile = $request->files->get('file');
@@ -937,11 +912,7 @@ class ComicController extends AbstractController
         SecurityAuditLogger $securityLogger,
         MetadataProviderRegistry $providers
     ): JsonResponse {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
@@ -1097,10 +1068,7 @@ class ComicController extends AbstractController
         ComicShareService $shareService,
         SecurityAuditLogger $securityLogger
     ): JsonResponse {
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
 
@@ -1184,11 +1152,7 @@ class ComicController extends AbstractController
     #[Route('/{id}/reading-progress/reset', name: 'reset_reading_progress', methods: ['POST'])]
     public function resetReadingProgress(int $id, EntityManagerInterface $entityManager): JsonResponse
     {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
@@ -1217,11 +1181,7 @@ class ComicController extends AbstractController
     #[Route('/upload/init', name: 'upload_init', methods: ['POST'])]
     public function initUpload(Request $request, LibraryFolderService $folderService): JsonResponse
     {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
         
         try {
             $data = \App\Http\JsonRequestDecoder::decode($request);
@@ -1289,11 +1249,7 @@ class ComicController extends AbstractController
     #[Route('/upload/chunk', name: 'upload_chunk', methods: ['POST'])]
     public function uploadChunk(Request $request): JsonResponse
     {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
         
         try {
             $fileId = (string) $request->request->get('fileId');
@@ -1410,11 +1366,7 @@ class ComicController extends AbstractController
         ComicService $comicService,
         LibraryFolderService $folderService
     ): JsonResponse {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         try {
             $data = \App\Http\JsonRequestDecoder::decode($request);
@@ -1629,9 +1581,7 @@ class ComicController extends AbstractController
         EntityManagerInterface $entityManager,
         PageDerivativeService $derivatives
     ): Response {
-        if (!$this->getUser()) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic || !$this->isGranted(ComicVoter::VIEW, $comic)) {
@@ -1666,11 +1616,7 @@ class ComicController extends AbstractController
         ComicService $comicService,
         PageDerivativeService $derivatives
     ): Response {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
@@ -1798,10 +1744,7 @@ class ComicController extends AbstractController
     #[Route('/{id}/download', name: 'download', methods: ['GET'], requirements: ['id' => '\d+'])]
     public function download(int $id, EntityManagerInterface $entityManager, ComicService $comicService): Response
     {
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
@@ -1856,11 +1799,7 @@ class ComicController extends AbstractController
         Request $request, 
         EntityManagerInterface $entityManager
     ): JsonResponse {
-        // Get the current user
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $comic = $entityManager->getRepository(Comic::class)->find($id);
         if (!$comic) {
@@ -2241,11 +2180,7 @@ class ComicController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager
     ): Response {
-        /** @var \App\Entity\User|null $currentUser */
-        $currentUser = $this->getUser();
-        if (!$currentUser) {
-            return $this->json(['message' => 'Not authenticated.'], Response::HTTP_UNAUTHORIZED);
-        }
+        $currentUser = $this->requireUser();
 
         // The owner id in the URL only has to agree with the comic; whether this
         // request may see the cover is the voter's decision, so a recipient's

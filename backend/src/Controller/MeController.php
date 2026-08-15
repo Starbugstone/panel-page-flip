@@ -2,24 +2,21 @@
 
 namespace App\Controller;
 
-use App\Entity\User;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Session\SessionInterface;
 use Symfony\Component\Routing\Attribute\Route;
 
 class MeController extends AbstractController
 {
+    use RequiresAuthenticatedUser;
+
     #[Route('/api/me', name: 'api_me', methods: ['GET', 'POST'])]
     public function me(Request $request, SessionInterface $session, LoggerInterface $logger): JsonResponse
     {
-        $user = $this->getUser();
-        if (!$user instanceof User) {
-            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
-        }
+        $user = $this->requireUser();
 
         $sessionRefreshed = false;
         if ($request->isMethod('POST')) {
