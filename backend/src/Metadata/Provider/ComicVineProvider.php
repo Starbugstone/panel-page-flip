@@ -11,9 +11,9 @@ use App\Metadata\Classification;
  * Comic Vine. Authenticates with an API key in the query string, and requires a
  * descriptive user agent — requests without one are refused.
  *
- * Comic Vine's published API terms are non-commercial use only, so whether this
- * provider may be used at all is an operator decision rather than a default;
- * MetadataAccessResolver holds that gate, and a user's own key does not open it.
+ * Comic Vine's published API terms are non-commercial use only. Whether this
+ * server may spend its *own* key is an operator decision, held by
+ * MetadataAccessResolver; a user's own key is theirs and bypasses that gate.
  *
  * The field mapping here is built from the documentation. Metron's list
  * endpoint turned out to differ from its own documentation in exactly this way,
@@ -82,7 +82,9 @@ final class ComicVineProvider extends HttpMetadataProvider
                 )),
             };
         } catch (\Throwable $exception) {
-            $this->logger?->info('Comic Vine verification could not reach the service.', ['reason' => $exception->getMessage()]);
+            // The class only. Verification builds the same credential-bearing
+            // request as a search, so the exception message is the same hazard.
+            $this->logger?->info('Comic Vine verification could not reach the service.', ['exception' => $exception::class]);
 
             return ProviderVerification::unreachable('Comic Vine could not be reached from this server.');
         }

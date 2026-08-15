@@ -401,7 +401,38 @@ fails spends somebody else's allowance to paper over an outage. It now picks
 **one** provider — a personal credential first, then anything else allowed, in
 registration order — and reports the others as unasked.
 
-Every result carries a `ProviderStatus`, so the UI can tell apart:
+### What a user is told, and what stays the operator's
+
+The resolver's answer is operator information: it names which account would be
+spent and exactly why a shared credential was refused. A normal user gets a
+deliberately reduced view — `PublicProviderStatus` — of whether a provider will
+answer *them*, plus a reason only when the reason is theirs to act on:
+
+| Situation | What the user sees |
+| --- | --- |
+| Their own token was refused | "Metron rejected your token. Check it in your settings." |
+| Their account has lookups withdrawn | "External metadata lookups are turned off for your account." |
+| Anything about the shared credential | "Metron is currently unavailable." |
+
+The last row collapses *unconfigured*, *disabled*, *paused*, *rate limited*,
+*unreachable* and *failed* into one sentence on purpose. Those differences
+describe the installation's own account, and being able to tell them apart is
+how somebody maps the server's configuration by reading error messages.
+
+`origin` — which credential a call would spend — never leaves the backend. It is
+what the quota and circuit-breaker keys are built from, and nothing more.
+`ProviderSearchResult` and `ProviderLookup` serialise a deliberate minimum so a
+route that forgets to reduce cannot leak the difference, and
+`ProviderSecrecyTest` walks every user-facing endpoint with sentinel credentials
+asserting neither the secret nor the operator markers appear.
+
+One inference survives and cannot be removed: a user with no personal token
+whose search works can conclude the server has some way of doing it. That is a
+consequence of the feature existing. Confirming the credential's state on top of
+it is not.
+
+Internally, every result still carries a full `ProviderStatus`, so the code can
+tell apart:
 
 ```text
 ok + no candidates   nothing matched
@@ -414,7 +445,18 @@ paused               held off after failures
 unreachable/failed   the network, or an unusable answer
 ```
 
-Returning the same empty array for all of these is safe and useless.
+Returning the same empty array for all of these is safe and useless — for the
+*code*. What reaches the user is the reduced view above.
+
+### Provider failures are never logged verbatim
+
+A transport exception routinely quotes the request URL, and Comic Vine puts its
+API key in the query string. So a provider failure logs the exception **class**
+and nothing out of the exception itself: the message would put the
+installation's credential into a log file that gets shipped, rotated and read.
+The class name is enough to tell a timeout from a DNS failure, and there is a
+regression test that throws an exception carrying a sentinel key and asserts it
+never reaches the log.
 
 ### Search runs off the staged form, not the saved comic
 

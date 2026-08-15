@@ -16,8 +16,8 @@ const state = (overrides = {}) => ({
   metadataApiEnabled: true,
   personalCredentialsEnabled: true,
   providers: [
-    { key: "metron", label: "Metron", available: false, origin: null, message: "No Metron token is configured." },
-    { key: "comicvine", label: "Comic Vine", available: false, origin: null, message: "No Comic Vine API key is configured." },
+    { key: "metron", label: "Metron", available: false, reason: "Metron is currently unavailable." },
+    { key: "comicvine", label: "Comic Vine", available: false, reason: "Comic Vine is currently unavailable." },
   ],
   ...overrides,
 });
@@ -80,22 +80,29 @@ describe("UserMetadataCredentials", () => {
     expect(screen.getByLabelText(/metron api token/i)).toHaveValue("");
   });
 
-  /** Which provider a search would use, and why not when none would. */
-  it("says why no provider would answer", async () => {
+  /** Whether a provider will answer them — not which credential it would use. */
+  it("says a provider is unavailable without saying why the server refused", async () => {
     render(<UserMetadataCredentials />);
 
-    expect(await screen.findByText(/no metron token is configured/i)).toBeInTheDocument();
+    expect(await screen.findByText(/metron is currently unavailable/i)).toBeInTheDocument();
   });
 
-  it("says when a personal token is the one being used", async () => {
+  /**
+   * The installation's fallback account is a backend detail. Naming it here
+   * would tell every account holder how this server is configured.
+   */
+  it("never says which credential a search would spend", async () => {
     vi.mocked(api.get).mockResolvedValue(state({
       configured: { metron: true, comicvine: false },
-      providers: [{ key: "metron", label: "Metron", available: true, origin: "personal", message: "" }],
+      providers: [{ key: "metron", label: "Metron", available: true }],
     }));
 
-    render(<UserMetadataCredentials />);
+    const { container } = render(<UserMetadataCredentials />);
+    // Scoped to the section: "already" elsewhere on the card contains "ready".
+    const section = (await screen.findByText(/providers available to you/i)).parentElement;
 
-    expect(await screen.findByText(/ready — your token/i)).toBeInTheDocument();
+    expect(section.textContent).toMatch(/Metron:\s*ready/);
+    expect(container.textContent).not.toMatch(/shared token|server's token|administrator configured|your token/i);
   });
 
   describe("when an administrator has withdrawn something", () => {

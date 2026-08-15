@@ -27,14 +27,14 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame([], $response['candidates']);
-        self::assertNull($response['searched']);
     }
 
     /**
-     * The specific failure this replaces: an empty array meaning "no match",
-     * "nothing configured" and "an administrator turned it off" alike.
+     * A user is told which providers will answer them, and given a reason only
+     * where the reason is theirs. Why the *server's* credential was refused is
+     * operator configuration — see ProviderSecrecyTest.
      */
-    public function testSaysWhyEachProviderWasNotAsked(): void
+    public function testSaysWhichProvidersWouldAnswer(): void
     {
         $owner = UserFactory::createOne()->object();
         $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
@@ -42,10 +42,10 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
         $this->loginAs($owner);
         $response = $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()));
 
-        $byKey = array_column($response['providers'], null, 'provider');
-        self::assertNotSame('ok', $byKey['metron']['status']);
-        self::assertNotSame('', $byKey['metron']['message']);
-        self::assertNotSame('ok', $byKey['comicvine']['status']);
+        $byKey = array_column($response['providers'], null, 'key');
+        self::assertFalse($byKey['metron']['available']);
+        self::assertNotSame('', $byKey['metron']['reason']);
+        self::assertFalse($byKey['comicvine']['available']);
     }
 
     /**
@@ -154,8 +154,10 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
         $response = $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()));
 
         self::assertResponseIsSuccessful();
-        $byKey = array_column($response['providers'], null, 'provider');
-        self::assertSame('forbidden', $byKey['metron']['status']);
+        $byKey = array_column($response['providers'], null, 'key');
+        self::assertFalse($byKey['metron']['available']);
+        // The reason is about them, which is the one thing they are told.
+        self::assertStringContainsString('your account', $byKey['metron']['reason']);
     }
 
     /** Refreshing before anything was ever matched is a state, not an error. */

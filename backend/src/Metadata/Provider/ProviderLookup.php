@@ -32,13 +32,15 @@ final class ProviderLookup implements \JsonSerializable
         return new self([], $providers);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * A backstop like ProviderSearchResult's: `searched` names which account
+     * the installation reached for, which is operator information. Controllers
+     * build the user-facing payload explicitly.
+     *
+     * @return array<string, mixed>
+     */
     public function jsonSerialize(): array
     {
-        return [
-            'candidates' => $this->candidates,
-            'providers' => $this->providers,
-            'searched' => $this->searched,
-        ];
+        return ['candidates' => $this->candidates];
     }
 }

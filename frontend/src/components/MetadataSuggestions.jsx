@@ -90,9 +90,10 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
   // asking all of them to answer the same question spends all of them.
   const [provider, setProvider] = useState(null);
 
-  // Which providers would actually answer this user. A provider that is off or
-  // has no credential is still listed, with the reason, because "no results"
-  // and "nobody was asked" call for different things from the person reading.
+  // Which providers would actually answer this user. The server deliberately
+  // does not say *why* a provider is unavailable beyond what is the user's own
+  // to act on — whose credential would be spent, and how the installation's
+  // fallback account is configured, are not theirs to read.
   const providers = (config?.metadataProviders ?? []).filter((entry) => entry.available !== false);
   const unavailable = (config?.metadataProviders ?? []).filter((entry) => entry.available === false);
   const chosen = provider ?? providers[0]?.key ?? null;
@@ -129,7 +130,7 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
       });
       setCandidates(result.candidates ?? []);
       setProviderResults(result.providers ?? []);
-      setSearchedProvider(result.searched ?? null);
+      setSearchedProvider(chosen);
       setOpenRecord(null);
     } catch (loadError) {
       setError(loadError.message || "Could not reach the metadata providers.");
@@ -442,20 +443,25 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
         </div>
       ))}
 
-      {/* A provider that was not asked says why. An empty result and a switched
-          off provider look identical otherwise, and only one is worth acting on. */}
-      {providerResults.filter((entry) => entry.status !== "ok").map((entry) => (
-        <p key={entry.provider} className="text-xs text-amber-700 dark:text-amber-300">
-          {entry.provider}: {entry.message}
+      {/* A provider that could not answer says so. The reason is only ever one
+          the reader can act on — their own token, or their own account. */}
+      {providerResults.filter((entry) => entry.reason).map((entry) => (
+        <p key={entry.key} className="text-xs text-amber-700 dark:text-amber-300">
+          {entry.reason}
         </p>
       ))}
 
       {providers.length === 0 && (
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">No metadata provider is available for your account.</p>
-          {unavailable.map((entry) => (
-            <p key={entry.key} className="text-xs text-muted-foreground">{entry.label}: {entry.message}</p>
+          {unavailable.filter((entry) => entry.reason).map((entry) => (
+            <p key={entry.key} className="text-xs text-muted-foreground">{entry.reason}</p>
           ))}
+          {/* Static copy, not server state: it says what they could try, without
+              confirming anything about the installation's own credentials. */}
+          <p className="text-xs text-muted-foreground">
+            Adding your own provider token in Settings may make one available.
+          </p>
         </div>
       )}
 

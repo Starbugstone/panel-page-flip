@@ -219,8 +219,11 @@ final class MetadataCredentialTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(403);
     }
 
-    /** The reason a search would be refused, in words the user can act on. */
-    public function testSaysWhyNoProviderWouldAnswer(): void
+    /**
+     * Whether a provider will answer them, in words they can act on — and
+     * never why the installation's own credential was refused.
+     */
+    public function testSaysWhetherEachProviderWouldAnswer(): void
     {
         $this->loginAs(UserFactory::createOne()->object());
 
@@ -228,7 +231,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
         $byKey = array_column($providers, null, 'key');
 
         self::assertFalse($byKey['metron']['available']);
-        self::assertNotSame('', $byKey['metron']['message']);
+        self::assertSame('Metron is currently unavailable.', $byKey['metron']['reason']);
     }
 
     /**

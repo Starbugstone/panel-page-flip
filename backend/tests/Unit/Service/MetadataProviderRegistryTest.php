@@ -87,8 +87,12 @@ final class MetadataProviderRegistryTest extends TestCase
     }
 
     /**
-     * "Nothing matched" and "never asked" have to stay distinguishable, which
-     * is the whole reason the result carries a status.
+     * "Nothing matched" and "never asked" have to stay distinguishable
+     * internally, which is the whole reason the result carries a status.
+     *
+     * Asserted on the object rather than its JSON: the serialised form is
+     * deliberately reduced, because this detail is operator diagnostics and
+     * PublicProviderStatus is what a user is shown.
      */
     public function testReportsWhyTheOtherProvidersWereNotAsked(): void
     {
@@ -98,13 +102,24 @@ final class MetadataProviderRegistryTest extends TestCase
             sharedComicVine: false
         )->search(new ProviderQuery('Batman'), $this->user());
 
-        $byKey = array_column(array_map(
-            static fn (ProviderSearchResult $r): array => $r->jsonSerialize(),
-            $lookup->providers
-        ), null, 'provider');
+        $byKey = array_column($lookup->providers, null, 'provider');
 
         self::assertSame('metron', $lookup->searched);
-        self::assertSame('disabled', $byKey['comicvine']['status']);
+        self::assertSame(ProviderStatus::Disabled, $byKey['comicvine']->status);
+    }
+
+    /** The serialised form is the safe minimum, whatever the internals hold. */
+    public function testASerialisedResultCarriesNoOperatorDetail(): void
+    {
+        $lookup = $this->registry(
+            [$this->provider('metron'), $this->provider('comicvine')],
+            sharedMetron: true,
+            sharedComicVine: false
+        )->search(new ProviderQuery('Batman'), $this->user());
+
+        foreach ($lookup->providers as $result) {
+            self::assertSame(['provider', 'available'], array_keys($result->jsonSerialize()));
+        }
     }
 
     public function testNothingIsAskedWhenNoProviderIsAvailable(): void

@@ -26,7 +26,7 @@ describe("MetadataSuggestions", () => {
     vi.mocked(api.get).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.get).mockResolvedValue({ suggestions: [], tags: [] });
-    vi.mocked(api.post).mockResolvedValue({ candidates: [], providers: [], searched: "metron" });
+    vi.mocked(api.post).mockResolvedValue({ candidates: [], providers: [] });
     configMock.providers = [{ key: "metron", label: "Metron", available: true }];
   });
 
@@ -98,17 +98,18 @@ describe("MetadataSuggestions", () => {
     });
 
     /**
-     * "Nothing matched" and "an administrator turned it off" look identical if
-     * both are an empty list, and only one of them is worth acting on.
+     * A user is told a provider will not answer, and given a reason only when
+     * the reason is theirs. Why the *server's* credential was refused is
+     * operator configuration and deliberately not sent.
      */
-    it("says why a provider it cannot offer is missing", async () => {
+    it("says a provider it cannot offer is unavailable", async () => {
       configMock.providers = [
-        { key: "metron", label: "Metron", available: false, message: "An administrator has turned off shared Metron access." },
+        { key: "metron", label: "Metron", available: false, reason: "Metron is currently unavailable." },
       ];
 
       render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
 
-      expect(await screen.findByText(/turned off shared metron access/i)).toBeInTheDocument();
+      expect(await screen.findByText(/metron is currently unavailable/i)).toBeInTheDocument();
     });
   });
 
@@ -194,7 +195,6 @@ describe("MetadataSuggestions", () => {
   it("searches providers only when asked", async () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockResolvedValue({
-      searched: "metron",
       providers: [],
       candidates: [{
         candidate: {
@@ -232,7 +232,6 @@ describe("MetadataSuggestions", () => {
             tags: [],
           }
         : {
-            searched: "metron",
             providers: [],
             candidates: [{
               candidate: { provider: "metron", externalId: "1", series: "Batman", confidence: "exact" },
@@ -260,7 +259,6 @@ describe("MetadataSuggestions", () => {
     const user = userEvent.setup();
     const onAccept = vi.fn();
     vi.mocked(api.post).mockResolvedValue({
-      searched: "metron",
       providers: [],
       candidates: [{
         candidate: { provider: "metron", externalId: "123925", series: "Batman", confidence: "exact" },
@@ -351,15 +349,14 @@ describe("MetadataSuggestions", () => {
   it("distinguishes a provider that could not answer from a genuine miss", async () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockResolvedValue({
-      searched: "metron",
       candidates: [],
-      providers: [{ provider: "metron", status: "rate_limited", message: "Metron is rate limiting this server." }],
+      providers: [{ key: "metron", label: "Metron", available: false, reason: "Metron is currently unavailable." }],
     });
 
     render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /^search /i }));
 
-    expect(await screen.findByText(/rate limiting this server/i)).toBeInTheDocument();
+    expect(await screen.findByText(/metron is currently unavailable/i)).toBeInTheDocument();
   });
 
   /** A failing lookup must not take the edit form down with it. */

@@ -147,10 +147,13 @@ abstract class HttpMetadataProvider implements MetadataProviderInterface
             $status = $response->getStatusCode();
             $this->quota->record($access->accountKey(), $response);
         } catch (\Throwable $exception) {
-            // Never surfaced verbatim: an unreachable provider must not turn
-            // into a stack trace in front of somebody editing a comic, and the
-            // message can carry the request URL, which carries a key.
-            $this->logger?->info($this->label().' could not be reached.', ['reason' => $exception->getMessage()]);
+            // The exception class, and nothing out of the exception itself. A
+            // transport failure routinely quotes the request URL, and Comic
+            // Vine's URL carries `api_key=` — so logging the message is how the
+            // installation's credential ends up in a log file that is shipped,
+            // rotated and read by people who should never see it. The class
+            // name is enough to tell a timeout from a DNS failure.
+            $this->logger?->info($this->label().' could not be reached.', ['exception' => $exception::class]);
             $this->circuitBreaker->recordFailure($access->accountKey(), ProviderStatus::Unreachable);
 
             return [$this->unavailable(ProviderStatus::Unreachable, $this->label().' could not be reached from this server.', $access), []];

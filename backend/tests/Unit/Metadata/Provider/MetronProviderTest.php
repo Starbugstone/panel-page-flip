@@ -8,7 +8,9 @@ use App\Metadata\Provider\ProviderAccess;
 use App\Metadata\Provider\ProviderQuery;
 use App\Service\ProviderCircuitBreaker;
 use App\Service\ProviderQuotaTracker;
+use App\Tests\Support\CollectingLogger;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
@@ -300,6 +302,41 @@ final class MetronProviderTest extends TestCase
         self::assertNotNull($breaker->pausedFor(self::access()->accountKey()));
     }
 
+    /**
+     * A transport failure routinely quotes the request URL, and Comic Vine puts
+     * its key in the query string. Logging the exception message is therefore
+     * how the installation's credential reaches a log file that gets shipped,
+     * rotated and read. The class name distinguishes a timeout from a DNS
+     * failure, which is all the log needs.
+     *
+     * @dataProvider credentialBearingCalls
+     */
+    public function testAProviderFailureNeverLogsWhatTheExceptionSaid(callable $call): void
+    {
+        $secret = 'SECRET_TOKEN_DO_NOT_LOG_91af3c';
+        $logger = new CollectingLogger();
+        $client = new MockHttpClient(static function () use ($secret): never {
+            // The shape a real transport exception takes: the URL, and with it
+            // anything the URL carried.
+            throw new \Symfony\Component\HttpClient\Exception\TransportException(
+                'Could not resolve host for "https://metron.cloud/api/issue/?api_key='.$secret.'"'
+            );
+        });
+
+        $provider = $this->provider(null, client: $client, logger: $logger);
+        $call($provider, ProviderAccess::granted('metron', 'shared', $secret), $secret);
+
+        self::assertNotSame([], $logger->records, 'The failure should still be logged.');
+        self::assertStringNotContainsString($secret, json_encode($logger->records, \JSON_THROW_ON_ERROR));
+    }
+
+    public function credentialBearingCalls(): iterable
+    {
+        yield 'search' => [static fn (MetronProvider $p, ProviderAccess $a): mixed => $p->search(new ProviderQuery('Batman'), $a)];
+        yield 'detail' => [static fn (MetronProvider $p, ProviderAccess $a): mixed => $p->detail('123', $a)];
+        yield 'verify' => [static fn (MetronProvider $p, ProviderAccess $a, string $secret): mixed => $p->verify($secret)];
+    }
+
     /** @dataProvider verificationCases */
     public function testSaysWhatHappenedWhenATokenIsTested(int $httpCode, ProviderStatus $expected): void
     {
@@ -355,7 +392,8 @@ final class MetronProviderTest extends TestCase
         ?MockResponse $response,
         ?MockHttpClient $client = null,
         ?RateLimiterFactory $limiter = null,
-        ?ProviderCircuitBreaker $breaker = null
+        ?ProviderCircuitBreaker $breaker = null,
+        ?LoggerInterface $logger = null
     ): MetronProvider {
         $cache = $this->cache();
 
@@ -368,6 +406,7 @@ final class MetronProviderTest extends TestCase
             $cache,
             new ProviderQuotaTracker($cache),
             $breaker ?? new ProviderCircuitBreaker($cache),
+            $logger,
         );
     }
 

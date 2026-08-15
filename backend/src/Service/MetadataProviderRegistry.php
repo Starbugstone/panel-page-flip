@@ -9,6 +9,7 @@ use App\Enum\ProviderStatus;
 use App\Metadata\Provider\MetadataProviderInterface;
 use App\Metadata\Provider\ProviderAccess;
 use App\Metadata\Provider\ProviderLookup;
+use App\Metadata\Provider\PublicProviderStatus;
 use App\Metadata\Provider\ProviderQuery;
 use App\Metadata\Provider\ProviderSearchResult;
 use App\Metadata\Provider\ProviderVerification;
@@ -55,25 +56,55 @@ final class MetadataProviderRegistry
     }
 
     /**
-     * Whether each provider would answer this user, and why not when it would
-     * not. Never what it was configured with.
+     * Whether each provider would answer this user.
      *
-     * @return list<array{key: string, label: string, available: bool, status: string, message: string, origin: string|null}>
+     * Reduced to what a normal user is entitled to know — see
+     * PublicProviderStatus. Never the credential, never which account would be
+     * spent, and never the shared account's configuration state.
+     *
+     * @return list<PublicProviderStatus>
      */
     public function statusFor(User $user): array
     {
-        return array_map(function (MetadataProviderInterface $provider) use ($user): array {
-            $access = $this->access->resolve($provider->key(), $user);
+        return array_map(
+            fn (MetadataProviderInterface $provider): PublicProviderStatus => PublicProviderStatus::fromAccess(
+                $provider->key(),
+                $provider->label(),
+                $this->access->resolve($provider->key(), $user)
+            ),
+            $this->all()
+        );
+    }
 
-            return [
-                'key' => $provider->key(),
-                'label' => $provider->label(),
-                'available' => $access->isGranted(),
-                'status' => $access->status->value,
-                'message' => $access->message,
-                'origin' => $access->origin,
-            ];
-        }, $this->all());
+    /**
+     * One lookup's outcome, in the same reduced terms.
+     *
+     * The registry is asked for this rather than the controller building it,
+     * because the label lives here and the reduction has to happen in exactly
+     * one place — a second copy is where the two would drift and the internal
+     * message would reach a user.
+     */
+    public function publicResult(ProviderSearchResult $result): PublicProviderStatus
+    {
+        $provider = $this->get($result->provider);
+
+        return PublicProviderStatus::fromResult(
+            $result->provider,
+            $provider?->label() ?? $result->provider,
+            $result
+        );
+    }
+
+    /**
+     * @param list<ProviderSearchResult> $results
+     * @return list<PublicProviderStatus>
+     */
+    public function publicResults(array $results): array
+    {
+        return array_map(
+            fn (ProviderSearchResult $result): PublicProviderStatus => $this->publicResult($result),
+            $results
+        );
     }
 
     /**

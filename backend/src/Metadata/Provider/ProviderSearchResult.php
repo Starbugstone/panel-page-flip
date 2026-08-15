@@ -72,15 +72,18 @@ final class ProviderSearchResult implements \JsonSerializable
         return $this->status === ProviderStatus::Ok;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * A backstop, not the intended payload.
+     *
+     * This object carries operator diagnostics — which account was spent, and
+     * exactly why a shared credential was refused. Anything user-facing goes
+     * through PublicProviderStatus instead; serialising this directly emits the
+     * safe minimum so a route that forgets cannot leak the difference.
+     *
+     * @return array<string, mixed>
+     */
     public function jsonSerialize(): array
     {
-        return [
-            'provider' => $this->provider,
-            'status' => $this->status->value,
-            'message' => $this->message,
-            'origin' => $this->origin,
-            'count' => count($this->candidates),
-        ];
+        return ['provider' => $this->provider, 'available' => $this->isOk()];
     }
 }

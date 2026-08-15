@@ -17,13 +17,13 @@ const FIELDS = [
     provider: "metron",
     name: "metronToken",
     label: "Metron API token",
-    hint: "From your metron.cloud account. Searches then spend your allowance instead of this server's, and keep working if the shared token is turned off.",
+    hint: "From your metron.cloud account. Your searches then spend your own allowance.",
   },
   {
     provider: "comicvine",
     name: "comicVineApiKey",
     label: "Comic Vine API key",
-    hint: "From comicvine.gamespot.com/api. Your own key keeps working even when this server's shared Comic Vine access is switched off. Comic Vine's published terms are non-commercial use only, and obtaining a key is you accepting them.",
+    hint: "From comicvine.gamespot.com/api. Comic Vine's published terms are non-commercial use only, and obtaining a key is you accepting them.",
   },
 ];
 
@@ -150,9 +150,8 @@ export function UserMetadataCredentials() {
 
         {!accepted && (
           <p className="rounded-md border p-3 text-sm text-amber-600">
-            This server does not accept personal provider tokens. Searches use the credentials an
-            administrator configured. Anything you saved earlier is kept but not used, and you can still
-            remove it.
+            This server does not accept personal provider tokens. Anything you saved earlier is kept
+            but not used, and you can still remove it.
           </p>
         )}
 
@@ -204,17 +203,16 @@ export function UserMetadataCredentials() {
           </div>
         ))}
 
-        {/* Which provider a search would actually use, and why not when none
-            would. Saying "no results" when nothing was ever asked is the
-            failure this replaces. */}
+        {/* Whether a provider will answer them. Deliberately not which
+            credential it would use: the installation's fallback account is a
+            backend detail, and naming it here would tell every account holder
+            how this server is configured. */}
         <div className="space-y-1 rounded-md border p-3">
-          <p className="text-sm font-medium">What a search would use</p>
+          <p className="text-sm font-medium">Providers available to you</p>
           {providers.map((provider) => (
             <p key={provider.key} className="text-xs text-muted-foreground">
               <span className="font-medium text-foreground">{provider.label}: </span>
-              {provider.available
-                ? `ready — ${provider.origin === "personal" ? "your token" : "this server's shared token"}`
-                : provider.message}
+              {provider.available ? "ready" : provider.reason ?? "currently unavailable"}
             </p>
           ))}
         </div>

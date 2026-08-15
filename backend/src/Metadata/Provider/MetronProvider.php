@@ -62,7 +62,9 @@ final class MetronProvider extends HttpMetadataProvider
                 ),
             };
         } catch (\Throwable $exception) {
-            $this->logger?->info('Metron verification could not reach the service.', ['reason' => $exception->getMessage()]);
+            // The class only. Verification builds the same credential-bearing
+            // request as a search, so the exception message is the same hazard.
+            $this->logger?->info('Metron verification could not reach the service.', ['exception' => $exception::class]);
 
             return ProviderVerification::unreachable('Metron could not be reached from this server.');
         }

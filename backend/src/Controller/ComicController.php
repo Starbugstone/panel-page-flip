@@ -657,7 +657,11 @@ class ComicController extends AbstractController
             // Characters, teams, locations and story arcs. Shown as metadata and
             // never offered as tags — see ComicTagSuggestionService.
             'classification' => $comic->getClassification()->jsonSerialize() ?: null,
-            'origin' => $this->metadataOrigin($comic),
+            // Named as the serializer names it. `origin` on its own meant two
+            // different things in this API — which external record this comic
+            // came from, and whose credential a lookup would spend — and only
+            // one of those is the user's to see.
+            'metadataOrigin' => $this->metadataOrigin($comic),
             // Which providers would answer this user, and why not when they
             // would not, so the editor can say something better than "no
             // results" before a search has even been run.
@@ -729,7 +733,6 @@ class ComicController extends AbstractController
                 'message' => 'Give the comic a series or a title before searching.',
                 'candidates' => [],
                 'providers' => $providers->statusFor($user),
-                'searched' => null,
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
@@ -738,6 +741,10 @@ class ComicController extends AbstractController
         // Each candidate carries what accepting it would actually change, so
         // the review UI never has to work that out for itself and what it shows
         // matches what applying would do.
+        //
+        // The provider reporting is the reduced one: which providers would
+        // answer this user, never which account was spent or why a shared
+        // credential was refused.
         return $this->json([
             'query' => ['series' => $query->series, 'issueNumber' => $query->issueNumber, 'year' => $query->year],
             'candidates' => array_map(
@@ -747,8 +754,7 @@ class ComicController extends AbstractController
                 ],
                 $lookup->candidates
             ),
-            'providers' => $lookup->providers,
-            'searched' => $lookup->searched,
+            'providers' => $providers->publicResults($lookup->providers),
         ]);
     }
 
@@ -870,11 +876,14 @@ class ComicController extends AbstractController
 
         $result = $providers->detail($providerKey, $externalId, $user);
         $candidate = $result->candidates[0] ?? null;
+        $status = $providers->publicResult($result);
 
         if ($candidate === null) {
+            // The reduced reason, not the resolver's: a failed lookup must not
+            // become a way to read back the shared credential's state.
             return $this->json([
-                'message' => $result->message !== '' ? $result->message : 'That record could not be read.',
-                'provider' => $result,
+                'message' => $status->reason ?? 'That record could not be read.',
+                'provider' => $status,
             ], $result->isOk() ? Response::HTTP_NOT_FOUND : Response::HTTP_SERVICE_UNAVAILABLE);
         }
 
@@ -884,7 +893,7 @@ class ComicController extends AbstractController
             // Genres from the record, offered beside the library's own tags and
             // selected by nobody until somebody selects them.
             'tags' => $tagSuggestions->for($comic, $comic->getOwner() ?? $user, $candidate->classification, $candidate->provider),
-            'provider' => $result,
+            'provider' => $status,
         ]);
     }
 
