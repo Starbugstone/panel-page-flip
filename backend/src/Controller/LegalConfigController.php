@@ -14,6 +14,8 @@ final class LegalConfigController extends AbstractController
         private readonly string $privacyOperator,
         #[Autowire('%privacy_email%')]
         private readonly string $privacyEmail,
+        #[Autowire('%legal_email%')]
+        private readonly string $legalEmail,
     ) {
     }
 
@@ -23,6 +25,7 @@ final class LegalConfigController extends AbstractController
         return $this->json([
             'operator' => $this->privacyOperator,
             'privacyEmail' => $this->privacyEmail,
+            'legalEmail' => $this->legalEmail,
         ]);
     }
 }

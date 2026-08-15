@@ -52,14 +52,19 @@ final class ComicVoter extends Voter
         return match ($attribute) {
             // Sharing is the owner's alone. An admin can moderate a comic but
             // handing out access on somebody else's behalf is not moderation.
-            self::SHARE => $isOwner,
+            self::SHARE => $isOwner
+                && !$user->isSharingRestricted()
+                && !$subject->isSharingRestricted()
+                && !$subject->isQuarantined(),
 
             // Administration keeps the reach it already had over the library.
             self::EDIT, self::DELETE => $isOwner || $isAdmin,
 
             // A recipient reads through the owner's single copy; they never own
             // anything, so this is the only attribute a share can satisfy.
-            self::VIEW => $isOwner || $isAdmin || $this->hasAcceptedShare($user, $subject),
+            self::VIEW => $isAdmin
+                || ($isOwner && !$subject->isQuarantined())
+                || (!$subject->isSharingRestricted() && !$subject->isQuarantined() && $this->hasAcceptedShare($user, $subject)),
 
             default => false,
         };

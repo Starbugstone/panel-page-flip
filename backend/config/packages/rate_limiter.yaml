@@ -16,6 +16,10 @@ framework:
             policy: fixed_window
             limit: 5
             interval: '1 hour'
+        content_report:
+            policy: sliding_window
+            limit: 5
+            interval: '1 hour'
         comic_search:
             policy: sliding_window
             limit: 10
@@ -88,6 +92,8 @@ when@test:
             forgot_password:
                 limit: 1000
             verification_resend:
+                limit: 1000
+            content_report:
                 limit: 1000
             comic_search:
                 limit: 1000

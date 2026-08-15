@@ -89,6 +89,14 @@ class SecurityAuditLogger
     public const INTEGRATION_DISCONNECTED = 'audit.integration.disconnected';
     public const STORAGE_ORPHAN_QUARANTINE = 'audit.storage.orphan_quarantine';
     public const RETENTION_CLEANUP = 'audit.retention.cleanup';
+    public const CONTENT_REPORT_RECEIVED = 'audit.content_report.received';
+    public const CONTENT_REPORT_REVIEW_STARTED = 'audit.content_report.review_started';
+    public const CONTENT_REPORT_SHARING_RESTRICTED = 'audit.content_report.sharing_restricted';
+    public const CONTENT_REPORT_RESTRICTION_LIFTED = 'audit.content_report.restriction_lifted';
+    public const CONTENT_REPORT_CONTENT_QUARANTINED = 'audit.content_report.content_quarantined';
+    public const CONTENT_REPORT_REJECTED = 'audit.content_report.rejected';
+    public const CONTENT_REPORT_CLOSED = 'audit.content_report.closed';
+    public const CONTENT_REPORT_USER_NOTIFIED = 'audit.content_report.user_notified';
 
     public const RESULT_SUCCESS = 'success';
     public const RESULT_DENIED = 'denied';

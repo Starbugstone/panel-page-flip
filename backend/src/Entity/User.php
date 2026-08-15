@@ -93,6 +93,9 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $lastLoginAt = null;
 
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $sharingRestrictedAt = null;
+
     /** @var array<string, mixed>|null */
     #[ORM\Column(type: Types::JSON, nullable: true)]
     private ?array $readerPreferences = null;
@@ -300,6 +303,28 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setRoles(array $roles): static
     {
         $this->roles = $roles;
+        return $this;
+    }
+
+    public function isSharingRestricted(): bool
+    {
+        return $this->sharingRestrictedAt !== null;
+    }
+
+    public function getSharingRestrictedAt(): ?\DateTimeImmutable
+    {
+        return $this->sharingRestrictedAt;
+    }
+
+    public function restrictSharing(): static
+    {
+        $this->sharingRestrictedAt ??= new \DateTimeImmutable();
+        return $this;
+    }
+
+    public function liftSharingRestriction(): static
+    {
+        $this->sharingRestrictedAt = null;
         return $this;
     }
 

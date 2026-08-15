@@ -79,6 +79,18 @@ describe("describeReceivedShare", () => {
     );
     expect(describeReceivedShare(share({ status: SHARE_STATUS.DECLINED }))).toContain("You declined");
   });
+
+  it("explains an administrative restriction without exposing the complainant", () => {
+    const description = describeReceivedShare(share({ sharingRestricted: true }));
+
+    expect(description).toContain("temporarily restricted by the service administrator");
+    expect(description).not.toContain("reporter");
+  });
+
+  it("uses the same neutral explanation for quarantined content", () => {
+    expect(describeReceivedShare(share({ contentQuarantined: true })))
+      .toContain("temporarily restricted by the service administrator");
+  });
 });
 
 describe("groupReceivedShares", () => {
@@ -216,7 +228,7 @@ describe("the sender responsibility acknowledgement", () => {
     expect(SHARE_RESPONSIBILITY_NOTICE).toContain("You are responsible for the content you share");
     expect(SHARE_RESPONSIBILITY_NOTICE).toContain("allowed to distribute");
     expect(SHARE_RESPONSIBILITY_NOTICE).toContain(EXPLICIT_FLAG_LABEL);
-    expect(SHARE_RESPONSIBILITY_ACK_LABEL).toBe("I understand");
+    expect(SHARE_RESPONSIBILITY_ACK_LABEL).toContain("necessary rights or authorization to share");
   });
 
   it("is reflected on the sharing page as a reminder", () => {

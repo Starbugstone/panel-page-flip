@@ -58,6 +58,7 @@ class FrontendControllerTest extends WebTestCase
         yield 'privacy policy' => ['/privacy', true];
         yield 'terms of service' => ['/terms', true];
         yield 'cookie notice' => ['/cookies', true];
+        yield 'illegal content report' => ['/report-content', true];
         yield 'login' => ['/login', false];
         yield 'dashboard' => ['/dashboard', false];
         yield 'settings' => ['/settings', false];
