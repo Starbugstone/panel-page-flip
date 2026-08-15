@@ -245,10 +245,16 @@ class ComicService
         return $this->findComicSource($comic);
     }
 
-    public function readPage(Comic $comic, int $page): PageResult
+    /**
+     * @param int|null $targetWidth roughly how wide the page will be served.
+     *                              Providers that hand back stored bytes ignore
+     *                              it; one that draws the page uses it instead
+     *                              of rasterising detail nothing will keep.
+     */
+    public function readPage(Comic $comic, int $page, ?int $targetWidth = null): PageResult
     {
         $path = $this->locateComicSource($comic) ?? throw new \RuntimeException('Comic source is missing.');
-        return $this->pageProviderFactory->for($comic->getSourceType())->readPage($path, $comic->getSourceType(), $page);
+        return $this->pageProviderFactory->for($comic->getSourceType())->readPage($path, $comic->getSourceType(), $page, $targetWidth);
     }
 
     /** @param list<array{originalPath: string, quarantinePath: string}> $records */

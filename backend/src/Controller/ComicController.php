@@ -15,12 +15,13 @@ use App\Service\AdminAuditService;
 use App\Service\ComicMetadataSuggestionService;
 use App\Service\ComicTagSuggestionService;
 use App\Service\MetadataProviderRegistry;
-use App\Service\ComicPageDelivery;
 use App\Service\ComicSerializer;
+use App\Service\PageDerivativeService;
 use App\Service\ComicShareService;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\ComicFormatService;
 use App\Enum\ComicSourceType;
+use App\Enum\PageVariant;
 use App\Metadata\StructuredMetadataInput;
 use App\Service\ComicService;
 use App\Service\Pagination\PaginationRequest;
@@ -1430,6 +1431,51 @@ class ComicController extends AbstractController
         rmdir($directory);
     }
     
+    /**
+     * Everything the reader needs to lay a comic out before it downloads any of
+     * it: how many pages, what sizes may be asked for, and the shape of the
+     * pages that are already known.
+     *
+     * Geometry is a description of the comic, so it is behind exactly the same
+     * check as the pages themselves — an explicit comic pending age
+     * confirmation must not leak its page shapes any more than its artwork.
+     * Nothing internal is exposed: no archive entry names, no filesystem paths.
+     */
+    #[Route('/{id}/pages', name: 'page_manifest', methods: ['GET'], requirements: ['id' => '\d+'])]
+    public function pageManifest(
+        int $id,
+        Request $request,
+        EntityManagerInterface $entityManager,
+        PageDerivativeService $derivatives
+    ): Response {
+        if (!$this->getUser()) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
+        if (!$comic || !$this->isGranted(ComicVoter::VIEW, $comic)) {
+            return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $from = max(1, $request->query->getInt('from', 1));
+        $manifest = $derivatives->describePages($comic, $from);
+
+        $response = $this->json([
+            'pageCount' => $comic->getPageCount() ?? 0,
+            'variants' => PageVariant::widths(),
+            'pages' => $manifest['pages'],
+            'complete' => $manifest['complete'],
+        ]);
+
+        // A partial manifest grows as pages are read, so it is never worth a
+        // browser holding on to: the next request is the point of asking again.
+        $response->setPrivate();
+        $response->headers->addCacheControlDirective('no-store');
+        $response->headers->set(AbstractSessionListener::NO_AUTO_CACHE_CONTROL_HEADER, 'true');
+
+        return $response;
+    }
+
     #[Route('/{id}/pages/{page}', name: 'get_page', methods: ['GET'])]
     public function getPage(
         int $id,
@@ -1437,7 +1483,7 @@ class ComicController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager,
         ComicService $comicService,
-        ComicPageDelivery $pageDelivery
+        PageDerivativeService $derivatives
     ): Response {
         // Get the current user
         $user = $this->getUser();
@@ -1460,6 +1506,18 @@ class ComicController extends AbstractController
         // Validate page number
         if ($page < 1 || ($comic->getPageCount() !== null && $page > $comic->getPageCount())) {
             return $this->json(['message' => 'Invalid page number'], Response::HTTP_BAD_REQUEST);
+        }
+
+        // Refused rather than rounded to the nearest known size: an unknown
+        // variant means the client and the server disagree about what exists,
+        // and quietly serving something else hides that until somebody wonders
+        // why a phone is downloading full-size scans.
+        $variant = PageVariant::fromRequestValue($request->query->get('variant'));
+        if ($variant === null) {
+            return $this->json(
+                ['message' => 'Unknown page variant.', 'variants' => array_keys(PageVariant::widths())],
+                Response::HTTP_BAD_REQUEST
+            );
         }
 
         // Always look for the comic in the user's directory first
@@ -1511,13 +1569,16 @@ class ComicController extends AbstractController
         $modifiedAt = @filemtime($filePath);
         if ($modifiedAt !== false) {
             $response->setLastModified(new \DateTimeImmutable('@' . $modifiedAt));
-            // The delivery format is part of the validator: a server that gains
-            // or loses its WebP encoder starts producing different bytes for
-            // the same page, and a cached copy from before that must not be
-            // revalidated as still current.
+            // The variant, the render version and the delivery format are all
+            // part of the validator: a thumbnail and a full page live at the
+            // same URL but for the query string, and a server that gains or
+            // loses its WebP encoder starts producing different bytes for the
+            // same page. A copy from before any of that must not be revalidated
+            // as still current.
             $response->setEtag(hash(
                 'sha256',
-                $filePath . '|' . $modifiedAt . '|' . @filesize($filePath) . '|' . $page . '|' . $pageDelivery->deliveryFormat()
+                $filePath . '|' . $modifiedAt . '|' . @filesize($filePath) . '|' . $page
+                    . '|' . $derivatives->validatorSignature($variant)
             ));
 
             if ($response->isNotModified($request)) {
@@ -1526,7 +1587,7 @@ class ComicController extends AbstractController
         }
 
         try {
-            [$pageResult] = $pageDelivery->deliver($comic, $page);
+            $pageResult = $derivatives->getOrCreate($comic, $page, $variant)->page;
         } catch (\Throwable $exception) {
             $this->logger->error('Failed to read a comic source.', [
                 'comic_id' => $comic->getId(),
