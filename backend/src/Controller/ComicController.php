@@ -357,17 +357,22 @@ class ComicController extends AbstractController
             $comicsById[$comic->getId()] = $comic;
         }
         $tagsByName = [];
-        $getTag = function (string $tagName) use (&$tagsByName, $user, $entityManager): Tag {
-            $tagKey = mb_strtolower($tagName);
+        // A tag belongs to the library it is being put in, not to whoever is
+        // doing the putting. This route only ever loads the caller's own comics,
+        // so the two are the same today; naming the owner anyway keeps the rule
+        // true if that scoping is ever relaxed, and matches what the
+        // single-comic route already does.
+        $getTag = function (string $tagName, User $owner) use (&$tagsByName, $entityManager): Tag {
+            $tagKey = $owner->getId().'|'.mb_strtolower($tagName);
             if (isset($tagsByName[$tagKey])) {
                 return $tagsByName[$tagKey];
             }
 
             /** @var TagRepository $tagRepository */
             $tagRepository = $entityManager->getRepository(Tag::class);
-            $tag = $tagRepository->findAvailableByName($tagName, $user);
+            $tag = $tagRepository->findAvailableByName($tagName, $owner);
             if (!$tag) {
-                $tag = (new Tag())->setName($tagName)->setCreator($user);
+                $tag = (new Tag())->setName($tagName)->setCreator($owner);
                 $entityManager->persist($tag);
             }
 
@@ -435,12 +440,12 @@ class ComicController extends AbstractController
                     $comic->removeTag($tag);
                 }
                 foreach ($changes['tags'] as $tagName) {
-                    $comic->addTag($getTag($tagName));
+                    $comic->addTag($getTag($tagName, $comic->getOwner() ?? $user));
                 }
             }
 
             foreach ($changes['addTags'] ?? [] as $tagName) {
-                $comic->addTag($getTag($tagName));
+                $comic->addTag($getTag($tagName, $comic->getOwner() ?? $user));
             }
         }
         $entityManager->flush();
@@ -641,7 +646,10 @@ class ComicController extends AbstractController
             'suggestions' => $suggestions->for($comic),
             // Tags the library already has that look like they belong to this
             // comic. Existing ones only; nothing here creates a tag.
-            'tags' => $tagSuggestions->for($comic, $user),
+            // The owner's library, not the viewer's: these are the tags a save
+            // would actually resolve against, so proposing anything else would
+            // offer a choice the write path cannot honour.
+            'tags' => $tagSuggestions->for($comic, $comic->getOwner() ?? $user),
         ]);
     }
 

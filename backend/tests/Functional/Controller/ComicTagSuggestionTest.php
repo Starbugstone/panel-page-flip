@@ -131,6 +131,62 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
         self::assertSame([], $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags']);
     }
 
+    /**
+     * An administrator editing somebody else's comic is offered that library's
+     * tags, not their own. Anything else offers a choice the write path cannot
+     * honour: a save resolves tag names against the owner, so accepting an
+     * administrator's private tag would silently create a new one in the
+     * owner's library under the same name.
+     */
+    public function testAnAdministratorSeesTheOwnersTagsNotTheirOwn(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $administrator = UserFactory::new()->admin()->create()->object();
+        // Both would match the comic, so ownership is the only thing that can
+        // separate them.
+        TagFactory::createOne(['name' => 'marvel', 'creator' => $owner]);
+        TagFactory::createOne(['name' => 'detective', 'creator' => $administrator]);
+
+        $comic = ComicFactory::createOne([
+            'owner' => $owner,
+            'publisher' => 'Marvel',
+            'title' => 'Detective Comics',
+            'tags' => [],
+        ])->object();
+
+        $this->loginAs($administrator);
+        $names = array_column(
+            $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'],
+            'name'
+        );
+
+        self::assertContains('marvel', $names);
+        self::assertNotContains('detective', $names);
+    }
+
+    /**
+     * The save side of the same rule, on the route that actually permits it —
+     * the batch route only ever loads the caller's own comics, so an
+     * administrator reaches somebody else's through the single-comic update.
+     */
+    public function testATagSavedOnAnothersComicBelongsToTheOwner(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $administrator = UserFactory::new()->admin()->create()->object();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'tags' => []])->object();
+
+        $this->loginAs($administrator);
+        $this->putJson(sprintf('/api/comics/%d', $comic->getId()), [
+            'title' => $comic->getTitle(),
+            'tags' => ['brand-new-tag'],
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $tag = TagFactory::repository()->findOneBy(['name' => 'brand-new-tag']);
+        self::assertNotNull($tag);
+        self::assertSame($owner->getId(), $tag->getCreator()?->getId());
+    }
+
     /** Reading suggestions must not attach anything. */
     public function testProposingATagDoesNotApplyIt(): void
     {
