@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 # Restore the quota scalar on StorageQuotaService and remove the obsolete
 # controller-level copy after the main transformation.
@@ -36,3 +37,15 @@ new = """    public function issue(User $user): string
 if old not in s:
     raise SystemExit('EmailVerificationService issue() marker not found')
 p.write_text(s.replace(old, new, 1))
+
+# HttpClient is used by production Dropbox code. It happened to be available
+# through the old dependency graph, but classifying it as require-dev means a
+# production --no-dev install can remove the actual service behind the contract.
+p = Path('backend/composer.json')
+data = json.loads(p.read_text())
+version = data.get('require-dev', {}).pop('symfony/http-client', '6.4.*')
+data.setdefault('require', {})['symfony/http-client'] = version
+p.write_text(json.dumps(data, indent=4, ensure_ascii=False) + '\n')
+
+# A diagnostic from a previous runner attempt is never part of the product diff.
+Path('.github/agent/cache-clear-error.txt').unlink(missing_ok=True)
