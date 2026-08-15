@@ -32,7 +32,7 @@ final class ComicFilenameParser
         }
 
         $year = $this->year($stem);
-        $working = $this->withoutBracketedGroups($stem);
+        $working = $this->withoutSeparators($this->withoutBracketedGroups($stem));
 
         [$working, $volume] = $this->extractVolume($working);
         [$working, $issueNumber] = $this->extractIssueNumber($working);
@@ -67,6 +67,24 @@ final class ComicFilenameParser
         return (string) preg_replace('/[(\[][^)\]]*[)\]]/', ' ', $stem);
     }
 
+    /**
+     * Separators become spaces before anything is looked for, not after.
+     *
+     * An underscore is a word character, so `\b` does not see a boundary in
+     * `theboys_vol2_getsome` and every marker in the name goes unrecognised —
+     * the whole thing ends up as the series. Doing this first is what makes
+     * the underscore and dot conventions parse like the space one.
+     */
+    private function withoutSeparators(string $working): string
+    {
+        // A dot is a decimal point only between digits and with one or two
+        // digits after it: `700.5` is an issue number, while the one in
+        // `v01.001` is separating a zero-padded number and has to go.
+        $spaced = (string) preg_replace('/_|(?<!\d)\.|\.(?!\d{1,2}(?!\d))/', ' ', $working);
+
+        return (string) preg_replace('/\s+/', ' ', $spaced);
+    }
+
     /** @return array{0: string, 1: int|null} */
     private function extractVolume(string $working): array
     {
@@ -95,8 +113,8 @@ final class ComicFilenameParser
             return [(string) preg_replace('/#\s*\d{1,'.$digits.'}(?:\.\d{1,2})?\b/', ' ', $working, 1), $this->normaliseIssue($match[1])];
         }
 
-        if (preg_match('/(?:^|[\s._-])(\d{1,'.$digits.'}(?:\.\d{1,2})?)\s*$/', $working, $match) === 1) {
-            return [(string) preg_replace('/(?:^|[\s._-])\d{1,'.$digits.'}(?:\.\d{1,2})?\s*$/', ' ', $working, 1), $this->normaliseIssue($match[1])];
+        if (preg_match('/(?:^|[\s-])(\d{1,'.$digits.'}(?:\.\d{1,2})?)\s*$/', $working, $match) === 1) {
+            return [(string) preg_replace('/(?:^|[\s-])\d{1,'.$digits.'}(?:\.\d{1,2})?\s*$/', ' ', $working, 1), $this->normaliseIssue($match[1])];
         }
 
         return [$working, null];
@@ -116,8 +134,7 @@ final class ComicFilenameParser
 
     private function series(string $working): ?string
     {
-        $series = str_replace(['_', '.'], ' ', $working);
-        $series = trim((string) preg_replace('/\s+/', ' ', $series));
+        $series = trim((string) preg_replace('/\s+/', ' ', $working));
         $series = trim($series, " -–—:;,");
 
         if ($series === '' || in_array(strtolower($series), self::NOISE, true)) {

@@ -47,6 +47,11 @@ final class ComicFilenameParserTest extends TestCase
         yield 'no year' => ['Invincible 001.cbz', 'Invincible', '1', null, null];
         yield 'decimal issue' => ['Amazing Spider-Man 700.5 (2013).cbz', 'Amazing Spider-Man', '700.5', null, 2013];
         yield 'underscores' => ['The_Sandman_017.cbz', 'The Sandman', '17', null, null];
+        // An underscore is a word character, so every marker in this name was
+        // invisible and the whole stem became the series.
+        yield 'underscores around a volume' => ['theboys_vol2_getsome.cbz', 'theboys getsome', null, 2, null];
+        yield 'dots as separators' => ['Saga.v01.001.cbz', 'Saga', '1', 1, null];
+        yield 'underscored issue' => ['Preacher_012_(1996).cbz', 'Preacher', '12', null, 1996];
         yield 'title only' => ['Watchmen.cbz', 'Watchmen', null, null, null];
         yield 'bracketed year' => ['Preacher 001 [1995].cbz', 'Preacher', '1', null, 1995];
         yield 'volume and issue' => ['Hellboy v02 003 (2004).cbz', 'Hellboy', '3', 2, 2004];

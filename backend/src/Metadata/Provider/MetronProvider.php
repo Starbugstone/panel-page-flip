@@ -133,14 +133,14 @@ final class MetronProvider implements MetadataProviderInterface
             return [];
         }
 
-        return $this->candidates($payload['results'] ?? []);
+        return $this->candidates($payload['results'] ?? [], $query->series);
     }
 
     /**
      * @param mixed $results
      * @return list<ProviderCandidate>
      */
-    private function candidates(mixed $results): array
+    private function candidates(mixed $results, string $wanted): array
     {
         if (!is_array($results)) {
             return [];
@@ -158,6 +158,12 @@ final class MetronProvider implements MetadataProviderInterface
                 continue;
             }
 
+            // Deliberately no publisher or summary: Metron's issue *list* does
+            // not carry them — verified against the live API, whose rows are
+            // id, series, number, issue, cover_date, store_date, image,
+            // cover_hash, modified. Reading them here produced nothing but a
+            // field that was always null. They live on /issue/{id}/, which is a
+            // request per candidate and belongs with picking one, not listing.
             $candidates[] = new ProviderCandidate(
                 provider: $this->key(),
                 externalId: (string) $result['id'],
@@ -165,14 +171,47 @@ final class MetronProvider implements MetadataProviderInterface
                 issueNumber: isset($result['number']) ? (string) $result['number'] : null,
                 title: isset($result['issue']) ? (string) $result['issue'] : null,
                 volume: isset($result['series']['volume']) ? (int) $result['series']['volume'] : null,
-                publisher: isset($result['publisher']['name']) ? (string) $result['publisher']['name'] : null,
-                summary: isset($result['desc']) ? (string) $result['desc'] : null,
                 publishedAt: $this->date($result['cover_date'] ?? null),
                 coverUrl: isset($result['image']) ? (string) $result['image'] : null,
             );
         }
 
-        return $candidates;
+        return $this->closestFirst($candidates, $wanted);
+    }
+
+    /**
+     * Metron matches a series name loosely, so "The Boys" comes back with 165
+     * results led by "Adventures of The Dover Boys". Whoever is choosing wants
+     * the exact series first, then the ones that start with what they asked
+     * for, then the rest in the order Metron gave them.
+     *
+     * @param list<ProviderCandidate> $candidates
+     * @return list<ProviderCandidate>
+     */
+    private function closestFirst(array $candidates, string $wanted): array
+    {
+        $wanted = mb_strtolower(trim($wanted));
+
+        $rank = static function (ProviderCandidate $candidate) use ($wanted): int {
+            $series = mb_strtolower($candidate->series);
+
+            return match (true) {
+                $series === $wanted => 0,
+                str_starts_with($series, $wanted) => 1,
+                str_contains($series, $wanted) => 2,
+                default => 3,
+            };
+        };
+
+        // Stable, so equally-ranked candidates keep Metron's own ordering.
+        $ordered = array_values($candidates);
+        $decorated = [];
+        foreach ($ordered as $position => $candidate) {
+            $decorated[] = [$rank($candidate), $position, $candidate];
+        }
+        usort($decorated, static fn (array $a, array $b): int => [$a[0], $a[1]] <=> [$b[0], $b[1]]);
+
+        return array_map(static fn (array $row): ProviderCandidate => $row[2], $decorated);
     }
 
     private function date(mixed $value): ?\DateTimeImmutable

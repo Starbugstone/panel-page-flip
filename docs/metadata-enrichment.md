@@ -284,7 +284,90 @@ explicit action.
 
 ---
 
-## Open questions to settle before slice 1 is coded
+## How the pre-implementation questions were settled
+
+Kept for the reasoning rather than the decision, since each of these is the kind
+of thing that gets re-litigated later.
+
+1. **Per-page metadata storage** — a JSON column on `comic`. Every consumer reads
+   the whole set at once and none filters on it. The queryable scalars (`series`,
+   `issue_number`, …) got columns, with an `(owner_id, series)` index for #91.
+2. **Provenance granularity** — per field, through `MetadataSource`, ranked
+   user > comicinfo > provider > filename.
+3. **Re-ingestion** — not built. ComicInfo is read once at import. The original
+   filename *is* stored, so filename suggestions are derived on demand and
+   improve with the parser; ComicInfo does not get that treatment yet.
+4. **Reading direction precedence** — ComicInfo seeds a per-comic default; the
+   reader's own persisted settings stay authoritative. Unchanged from the plan.
+
+---
+
+## Known not to work yet
+
+Written down after configuring a real provider and editing a real comic. None of
+these is a crash; they are the quiet kind, where something returns nothing and
+looks like it simply found nothing.
+
+### Collected editions do not match a provider
+
+Metron indexes **issues**. A trade paperback like `theboys_vol2_getsome.cbz`
+produces the query `theboys getsome`, and `/api/issue/?series_name=…` has nothing
+to say about it. The filename parse is now correct — series `theboys getsome`,
+volume 2 — and the search still finds nothing, because it is asking the wrong
+index.
+
+Metron has a `/series/` endpoint that suits collections. Using it would mean
+deciding, per comic, whether we are looking for an issue or a volume — plausibly
+from whether the filename yielded an issue number or a volume. Not attempted.
+
+**How to see it:** any `Vol N` filename. **What works instead:** a single issue,
+e.g. `Batman 001 (2011).cbz`.
+
+### Metron candidates carry no publisher or description
+
+Verified against the live API: the issue list returns `id, series, number, issue,
+cover_date, store_date, image, cover_hash, modified` and nothing else. Both
+fields live on `/issue/{id}/`.
+
+Fetching them would be one request per candidate against a rate limit, so it
+belongs with **picking** a candidate rather than with listing them — the natural
+shape is to fetch detail when the user expands or accepts one. Not built.
+
+### Comic Vine's field mapping has never seen a live response
+
+Metron's is now verified; Comic Vine's is not, because there was no key to hand.
+`ComicVineProvider::candidates()` maps `volume.name`, `issue_number`, `name`,
+`deck`, `cover_date` and `image.original_url` from the documented shape only.
+
+Given Metron's list turned out to differ from its documentation in exactly this
+way, **assume Comic Vine's does too until someone runs one real search.** The
+probe used for Metron is worth repeating:
+`.claude/skills/browser-test` has the stack, and a short script against
+`/api/search/?resources=issue` will settle it.
+
+The credential path *is* verified — a real key was tested through Admin →
+Metadata, and that is how we learned Comic Vine rejects a bad key with an HTTP
+401 on `/issues/` rather than the documented 200-with-error-body.
+
+### The filename parser will keep needing cases
+
+It encodes conventions, not rules, and every corpus has new ones. It is a pure
+function with a table test, so a new case is one row. Known-weak: a series whose
+name genuinely ends in a number, and any language where the volume marker is not
+`v`/`vol`/`volume`.
+
+### GitGuardian flags the provider configuration entity
+
+`MetadataProviderConfiguration.php` contains **no string literals at all** — the
+`Username Password` detector fires on the adjacency of the `metronUsername` and
+`metronPassword` identifiers. It was marked a false positive once; expect it back
+on any PR that touches the file. Renaming the properties would appease the
+scanner and misname the domain, since Metron really does authenticate with a
+username and a password.
+
+---
+
+## Open questions from the original plan
 
 1. **Per-page metadata storage.** A dedicated table (clean queries, one row per
    page, an extra join) or a JSON column on `comic` (matches
