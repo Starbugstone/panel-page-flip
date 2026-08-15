@@ -15,7 +15,7 @@
     "check:tools": "node scripts/build-conversion-tools.mjs --check",
     "check:routes": "node ../scripts/generate-nginx-routes.mjs --index-html ./index.html --check",
     "check:seo": "node scripts/check-seo-build.mjs",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "preview": "vite preview"
   },

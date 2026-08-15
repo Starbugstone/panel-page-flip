@@ -115,6 +115,11 @@ services:
             $mailerFromAddress: '%mailer_from_address%'
             $mailerFromName: '%mailer_from_name%'
 
+    App\Service\EmailVerificationMailer:
+        arguments:
+            $mailerFromAddress: '%mailer_from_address%'
+            $mailerFromName: '%mailer_from_name%'
+
     App\Service\AppDataEncryptionService:
         arguments:
             $appDataKey: '%app_data_key%'
@@ -130,6 +135,7 @@ services:
             $registerLimiter: '@limiter.register'
             $forgotPasswordLimiter: '@limiter.forgot_password'
             $verificationResendLimiter: '@limiter.verification_resend'
+            $comicSearchLimiter: '@limiter.comic_search'
 
     App\Service\ComicShareService:
         arguments:
@@ -142,11 +148,14 @@ services:
             $mailerFromName: '%mailer_from_name%'
             
     # Comic service with comics directory configuration
+    App\Service\StorageQuotaService:
+        arguments:
+            $uploadUserQuotaBytes: '%upload_user_quota_bytes%'
+
     App\Service\ComicService:
         arguments:
             $comicsDirectory: '%comics_directory%'
             $uploadMaxTotalBytes: '%upload_max_total_bytes%'
-            $uploadUserQuotaBytes: '%upload_user_quota_bytes%'
 
     App\ComicSource\ComicPageProviderFactory:
         arguments:
@@ -222,7 +231,6 @@ services:
             $uploadMaxChunkBytes: '%upload_max_chunk_bytes%'
             $uploadMaxTotalBytes: '%upload_max_total_bytes%'
             $uploadMaxTotalChunks: '%upload_max_total_chunks%'
-            $uploadUserQuotaBytes: '%upload_user_quota_bytes%'
             
     App\Service\DropboxImportService:
         arguments:

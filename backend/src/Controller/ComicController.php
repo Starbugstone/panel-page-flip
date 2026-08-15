@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
 use App\Entity\Comic;
@@ -12,6 +14,7 @@ use App\Repository\ComicShareRepository;
 use App\Repository\TagRepository;
 use App\Security\Voter\ComicVoter;
 use App\Service\AdminAuditService;
+use App\Service\ApiRateLimiter;
 use App\Service\ComicMetadataSuggestionService;
 use App\Service\ComicTagSuggestionService;
 use App\Service\MetadataProviderRegistry;
@@ -87,7 +90,6 @@ class ComicController extends AbstractController
         private readonly int $uploadMaxChunkBytes,
         private readonly int $uploadMaxTotalBytes,
         private readonly int $uploadMaxTotalChunks,
-        private readonly int $uploadUserQuotaBytes,
         private readonly ComicUploadFilenameValidator $uploadFilenameValidator,
         private readonly ComicFormatService $comicFormatService,
         private readonly ComicSerializer $comicSerializer,
@@ -162,40 +164,8 @@ class ComicController extends AbstractController
         return $validated;
     }
 
-    // Removed getPublicBaseUrlForUploads() method as it's no longer needed.
-
-    /**
-     * Check if user has exceeded search rate limit
-     * Simple implementation using session storage
-     */
-    private function checkSearchRateLimit(Request $request): ?JsonResponse
-    {
-        $session = $request->getSession();
-        $now = time();
-        $searchHistory = $session->get('search_history', []);
-        
-        // Keep only searches from the last minute
-        $searchHistory = array_filter($searchHistory, function($timestamp) use ($now) {
-            return $now - $timestamp < 60; // 1 minute window
-        });
-        
-        // Check if user has made too many searches
-        if (count($searchHistory) >= 10) { // Max 10 searches per minute
-            return $this->json([
-                'message' => 'Rate limit exceeded. Please try again later.',
-                'retryAfter' => 60 - ($now - min($searchHistory)) // Seconds until oldest search expires
-            ], Response::HTTP_TOO_MANY_REQUESTS);
-        }
-        
-        // Add current search timestamp
-        $searchHistory[] = $now;
-        $session->set('search_history', $searchHistory);
-        
-        return null;
-    }
-    
     #[Route('', name: 'list', methods: ['GET'])]
-    public function list(Request $request, EntityManagerInterface $entityManager): JsonResponse
+    public function list(Request $request, EntityManagerInterface $entityManager, ApiRateLimiter $rateLimiter): JsonResponse
     {
         // Get the current user
         $user = $this->getUser();
@@ -218,8 +188,7 @@ class ComicController extends AbstractController
         // ten keystrokes a minute is a normal amount of typing, and the query it
         // runs is bounded by the page size.
         if (!$adminContext && ($search || $tagsParam)) {
-            // Check rate limit
-            $rateLimitResponse = $this->checkSearchRateLimit($request);
+            $rateLimitResponse = $rateLimiter->limit($request, 'comic_search', 'user:' . $user->getId());
             if ($rateLimitResponse) {
                 return $rateLimitResponse;
             }
@@ -333,7 +302,7 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data)) {
             return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
         }
@@ -476,7 +445,7 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         $comicIds = is_array($data) ? $this->normaliseBulkComicIds($data['comicIds'] ?? null) : [];
         if ($comicIds === []) {
             return $this->json(['message' => 'comicIds are required'], Response::HTTP_BAD_REQUEST);
@@ -791,7 +760,7 @@ class ComicController extends AbstractController
         }
 
         // Get data from request
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
             return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
         }
@@ -1060,7 +1029,7 @@ class ComicController extends AbstractController
         }
         
         try {
-            $data = json_decode($request->getContent(), true);
+            $data = \App\Http\JsonRequestDecoder::decode($request);
             
             if (!isset($data['fileId']) || !isset($data['filename']) || !isset($data['totalChunks'])) {
                 return $this->json(['message' => 'Missing required parameters'], Response::HTTP_BAD_REQUEST);
@@ -1237,7 +1206,7 @@ class ComicController extends AbstractController
         }
 
         try {
-            $data = json_decode($request->getContent(), true);
+            $data = \App\Http\JsonRequestDecoder::decode($request);
 
             if (!isset($data['fileId'])) {
                 return $this->json(['message' => 'Missing fileId parameter'], Response::HTTP_BAD_REQUEST);
@@ -1327,15 +1296,9 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         }
 
-        $currentUsage = (int) $entityManager->createQueryBuilder()
-            ->select('COALESCE(SUM(c.fileSize), 0)')
-            ->from(Comic::class, 'c')
-            ->where('c.owner = :owner')
-            ->setParameter('owner', $user)
-            ->getQuery()
-            ->getSingleScalarResult();
-
-        if ($currentUsage + $totalSize > $this->uploadUserQuotaBytes) {
+        // Friendly preflight; ComicService repeats the authoritative check
+        // while holding the per-user storage lock.
+        if ($comicService->wouldExceedQuota($user, $totalSize)) {
             return $this->json(['message' => 'User storage quota exceeded'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         }
 
@@ -1639,7 +1602,7 @@ class ComicController extends AbstractController
             && in_array('ROLE_ADMIN', $user->getRoles(), true);
 
         // Get data from request
-        $data = json_decode($request->getContent(), true);
+        $data = \App\Http\JsonRequestDecoder::decode($request);
         if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
             return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
         }

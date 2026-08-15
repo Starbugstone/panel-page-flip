@@ -95,7 +95,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
             '5'
         );
 
-        self::assertResponseIsSuccessful();
+        self::assertResponseStatusCodeSame(400);
         self::assertFalse($this->getJson('/api/comics/' . $comic->getId())['comic']['explicitContent']);
     }
 

@@ -117,6 +117,11 @@ jobs:
           docker compose exec -T php php bin/console lint:container --env=test
           docker compose exec -T php php bin/console doctrine:schema:validate --env=test
 
+      - name: Static analysis and code style
+        run: |
+          docker compose exec -T php composer analyse
+          docker compose exec -T php composer cs:check
+
       - name: Run backend tests
         run: docker compose exec -T php php bin/phpunit
 

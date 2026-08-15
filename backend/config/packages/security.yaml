@@ -1,11 +1,11 @@
 security:
     # https://symfony.com/doc/current/security.html#registering-the-user-hashing-passwords
     password_hashers:
-        App\Entity\User: 'auto' # Changed from Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface
+        App\Entity\User: 'auto'
     # https://symfony.com/doc/current/security.html#loading-the-user-the-user-provider
     providers:
-        # users_in_memory: { memory: null } # Old provider
-        app_user_provider: # New provider
+        # users_in_memory: { memory: null }
+        app_user_provider:
             entity:
                 class: App\Entity\User
                 property: email # The field used to look up users
@@ -15,7 +15,7 @@ security:
             security: false
         main:
             lazy: true
-            provider: app_user_provider # Changed from users_in_memory
+            provider: app_user_provider
 
             # Rejects unverified accounts during authentication rather than
             # after it. Checking in the success handler cannot work: the token
@@ -38,29 +38,26 @@ security:
             
             json_login:
                 check_path: /api/login # The user will POST to this URI
-                username_path: email    # Key for the username in the JSON body
-                password_path: password # Key for the password in the JSON body
+                username_path: email
+                password_path: password
                 # Using custom handlers for better JSON responses
                 success_handler: App\Security\AuthenticationSuccessHandler
                 failure_handler: App\Security\AuthenticationFailureHandler
 
-            logout:
-                path: /api/logout # The user will send a request to this URI to logout
-                # where to redirect after logout
-                # target: app_any_route
 
     # Easy way to control access for large sections of your site
     # Note: Only the *first* access control that matches will be used
     access_control:
         # Public routes (no authentication required)
-        - { path: ^/api/login$, roles: PUBLIC_ACCESS }
-        - { path: ^/api/register$, roles: PUBLIC_ACCESS }
-        - { path: ^/api/login_check$, roles: PUBLIC_ACCESS }
-        - { path: ^/api/forgot-password$, roles: PUBLIC_ACCESS }
-        - { path: ^/api/reset-password, roles: PUBLIC_ACCESS }
-        - { path: ^/api/email-verification/verify, roles: PUBLIC_ACCESS }
-        - { path: ^/api/email-verification/resend$, roles: PUBLIC_ACCESS }
-        - { path: ^/api/legal-config$, roles: PUBLIC_ACCESS }
+        - { path: ^/api/login$, methods: [POST], roles: PUBLIC_ACCESS }
+        - { path: ^/api/register$, methods: [POST], roles: PUBLIC_ACCESS }
+        - { path: ^/api/login_check$, methods: [GET], roles: PUBLIC_ACCESS }
+        - { path: ^/api/forgot-password$, methods: [POST], roles: PUBLIC_ACCESS }
+        - { path: '^/api/reset-password/validate/[A-Fa-f0-9]{64}$', methods: [GET], roles: PUBLIC_ACCESS }
+        - { path: '^/api/reset-password/reset/[A-Fa-f0-9]{64}$', methods: [POST], roles: PUBLIC_ACCESS }
+        - { path: '^/api/email-verification/verify/[A-Fa-f0-9]{64}$', methods: [GET], roles: PUBLIC_ACCESS }
+        - { path: ^/api/email-verification/resend$, methods: [POST], roles: PUBLIC_ACCESS }
+        - { path: ^/api/legal-config$, methods: [GET], roles: PUBLIC_ACCESS }
         # Reading an invitation is public so somebody who does not have an
         # account yet can see what they are being offered before creating one.
         # It is a GET that changes nothing; accepting and declining are POSTs on
@@ -87,7 +84,7 @@ when@test:
             # important to generate secure password hashes. In tests however, secure hashes
             # are not important, waste resources and increase test times. The following
             # reduces the work factor to the lowest possible values.
-            App\Entity\User: # Changed from Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface
+            App\Entity\User:
                 algorithm: auto
                 cost: 4 # Lowest possible value for bcrypt
                 time_cost: 3 # Lowest possible value for argon
