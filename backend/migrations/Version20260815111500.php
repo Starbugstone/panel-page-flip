@@ -18,7 +18,7 @@ final class Version20260815111500 extends AbstractMigration
     {
         $this->addSql(<<<'SQL'
             INSERT IGNORE INTO email_verification_token (user_id, token, expires_at, created_at)
-            SELECT id, email_verification_token, email_verification_token_expires_at, created_at
+            SELECT id, SHA2(email_verification_token, 256), email_verification_token_expires_at, created_at
             FROM `user`
             WHERE email_verification_token IS NOT NULL
               AND email_verification_token_expires_at IS NOT NULL
