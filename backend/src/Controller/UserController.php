@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Entity\User;
+use App\Entity\UserMetadataCredential;
 use App\Repository\UserRepository;
 use App\Service\AccountDeletionService;
 use App\Service\AdminAuditService;
@@ -47,8 +48,18 @@ class UserController extends AbstractController
             array_map(static fn (User $u): int => $u->getId(), $page->items)
         );
 
+        // One query for the whole page rather than one per row: the personal
+        // credential is not an association on User, precisely so that loading a
+        // user never drags it along.
+        $withCredential = $entityManager->getRepository(UserMetadataCredential::class)
+            ->findUserIdsWithCredential(array_map(static fn (User $u): int => $u->getId(), $page->items));
+
         $usersArray = array_map(
-            fn (User $u): array => $this->serializeUser($u, $counts[$u->getId()] ?? null),
+            fn (User $u): array => $this->serializeUser(
+                $u,
+                $counts[$u->getId()] ?? null,
+                isset($withCredential[$u->getId()])
+            ),
             $page->items
         );
 
@@ -65,7 +76,7 @@ class UserController extends AbstractController
      *        totals; omitted counts fall back to the user's own collections.
      * @return array<string, mixed>
      */
-    private function serializeUser(User $user, ?array $counts = null): array
+    private function serializeUser(User $user, ?array $counts = null, bool $hasPersonalMetadataCredential = false): array
     {
         return [
             'id' => $user->getId(),
@@ -77,6 +88,9 @@ class UserController extends AbstractController
             'isEmailVerified' => $user->isEmailVerified(),
             'comicCount' => $counts['comicCount'] ?? $user->getComics()->count(),
             'tagCount' => $counts['tagCount'] ?? $user->getCreatedTags()->count(),
+            'metadataApiEnabled' => $user->isMetadataApiEnabled(),
+            // Whether they brought their own provider token, never which one.
+            'hasPersonalMetadataCredential' => $hasPersonalMetadataCredential,
         ];
     }
 
@@ -100,7 +114,11 @@ class UserController extends AbstractController
             return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
         }
 
-        $userData = $this->serializeUser($targetUser);
+        $userData = $this->serializeUser(
+            $targetUser,
+            null,
+            $entityManager->getRepository(UserMetadataCredential::class)->findForUser($targetUser) !== null
+        );
 
         // The admin user page needs enough to explain why an account can or
         // cannot be deleted, and whether Dropbox is still attached.
@@ -294,6 +312,26 @@ class UserController extends AbstractController
             }
 
             $targetUser->setRoles($roles);
+        }
+
+        // An administrator's switch, never the user's own: withdrawing external
+        // metadata access from yourself is not a thing anybody needs, and
+        // allowing it here would let a user grant it back.
+        if (array_key_exists('metadataApiEnabled', $data ?? []) && in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+            if (!is_bool($data['metadataApiEnabled'])) {
+                return $this->json(['message' => 'metadataApiEnabled must be true or false'], Response::HTTP_BAD_REQUEST);
+            }
+
+            if ($targetUser->isMetadataApiEnabled() !== $data['metadataApiEnabled']) {
+                $targetUser->setMetadataApiEnabled($data['metadataApiEnabled']);
+                $auditService->log(
+                    $user,
+                    $data['metadataApiEnabled'] ? 'user_metadata_api_enabled' : 'user_metadata_api_disabled',
+                    'user',
+                    $targetUser->getId(),
+                    ['target_user_id' => $targetUser->getId()]
+                );
+            }
         }
 
         // Update password if provided

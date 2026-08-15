@@ -182,6 +182,11 @@ class ComicService
         $comic->setCreators($info->creators);
         $comic->setPageMetadata($info->pagesAsArray());
 
+        // Structured metadata, and only that. The genres inside it are offered
+        // as tag suggestions in the editor and become tags only when somebody
+        // accepts them — an import must never invent categories in a library.
+        $comic->setClassification($info->classification);
+
         if (!$comic->getPublisher() && $info->publisher) {
             $comic->setPublisher($info->publisher);
         }

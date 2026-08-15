@@ -2,16 +2,18 @@
 
 namespace App\Tests\Unit\Metadata\Provider;
 
+use App\Enum\ProviderStatus;
 use App\Metadata\Provider\MetronProvider;
-use App\Metadata\Provider\ProviderCredentials;
+use App\Metadata\Provider\ProviderAccess;
 use App\Metadata\Provider\ProviderQuery;
+use App\Service\ProviderCircuitBreaker;
+use App\Service\ProviderQuotaTracker;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
-use Symfony\Component\Cache\Adapter\ArrayAdapter;
-use Symfony\Component\Cache\Psr16Cache;
 use Symfony\Contracts\Cache\CacheInterface;
 
 final class MetronProviderTest extends TestCase
@@ -38,8 +40,10 @@ final class MetronProviderTest extends TestCase
             ]],
         ]) ?: ''));
 
-        $candidates = $provider->search(new ProviderQuery('The Boys', '7'));
+        $result = $provider->search(new ProviderQuery('The Boys', '7'), self::access());
+        $candidates = $result->candidates;
 
+        self::assertSame(ProviderStatus::Ok, $result->status);
         self::assertCount(1, $candidates);
         self::assertSame('metron', $candidates[0]->provider);
         self::assertSame('123925', $candidates[0]->externalId);
@@ -53,63 +57,137 @@ final class MetronProviderTest extends TestCase
         // Not available from a search, and claimed by nothing.
         self::assertNull($candidates[0]->publisher);
         self::assertNull($candidates[0]->summary);
+        self::assertFalse($candidates[0]->isDetailed);
     }
 
     /**
-     * Metron matches a series name loosely: asking for "The Boys" really does
-     * return "Adventures of The Dover Boys" among 165 results. Whoever is
-     * choosing should not have to scroll past it.
+     * The detail endpoint is where everything worth reviewing lives, which is
+     * the whole reason for fetching a record rather than only listing it.
      */
-    public function testPutsTheClosestSeriesMatchFirst(): void
+    public function testReadsTheFullRecordFromADetailLookup(): void
     {
-        $row = static fn (int $id, string $series): array => [
-            'id' => $id,
-            'series' => ['name' => $series, 'volume' => 1],
-            'number' => '1',
-            'cover_date' => '2006-01-01',
-        ];
-
         $provider = $this->provider(new MockResponse(json_encode([
-            'results' => [
-                $row(1, 'Adventures of The Dover Boys'),
-                $row(2, 'The Boys Presents'),
-                $row(3, 'The Boys'),
-                $row(4, 'Herogasm'),
+            'id' => 123925,
+            'publisher' => ['id' => 5, 'name' => 'Dynamite Entertainment'],
+            'series' => ['name' => 'The Boys', 'volume' => 1, 'issue_count' => 72, 'genres' => [
+                ['id' => 1, 'name' => 'Superhero'],
+                ['id' => 2, 'name' => 'Crime'],
+            ]],
+            'number' => '7',
+            'name' => 'Get Some',
+            'cover_date' => '2006-11-01',
+            'rating' => ['id' => 3, 'name' => 'Explicit'],
+            'desc' => 'Hughie meets the Female.',
+            'image' => 'https://static.metron.cloud/media/issue/cover.jpg',
+            'credits' => [
+                ['id' => 1, 'creator' => 'Garth Ennis', 'role' => [['id' => 1, 'name' => 'Writer']]],
+                ['id' => 2, 'creator' => 'Darick Robertson', 'role' => [['id' => 2, 'name' => 'Penciller']]],
             ],
+            'characters' => [['name' => 'Billy Butcher'], ['name' => 'Hughie Campbell']],
+            'teams' => [['name' => 'The Boys']],
+            'arcs' => [['name' => 'Get Some']],
         ]) ?: ''));
 
-        $order = array_map(
-            static fn ($candidate): string => $candidate->series,
-            $provider->search(new ProviderQuery('The Boys'))
-        );
+        $candidate = $provider->detail('123925', self::access())->candidates[0];
 
-        self::assertSame(
-            ['The Boys', 'The Boys Presents', 'Adventures of The Dover Boys', 'Herogasm'],
-            $order
-        );
+        self::assertTrue($candidate->isDetailed);
+        self::assertSame('Dynamite Entertainment', $candidate->publisher);
+        self::assertSame('Hughie meets the Female.', $candidate->summary);
+        self::assertSame(72, $candidate->issueCount);
+        self::assertSame('Explicit', $candidate->ageRating);
+        self::assertSame(['writer' => ['Garth Ennis'], 'penciller' => ['Darick Robertson']], $candidate->creators);
+        self::assertSame(['Superhero', 'Crime'], $candidate->classification?->genres);
+        self::assertSame(['Billy Butcher', 'Hughie Campbell'], $candidate->classification?->characters);
+        self::assertSame(['The Boys'], $candidate->classification?->teams);
+        self::assertSame(['Get Some'], $candidate->classification?->storyArcs);
     }
 
-    public function testSaysNothingWhenUnconfigured(): void
+    /** A record reference that could not have come from us never reaches a URL. */
+    public function testRefusesAnExternalIdThatIsNotAnIdentifier(): void
     {
-        $provider = $this->provider(new MockResponse('{"results":[]}'), configured: false);
+        $calls = 0;
+        $client = new MockHttpClient(function () use (&$calls): MockResponse {
+            ++$calls;
 
-        self::assertFalse($provider->isConfigured());
-        self::assertSame([], $provider->search(new ProviderQuery('Batman')));
+            return new MockResponse('{}');
+        });
+
+        $result = $this->provider(null, client: $client)->detail('../../series/1', self::access());
+
+        self::assertSame(0, $calls);
+        self::assertSame(ProviderStatus::Failed, $result->status);
     }
 
-    /** A provider being down is not the user's problem, and not an exception. */
-    public function testDegradesToNothingOnAFailedRequest(): void
+    /** Metron authenticates with a token now, never an account password. */
+    public function testSendsTheTokenAndTheQuery(): void
     {
-        self::assertSame([], $this->provider(new MockResponse('', ['http_code' => 500]))->search(new ProviderQuery('Batman')));
+        $seen = null;
+        $client = new MockHttpClient(function (string $method, string $url, array $options) use (&$seen): MockResponse {
+            $seen = ['url' => $url, 'headers' => $options['headers'] ?? []];
+
+            return new MockResponse('{"results":[]}');
+        });
+
+        $this->provider(null, client: $client)->search(new ProviderQuery('Batman', '7', 1997), self::access());
+
+        self::assertStringContainsString('series_name=Batman', (string) $seen['url']);
+        self::assertStringContainsString('number=7', (string) $seen['url']);
+        self::assertStringContainsString('cover_year=1997', (string) $seen['url']);
+        self::assertContains('Authorization: Token metron-token-placeholder', $seen['headers']);
     }
 
-    public function testDegradesToNothingWhenTheHostIsUnreachable(): void
+    /** Access is decided before a request, so a denial costs nothing upstream. */
+    public function testDoesNotAskWhenAccessWasDenied(): void
+    {
+        $calls = 0;
+        $client = new MockHttpClient(function () use (&$calls): MockResponse {
+            ++$calls;
+
+            return new MockResponse('{"results":[]}');
+        });
+
+        $denied = ProviderAccess::denied('metron', ProviderStatus::Disabled, 'An administrator turned it off.');
+        $result = $this->provider(null, client: $client)->search(new ProviderQuery('Batman'), $denied);
+
+        self::assertSame(0, $calls);
+        self::assertSame(ProviderStatus::Disabled, $result->status);
+        self::assertSame('An administrator turned it off.', $result->message);
+    }
+
+    /**
+     * @dataProvider failureCases
+     *
+     * A provider being down is not the user's problem and not an exception, but
+     * it is also not the same answer as "no such comic".
+     */
+    public function testDistinguishesFailuresFromAnEmptyResult(int $httpCode, ProviderStatus $expected): void
+    {
+        $result = $this->provider(new MockResponse('', ['http_code' => $httpCode]))
+            ->search(new ProviderQuery('Batman'), self::access());
+
+        self::assertSame($expected, $result->status);
+        self::assertSame([], $result->candidates);
+        self::assertNotSame('', $result->message);
+    }
+
+    public function failureCases(): iterable
+    {
+        yield 'refused token' => [401, ProviderStatus::Unauthorized];
+        yield 'forbidden' => [403, ProviderStatus::Unauthorized];
+        yield 'throttled' => [429, ProviderStatus::RateLimited];
+        yield 'server error' => [500, ProviderStatus::Failed];
+    }
+
+    public function testDegradesToAResultWhenTheHostIsUnreachable(): void
     {
         $client = new MockHttpClient(static function (): never {
             throw new \Symfony\Component\HttpClient\Exception\TransportException('no route to host');
         });
 
-        self::assertSame([], $this->provider(null, client: $client)->search(new ProviderQuery('Batman')));
+        $result = $this->provider(null, client: $client)->search(new ProviderQuery('Batman'), self::access());
+
+        self::assertSame(ProviderStatus::Unreachable, $result->status);
+        self::assertSame([], $result->candidates);
     }
 
     public function testIgnoresResultsItCannotIdentify(): void
@@ -123,7 +201,7 @@ final class MetronProviderTest extends TestCase
             ],
         ]) ?: ''));
 
-        $candidates = $provider->search(new ProviderQuery('Batman'));
+        $candidates = $provider->search(new ProviderQuery('Batman'), self::access())->candidates;
 
         self::assertCount(1, $candidates);
         self::assertSame('2', $candidates[0]->externalId);
@@ -140,35 +218,67 @@ final class MetronProviderTest extends TestCase
         });
 
         $provider = $this->provider(null, client: $client);
-        $provider->search(new ProviderQuery('Batman', '7'));
-        $provider->search(new ProviderQuery('batman', '7'));
+        $provider->search(new ProviderQuery('Batman', '7'), self::access());
+        $provider->search(new ProviderQuery('batman', '7'), self::access());
 
         self::assertSame(1, $calls);
     }
 
-    public function testSendsTheCredentialsAndTheQuery(): void
+    /**
+     * A thirty-second outage must not become a comic that permanently has no
+     * match. Only an answer is worth remembering.
+     */
+    public function testDoesNotRememberAFailure(): void
     {
-        $seen = null;
-        $client = new MockHttpClient(function (string $method, string $url, array $options) use (&$seen): MockResponse {
-            $seen = ['url' => $url, 'headers' => $options['headers'] ?? []];
+        $calls = 0;
+        $client = new MockHttpClient(function () use (&$calls): MockResponse {
+            ++$calls;
 
-            return new MockResponse('{"results":[]}');
+            return new MockResponse('', ['http_code' => 503]);
         });
 
-        $this->provider(null, client: $client)->search(new ProviderQuery('Batman', '7', 1997));
+        $provider = $this->provider(null, client: $client);
+        $provider->search(new ProviderQuery('Batman'), self::access());
+        $provider->search(new ProviderQuery('Batman'), self::access());
 
-        self::assertStringContainsString('series_name=Batman', (string) $seen['url']);
-        self::assertStringContainsString('number=7', (string) $seen['url']);
-        self::assertStringContainsString('cover_year=1997', (string) $seen['url']);
-        self::assertNotEmpty(array_filter($seen['headers'], static fn ($h) => str_starts_with(strtolower((string) $h), 'authorization:')));
+        self::assertSame(2, $calls);
+    }
+
+    /** The local ceiling is reported as a rate limit, not as an empty result. */
+    public function testSaysSoWhenTheLocalCeilingIsReached(): void
+    {
+        $provider = $this->provider(
+            new MockResponse('{"results":[]}'),
+            limiter: new RateLimiterFactory(
+                ['id' => 'test', 'policy' => 'fixed_window', 'limit' => 1, 'interval' => '1 hour'],
+                new InMemoryStorage()
+            )
+        );
+
+        $provider->search(new ProviderQuery('Batman'), self::access());
+        $second = $provider->search(new ProviderQuery('Superman'), self::access());
+
+        self::assertSame(ProviderStatus::RateLimited, $second->status);
+    }
+
+    /** Repeated refusals stop the asking rather than being retried forever. */
+    public function testARefusedTokenPausesTheAccount(): void
+    {
+        $cache = $this->cache();
+        $breaker = new ProviderCircuitBreaker($cache);
+        $provider = $this->provider(new MockResponse('', ['http_code' => 401]), breaker: $breaker);
+
+        $provider->search(new ProviderQuery('Batman'), self::access());
+
+        self::assertNotNull($breaker->pausedFor(self::access()->accountKey()));
     }
 
     /** @dataProvider verificationCases */
-    public function testSaysWhatHappenedWhenCredentialsAreTested(int $httpCode, string $expected): void
+    public function testSaysWhatHappenedWhenATokenIsTested(int $httpCode, string $expected): void
     {
         $provider = $this->provider(new MockResponse('{"results":[]}', ['http_code' => $httpCode]));
 
-        self::assertSame($expected, $provider->verify(self::credentials(true))->status);
+        self::assertSame($expected, $provider->verify('metron-token-placeholder')->status);
     }
 
     public function verificationCases(): iterable
@@ -180,27 +290,21 @@ final class MetronProviderTest extends TestCase
         yield 'server error' => [500, 'failed'];
     }
 
-    public function testSaysThereIsNothingToTestWithoutBothHalves(): void
+    public function testSaysThereIsNothingToTestWithoutAToken(): void
     {
-        $onlyUsername = new class implements \App\Metadata\Provider\ProviderCredentials {
-            public function metronUsername(): ?string { return 'librarian'; }
-            public function metronPassword(): ?string { return null; }
-            public function comicVineApiKey(): ?string { return null; }
-        };
-
-        $verification = $this->provider(null)->verify($onlyUsername);
+        $verification = $this->provider(null)->verify(null);
 
         self::assertSame('unconfigured', $verification->status);
-        self::assertStringContainsString('username and a password', $verification->message);
+        self::assertStringContainsString('token', $verification->message);
     }
 
-    public function testDistinguishesAnUnreachableServiceFromRefusedCredentials(): void
+    public function testDistinguishesAnUnreachableServiceFromARefusedToken(): void
     {
         $client = new MockHttpClient(static function (): never {
             throw new \Symfony\Component\HttpClient\Exception\TransportException('no route to host');
         });
 
-        self::assertSame('unreachable', $this->provider(null, client: $client)->verify(self::credentials(true))->status);
+        self::assertSame('unreachable', $this->provider(null, client: $client)->verify('token')->status);
     }
 
     /** Verification asks the live service, so a cached search cannot answer it. */
@@ -214,33 +318,35 @@ final class MetronProviderTest extends TestCase
         });
 
         $provider = $this->provider(null, client: $client);
-        $provider->verify(self::credentials(true));
-        $provider->verify(self::credentials(true));
+        $provider->verify('token');
+        $provider->verify('token');
 
         self::assertSame(2, $calls);
     }
 
-    private function provider(?MockResponse $response, bool $configured = true, ?MockHttpClient $client = null): MetronProvider
-    {
+    private function provider(
+        ?MockResponse $response,
+        ?MockHttpClient $client = null,
+        ?RateLimiterFactory $limiter = null,
+        ?ProviderCircuitBreaker $breaker = null
+    ): MetronProvider {
+        $cache = $this->cache();
+
         return new MetronProvider(
             $client ?? new MockHttpClient($response ?? new MockResponse('{"results":[]}')),
-            self::credentials($configured),
-            new RateLimiterFactory(['id' => 'test', 'policy' => 'fixed_window', 'limit' => 100, 'interval' => '1 hour'], new InMemoryStorage()),
-            $this->cache(),
+            $limiter ?? new RateLimiterFactory(
+                ['id' => 'test', 'policy' => 'fixed_window', 'limit' => 100, 'interval' => '1 hour'],
+                new InMemoryStorage()
+            ),
+            $cache,
+            new ProviderQuotaTracker($cache),
+            $breaker ?? new ProviderCircuitBreaker($cache),
         );
     }
 
-    private static function credentials(bool $configured): ProviderCredentials
+    private static function access(): ProviderAccess
     {
-        return new class($configured) implements ProviderCredentials {
-            public function __construct(private bool $configured)
-            {
-            }
-
-            public function metronUsername(): ?string { return $this->configured ? 'user' : null; }
-            public function metronPassword(): ?string { return $this->configured ? 'metron-password-placeholder' : null; }
-            public function comicVineApiKey(): ?string { return null; }
-        };
+        return ProviderAccess::granted('metron', 'shared', 'metron-token-placeholder');
     }
 
     private function cache(): CacheInterface

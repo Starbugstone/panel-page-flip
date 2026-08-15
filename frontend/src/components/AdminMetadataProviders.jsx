@@ -14,20 +14,32 @@ import { Label } from "@/components/ui/label";
 const FIELDS = [
   {
     provider: "metron",
-    name: "metronUsername",
-    label: "Metron username",
-    type: "text",
-    hint: "A metron.cloud account. Metron authenticates with a username and password rather than a key.",
+    name: "metronToken",
+    label: "Metron API token",
+    type: "password",
+    hint: "A revocable token from your metron.cloud account. There is deliberately nowhere here to put an account password — a token can be withdrawn without touching the account behind it.",
   },
-  { provider: "metron", name: "metronPassword", label: "Metron password", type: "password" },
   {
     provider: "comicvine",
     name: "comicVineApiKey",
     label: "Comic Vine API key",
     type: "password",
-    hint: "From comicvine.gamespot.com/api. Lookups are rate-limited well under Comic Vine's hourly ceiling.",
+    hint: "From comicvine.gamespot.com/api. Comic Vine's published terms are non-commercial use only.",
   },
 ];
+
+/** Which enable flag belongs to which provider. */
+const TOGGLES = {
+  metron: { field: "metronSharedEnabled", label: "Share this server's Metron token with all users" },
+  comicvine: { field: "comicVineEnabled", label: "Allow Comic Vine lookups" },
+};
+
+const describeQuota = (quota) => {
+  if (!quota || quota.remaining === undefined) return null;
+  const reset = quota.resetsAt ? new Date(quota.resetsAt * 1000).toLocaleTimeString() : null;
+  const limit = quota.limit === undefined ? "" : ` of ${quota.limit}`;
+  return `${quota.remaining}${limit} left${reset ? `, resets ${reset}` : ""}`;
+};
 
 const STATUS_STYLES = {
   ok: "text-green-600",
@@ -41,6 +53,7 @@ const STATUS_STYLES = {
 export function AdminMetadataProviders() {
   const { toast } = useToast();
   const [providers, setProviders] = useState(null);
+  const [environment, setEnvironment] = useState(null);
   const [values, setValues] = useState({});
   const [results, setResults] = useState(null);
   // Which fields the admin has actually put a cursor in. See the readOnly note
@@ -52,7 +65,12 @@ export function AdminMetadataProviders() {
   useEffect(() => {
     let cancelled = false;
     api.get("/api/admin/metadata-providers")
-      .then((result) => { if (!cancelled) { setProviders(result.providers); setLoadError(null); } })
+      .then((result) => {
+        if (cancelled) return;
+        setProviders(result.providers);
+        setEnvironment(result.environment ?? null);
+        setLoadError(null);
+      })
       .catch((error) => { if (!cancelled) setLoadError(error.message); })
       .finally(() => { if (!cancelled) setBusy(false); });
     return () => { cancelled = true; };
@@ -97,6 +115,7 @@ export function AdminMetadataProviders() {
     try {
       const result = await api.put("/api/admin/metadata-providers", payload);
       setProviders(result.providers);
+      setEnvironment(result.environment ?? environment);
       // Never keep a secret in component state once it has been stored.
       setValues({});
       setEngaged({});
@@ -112,12 +131,13 @@ export function AdminMetadataProviders() {
   const clear = async (provider) => {
     setBusy(true);
     try {
-      const payload = provider === "metron"
-        ? { metronUsername: null, metronPassword: null }
-        : { comicVineApiKey: null };
+      const payload = provider === "metron" ? { metronToken: null } : { comicVineApiKey: null };
       const result = await api.put("/api/admin/metadata-providers", payload);
       setProviders(result.providers);
+      setEnvironment(result.environment ?? environment);
       setResults(null);
+      // Removing the key stops new requests. It does not touch metadata anybody
+      // has already accepted, which is theirs now.
       toast({ title: "Credentials removed", description: `${provider} lookups are disabled.` });
     } catch (error) {
       toast({ title: "Could not remove credentials", description: error.message, variant: "destructive" });
@@ -126,6 +146,29 @@ export function AdminMetadataProviders() {
     }
   };
 
+  /**
+   * A pause the circuit breaker applied is not a setting, so it is not shown as
+   * one. Only the two switches an administrator actually owns are toggleable
+   * here, and the environment's veto is reported beside them rather than being
+   * silently applied.
+   */
+  const toggle = async (providerKey, enabled) => {
+    setBusy(true);
+    try {
+      const result = await api.put("/api/admin/metadata-providers", { [TOGGLES[providerKey].field]: enabled });
+      setProviders(result.providers);
+      setEnvironment(result.environment ?? environment);
+    } catch (error) {
+      toast({ title: "Could not change the setting", description: error.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const allowedByEnvironment = (providerKey) => (providerKey === "metron"
+    ? environment?.metronSharedEnabled
+    : environment?.comicVineEnabled) !== false;
+
   return (
     <Card>
       <CardHeader>
@@ -133,25 +176,51 @@ export function AdminMetadataProviders() {
         <CardDescription>
           Optional. Without credentials, comics are still described by their own ComicInfo.xml and their
           filenames — providers only add a second opinion, and nothing they return is applied without a
-          person accepting it.
+          person accepting it. Users can also bring their own token in their settings, which spends their
+          allowance rather than this server's.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {loadError && <p className="text-sm text-destructive">{loadError}</p>}
 
         {(providers ?? []).map((provider) => (
-          <div key={provider.key} className="flex items-center justify-between gap-4 rounded-md border p-3">
-            <span className="font-medium">{provider.label}</span>
-            <div className="flex items-center gap-3">
-              <span className={provider.configured ? "text-sm text-green-600" : "text-sm text-muted-foreground"}>
-                {provider.configured ? "Configured" : "Not configured"}
-              </span>
-              {provider.configured && (
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => clear(provider.key)}>
-                  Remove
-                </Button>
-              )}
+          <div key={provider.key} className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center justify-between gap-4">
+              <span className="font-medium">{provider.label}</span>
+              <div className="flex items-center gap-3">
+                <span className={provider.configured ? "text-sm text-green-600" : "text-sm text-muted-foreground"}>
+                  {provider.configured ? "Configured" : "Not configured"}
+                </span>
+                {provider.configured && (
+                  <Button variant="ghost" size="sm" disabled={busy} onClick={() => clear(provider.key)}>
+                    Remove
+                  </Button>
+                )}
+              </div>
             </div>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={provider.enabled === true}
+                disabled={busy}
+                onChange={(event) => toggle(provider.key, event.target.checked)}
+              />
+              {TOGGLES[provider.key]?.label ?? "Enabled"}
+            </label>
+
+            {!allowedByEnvironment(provider.key) && (
+              <p className="text-xs text-amber-600">
+                Turned off for this server by {provider.key === "metron" ? "METRON_SHARED_ENABLED" : "COMIC_VINE_SHARED_ENABLED"}.
+                The environment has the final word, so this switch has no effect until that changes.
+              </p>
+            )}
+
+            {describeQuota(provider.quota) && (
+              <p className="text-xs text-muted-foreground">
+                Provider quota: {describeQuota(provider.quota)}
+              </p>
+            )}
           </div>
         ))}
 

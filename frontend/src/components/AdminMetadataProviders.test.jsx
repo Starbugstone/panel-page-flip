@@ -29,13 +29,13 @@ describe("AdminMetadataProviders", () => {
     /**
      * The failure this guards against is not cosmetic: a site login autofilled
      * into these boxes and saved becomes a Metron credential, and is then sent
-     * to metron.cloud as HTTP Basic auth.
+     * to metron.cloud as a bearer token.
      */
     it("asks the browser not to autofill, in the ways browsers actually honour", async () => {
       render(<AdminMetadataProviders />);
       await screen.findByText("Metron");
 
-      for (const label of [/metron username/i, /metron password/i, /comic vine api key/i]) {
+      for (const label of [/metron api token/i, /comic vine api key/i]) {
         const field = screen.getByLabelText(label);
         // Chrome ignores "off" on credential fields; it respects this.
         expect(field, String(label)).toHaveAttribute("autocomplete", "new-password");
@@ -63,7 +63,7 @@ describe("AdminMetadataProviders", () => {
       render(<AdminMetadataProviders />);
       await screen.findByText("Metron");
 
-      const name = screen.getByLabelText(/metron password/i).getAttribute("name");
+      const name = screen.getByLabelText(/metron api token/i).getAttribute("name");
       expect(name).not.toMatch(/^password$/i);
       expect(name).toMatch(/^provider-/);
     });

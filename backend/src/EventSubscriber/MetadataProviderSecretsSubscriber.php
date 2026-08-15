@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\EventSubscriber;
 
 use App\Entity\MetadataProviderConfiguration;
+use App\Entity\UserMetadataCredential;
 use App\Service\AppDataEncryptionService;
 use Doctrine\Bundle\DoctrineBundle\Attribute\AsDoctrineListener;
 use Doctrine\ORM\Event\PostLoadEventArgs;
@@ -14,7 +15,12 @@ use Doctrine\ORM\Event\PrePersistEventArgs;
 use Doctrine\ORM\Event\PreUpdateEventArgs;
 use Doctrine\ORM\Events;
 
-/** Provider credentials are encrypted at rest, the same way user tokens are. */
+/**
+ * Provider credentials are encrypted at rest, the same way user tokens are.
+ *
+ * Covers both the installation's shared credentials and each user's own, which
+ * are the same kind of secret held for a different party.
+ */
 #[AsDoctrineListener(event: Events::postLoad)]
 #[AsDoctrineListener(event: Events::prePersist)]
 #[AsDoctrineListener(event: Events::preUpdate)]
@@ -38,16 +44,16 @@ class MetadataProviderSecretsSubscriber
 
     public function preUpdate(PreUpdateEventArgs $args): void
     {
-        $configuration = $args->getObject();
-        if (!$configuration instanceof MetadataProviderConfiguration) {
+        $entity = $args->getObject();
+        if (!$this->holdsSecrets($entity)) {
             return;
         }
 
-        $this->encrypt($configuration);
+        $this->encrypt($entity);
         $entityManager = $args->getObjectManager();
         $entityManager->getUnitOfWork()->recomputeSingleEntityChangeSet(
-            $entityManager->getClassMetadata(MetadataProviderConfiguration::class),
-            $configuration
+            $entityManager->getClassMetadata($entity::class),
+            $entity
         );
     }
 
@@ -63,21 +69,28 @@ class MetadataProviderSecretsSubscriber
 
     private function encrypt(object $object): void
     {
-        if (!$object instanceof MetadataProviderConfiguration) {
-            return;
+        if ($object instanceof MetadataProviderConfiguration) {
+            $object->setMetronToken($this->encryption->encrypt($object->getMetronToken()));
+            $object->setComicVineApiKey($this->encryption->encrypt($object->getComicVineApiKey()));
+        } elseif ($object instanceof UserMetadataCredential) {
+            $object->setMetronToken($this->encryption->encrypt($object->getMetronToken()));
+            $object->setComicVineApiKey($this->encryption->encrypt($object->getComicVineApiKey()));
         }
-
-        $object->setMetronPassword($this->encryption->encrypt($object->getMetronPassword()));
-        $object->setComicVineApiKey($this->encryption->encrypt($object->getComicVineApiKey()));
     }
 
     private function decrypt(object $object): void
     {
-        if (!$object instanceof MetadataProviderConfiguration) {
-            return;
+        if ($object instanceof MetadataProviderConfiguration) {
+            $object->setMetronToken($this->encryption->decrypt($object->getMetronToken()));
+            $object->setComicVineApiKey($this->encryption->decrypt($object->getComicVineApiKey()));
+        } elseif ($object instanceof UserMetadataCredential) {
+            $object->setMetronToken($this->encryption->decrypt($object->getMetronToken()));
+            $object->setComicVineApiKey($this->encryption->decrypt($object->getComicVineApiKey()));
         }
+    }
 
-        $object->setMetronPassword($this->encryption->decrypt($object->getMetronPassword()));
-        $object->setComicVineApiKey($this->encryption->decrypt($object->getComicVineApiKey()));
+    private function holdsSecrets(object $object): bool
+    {
+        return $object instanceof MetadataProviderConfiguration || $object instanceof UserMetadataCredential;
     }
 }

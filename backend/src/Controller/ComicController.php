@@ -14,6 +14,7 @@ use App\Security\Voter\ComicVoter;
 use App\Service\AdminAuditService;
 use App\Service\ComicMetadataSuggestionService;
 use App\Service\ComicTagSuggestionService;
+use App\Metadata\Provider\ProviderQuery;
 use App\Service\MetadataProviderRegistry;
 use App\Service\ComicPageDelivery;
 use App\Service\ComicSerializer;
@@ -33,6 +34,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
@@ -326,7 +328,8 @@ class ComicController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager,
         ComicShareService $shareService,
-        SecurityAuditLogger $securityLogger
+        SecurityAuditLogger $securityLogger,
+        MetadataProviderRegistry $providers
     ): JsonResponse {
         $user = $this->getUser();
         if (!$user instanceof User) {
@@ -401,7 +404,7 @@ class ComicController extends AbstractController
             // fields have to be accepted here as well as on the single-comic
             // update — otherwise an accepted suggestion is staged, saved, and
             // silently dropped on the way.
-            $structured = new StructuredMetadataInput();
+            $structured = new StructuredMetadataInput($this->providerKeys($providers));
             if (!$structured->applyTo($changes, $comic)) {
                 return $this->json(
                     ['message' => implode(' ', $structured->errors())],
@@ -624,7 +627,8 @@ class ComicController extends AbstractController
         int $id,
         EntityManagerInterface $entityManager,
         ComicMetadataSuggestionService $suggestions,
-        ComicTagSuggestionService $tagSuggestions
+        ComicTagSuggestionService $tagSuggestions,
+        MetadataProviderRegistry $providers
     ): JsonResponse {
         $user = $this->getUser();
         if (!$user instanceof User) {
@@ -645,30 +649,49 @@ class ComicController extends AbstractController
         return $this->json([
             'suggestions' => $suggestions->for($comic),
             // Tags the library already has that look like they belong to this
-            // comic. Existing ones only; nothing here creates a tag.
+            // comic, and genres the file proposed. Nothing here creates a tag.
             // The owner's library, not the viewer's: these are the tags a save
             // would actually resolve against, so proposing anything else would
             // offer a choice the write path cannot honour.
             'tags' => $tagSuggestions->for($comic, $comic->getOwner() ?? $user),
+            // Characters, teams, locations and story arcs. Shown as metadata and
+            // never offered as tags — see ComicTagSuggestionService.
+            'classification' => $comic->getClassification(),
+            'origin' => $this->metadataOrigin($comic),
+            // Which providers would answer this user, and why not when they
+            // would not, so the editor can say something better than "no
+            // results" before a search has even been run.
+            'providers' => $providers->statusFor($user),
         ]);
     }
 
     /**
      * Records an external provider thinks might be this comic.
      *
+     * A POST because the search is driven by the values currently in the edit
+     * form, which the user may have accepted from a filename suggestion and not
+     * yet saved. Making them save and reopen first was the flow break this
+     * replaces.
+     *
+     * Those staged values are search hints and nothing more. What may be edited
+     * is decided by the comic id and the voter, exactly as it is everywhere
+     * else — a body cannot widen it.
+     *
      * Editing the comic is what this leads to, so it takes the edit right
      * rather than the view right: a recipient a comic was shared with has no
      * business spending the installation's provider allowance on it.
      */
-    #[Route('/{id}/metadata-candidates', name: 'metadata_candidates', methods: ['GET'])]
+    #[Route('/{id}/metadata-candidates', name: 'metadata_candidates', methods: ['POST'])]
     public function metadataCandidates(
         int $id,
         Request $request,
         EntityManagerInterface $entityManager,
         MetadataProviderRegistry $providers,
-        ComicMetadataSuggestionService $suggestions
+        ComicMetadataSuggestionService $suggestions,
+        RateLimiterFactory $metadataProviderUserLimiter
     ): JsonResponse {
-        if (!$this->getUser() instanceof User) {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
             return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -681,23 +704,200 @@ class ComicController extends AbstractController
             return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN);
         }
 
-        $only = $request->query->get('provider');
-        if ($only !== null && $providers->get($only) === null) {
+        $data = json_decode($request->getContent(), true);
+        $data = is_array($data) ? $data : [];
+
+        $only = $data['provider'] ?? null;
+        if ($only !== null && (!is_string($only) || $providers->get($only) === null)) {
             return $this->json(['message' => 'Unknown metadata provider.'], Response::HTTP_BAD_REQUEST);
         }
+
+        // One person cannot spend the installation's whole hourly allowance
+        // before anybody else opens an editor. Separate from the per-provider
+        // ceiling, which protects the upstream account rather than the people
+        // sharing it.
+        if (!$metadataProviderUserLimiter->create((string) $user->getId())->consume()->isAccepted()) {
+            return $this->json(
+                ['message' => 'You have run a lot of metadata searches recently. Try again shortly.'],
+                Response::HTTP_TOO_MANY_REQUESTS
+            );
+        }
+
+        $query = ProviderQuery::staged($comic, is_array($data['query'] ?? null) ? $data['query'] : [], $suggestions->guess($comic));
+        if ($query === null) {
+            return $this->json([
+                'message' => 'Give the comic a series or a title before searching.',
+                'candidates' => [],
+                'providers' => $providers->statusFor($user),
+                'searched' => null,
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $lookup = $providers->search($query, $user, $only);
 
         // Each candidate carries what accepting it would actually change, so
         // the review UI never has to work that out for itself and what it shows
         // matches what applying would do.
         return $this->json([
+            'query' => ['series' => $query->series, 'issueNumber' => $query->issueNumber, 'year' => $query->year],
             'candidates' => array_map(
                 fn ($candidate): array => [
                     'candidate' => $candidate,
                     'suggestions' => $suggestions->fromCandidate($comic, $candidate),
                 ],
-                $providers->search($comic, $only)
+                $lookup->candidates
             ),
+            'providers' => $lookup->providers,
+            'searched' => $lookup->searched,
         ]);
+    }
+
+    /**
+     * One exact provider record, in full.
+     *
+     * A search row carries a fraction of what a provider knows — Metron's issue
+     * list has no publisher, description or genres at all — so the rest is
+     * fetched when somebody picks a candidate rather than for every row of
+     * every search, which would be a request per result against a rate limit.
+     */
+    #[Route('/{id}/metadata-record', name: 'metadata_record', methods: ['POST'])]
+    public function metadataRecord(
+        int $id,
+        Request $request,
+        EntityManagerInterface $entityManager,
+        MetadataProviderRegistry $providers,
+        ComicMetadataSuggestionService $suggestions,
+        ComicTagSuggestionService $tagSuggestions
+    ): JsonResponse {
+        $data = json_decode($request->getContent(), true);
+        $data = is_array($data) ? $data : [];
+
+        return $this->respondWithRecord(
+            $id,
+            is_string($data['provider'] ?? null) ? $data['provider'] : null,
+            is_string($data['externalId'] ?? null) || is_int($data['externalId'] ?? null) ? (string) $data['externalId'] : null,
+            $entityManager,
+            $providers,
+            $suggestions,
+            $tagSuggestions
+        );
+    }
+
+    /**
+     * Ask the provider again about the record this comic was matched to.
+     *
+     * Produces suggestions, exactly as a first search does. A refresh that
+     * quietly overwrote the fields would undo every edit the user has made
+     * since — the whole point of remembering the external id is to make the
+     * question cheap, not to make the answer authoritative.
+     */
+    #[Route('/{id}/metadata-refresh', name: 'metadata_refresh', methods: ['POST'])]
+    public function metadataRefresh(
+        int $id,
+        EntityManagerInterface $entityManager,
+        MetadataProviderRegistry $providers,
+        ComicMetadataSuggestionService $suggestions,
+        ComicTagSuggestionService $tagSuggestions
+    ): JsonResponse {
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
+        if ($comic && $comic->getMetadataProvider() === null) {
+            return $this->json(
+                ['message' => 'This comic has not been matched to a provider record yet. Search for one first.'],
+                Response::HTTP_CONFLICT
+            );
+        }
+
+        return $this->respondWithRecord(
+            $id,
+            $comic?->getMetadataProvider(),
+            $comic?->getMetadataExternalId(),
+            $entityManager,
+            $providers,
+            $suggestions,
+            $tagSuggestions
+        );
+    }
+
+    /**
+     * The shared body of "fetch one record and say what it would change".
+     *
+     * Both callers need the same authorisation, the same failure vocabulary and
+     * the same response shape; the only difference is where the record
+     * reference came from.
+     */
+    private function respondWithRecord(
+        int $id,
+        ?string $providerKey,
+        ?string $externalId,
+        EntityManagerInterface $entityManager,
+        MetadataProviderRegistry $providers,
+        ComicMetadataSuggestionService $suggestions,
+        ComicTagSuggestionService $tagSuggestions
+    ): JsonResponse {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->json(['message' => 'User not authenticated'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $comic = $entityManager->getRepository(Comic::class)->find($id);
+        if (!$comic) {
+            return $this->json(['message' => 'Comic not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        if (!$this->isGranted(ComicVoter::EDIT, $comic)) {
+            return $this->json(['message' => 'Access denied or comic not found'], Response::HTTP_FORBIDDEN);
+        }
+
+        if ($providerKey === null || $externalId === null || $providers->get($providerKey) === null) {
+            return $this->json(['message' => 'Name a provider and a record to look up.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $result = $providers->detail($providerKey, $externalId, $user);
+        $candidate = $result->candidates[0] ?? null;
+
+        if ($candidate === null) {
+            return $this->json([
+                'message' => $result->message !== '' ? $result->message : 'That record could not be read.',
+                'provider' => $result,
+            ], $result->isOk() ? Response::HTTP_NOT_FOUND : Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+
+        return $this->json([
+            'candidate' => $candidate,
+            'suggestions' => $suggestions->fromCandidate($comic, $candidate),
+            // Genres from the record, offered beside the library's own tags and
+            // selected by nobody until somebody selects them.
+            'tags' => $tagSuggestions->for($comic, $comic->getOwner() ?? $user, $candidate->classification, $candidate->provider),
+            'provider' => $result,
+        ]);
+    }
+
+    /**
+     * The providers this server actually has, so a client cannot record a
+     * comic as matched to something that can never be looked up again.
+     *
+     * @return list<string>
+     */
+    private function providerKeys(MetadataProviderRegistry $providers): array
+    {
+        return array_map(
+            static fn (\App\Metadata\Provider\MetadataProviderInterface $provider): string => $provider->key(),
+            $providers->all()
+        );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function metadataOrigin(Comic $comic): ?array
+    {
+        if ($comic->getMetadataProvider() === null) {
+            return null;
+        }
+
+        return [
+            'provider' => $comic->getMetadataProvider(),
+            'externalId' => $comic->getMetadataExternalId(),
+            'fetchedAt' => $comic->getMetadataFetchedAt()?->format(\DateTimeInterface::ATOM),
+        ];
     }
 
     #[Route('', name: 'create', methods: ['POST'])]
@@ -771,7 +971,8 @@ class ComicController extends AbstractController
         EntityManagerInterface $entityManager,
         AdminAuditService $auditService,
         ComicShareService $shareService,
-        SecurityAuditLogger $securityLogger
+        SecurityAuditLogger $securityLogger,
+        MetadataProviderRegistry $providers
     ): JsonResponse {
         // Get the current user
         $user = $this->getUser();
@@ -833,7 +1034,7 @@ class ComicController extends AbstractController
         // Accepting a suggestion is an ordinary edit, so it arrives here rather
         // than through a route of its own and is authorised the same way.
         if (is_array($data)) {
-            $structured = new StructuredMetadataInput();
+            $structured = new StructuredMetadataInput($this->providerKeys($providers));
             if (!$structured->applyTo($data, $comic)) {
                 return $this->json(
                     ['message' => implode(' ', $structured->errors())],

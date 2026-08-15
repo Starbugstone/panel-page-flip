@@ -31,6 +31,7 @@ final class ComicInfo
         public readonly ?string $ageRating = null,
         public readonly ReadingDirection $readingDirection = ReadingDirection::LeftToRight,
         public readonly array $creators = [],
+        public readonly ?Classification $classification = null,
         public readonly array $pages = [],
     ) {
     }
@@ -49,6 +50,7 @@ final class ComicInfo
             && $this->ageRating === null
             && $this->readingDirection === ReadingDirection::LeftToRight
             && $this->creators === []
+            && ($this->classification === null || $this->classification->isEmpty())
             && $this->pages === [];
     }
 

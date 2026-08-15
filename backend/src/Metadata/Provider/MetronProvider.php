@@ -4,32 +4,24 @@ declare(strict_types=1);
 
 namespace App\Metadata\Provider;
 
-use Psr\Log\LoggerInterface;
-use Symfony\Component\RateLimiter\RateLimiterFactory;
-use Symfony\Contracts\Cache\CacheInterface;
-use Symfony\Contracts\Cache\ItemInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
+use App\Enum\ProviderStatus;
+use App\Metadata\Classification;
 
 /**
- * Metron, a community comic database. Authenticates with HTTP Basic.
+ * Metron, a community comic database.
+ *
+ * Authenticates with a revocable bearer token. Metron added token
+ * authentication in July 2026 and recommends it for integrations; Basic Auth
+ * against a real account password still works upstream but is on its way out,
+ * and asking a user for their account password to read a public database was
+ * never a reasonable trade.
  *
  * @see https://metron.cloud/
+ * @see https://metron-project.github.io/blog/token-authentication
  */
-final class MetronProvider implements MetadataProviderInterface
+final class MetronProvider extends HttpMetadataProvider
 {
     private const BASE_URL = 'https://metron.cloud/api';
-    private const TIMEOUT_SECONDS = 10;
-    private const MAX_RESULTS = 10;
-    private const CACHE_TTL_SECONDS = 86_400;
-
-    public function __construct(
-        private readonly HttpClientInterface $httpClient,
-        private readonly ProviderCredentials $credentials,
-        private readonly RateLimiterFactory $metadataProviderLimiter,
-        private readonly CacheInterface $cache,
-        private readonly ?LoggerInterface $logger = null,
-    ) {
-    }
 
     public function key(): string
     {
@@ -41,57 +33,29 @@ final class MetronProvider implements MetadataProviderInterface
         return 'Metron';
     }
 
-    public function isConfigured(): bool
+    public function verify(?string $secret): ProviderVerification
     {
-        return $this->credentials->metronUsername() !== null && $this->credentials->metronPassword() !== null;
-    }
-
-    public function search(ProviderQuery $query): array
-    {
-        if (!$this->isConfigured()) {
-            return [];
-        }
-
-        return $this->cache->get($query->cacheKey($this->key()), function (ItemInterface $item) use ($query): array {
-            $item->expiresAfter(self::CACHE_TTL_SECONDS);
-
-            if (!$this->metadataProviderLimiter->create($this->key())->consume()->isAccepted()) {
-                $this->logger?->info('Metron lookup skipped: rate limit reached.');
-                $item->expiresAfter(60);
-
-                return [];
-            }
-
-            return $this->request($query);
-        });
-    }
-
-    public function verify(ProviderCredentials $candidate): ProviderVerification
-    {
-        $username = $candidate->metronUsername();
-        $password = $candidate->metronPassword();
-
-        if ($username === null || $password === null) {
-            return ProviderVerification::unconfigured('Metron needs both a username and a password.');
+        if ($secret === null || trim($secret) === '') {
+            return ProviderVerification::unconfigured('Metron needs an API token.');
         }
 
         try {
-            // The cheapest authenticated call there is: one row of a list that
-            // always exists. Enough to prove the credentials, and small enough
-            // to be polite about asking.
+            // The cheapest authenticated call there is: one page of a list that
+            // always exists. Enough to prove the token, and small enough to be
+            // polite about asking.
             $response = $this->httpClient->request('GET', self::BASE_URL.'/series/', [
-                'auth_basic' => [$username, $password],
+                'headers' => $this->authorisation($secret),
                 'query' => ['page' => 1],
                 'timeout' => self::TIMEOUT_SECONDS,
             ]);
 
             return match (true) {
-                $response->getStatusCode() === 200 => ProviderVerification::ok('Metron accepted the credentials.'),
+                $response->getStatusCode() === 200 => ProviderVerification::ok('Metron accepted the token.'),
                 in_array($response->getStatusCode(), [401, 403], true) => ProviderVerification::unauthorized(
-                    'Metron refused the username or password.'
+                    'Metron refused the token.'
                 ),
                 $response->getStatusCode() === 429 => ProviderVerification::rateLimited(
-                    'Metron is rate limiting this server. The credentials may still be fine; try again shortly.'
+                    'Metron is rate limiting this server. The token may still be fine; try again shortly.'
                 ),
                 default => ProviderVerification::failed(
                     sprintf('Metron answered with HTTP %d.', $response->getStatusCode())
@@ -104,43 +68,61 @@ final class MetronProvider implements MetadataProviderInterface
         }
     }
 
-    /** @return list<ProviderCandidate> */
-    private function request(ProviderQuery $query): array
+    protected function performSearch(ProviderQuery $query, ProviderAccess $access): ProviderSearchResult
     {
         $parameters = ['series_name' => $query->series];
         if ($query->issueNumber !== null) $parameters['number'] = $query->issueNumber;
         if ($query->year !== null) $parameters['cover_year'] = $query->year;
 
-        try {
-            $response = $this->httpClient->request('GET', self::BASE_URL.'/issue/', [
-                'auth_basic' => [$this->credentials->metronUsername(), $this->credentials->metronPassword()],
-                'query' => $parameters,
-                'timeout' => self::TIMEOUT_SECONDS,
-            ]);
+        [$failure, $payload] = $this->call(self::BASE_URL.'/issue/', [
+            'headers' => $this->authorisation($access->secret()),
+            'query' => $parameters,
+        ], $access);
 
-            if ($response->getStatusCode() !== 200) {
-                $this->logger?->info('Metron lookup failed.', ['status' => $response->getStatusCode()]);
-
-                return [];
-            }
-
-            $payload = $response->toArray(false);
-        } catch (\Throwable $exception) {
-            // Never surfaced to the user: an unreachable provider must not turn
-            // into a broken page for somebody editing a comic.
-            $this->logger?->info('Metron could not be reached.', ['reason' => $exception->getMessage()]);
-
-            return [];
+        if ($failure !== null) {
+            return $failure;
         }
 
-        return $this->candidates($payload['results'] ?? [], $query->series);
+        return ProviderSearchResult::found($this->key(), $this->candidates($payload['results'] ?? []), $access->origin);
     }
 
     /**
-     * @param mixed $results
-     * @return list<ProviderCandidate>
+     * The issue *list* carries id, series, number, issue, cover_date,
+     * store_date, image, cover_hash and modified — verified against the live
+     * API, and notably not the publisher, description or classification. Those
+     * live here, one request per record, which is why detail is fetched when a
+     * candidate is chosen rather than for every row of a search.
      */
-    private function candidates(mixed $results, string $wanted): array
+    protected function performDetail(string $externalId, ProviderAccess $access): ProviderSearchResult
+    {
+        [$failure, $payload] = $this->call(self::BASE_URL.'/issue/'.$externalId.'/', [
+            'headers' => $this->authorisation($access->secret()),
+        ], $access);
+
+        if ($failure !== null) {
+            return $failure;
+        }
+
+        $candidate = $this->detailedCandidate($payload);
+        if ($candidate === null) {
+            return $this->unavailable(ProviderStatus::Failed, 'Metron no longer has that record.', $access);
+        }
+
+        return ProviderSearchResult::found($this->key(), [$candidate], $access->origin);
+    }
+
+    /**
+     * Django REST framework's token scheme, which is what Metron is built on.
+     *
+     * @return array<string, string>
+     */
+    private function authorisation(string $token): array
+    {
+        return ['Authorization' => 'Token '.$token];
+    }
+
+    /** @return list<ProviderCandidate> */
+    private function candidates(mixed $results): array
     {
         if (!is_array($results)) {
             return [];
@@ -158,12 +140,6 @@ final class MetronProvider implements MetadataProviderInterface
                 continue;
             }
 
-            // Deliberately no publisher or summary: Metron's issue *list* does
-            // not carry them — verified against the live API, whose rows are
-            // id, series, number, issue, cover_date, store_date, image,
-            // cover_hash, modified. Reading them here produced nothing but a
-            // field that was always null. They live on /issue/{id}/, which is a
-            // request per candidate and belongs with picking one, not listing.
             $candidates[] = new ProviderCandidate(
                 provider: $this->key(),
                 externalId: (string) $result['id'],
@@ -176,50 +152,83 @@ final class MetronProvider implements MetadataProviderInterface
             );
         }
 
-        return $this->closestFirst($candidates, $wanted);
+        return $candidates;
     }
 
-    /**
-     * Metron matches a series name loosely, so "The Boys" comes back with 165
-     * results led by "Adventures of The Dover Boys". Whoever is choosing wants
-     * the exact series first, then the ones that start with what they asked
-     * for, then the rest in the order Metron gave them.
-     *
-     * @param list<ProviderCandidate> $candidates
-     * @return list<ProviderCandidate>
-     */
-    private function closestFirst(array $candidates, string $wanted): array
+    private function detailedCandidate(mixed $result): ?ProviderCandidate
     {
-        $wanted = mb_strtolower(trim($wanted));
-
-        $rank = static function (ProviderCandidate $candidate) use ($wanted): int {
-            $series = mb_strtolower($candidate->series);
-
-            return match (true) {
-                $series === $wanted => 0,
-                str_starts_with($series, $wanted) => 1,
-                str_contains($series, $wanted) => 2,
-                default => 3,
-            };
-        };
-
-        // Stable, so equally-ranked candidates keep Metron's own ordering.
-        $ordered = array_values($candidates);
-        $decorated = [];
-        foreach ($ordered as $position => $candidate) {
-            $decorated[] = [$rank($candidate), $position, $candidate];
-        }
-        usort($decorated, static fn (array $a, array $b): int => [$a[0], $a[1]] <=> [$b[0], $b[1]]);
-
-        return array_map(static fn (array $row): ProviderCandidate => $row[2], $decorated);
-    }
-
-    private function date(mixed $value): ?\DateTimeImmutable
-    {
-        if (!is_string($value) || $value === '') {
+        if (!is_array($result) || !isset($result['id'])) {
             return null;
         }
 
-        return \DateTimeImmutable::createFromFormat('!Y-m-d', $value) ?: null;
+        $series = is_array($result['series'] ?? null) ? (string) ($result['series']['name'] ?? '') : '';
+        if ($series === '') {
+            return null;
+        }
+
+        $publisher = is_array($result['publisher'] ?? null) ? ($result['publisher']['name'] ?? null) : null;
+
+        return new ProviderCandidate(
+            provider: $this->key(),
+            externalId: (string) $result['id'],
+            series: $series,
+            issueNumber: isset($result['number']) ? (string) $result['number'] : null,
+            title: isset($result['name']) && is_string($result['name']) ? $result['name'] : (isset($result['title']) && is_string($result['title']) ? $result['title'] : null),
+            volume: isset($result['series']['volume']) ? (int) $result['series']['volume'] : null,
+            issueCount: isset($result['series']['issue_count']) ? (int) $result['series']['issue_count'] : null,
+            publisher: is_string($publisher) ? $publisher : null,
+            summary: isset($result['desc']) && is_string($result['desc']) ? $result['desc'] : null,
+            publishedAt: $this->date($result['cover_date'] ?? null),
+            creators: $this->credits($result['credits'] ?? []),
+            coverUrl: isset($result['image']) ? (string) $result['image'] : null,
+            // Informational only. Nothing derived from this ever touches the
+            // explicit-content flag, which stays the owner's declaration.
+            ageRating: is_array($result['rating'] ?? null) && is_string($result['rating']['name'] ?? null)
+                ? $result['rating']['name']
+                : null,
+            classification: new Classification(
+                genres: Classification::clean($this->names($result['series']['genres'] ?? [])),
+                characters: Classification::clean($this->names($result['characters'] ?? [])),
+                teams: Classification::clean($this->names($result['teams'] ?? [])),
+                storyArcs: Classification::clean($this->names($result['arcs'] ?? [])),
+            ),
+            isDetailed: true,
+        );
+    }
+
+    /**
+     * Metron reports credits as `{ creator, role: [{ name }] }`. The stored
+     * shape is role => names, matching what ComicInfo.xml produces, so both
+     * sources reach the review UI as the same thing.
+     *
+     * @return array<string, list<string>>
+     */
+    private function credits(mixed $credits): array
+    {
+        if (!is_array($credits)) {
+            return [];
+        }
+
+        $byRole = [];
+
+        foreach ($credits as $credit) {
+            if (!is_array($credit) || !isset($credit['creator']) || !is_string($credit['creator'])) {
+                continue;
+            }
+
+            foreach ($this->names($credit['role'] ?? []) ?: ['Other'] as $role) {
+                $key = mb_strtolower(trim($role));
+                if ($key === '') {
+                    continue;
+                }
+
+                $byRole[$key] ??= [];
+                if (!in_array($credit['creator'], $byRole[$key], true)) {
+                    $byRole[$key][] = $credit['creator'];
+                }
+            }
+        }
+
+        return $byRole;
     }
 }

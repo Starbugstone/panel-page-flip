@@ -12,7 +12,6 @@ use App\Service\ComicFormatService;
 use App\Service\ComicPageDelivery;
 use App\Enum\ComicSourceType;
 use App\Service\DropboxImportService;
-use App\Metadata\Provider\StaticProviderCredentials;
 use App\Service\MetadataProviderConfigurationService;
 use App\Service\MetadataProviderRegistry;
 use App\Service\Pagination\PaginationRequest;
@@ -34,7 +33,11 @@ class AdminController extends AbstractController
     public function __construct(
         private readonly CacheInterface $cache,
         #[Autowire('%kernel.project_dir%')]
-        private readonly string $projectDir
+        private readonly string $projectDir,
+        #[Autowire('%metron_shared_enabled%')]
+        private readonly bool $metronSharedAllowedByEnvironment = false,
+        #[Autowire('%comic_vine_shared_enabled%')]
+        private readonly bool $comicVineSharedAllowedByEnvironment = false
     ) {
     }
 
@@ -71,12 +74,24 @@ class AdminController extends AbstractController
     }
 
     #[Route('/metadata-providers', name: 'metadata_providers', methods: ['GET'])]
-    public function metadataProviders(MetadataProviderRegistry $providers): JsonResponse
-    {
+    public function metadataProviders(
+        MetadataProviderRegistry $providers,
+        MetadataProviderConfigurationService $configuration
+    ): JsonResponse {
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
         // Whether a provider is configured, never what it was configured with.
-        return $this->json(['providers' => $providers->status()]);
+        // The quota alongside it is what the provider last told us about the
+        // account, which is the only honest source for a daily budget.
+        return $this->json([
+            'providers' => $providers->adminStatus($this->sharedSecrets($configuration), $configuration),
+            // The environment's half of each switch, so an administrator can
+            // see why a toggle they turned on is not taking effect.
+            'environment' => [
+                'metronSharedEnabled' => $this->metronSharedAllowedByEnvironment,
+                'comicVineEnabled' => $this->comicVineSharedAllowedByEnvironment,
+            ],
+        ]);
     }
 
     /**
@@ -101,8 +116,19 @@ class AdminController extends AbstractController
             $submitted = [];
         }
 
+        $typed = static function (string $field) use ($submitted): ?string {
+            $value = $submitted[$field] ?? null;
+
+            return is_string($value) && trim($value) !== '' ? trim($value) : null;
+        };
+
+        $stored = $this->sharedSecrets($configuration);
+
         return $this->json([
-            'results' => $providers->verify(StaticProviderCredentials::preferring($submitted, $configuration)),
+            'results' => $providers->verify([
+                'metron' => $typed('metronToken') ?? $stored['metron'],
+                'comicvine' => $typed('comicVineApiKey') ?? $stored['comicvine'],
+            ]),
         ]);
     }
 
@@ -122,7 +148,8 @@ class AdminController extends AbstractController
         }
 
         $settings = $configuration->get();
-        foreach (['metronUsername', 'metronPassword', 'comicVineApiKey'] as $field) {
+
+        foreach (['metronToken', 'comicVineApiKey'] as $field) {
             if (!array_key_exists($field, $data)) {
                 continue;
             }
@@ -135,15 +162,54 @@ class AdminController extends AbstractController
             $settings->{'set'.ucfirst($field)}($value);
         }
 
+        foreach (['metronSharedEnabled' => 'setMetronSharedEnabled', 'comicVineEnabled' => 'setComicVineEnabled'] as $field => $setter) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+
+            if (!is_bool($data[$field])) {
+                return $this->json(['message' => sprintf('%s must be true or false.', $field)], Response::HTTP_BAD_REQUEST);
+            }
+
+            $settings->{$setter}($data[$field]);
+        }
+
         // The values are secrets, so the audit trail records that they changed
-        // and never which fields held what.
+        // and never which fields held what. The switches are not secrets and
+        // are recorded in full: turning shared provider access on or off is
+        // exactly the kind of change somebody later needs to be able to find.
         $configuration->save();
         $auditService->log($this->getAdminUser(), 'metadata_providers_updated', 'configuration', 1, [
-            'configured' => array_column($providers->status(), 'configured', 'key'),
+            'configured' => array_column($providers->adminStatus($this->sharedSecrets($configuration), $configuration), 'configured', 'key'),
+            'metronSharedEnabled' => $configuration->isMetronSharedEnabled(),
+            'comicVineEnabled' => $configuration->isComicVineEnabled(),
         ]);
         $entityManager->flush();
 
-        return $this->json(['providers' => $providers->status()]);
+        return $this->json([
+            'providers' => $providers->adminStatus($this->sharedSecrets($configuration), $configuration),
+            'environment' => [
+                'metronSharedEnabled' => $this->metronSharedAllowedByEnvironment,
+                'comicVineEnabled' => $this->comicVineSharedAllowedByEnvironment,
+            ],
+        ]);
+    }
+
+    /**
+     * The installation's secrets, keyed by provider.
+     *
+     * Never returned to a client. The registry needs them only to fingerprint
+     * the upstream account for quota bookkeeping and to say whether a provider
+     * is configured at all.
+     *
+     * @return array<string, string|null>
+     */
+    private function sharedSecrets(MetadataProviderConfigurationService $configuration): array
+    {
+        return [
+            'metron' => $configuration->metronToken(),
+            'comicvine' => $configuration->comicVineApiKey(),
+        ];
     }
 
     #[Route('/stats', name: 'stats', methods: ['GET'])]

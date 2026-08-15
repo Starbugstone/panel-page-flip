@@ -122,6 +122,15 @@ class ComicSerializer
             'ageRating' => $comic->getAgeRating(),
             'readingDirection' => $comic->getReadingDirection()->value,
             'creators' => $comic->getCreators(),
+            // Characters, teams, locations, story arcs and genres. Structured
+            // metadata, not tags — the editor offers genres as tag suggestions
+            // and the user decides; nothing here is a tag until they do.
+            'classification' => $comic->getClassification(),
+            'metadataOrigin' => $comic->getMetadataProvider() === null ? null : [
+                'provider' => $comic->getMetadataProvider(),
+                'externalId' => $comic->getMetadataExternalId(),
+                'fetchedAt' => $comic->getMetadataFetchedAt()?->format('c'),
+            ],
             // The owner's own classification, independent of every tag. It is
             // what an 18+ gate is derived from when the comic is shared, and it
             // has to survive a round trip through the edit dialog unchanged.
