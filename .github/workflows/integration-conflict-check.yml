@@ -1,0 +1,44 @@
+name: Integration Conflict Check
+
+on:
+  push:
+    branches:
+      - feature/metadata-enrichment-74-closeout
+
+permissions:
+  contents: read
+
+jobs:
+  merge-dry-run:
+    if: contains(github.event.head_commit.message, '[integration-conflict-check]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Dry-run merge PR 118 into PR 117
+        shell: bash
+        run: |
+          set -uo pipefail
+          git config user.name "Integration Conflict Check"
+          git config user.email "noreply@example.invalid"
+          git fetch origin agent/issue-116-hardening
+
+          set +e
+          git merge --no-commit --no-ff origin/agent/issue-116-hardening
+          merge_status=$?
+          set -e
+
+          echo "MERGE_STATUS=$merge_status"
+          echo "--- UNMERGED FILES ---"
+          git diff --name-only --diff-filter=U || true
+          echo "--- CONFLICT DIFF ---"
+          git diff --cc || true
+          echo "--- END CONFLICT DIFF ---"
+
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git merge --abort
+          fi
