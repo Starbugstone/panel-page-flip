@@ -13,8 +13,10 @@ vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast }) }));
 
 const liveCode = {
   id: 3,
+  type: "C",
   comicTitles: ["Batman #1"],
   comicCount: 1,
+  issuedComicCount: 1,
   maxUses: 5,
   usesRemaining: 3,
   timesUsed: 2,
@@ -27,10 +29,10 @@ const liveCode = {
 
 const stubGets = (codes = []) => {
   vi.mocked(api.get).mockImplementation((url) => {
-    if (url === "/api/shares/my-code") {
-      return Promise.resolve({ name: "Test Reader", sharingCode: "7RFX-KP3M-Q82D" });
+    if (url === "/api/shares/user-code") {
+      return Promise.resolve({ name: "Test Reader", username: "TestReader1234", label: "Test Reader (@TestReader1234)", userCode: "U-7RFX-KP3M-Q82D" });
     }
-    if (url === "/api/shares/claim-codes") return Promise.resolve({ codes });
+    if (url === "/api/shares/content-codes") return Promise.resolve({ codes });
     return Promise.reject(new Error(`Unexpected GET ${url}`));
   });
 };
@@ -48,18 +50,18 @@ describe("SharingCodesCard", () => {
   it("shows the account's own code", async () => {
     renderCard();
 
-    expect(await screen.findByText("7RFX-KP3M-Q82D")).toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledWith("/api/shares/my-code");
+    expect(await screen.findByText("U-7RFX-KP3M-Q82D")).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith("/api/shares/user-code");
   });
 
   it("asks before replacing a code, because the old one breaks everywhere at once", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({ name: "Test Reader", sharingCode: "83AY-GXKP-SNSY" });
+    vi.mocked(api.post).mockResolvedValue({ name: "Test Reader", username: "TestReader1234", label: "Test Reader (@TestReader1234)", userCode: "U-83AY-GXKP-SNSY" });
 
     renderCard();
-    await screen.findByText("7RFX-KP3M-Q82D");
+    await screen.findByText("U-7RFX-KP3M-Q82D");
 
-    await user.click(screen.getByRole("button", { name: /replace your sharing code/i }));
+    await user.click(screen.getByRole("button", { name: /replace your user code/i }));
 
     // The consequence is stated before it happens, not explained afterwards.
     expect(await screen.findByText(/The old one stops working immediately/)).toBeInTheDocument();
@@ -67,22 +69,22 @@ describe("SharingCodesCard", () => {
 
     await user.click(screen.getByRole("button", { name: "Replace my code" }));
 
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/shares/my-code/rotate", {}));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/shares/user-code/rotate", {}));
     // The new code replaces the old one on screen without a reload.
-    expect(await screen.findByText("83AY-GXKP-SNSY")).toBeInTheDocument();
-    expect(screen.queryByText("7RFX-KP3M-Q82D")).not.toBeInTheDocument();
+    expect(await screen.findByText("U-83AY-GXKP-SNSY")).toBeInTheDocument();
+    expect(screen.queryByText("U-7RFX-KP3M-Q82D")).not.toBeInTheDocument();
   });
 
   it("keeps the old code when the rotation is cancelled", async () => {
     const user = userEvent.setup();
     renderCard();
-    await screen.findByText("7RFX-KP3M-Q82D");
+    await screen.findByText("U-7RFX-KP3M-Q82D");
 
-    await user.click(screen.getByRole("button", { name: /replace your sharing code/i }));
+    await user.click(screen.getByRole("button", { name: /replace your user code/i }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(api.post).not.toHaveBeenCalled();
-    expect(screen.getByText("7RFX-KP3M-Q82D")).toBeInTheDocument();
+    expect(screen.getByText("U-7RFX-KP3M-Q82D")).toBeInTheDocument();
   });
 
   it("lets the owner withdraw a live code before it would have expired", async () => {
@@ -97,7 +99,7 @@ describe("SharingCodesCard", () => {
 
     await user.click(screen.getByRole("button", { name: /withdraw the code for batman #1/i }));
 
-    await waitFor(() => expect(api.delete).toHaveBeenCalledWith("/api/shares/claim-codes/3"));
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith("/api/shares/content-codes/3"));
     // Withdrawing stops the code, not the shares it already produced.
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({
       title: "Sharing code withdrawn",
@@ -130,10 +132,10 @@ describe("SharingCodesCard", () => {
     const redeem = screen.getByRole("button", { name: "Redeem" });
     expect(redeem).toBeDisabled();
 
-    await user.type(screen.getByPlaceholderText("XXXX-XXXX-XXXX"), "7RFXKP3MQ82");
+    await user.type(screen.getByPlaceholderText(/^C-XXXX/), "C7RFXKP3MQ82");
     expect(redeem).toBeDisabled();
 
-    await user.type(screen.getByPlaceholderText("XXXX-XXXX-XXXX"), "D");
+    await user.type(screen.getByPlaceholderText(/^C-XXXX/), "D");
     expect(redeem).toBeEnabled();
   });
 
@@ -141,12 +143,12 @@ describe("SharingCodesCard", () => {
     const user = userEvent.setup();
     renderCard();
 
-    const input = screen.getByPlaceholderText("XXXX-XXXX-XXXX");
+    const input = screen.getByPlaceholderText(/^C-XXXX/);
     // Lowercase, no dashes, and the letters the alphabet leaves out: somebody
     // transcribing a code by hand rather than holding the wrong one.
-    await user.type(input, "7rfxkpimq82o");
+    await user.type(input, "c7rfxkpimq82o");
 
-    expect(input).toHaveValue("7RFX-KP1M-Q820");
+    expect(input).toHaveValue("C-7RFX-KP1M-Q820");
   });
 
   it("redeems a code and reports what arrived", async () => {
@@ -154,7 +156,7 @@ describe("SharingCodesCard", () => {
     const onRedeemed = vi.fn().mockResolvedValue(undefined);
     vi.mocked(api.post).mockResolvedValue({
       claimed: 2,
-      ownerName: "Alex Owner",
+      ownerLabel: "Alex Owner",
       results: [
         { comicId: 1, status: "claimed" },
         { comicId: 2, status: "claimed" },
@@ -163,12 +165,13 @@ describe("SharingCodesCard", () => {
 
     renderCard({ onRedeemed });
 
-    await user.type(screen.getByPlaceholderText("XXXX-XXXX-XXXX"), "7RFXKP3MQ82D");
+    await user.type(screen.getByPlaceholderText(/^C-XXXX/), "C7RFXKP3MQ82D");
     await user.click(screen.getByRole("button", { name: "Redeem" }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
-      "/api/shares/claim-codes/redeem",
-      { code: "7RFXKP3MQ82D" }
+      "/api/shares/content-codes/redeem",
+      // Sent in the canonical form, however it was typed.
+      { code: "C-7RFX-KP3M-Q82D" }
     ));
     expect(onRedeemed).toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "2 comics added" }));
@@ -178,7 +181,7 @@ describe("SharingCodesCard", () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockResolvedValue({
       claimed: 2,
-      ownerName: "Alex Owner",
+      ownerLabel: "Alex Owner",
       results: [
         { comicId: 1, status: "claimed" },
         { comicId: 2, status: "awaiting_age_confirmation" },
@@ -187,7 +190,7 @@ describe("SharingCodesCard", () => {
 
     renderCard();
 
-    await user.type(screen.getByPlaceholderText("XXXX-XXXX-XXXX"), "7RFXKP3MQ82D");
+    await user.type(screen.getByPlaceholderText(/^C-XXXX/), "C7RFXKP3MQ82D");
     await user.click(screen.getByRole("button", { name: "Redeem" }));
 
     // Redeeming stands in for accepting, but never for declaring an age.
@@ -201,19 +204,19 @@ describe("SharingCodesCard", () => {
     const onRedeemed = vi.fn().mockResolvedValue(undefined);
     vi.mocked(api.post).mockResolvedValue({
       claimed: 0,
-      ownerName: "Alex Owner",
+      ownerLabel: "Alex Owner",
       results: [{ comicId: 1, status: "already_yours", message: "You already have this comic." }],
     });
 
     renderCard({ onRedeemed });
 
-    await user.type(screen.getByPlaceholderText("XXXX-XXXX-XXXX"), "7RFXKP3MQ82D");
+    await user.type(screen.getByPlaceholderText(/^C-XXXX/), "C7RFXKP3MQ82D");
     await user.click(screen.getByRole("button", { name: "Redeem" }));
 
     // A spent code that changed nothing is not "0 comics added".
     expect(await screen.findByText("You already have this comic.")).toBeInTheDocument();
     expect(toast).not.toHaveBeenCalled();
-    expect(screen.getByPlaceholderText("XXXX-XXXX-XXXX")).toHaveValue("7RFX-KP3M-Q82D");
+    expect(screen.getByPlaceholderText(/^C-XXXX/)).toHaveValue("C-7RFX-KP3M-Q82D");
   });
 
   it("explains a code that cannot be redeemed without clearing what was typed", async () => {
@@ -224,10 +227,10 @@ describe("SharingCodesCard", () => {
 
     renderCard();
 
-    await user.type(screen.getByPlaceholderText("XXXX-XXXX-XXXX"), "7RFXKP3MQ82D");
+    await user.type(screen.getByPlaceholderText(/^C-XXXX/), "C7RFXKP3MQ82D");
     await user.click(screen.getByRole("button", { name: "Redeem" }));
 
     expect(await screen.findByText(/already been used up/)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("XXXX-XXXX-XXXX")).toHaveValue("7RFX-KP3M-Q82D");
+    expect(screen.getByPlaceholderText(/^C-XXXX/)).toHaveValue("C-7RFX-KP3M-Q82D");
   });
 });

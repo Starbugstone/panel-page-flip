@@ -17,14 +17,32 @@ const comics = [
   { id: 3, title: "Received Comic", author: "Writer C", canShare: false, explicitContent: false },
 ];
 
+const recipients = [
+  {
+    email: null,
+    username: "SilverOtter4821",
+    userCode: "U-7RFX-KP3M-Q82D",
+    name: "Jane Reader",
+    label: "Jane Reader (@SilverOtter4821)",
+  },
+  { email: "nobody@example.com", username: null, userCode: null, name: null, label: "nobody@example.com" },
+];
+
 const loadPicker = () => {
   vi.mocked(api.get).mockImplementation((url) => {
     if (url === "/api/comics?ownership=mine") return Promise.resolve({ comics });
-    if (url === "/api/shares/recent-recipients") {
-      return Promise.resolve({ recipients: [{ email: "jane@example.com" }] });
-    }
+    if (url === "/api/shares/recent-recipients") return Promise.resolve({ recipients });
     return Promise.reject(new Error(`Unexpected GET ${url}`));
   });
+};
+
+const open = (props = {}) => render(
+  <ShareComicsDialog isOpen onClose={vi.fn()} sharedByMe={[]} onShared={vi.fn()} {...props} />
+);
+
+/** Tick the acknowledgement, which every share requires. */
+const acknowledge = async (user) => {
+  await user.click(screen.getByLabelText(/I confirm that I have the necessary rights/i));
 };
 
 describe("ShareComicsDialog", () => {
@@ -33,43 +51,34 @@ describe("ShareComicsDialog", () => {
     loadPicker();
   });
 
+  /* ------------------------------------------------------------------------ */
+  /* Choosing comics                                                           */
+  /* ------------------------------------------------------------------------ */
+
   it("only offers owned shareable comics and sender-owned recipient history", async () => {
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={vi.fn()}
-        sharedByMe={[]}
-        onShared={vi.fn()}
-      />
-    );
+    open();
 
     expect(await screen.findByText("Batman #1")).toBeInTheDocument();
     expect(screen.getByText("Superman #1")).toBeInTheDocument();
+    // A comic somebody shared with you cannot be passed on.
     expect(screen.queryByText("Received Comic")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "jane@example.com" })).toBeInTheDocument();
+
+    // Registered recipients are offered by username, never by an address the
+    // sender was deliberately not given.
+    expect(screen.getByRole("button", { name: "Jane Reader (@SilverOtter4821)" })).toBeInTheDocument();
 
     expect(api.get).toHaveBeenCalledWith("/api/comics?ownership=mine");
     expect(api.get).toHaveBeenCalledWith("/api/shares/recent-recipients");
   });
 
   it("marks live shares for the selected recipient instead of creating duplicates", async () => {
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={vi.fn()}
-        initialRecipient="jane@example.com"
-        sharedByMe={[{
-          comicId: 1,
-          recipients: [{
-            id: 10,
-            recipientEmail: "jane@example.com",
-            status: "accepted",
-            isExpired: false,
-          }],
-        }]}
-        onShared={vi.fn()}
-      />
-    );
+    open({
+      initialRecipient: "jane@example.com",
+      sharedByMe: [{
+        comicId: 1,
+        recipients: [{ id: 10, recipientEmail: "jane@example.com", status: "accepted", isExpired: false }],
+      }],
+    });
 
     await screen.findByText("Batman #1");
     expect(screen.getByText("Already shared")).toBeInTheDocument();
@@ -77,291 +86,349 @@ describe("ShareComicsDialog", () => {
     expect(screen.getByRole("checkbox", { name: "Select Superman #1" })).not.toBeDisabled();
   });
 
-  it("submits several comics through the bulk endpoint with the acknowledgement", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    const onShared = vi.fn().mockResolvedValue(undefined);
-    vi.mocked(api.post).mockResolvedValue({
-      created: 2,
-      total: 2,
-      results: [
-        { comicId: 1, status: "created" },
-        { comicId: 2, status: "created" },
-      ],
-    });
+  /**
+   * A caller that has already chosen does not ask again. Reselecting a table
+   * selection in a second list is a step that can only go wrong.
+   */
+  it("keeps a locked selection instead of asking for it twice", async () => {
+    open({ initialComicIds: [1, 2], lockSelection: true });
 
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={onClose}
-        initialRecipient="jane@example.com"
-        initialComicIds={[1, 2]}
-        sharedByMe={[]}
-        onShared={onShared}
-      />
-    );
-
-    await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
-    await user.click(screen.getByRole("button", { name: "Send 2 invitations" }));
-
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
-      "/api/shares/invitations/bulk",
-      {
-        comicIds: [1, 2],
-        email: "jane@example.com",
-        senderResponsibilityAccepted: true,
-      }
-    ));
-    await waitFor(() => expect(onShared).toHaveBeenCalled());
-    expect(onClose).toHaveBeenCalled();
-    // One email, however many comics went into it — the wording must not
-    // promise the recipient a message each.
-    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: "2 comics shared",
-      description: "One invitation email was sent to jane@example.com.",
-    }));
+    await screen.findByText("Batman #1");
+    expect(screen.getByText("Superman #1")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Select Batman #1" })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Search your library/i)).not.toBeInTheDocument();
   });
 
-  it("reports comics the server refused instead of calling them skipped", async () => {
+  /* ------------------------------------------------------------------------ */
+  /* Naming a recipient                                                        */
+  /* ------------------------------------------------------------------------ */
+
+  it("shares by exact username without ever asking for an address", async () => {
     const user = userEvent.setup();
-    const onClose = vi.fn();
-    vi.mocked(api.post).mockResolvedValue({
-      created: 1,
-      total: 2,
-      results: [
-        { comicId: 1, status: "created" },
-        {
-          comicId: 2,
-          status: "skipped",
-          message: "An invitation is already pending for that person. Resend it instead.",
-        },
-      ],
-    });
-
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={onClose}
-        initialRecipient="jane@example.com"
-        initialComicIds={[1, 2]}
-        sharedByMe={[]}
-        onShared={vi.fn().mockResolvedValue(undefined)}
-      />
-    );
-
-    await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
-    await user.click(screen.getByRole("button", { name: "Send 2 invitations" }));
-
-    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: "Comic shared",
-      description: expect.stringContaining("1 comic was left out: An invitation is already pending"),
-    })));
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it("shares by sharing code without ever asking for an address", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    vi.mocked(api.post).mockImplementation((url) => {
-      if (url === "/api/shares/resolve-code") {
-        return Promise.resolve({ recipient: { name: "Jane Reader", sharingCode: "7RFX-KP3M-Q82D" } });
-      }
-      return Promise.resolve({ created: 1, total: 1, results: [{ comicId: 1, status: "created" }] });
-    });
-
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={onClose}
-        initialSharingCode="7RFX-KP3M-Q82D"
-        initialComicIds={[1]}
-        sharedByMe={[]}
-        onShared={vi.fn().mockResolvedValue(undefined)}
-      />
-    );
-
-    await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    // A code opens the dialog on the code tab rather than the email one.
-    expect(screen.getByLabelText(/their sharing code/i)).toHaveValue("7RFX-KP3M-Q82D");
-
-    await user.click(screen.getByRole("button", { name: "Check" }));
-    expect(await screen.findByText("Jane Reader")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
-    await user.click(screen.getByRole("button", { name: "Send invitation" }));
-
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
-      "/api/shares/invitations/bulk",
-      {
-        comicIds: [1],
-        sharingCode: "7RFXKP3MQ82D",
-        senderResponsibilityAccepted: true,
-      }
-    ));
-    // The address is the whole thing a code withholds, so it must not appear on
-    // the wire or in what the sender is told afterwards.
-    expect(vi.mocked(api.post).mock.calls.every(([, body]) => !("email" in (body || {})))).toBe(true);
-    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
-      description: "One invitation email was sent to Jane Reader.",
-    }));
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it("forgets a checked name as soon as the code is edited", async () => {
-    const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({
-      recipient: { name: "Jane Reader", sharingCode: "7RFX-KP3M-Q82D" },
-    });
-
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={vi.fn()}
-        initialSharingCode="7RFX-KP3M-Q82D"
-        sharedByMe={[]}
-        onShared={vi.fn()}
-      />
-    );
-
-    await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("button", { name: "Check" }));
-    expect(await screen.findByText("Jane Reader")).toBeInTheDocument();
-
-    // A different code is a different person until it has been checked again.
-    await user.type(screen.getByLabelText(/their sharing code/i), "X");
-    expect(screen.queryByText("Jane Reader")).not.toBeInTheDocument();
-  });
-
-  it("creates a claim code and shows it once, without naming anybody", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    vi.mocked(api.post).mockResolvedValue({
-      code: "83AY-GXKP-SNSY",
-      claimCode: { id: 3, usesRemaining: 4, maxUses: 4 },
-    });
-
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={onClose}
-        initialComicIds={[1]}
-        sharedByMe={[]}
-        onShared={vi.fn().mockResolvedValue(undefined)}
-      />
-    );
-
-    await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("tab", { name: "Create a code" }));
-
-    const uses = screen.getByLabelText(/how many people may use it/i);
-    await user.clear(uses);
-    await user.type(uses, "4");
-
-    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
-    await user.click(screen.getByRole("button", { name: "Create sharing code" }));
-
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
-      "/api/shares/claim-codes",
-      { comicIds: [1], maxUses: 4, senderResponsibilityAccepted: true }
-    ));
-
-    // Shown rather than auto-closed: only the hash is stored, so this is the
-    // one moment the code is readable.
-    expect(await screen.findByText("83AY-GXKP-SNSY")).toBeInTheDocument();
-    expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
-  });
-
-  it("will not let a claim code be created for more than ten people", async () => {
-    const user = userEvent.setup();
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={vi.fn()}
-        initialComicIds={[1]}
-        sharedByMe={[]}
-        onShared={vi.fn()}
-      />
-    );
-
-    await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("tab", { name: "Create a code" }));
-
-    const uses = screen.getByLabelText(/how many people may use it/i);
-    await user.clear(uses);
-    await user.type(uses, "99");
-    // Corrected when the field is left, so what is sent is what is shown.
-    await user.tab();
-
-    expect(uses).toHaveValue(10);
-  });
-
-  it("keeps the dialog open and explains why when nothing was created", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    vi.mocked(api.post).mockResolvedValue({
-      created: 0,
-      total: 1,
-      results: [{
-        comicId: 1,
-        status: "skipped",
-        message: "This comic is already shared with that person.",
-      }],
-    });
-
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={onClose}
-        initialRecipient="jane@example.com"
-        initialComicIds={[1]}
-        sharedByMe={[]}
-        onShared={vi.fn()}
-      />
-    );
-
-    await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
-    await user.click(screen.getByRole("button", { name: "Send invitation" }));
-
-    expect(await screen.findByText("This comic is already shared with that person."))
-      .toBeInTheDocument();
-    expect(onClose).not.toHaveBeenCalled();
-    expect(toast).not.toHaveBeenCalled();
-  });
-
-  it("closes after a successful share even if refreshing the sharing list fails", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    const onShared = vi.fn().mockRejectedValue(new Error("refresh failed"));
     vi.mocked(api.post).mockResolvedValue({
       created: 1,
       total: 1,
       results: [{ comicId: 1, status: "created" }],
     });
 
-    render(
-      <ShareComicsDialog
-        isOpen
-        onClose={onClose}
-        initialRecipient="jane@example.com"
-        initialComicIds={[1]}
-        sharedByMe={[]}
-        onShared={onShared}
-      />
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Send invitation/i }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/shares/invitations/bulk",
+      expect.objectContaining({
+        username: "SilverOtter4821",
+        comicIds: [1],
+        senderResponsibilityAccepted: true,
+      })
+    ));
+    // No address anywhere in the request: that is the point of a username.
+    expect(vi.mocked(api.post).mock.calls[0][1]).not.toHaveProperty("email");
+  });
+
+  it("checks who a username belongs to before anything is offered to them", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      recipient: { username: "SilverOtter4821", name: "Jane Reader", label: "Jane Reader (@SilverOtter4821)" },
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await user.click(screen.getByRole("button", { name: "Check" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/users/resolve-username",
+      { username: "SilverOtter4821" }
+    ));
+    // Scoped to the confirmation line: the same label is on the recent-recipient
+    // button, and matching either would pass without proving anything.
+    expect(await screen.findByText(/^Sharing with/)).toHaveTextContent(
+      "Sharing with Jane Reader (@SilverOtter4821)"
     );
+  });
 
-    await screen.findByRole("checkbox", { name: "Select Batman #1" });
-    await user.click(screen.getByRole("checkbox", { name: /necessary rights or authorization/i }));
-    await user.click(screen.getByRole("button", { name: "Send invitation" }));
+  it("forgets a checked recipient as soon as the handle is edited", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      recipient: { username: "SilverOtter4821", name: "Jane Reader", label: "Jane Reader (@SilverOtter4821)" },
+    });
 
-    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: "Invitation sent",
-      description: expect.stringContaining("could not refresh"),
-    }));
+    open();
+    await screen.findByText("Batman #1");
+
+    const field = screen.getByLabelText(/Their username/i);
+    await user.type(field, "SilverOtter4821");
+    await user.click(screen.getByRole("button", { name: "Check" }));
+    await screen.findByText(/^Sharing with/);
+
+    // A changed handle is a different person until checked again. A stale name
+    // sitting next to a different one is a confirmation of nothing.
+    await user.type(field, "X");
+    await waitFor(() => expect(screen.queryByText(/^Sharing with/)).not.toBeInTheDocument());
+  });
+
+  it("shares by U- code, sending the canonical form however it was typed", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      created: 1,
+      total: 1,
+      results: [{ comicId: 1, status: "created" }],
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.click(screen.getByRole("tab", { name: "U- code" }));
+    await user.type(screen.getByLabelText(/Their U- code/i), "u7rfxkp3mq82d");
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Send invitation/i }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/shares/invitations/bulk",
+      expect.objectContaining({ userCode: "U-7RFX-KP3M-Q82D" })
+    ));
+  });
+
+  /**
+   * A comic code pasted where a recipient goes is a real code in the wrong box,
+   * not a failed guess — so it is explained rather than answered with "invalid".
+   */
+  it("explains a content code pasted into the recipient field", async () => {
+    const user = userEvent.setup();
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("tab", { name: "U- code" }));
+    await user.type(screen.getByLabelText(/Their U- code/i), "C7RFXKP3MQ82D");
+
+    expect(await screen.findByText(/This is a comic code\. Redeem it under Shared with me\./))
+      .toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("still accepts an exact address, for somebody with no account yet", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      created: 1,
+      total: 1,
+      results: [{ comicId: 1, status: "created" }],
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.click(screen.getByRole("tab", { name: "Email address" }));
+    await user.type(screen.getByLabelText(/Recipient email/i), "newcomer@example.com");
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Send invitation/i }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/shares/invitations/bulk",
+      expect.objectContaining({ email: "newcomer@example.com" })
+    ));
+  });
+
+  /* ------------------------------------------------------------------------ */
+  /* C- and G-                                                                 */
+  /* ------------------------------------------------------------------------ */
+
+  it("creates a C- code for one comic and shows it once", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      code: "C-7RFX-KP3M-Q82D",
+      contentCode: { id: 4, type: "C", expiresAt: "2026-08-23T10:00:00+00:00" },
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.click(screen.getByRole("tab", { name: "Create a code" }));
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Create comic code/i }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/shares/comic-codes",
+      expect.objectContaining({ comicIds: [1], maxUses: 1 })
+    ));
+
+    // The only moment it exists in a readable form: the server keeps a hash.
+    expect(await screen.findByLabelText("Your new sharing code")).toHaveTextContent("C-7RFX-KP3M-Q82D");
+  });
+
+  /**
+   * One comic is a C-, two or more a G-. That is the entire difference, and it
+   * is decided from the selection rather than asked of the user.
+   */
+  it("creates a G- code as soon as the selection is a group", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      code: "G-ABCD-EFGH-JKMN",
+      contentCode: { id: 5, type: "G", expiresAt: "2026-08-23T10:00:00+00:00" },
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Superman #1" }));
+    await user.click(screen.getByRole("tab", { name: "Create a code" }));
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Create group code/i }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/shares/group-codes",
+      expect.objectContaining({ comicIds: [1, 2] })
+    ));
+  });
+
+  /**
+   * The lifetime is an operator setting, so anything worked out in the browser
+   * would be a guess that goes stale the moment somebody changes it.
+   */
+  it("renders the server's own expiry rather than working one out itself", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      code: "C-7RFX-KP3M-Q82D",
+      contentCode: { id: 4, type: "C", expiresAt: "2026-12-25T10:00:00+00:00" },
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.click(screen.getByRole("tab", { name: "Create a code" }));
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Create comic code/i }));
+
+    await screen.findByLabelText("Your new sharing code");
+    expect(screen.getByText(new RegExp(new Date("2026-12-25T10:00:00+00:00").getFullYear())))
+      .toBeInTheDocument();
+  });
+
+  /* ------------------------------------------------------------------------ */
+  /* 18+                                                                       */
+  /* ------------------------------------------------------------------------ */
+
+  it("sends the 18+ decision with the share", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      created: 1,
+      total: 1,
+      results: [{ comicId: 1, status: "created" }],
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await user.click(screen.getByLabelText(/contain 18\+ \/ explicit content/i));
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Send invitation/i }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/shares/invitations/bulk",
+      expect.objectContaining({ markExplicit: true })
+    ));
+  });
+
+  it("says that leaving the 18+ box unticked never clears an existing mark", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (url === "/api/comics?ownership=mine") {
+        return Promise.resolve({
+          comics: [{ id: 1, title: "Adults Only", canShare: true, explicitContent: true }],
+        });
+      }
+      if (url === "/api/shares/recent-recipients") return Promise.resolve({ recipients: [] });
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    open();
+    await screen.findByText("Adults Only");
+    await user.click(screen.getByRole("checkbox", { name: "Select Adults Only" }));
+
+    expect(await screen.findByText(/never clears an existing mark/i)).toBeInTheDocument();
+  });
+
+  it("sends markExplicit false rather than nothing when the box is left alone", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      created: 1,
+      total: 1,
+      results: [{ comicId: 1, status: "created" }],
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Send invitation/i }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/shares/invitations/bulk",
+      expect.objectContaining({ markExplicit: false })
+    ));
+  });
+
+  /* ------------------------------------------------------------------------ */
+  /* Guards                                                                    */
+  /* ------------------------------------------------------------------------ */
+
+  it("will not send without the responsibility acknowledgement", async () => {
+    const user = userEvent.setup();
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+
+    expect(screen.getByRole("button", { name: /Send invitation/i })).toBeDisabled();
+  });
+
+  it("will not send without a recipient", async () => {
+    const user = userEvent.setup();
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await acknowledge(user);
+
+    expect(screen.getByRole("button", { name: /Send invitation/i })).toBeDisabled();
+  });
+
+  it("reports what the server refused rather than claiming a share went through", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      created: 0,
+      total: 1,
+      results: [{ comicId: 1, status: "not_available", message: "This comic is not available to share." }],
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Send invitation/i }));
+
+    expect(await screen.findByText("This comic is not available to share.")).toBeInTheDocument();
+    expect(toast).not.toHaveBeenCalled();
   });
 });

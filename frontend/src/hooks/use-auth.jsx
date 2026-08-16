@@ -61,10 +61,10 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const register = useCallback((email, password, name = "", agreeTerms = false) => (
+  const register = useCallback((email, password, name = "", agreeTerms = false, username = "") => (
     api.post(
       "/api/register",
-      { email, password, plainPassword: password, name, agreeTerms },
+      { email, password, plainPassword: password, name, agreeTerms, username },
       { notifyUnauthorized: false },
     )
   ), []);
