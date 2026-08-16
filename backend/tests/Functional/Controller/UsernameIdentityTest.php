@@ -31,7 +31,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
     {
         return $this->postJson('/api/register', $overrides + [
             'email' => 'newcomer@example.com',
-            'password' => 'P@ssw0rd!Strong',
+            'password' => UserFactory::PASSWORD,
             'name' => 'Newcomer',
             'agreeTerms' => true,
         ]);
@@ -69,7 +69,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
         $this->postJson('/api/users', [
             'email' => 'made-by-admin@example.com',
             'name' => 'Made By Admin',
-            'password' => 'P@ssw0rd!Strong',
+            'password' => UserFactory::PASSWORD,
             'roles' => ['ROLE_USER'],
         ]);
         self::assertResponseStatusCodeSame(201);
