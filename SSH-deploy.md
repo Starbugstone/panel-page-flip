@@ -595,7 +595,17 @@ behind by deleted comics, and `--dry-run` reports without deleting.
 
 Skipping this cron is not dangerous; the cache simply keeps growing.
 
-### 7.3 Symfony Messenger consumer (if you switch from sync to async)
+### 7.3 Symfony Messenger consumer — **required**
+
+> Not optional any more. Share invitation notices are dispatched to the `async`
+> transport after the shares are committed, so **without a worker the shares are
+> created and no email ever leaves**. The owner sees the share, the recipient
+> hears nothing, and the notice sits in the queue table.
+
+The queued message carries share ids and nothing else; the worker reloads the
+relationships and mints the invitation links as it writes the mail. That is why a
+notice retried an hour later still carries a working link, and why no plaintext
+bearer token is ever written to the queue or left in the failure transport.
 
 Systemd unit `/etc/systemd/system/comics-messenger.service`:
 

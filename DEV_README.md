@@ -41,12 +41,15 @@ This document provides detailed information for developers working on the projec
 - **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored. One link per invitation, good for a single claim within two months; accepting spends it and revokes every other token for that share, and resending mints a new one and retires the old link
 - **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
 - **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup
-- **Sharing Codes**: `SharingCodeService.php` issues and resolves the permanent per-account receiver code; `ShareClaimCodeService.php` mints and redeems the disposable owner-issued claim code. See [Sharing codes](#sharing-codes)
-- **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients` and `POST /api/shares/invitations/bulk` — the convenience layer behind the Sharing page's **Share comics** flow. Recipients come only from the caller's own share history and never from the user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
+- **Public Identity**: Every account has a required, case-insensitively unique `username` and a permanent `U-` user code. `UsernamePolicy.php` is the one definition of what a username may be, `UsernameGenerator.php` invents friendly ones, `UsernameService.php` claims and changes them, and `UserIdentityListener.php` issues both identifiers on `prePersist` so no account can exist without them. See [Public identity: username and `U-` code](#public-identity-username-and-u--code)
+- **Sharing Codes**: `SharingCodeFormat.php` and `ShareCodeType.php` define one wire format in three flavours — `U-` identifies a person, `C-` carries exactly one comic, `G-` carries a package of 2–20. `SharingCodeService.php` issues and resolves user codes; `ShareClaimCodeService.php` mints and redeems content codes. See [Sharing codes](#sharing-codes)
+- **Content Code Lifetime**: `ShareContentCodeLifetime.php` turns `SHARE_CONTENT_CODE_TTL_DAYS` (default 7) into an absolute expiry stamped on each code at minting time, and refuses to construct on a nonsense value so a bad deployment fails on the way up
+- **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients` and `POST /api/shares/invitations/bulk` — the one path that opens a direct share. Recipients come only from the caller's own share history and never from a user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
+- **Explicit Promotion**: `ExplicitContentPromoter.php` marks selected comics 18+ from inside the share flow, in the same unit of work as the share. It only ever promotes — an unticked box is the absence of a claim, not a claim that the comic is fine
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
-- **Email Notifications**: One "Review invitation" link per invitation; the link only previews, because mail scanners follow links on the recipient's behalf. A bulk share sends one grouped email carrying a link per comic, so twenty comics are not twenty messages
-- **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered, and sharing codes that have been dead for over a month. The work itself is in `ExpiredShareCleanupService`, because an administrator can run the same sweep from the admin page and a deletion rule that exists twice will eventually disagree with itself
-- **Admin Sharing Codes**: `AdminShareCodeController.php` under `/api/admin/sharing-codes` — a paginated, filterable view of every issued claim code, forced revocation, and a manual run of the retention sweep. It can never show a code, take back a claimed comic, or delete a live record
+- **Email Notifications**: Shares commit first; `ShareInvitationNotification` is then queued carrying share ids and nothing else, and `ShareInvitationNotificationHandler` reloads the relationships and mints the links as it writes the mail. A bulk share sends one grouped email, so twenty comics are not twenty messages. See [Notification is a notice, not a condition](#notification-is-a-notice-not-a-condition)
+- **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered, and content codes that have been dead for over a month. The work itself is in `ExpiredShareCleanupService`, because an administrator can run the same sweep from the admin page and a deletion rule that exists twice will eventually disagree with itself
+- **Admin Sharing Codes**: `AdminShareCodeController.php` under `/api/admin/sharing-codes` — a paginated, filterable view of every issued content code, forced revocation, and a manual run of the retention sweep. It can never show a code, take back a redeemed comic, or delete a live record
 
 #### ✅ Dropbox Integration System
 - **DropboxController**: Handles OAuth flow, connection status, file listing, and individual comic import
@@ -105,11 +108,11 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 
 #### ✅ Comic Sharing
 - **Sharing Page**: `Sharing.jsx` at `/sharing` — where shares are both started and managed, with "Shared with me" and "Shared by me" tabs for invitations, access and tombstones
-- **Share Comics Dialog**: `ShareComicsDialog.jsx` is the multi-comic flow behind **Share comics** and **Share another comic** — an owned-only picker with search, previously used recipients, and one grouped invitation email per action. Step 2 offers three ways to name a recipient: an email address, their sharing code, or no one at all (a claim code anybody can redeem). It lists no registered users and searches none
-- **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's own receiver code with copy and **Replace** actions (the latter behind a confirmation, since the old code breaks everywhere at once), the field for redeeming a code somebody sent, and the list of codes handed out with a **Withdraw** action on each live one
-- **Admin Sharing Code Rotation**: `AdminUserDetails.jsx` can replace a user's receiver code on their behalf, behind a confirmation. The new code is never shown to the administrator — the user reads it off their own Sharing page
-- **Admin Sharing Codes Tab**: `AdminSharingCodesList.jsx` under **Admin → Sharing codes** — every issued claim code with status/owner/date filters and pagination, a **Withdraw** action, and a **Run cleanup** button. Both destructive actions state what they will *not* touch before they run
-- **Share Comic Modal**: `ShareComicModal.jsx` is the one-comic shortcut from a comic card, and the only path that shows the invitation link once, since only its hash is stored
+- **Share Comics Dialog**: `ShareComicsDialog.jsx` is the *one* share workflow, opened from a grid card, from a table selection and from the Sharing page alike. It offers **Direct** (name a person by username, `U-` code, address, or somebody shared with before) or **Code** (a `C-` for one comic, a `G-` for two to twenty, decided from the selection rather than asked), carries the 18+ decision inline, and lists no registered users and searches none. What differs between entry points is only what is already chosen when it opens
+- **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's username and `U-` code with copy and **Replace** actions (the latter behind a confirmation, since the old code breaks everywhere at once), one redeem field that dispatches on the prefix, and the list of content codes handed out with the server's own `expiresAt` and a **Withdraw** action on each live one
+- **Admin User Code Rotation**: `AdminUserDetails.jsx` can replace a user's `U-` code on their behalf, behind a confirmation. The new code is never shown to the administrator — the user reads it off their own Sharing page
+- **Admin Sharing Codes Tab**: `AdminSharingCodesList.jsx` under **Admin → Sharing codes** — every issued content code with status/owner/date filters and pagination, a **Withdraw** action, and a **Run cleanup** button. Both destructive actions state what they will *not* touch before they run
+- **Registration**: `Login.jsx` proposes a generated username with a **Generate another** button, because a public handle is the one field nobody arrives at a signup form having decided on. It can be edited, and the unique index rather than the availability check is what finally rules
 - **Invitation Preview**: `ShareInvitation.jsx` at `/share/invitation/:token` loads the invitation through a safe `GET` and only accepts or declines on a button press
 - **Pending Shares Alert**: `PendingSharesAlert.jsx`, now a one-line prompt on the dashboard rather than a card per invitation
 - **Sharing Hooks**: `use-sharing.jsx` — `SharingProvider` holds the pending count for the header badge and the dashboard alert; `useSharingLists` loads both halves of the Sharing page
@@ -168,6 +171,14 @@ the row, enforced by a unique index on `(comic_id, recipient_email_normalized)`.
 - **senderResponsibilityAcceptedAt / adultConfirmedAt**: the two acknowledgements
   this relationship records, both server-generated. See
   [Explicit content and the 18+ gate](#explicit-content-and-the-18-gate)
+- **recipientAliasName / recipientUserCode**: how a relationship begun by
+  username or `U-` code names its recipient without exposing the address the
+  sender never learned. The code records how it began and is not a live handle;
+  current identity is resolved through `recipientUser`
+- **notificationState / notifiedAt**: `pending`, `sent` or `failed`. Mail is a
+  notice about a share rather than a condition of it, so this is where an owner
+  is told the email did not arrive. See
+  [Notification is a notice, not a condition](#notification-is-a-notice-not-a-condition)
 - **unavailableAt / tombstoneReason**: `owner_deleted`, `owner_account_deleted`,
   `file_missing` or `administratively_removed`
 
@@ -242,31 +253,53 @@ permanent second copy the model exists to avoid.
 ### Sharing Workflow
 
 #### Inviting
-1. The owner enters a recipient email in `ShareComicModal` and ticks
-   **I understand** against the responsibility notice — unticked every time the
-   modal opens, and required before **Send invitation** is live
-2. `POST /api/shares/comics/{comicId}/invitations` creates or reopens the
-   `ComicShare`, mints a token and emails the link — all one unit of work, so a
-   send that fails rolls the invitation back rather than showing the owner a
-   recipient who was never contacted
 
-   > **The limit of that guarantee.** An SMTP call is not a participant in a
-   > database transaction and no arrangement of this code makes it one. What
-   > holds is one direction: a failed send leaves no invitation behind. The
-   > reverse does not — if the send succeeds and the commit then fails, the
-   > recipient holds links to relationships that no longer exist and will be
-   > told the invitation is not valid. Ordering it the other way trades that for
-   > invitations nobody was told about, recoverable by resending but happening
-   > on every transport hiccup rather than on the rarer commit failure. Making
-   > both impossible needs a transactional outbox — shares and a pending
-   > notification committed together, a worker sending after the commit — which
-   > is a change to how the whole application delivers mail rather than to this
-   > path. `ComicShareService::inviteMany()` will not convert a send failure
-   > into per-comic results when a caller owns the transaction, because nothing
-   > was rolled back and that caller's commit would otherwise persist rows
-   > already reported as failed.
-3. The link is `{appUrl}/share/invitation/{token}` and is returned once in
-   the response for the owner to copy
+There is one endpoint that opens a direct share, whether one comic or twenty
+are going out: `POST /api/shares/invitations/bulk`. The single-comic invitation
+endpoint was removed with the modal that used it — one path that opens a
+relationship is enough.
+
+1. The owner picks comics and names a recipient in `ShareComicsDialog`, and ticks
+   **I understand** against the responsibility notice — unticked every time the
+   dialog opens, and required before the share can be sent
+2. The request creates or reopens one `ComicShare` per comic and **commits**
+3. The notice is queued afterwards, and the owner is told the share exists
+   whatever the mail server is doing
+
+#### Notification is a notice, not a condition
+
+Sharing used to send inside the transaction and roll back when the send failed.
+That bought "no invitation nobody was told about" at the price of losing a
+perfectly good share every time a mail server was briefly busy — and an SMTP
+call is not a participant in a database transaction, so no ordering of that code
+could have made both guarantees hold.
+
+```text
+owner confirms share
+  -> ComicShare rows committed
+  -> ShareInvitationNotification dispatched, carrying share ids and nothing else
+  -> worker reloads the relationships
+  -> worker mints the invitation tokens as it writes the mail
+  -> one grouped email
+```
+
+Two properties follow from the payload being ids:
+
+- **No plaintext bearer token is ever written to the queue**, retried through it,
+  or left in the failure transport for an operator to read
+- **A notice retried an hour later carries a link that still works**, because the
+  link is minted at delivery time rather than at dispatch time
+
+`ComicShare.notificationState` is `pending`, `sent` or `failed`, so an owner is
+told the email did not arrive rather than wondering why nobody answered. Resend
+stays **synchronous** and hands the link back: somebody pressing it is standing
+in front of the screen asking whether it went this time.
+
+Under `when@test` the `async` transport is `sync://`, so a test asserting what
+lands in an inbox does not have to run a worker. The production path is
+unchanged — the notice is still dispatched after the commit, and still carries
+only ids. A deployment therefore **needs a Messenger worker running**
+(`messenger:consume async`); without one, shares are created and no mail leaves.
 
 Sends and resends are limited per owner by the `share_invitation` rate limiter
 (`config/packages/rate_limiter.yaml`, sliding window, 10 per hour). The
@@ -282,20 +315,37 @@ bulk share of twenty comics costs the same one allowance as a single invitation 
 it is one email. That keeps what the limiter protects, how much mail one account
 can put in somebody's inbox, exactly where it was before bulk sharing existed.
 
-#### Starting a share from `/sharing`
+#### One dialog, three entry points
 
-`/sharing` is the entry point for new shares as well as the management surface
-for existing ones. **Share comics** is on the page header and in the empty state,
-and each existing recipient has a **Share another comic** shortcut that opens the
-same dialog with the recipient already chosen.
+`ShareComicsDialog.jsx` is the only share workflow in the application. A grid
+card, a table selection and the Sharing page all arrive at it, because three
+dialogs that each grew their own idea of what a share is are three places for the
+rules to drift apart — and the old grid modal could only reach somebody by an
+address the sender had to know already.
 
-`ShareComicsDialog.jsx` picks owned comics (`GET /api/comics?ownership=mine`,
-filtered again on `canShare`), offers previously used recipients, and posts one
-request:
+What differs between the entry points is only what is already chosen when the
+dialog opens:
+
+| Opened from | Selection | Code option |
+|---|---|---|
+| A comic card's menu | that comic, locked | `C-` (a group needs two) |
+| **Share selected** in the table | the existing selection, passed straight through | `C-` for one, `G-` for 2–20 |
+| **Share comics** on `/sharing` | nothing; the dialog picks | whichever the picked count allows |
+
+The `C-`/`G-` choice is **derived from the count rather than asked**, because
+that is the whole difference between the two prefixes. A recipient is named by
+username, `U-` code, address, or by picking somebody shared with before.
+
+A table selection containing a comic somebody shared with *you* is **blocked and
+explained, never quietly filtered**: a sender told "2 shared" while meaning 3 has
+been told the wrong thing.
+
+The dialog picks owned comics (`GET /api/comics?ownership=mine`, filtered again on
+`canShare`) and posts one request:
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/shares/recent-recipients` | up to 20 addresses this owner has shared with before, most recent first |
+| `GET /api/shares/recent-recipients` | up to 20 recipients this owner has shared with before, most recent first — registered ones by username |
 | `POST /api/shares/invitations/bulk` | a per-comic result for up to 20 comics — `created`, `skipped`, `rate_limited`, `failed` or `not_available` |
 
 `SharingWorkflowService` is only the permission gate: it resolves each id, asks
@@ -313,12 +363,13 @@ allowance:
   answered on its own. A batch of one falls back to the ordinary single-comic
   template. The 18+ gate is applied per comic exactly as it is for a single
   invitation, so an explicit comic in a batch is announced without its title
-- **All or nothing on the send.** The grouped email is the only notice the
-  recipient gets, so a failed send rolls every relationship in the batch back
-  rather than leaving invitations nobody will hear about
 - **A refused batch creates nothing.** An exhausted allowance, a missing
   acknowledgement or an address the sender may not invite is answered as one
   error with its real status, before any comic is touched
+- **A failed send does not.** The shares are committed before the notice is
+  queued, so a mail server having a bad minute costs a notification and not a
+  relationship. See
+  [Notification is a notice, not a condition](#notification-is-a-notice-not-a-condition)
 
 A comic that is missing and a comic belonging to somebody else both come back as
 `not_available` with the same message. The picker only ever sends owned ids, but
@@ -334,10 +385,21 @@ search is worthless if the API answers anyway.
 - There is **no normal-user endpoint** that searches or lists users by email,
   username, display name, account id or any other identifier, and none may be
   added. `/api/users` is admin-only and stays that way
+- **Exact resolution is not a search.** `POST /api/users/resolve-username` and
+  `POST /api/shares/user-code/resolve` answer for one identifier, exactly as
+  typed. There is no prefix match, no autocomplete and no listing, so the only
+  way to learn a username is to be told it. Both return the public identity
+  alone — username, display name, a label built from the two — and never an
+  address, an id, or whether the account is verified
+- **A username is guessable in a way a code is not.** Sixty bits of entropy is
+  what makes `U-` resolution safe; a username is short, memorable and chosen, so
+  the `username_lookup` allowance (30 misses an hour) is the control that
+  actually does the work there rather than a backstop behind entropy. It is
+  charged **per miss**, so sharing with people you know is free
 - **Recent recipients are not a user search.** The query reads `ComicShare` rows
-  whose `owner` is the caller and returns nothing but the normalised addresses
-  the caller typed in themselves. It never joins `User`, so it cannot say whether
-  an address has an account behind it
+  whose `owner` is the caller and returns nothing but recipients the caller
+  reached themselves. A registered recipient is listed by username; the hidden
+  address never comes back through it
 - **Incoming shares are not a contact list.** Somebody sharing a comic with you
   does not put their address in your recipient picker. The sender chose to reveal
   it for that one invitation; inferring a reciprocal relationship from it would
@@ -347,20 +409,108 @@ search is worthless if the API answers anyway.
   endpoint cannot be used to enumerate accounts. The UI behaves the same in both
   cases: the recipient may simply have to register before they can accept
 
+### Public identity: username and `U-` code
+
+> An email address is private and a display name is not unique, so a
+> confirmation screen reading "Sharing with: Matthew" confirms nothing.
+
+Every account therefore carries two public identifiers, both required, both
+issued by `UserIdentityListener` on `prePersist` rather than by each of the six
+places a `User` can be created:
+
+```text
+Display name: Matthew                  not unique, decorative
+Username:     @SilverOtter4821         unique, the identity
+User code:    U-7K3M-H91P-R2AX         unique, the address
+Email:        matthew@example.com      private account data
+```
+
+Wherever a *registered* person is named — share confirmation, recent recipients,
+Shared with me, Shared by me, redemption results, grouped notifications, owner
+facing recipient labels — the username is what is shown. Email survives as a
+direct-share **input**, because inviting somebody who has no account yet is still
+an address, but once a recipient is linked to an account the public identity is
+the username.
+
+#### What a username may be
+
+`UsernamePolicy` is the one definition, and `UsernameService` the one thing that
+claims or changes one:
+
+- 3–32 characters, letters, digits, `_` and `-`, starting with a letter or digit
+- **unique regardless of case** — `user.username_canonical` holds the lowercase
+  twin and carries the unique index, while `user.username` keeps the form the
+  account chose. A confirmation showing `@SilverOtter` while the comics go to
+  `@silverotter` confirms nothing
+- a short literal list of **reserved names** (`admin`, `support`, `system`,
+  `noreply`, …), compared canonically, because `@support` on a confirmation
+  screen reads as the operator rather than as a stranger. A pattern rather than a
+  list would also catch the ordinary names that merely contain one of them
+- **never derived from the account.** No email local part, no display name, no
+  address — a username is published to whoever the owner shares with, and the
+  account data is not
+
+`UsernameGenerator` invents them as adjective + noun + four digits
+(`SilverOtter4821`) from short curated word lists, using `random_int()`. It does
+**not** treat its own output as unique: collisions over short lists are ordinary,
+so it retries, and the database index is what finally rules. That matters at both
+ends — registration proposes a name with a **Generate another** button, and the
+migration that adds the `NOT NULL` back-fills every pre-existing account the same
+way.
+
+`GET /api/users/username-available` exists for the registration UX only.
+Registration still has to survive losing the race between the check and the
+insert, because two people can pass the same check.
+
+Changing a username is rate limited (`username_change`, 3 per 24 hours) and
+audited. A handle other people have written down is an identity, and one that can
+be changed freely can be changed *into*: taking a name somebody has just vacated
+is the cheapest impersonation there is. `ComicShare` rows link by user id, so a
+username change never disturbs a share.
+
 ### Sharing codes
 
-Two codes, in opposite directions. Both are written in the same format —
-`SharingCodeFormat`, twelve characters of Crockford base32 shown as
-`XXXX-XXXX-XXXX` — because somebody copying one out of a chat window should not
-have to know which kind they were given. What a code *means* is decided by the
-field it is pasted into.
+Three codes, one format, and the type written on the front:
 
-Neither is a login. Neither reveals an email address. Neither grants access to
-anything on its own.
+```text
+U-XXXX-XXXX-XXXX   identifies a person; grants nothing
+C-XXXX-XXXX-XXXX   exactly one comic
+G-XXXX-XXXX-XXXX   a package of 2–20 comics
+```
 
-#### The receiver code — "this is me, share with me"
+`SharingCodeFormat` is the only place that shape is decided, and `ShareCodeType`
+the only place the prefixes are. Twelve characters of Crockford base32 — no `I`,
+`L`, `O` or `U`, and the pairs people confuse are folded back on the way in — so
+a code read off a screen and typed into a phone survives the trip. Twelve
+characters is a little over 60 bits.
 
-One per account, on `user.sharing_code`, issued the first time it is asked for.
+**The prefix sits outside those twelve, so it costs no entropy** and buys the one
+thing entropy cannot: a code can be classified before any repository is asked
+anything. Previously the twelve characters were indistinguishable and what a code
+*meant* was decided by the field it was pasted into, which made every wrong paste
+a lookup failure rather than an explanation. Now:
+
+| Pasted where | Answer |
+|---|---|
+| `C-…` into the recipient box | *This is a comic code. Redeem it under Shared with me.* |
+| `G-…` into the recipient box | *This is a group code. Redeem it under Shared with me.* |
+| `U-…` into the redeem box | *This is a user code. Use it when sharing directly with another user.* |
+| unknown or missing prefix | refused before any lookup |
+
+`ShareCodeType::misuseGuidance()` is where that wording lives, so the frontend
+and the backend cannot drift. Frontend validation is UX; the backend validates
+prefix, length, separators and alphabet independently.
+
+**There is no legacy-code compatibility layer, and none may be added.** Untyped
+codes are not accepted anywhere. When the type column was introduced the live
+content codes were withdrawn rather than migrated: their hashes covered the token
+alone and now cover the type as well, so compatibility would have meant carrying
+an untyped lookup for ever. Content codes are short-lived by design, so the
+oldest live one on any installation was a day old.
+
+#### The user code — "this is me, share with me"
+
+One per account, on `user.user_code`, issued with the username at creation.
 It is stored **in the clear**, unlike an invitation token, precisely because it
 is an address rather than a capability — its owner has to be able to read it
 back and hand it out again. It authenticates nobody, and the worst a stranger
@@ -375,10 +525,15 @@ told the new one.
 
 | Endpoint | Answers |
 |---|---|
-| `GET /api/shares/my-code` | this account's code and display name |
-| `POST /api/shares/resolve-code` | the display name behind a code — nothing else |
-| `POST /api/shares/my-code/rotate` | retires the current code and returns a new one |
-| `POST /api/users/{id}/sharing-code/rotate` | the same, admin-only, and does **not** return the new code |
+| `GET /api/shares/user-code` | this account's username, code and display label |
+| `POST /api/shares/user-code/resolve` | the public identity behind a code — nothing else |
+| `POST /api/shares/user-code/rotate` | retires the current code and returns a new one |
+| `POST /api/users/{id}/user-code/rotate` | the same, admin-only, and does **not** return the new code |
+
+Rotation retires the `U-` code alone. **The username is untouched**, because the
+two identifiers exist for different reasons: the code is a handle that can leak
+and be replaced, the username is the name the owner is known by and changing it
+is the separate, audited, rate-limited act described above.
 
 Rotation changes the identifier and nothing else. Every share already made
 through the old code is a relationship, not an address: pending invitations stay
@@ -388,10 +543,10 @@ retry cannot quietly make somebody uncontactable — and audited with ids only.
 Neither the old code nor the new one is ever written to a log; a code somebody
 rotated *because* it leaked is the last thing to write down.
 
-**What rotation means for stored codes.** `comic_share.recipient_sharing_code`
+**What rotation means for stored codes.** `comic_share.recipient_user_code`
 records how a relationship began and goes stale the moment the recipient
 rotates. Nothing treats it as a live handle. The owner's Sharing page and their
-recent-recipient list both resolve the recipient's *current* code through
+recent-recipient list both resolve the recipient's *current* identity through
 `ComicShare::recipientUser` — which is why a share made by code links the
 account immediately rather than waiting for acceptance. A recipient whose
 account has gone keeps their name and loses the code rather than falling back to
@@ -400,30 +555,51 @@ to withhold. That lookup is the single place this feature joins `User`, and it
 is allowed because the rows are already restricted to people the owner shares
 with: it resolves a known correspondent, it does not search the directory.
 
-Sharing by code is the ordinary bulk invitation with the recipient named
-differently: `POST /api/shares/invitations/bulk` takes `sharingCode` in place of
-`email`, resolves it server-side, and addresses the invitation to the account it
-found. **The sender never learns the address.** `comic_share` carries
-`recipient_alias_name` and `recipient_sharing_code` for exactly that reason, and
-the owner-facing serializer returns `recipientEmail: null` with a `recipientLabel`
-in its place. Recent recipients list such a person by name and code too — putting
-the withheld address back on the picker would undo the feature.
+Sharing by username or by code is the ordinary bulk invitation with the recipient
+named differently: `POST /api/shares/invitations/bulk` takes `username` or
+`userCode` in place of `email`, resolves it server-side, and addresses the
+invitation to the account it found. **The sender never learns the address.**
+`comic_share` carries `recipient_alias_name` and `recipient_user_code` for exactly
+that reason, and the owner-facing serializer returns `recipientEmail: null` with a
+`recipientLabel` in its place. Recent recipients list such a person by username
+too — putting the withheld address back on the picker would undo the feature.
 
-#### The claim code — "these are mine, come and get them"
+#### The content codes — "these are mine, come and get them"
 
-`ShareClaimCode`, for when the owner does not know and should not have to ask for
-the other person's address. This one *is* a capability, so it is treated like
-one:
+`ShareClaimCode` backs both `C-` and `G-`, with `share_claim_code.type` deciding
+which and the server enforcing the invariant that goes with it:
+
+| Type | Comics | Enforced |
+|---|---|---|
+| `C-` | exactly 1 | `POST /api/shares/comic-codes` |
+| `G-` | 2–20 | `POST /api/shares/group-codes` |
+
+One table because they are the same capability with different cargo; two
+endpoints and an explicit column because *how much a code carries* should be
+legible from the code itself rather than discovered on redemption. The old
+untyped claim code carried anywhere between one and twenty comics and said so
+nowhere.
+
+`share_claim_code.issued_comic_count` records the size of a `G-` package at issue
+time, so **an arc cannot quietly shrink** underneath a code that was advertised as
+fifteen issues. Do not mutate the comics inside a live group code: withdraw it and
+issue another.
+
+Both are capabilities, so both are treated like one:
 
 - **Hashed at rest**, like an invitation token. The plaintext is returned once,
-  when it is created, and nothing can reproduce it afterwards
-- **Unique across both kinds.** `SharingCodeService::allocateUniqueCode()` is the
-  only place either kind is generated, and it checks `user.sharing_code` *and*
+  when it is created, and nothing can reproduce it afterwards — not even for an
+  administrator
+- **Typed in the hash.** The hash covers the type as well as the token, so a `C-`
+  and a `G-` written with the same twelve characters are different codes and
+  neither can be looked up as the other
+- **Unique across all three kinds.** `SharingCodeService::allocateUniqueCode()` is
+  the only place any of them is generated, and it checks `user.user_code` *and*
   `share_claim_code.code_hash` before a candidate is kept. Two unique indexes
   cannot enforce uniqueness across two tables, so each is authoritative inside
   its own table and this allocator is what upholds the invariant between them
-- **Dead in a day.** A code pasted into a group chat is out of its owner's hands
-  the moment it is sent
+- **Dead after `SHARE_CONTENT_CODE_TTL_DAYS`**, seven by default. See
+  [Content-code lifetime](#content-code-lifetime)
 - **Spent as it is used**, between 1 and 10 times, chosen when it is made, so the
   owner decides up front how far it may travel. A use means *a person*, not a
   request: `share_claim_code_redemption` records which account claimed which
@@ -444,6 +620,20 @@ read followed by a write, and two redemptions arriving together would otherwise
 both see the last use — so a one-use code would let two people in, which is the
 single guarantee the count exists to make.
 
+**A group is judged whole before any of it is handed over.** Somebody redeeming a
+fifteen-issue arc is taking up an offer of fifteen issues, and eleven of them
+without a word is worse than none — so if any comic in the package has been
+deleted, quarantined or restricted, the redemption fails **without consuming a
+use** and the owner can withdraw and reissue. `isShareableBy()` exists as a
+predicate for exactly this: a package has to be *asked* about rather than tried
+and caught, because trying creates half of it.
+
+**Redeeming a group costs one use, not one per comic.** A use is a person.
+
+**Overlap is ordinary.** A recipient who already holds part of a group keeps
+those relationships and gains the missing ones, and the response distinguishes
+what was newly added from what was already theirs.
+
 **Retention.** A dead code — withdrawn, expired, used up or left with no comics —
 is kept for **30 days past its expiry** and then deleted by
 `app:cleanup-expired-shares`, alongside the expired invitations that command
@@ -460,10 +650,20 @@ are ordinary relationships and outlive it entirely.
 
 | Endpoint | Does |
 |---|---|
-| `POST /api/shares/claim-codes` | mint one over comics the owner may share |
-| `GET /api/shares/claim-codes` | list codes handed out, live and dead — never the codes themselves |
-| `DELETE /api/shares/claim-codes/{id}` | withdraw one |
-| `POST /api/shares/claim-codes/redeem` | claim the comics behind one |
+| `POST /api/shares/comic-codes` | mint a `C-` over exactly one comic the owner may share |
+| `POST /api/shares/group-codes` | mint a `G-` over a package of 2–20 |
+| `GET /api/shares/content-codes` | list codes handed out, live and dead — never the codes themselves |
+| `DELETE /api/shares/content-codes/{id}` | withdraw one |
+| `POST /api/shares/content-codes/redeem` | redeem either kind; the prefix decides |
+
+One redeem endpoint for both, because the person pasting a code should not have
+to classify it first — the prefix already did. Creation is split in two because
+the comic-count invariant differs and the server has to enforce it, and a single
+endpoint taking a type would be the same two rules behind one door.
+
+The comic count is refused **on the raw array, before a single id is parsed**.
+Checking after the loop would mean a request carrying thousands of ids did
+thousands of lookups on its way to a `400`.
 
 Redemption goes through `ComicShareService::claimFromCode()`, not through a
 second copy of the share lifecycle. **One service owns what a `ComicShare` is
@@ -473,6 +673,15 @@ timestamp being recreated at redemption time is exactly the bug that follows.
 Claiming emits the same `SHARE_CREATED` and `SHARE_ACCEPTED` audit records an
 emailed invitation does, tagged `via: claim_code`, alongside the aggregate
 `SHARE_CLAIM_CODE_REDEEMED`.
+
+**Redemption does not hand the owner the redeemer's address.** The owner put a
+code into the world and a stranger picked it up; returning that person's email
+would turn a sharing feature into address collection. The redeeming account is
+linked internally for lifecycle and authorization, and the owner sees the
+username — `ComicShare::hideRecipientBehindSharingCode()` is what makes the
+owner-facing serializer withhold the address. This is the one respect in which a
+content-code share differs from a direct email share, where the sender already
+knows the address because they typed it.
 
 It differs from an emailed invitation in three deliberate ways: no token and no
 email, because the recipient is right there; redeeming counts as accepting,
@@ -506,16 +715,51 @@ sharing has, and it is built to be a bad one:
 - **A `sharing_code_lookup` allowance** charged only for lookups that find
   nothing, so pasting a code never meets it and grinding through candidates does.
   Exhausting it raises `security.share.sharing_code_enumeration_attempt`
-- **Name only** on success. Not the address, not the id, not whether the account
-  is verified, active or an administrator. Somebody holding a code is entitled to
-  know they reached the right person; everything past that is the account's own
+- **Public identity only** on success. Username, display name, and a label built
+  from the two. Not the address, not the id, not whether the account is verified,
+  active or an administrator. Somebody holding a code is entitled to know they
+  reached the right person; everything past that is the account's own
+- **A wrong prefix is refused before any lookup**, so it is cheap — but still
+  rate limited, because a free high-frequency endpoint is worth having even to an
+  attacker who cannot learn anything from one call
 
-Minting claim codes has its own `share_claim_code` allowance, because it sends no
-mail and the invitation limiter would never see it.
+Minting content codes has its own `share_claim_code` allowance, because it sends
+no mail and the invitation limiter would never see it.
+
+#### Content-code lifetime
+
+`SHARE_CONTENT_CODE_TTL_DAYS` governs how long a `C-` or a `G-` stays
+redeemable. It replaced a hardcoded 24 hours, which was invisible to whoever was
+handed the code.
+
+```dotenv
+# backend/.env.example
+SHARE_CONTENT_CODE_TTL_DAYS=7
+```
+
+- **Default 7**, wired through `config/services.yaml` into
+  `ShareContentCodeLifetime`, which is the single source of truth
+- **One setting for both kinds.** They are the same capability with different
+  cargo; an installation where comic codes outlived group codes would be
+  describing a distinction its users have no way to see
+- **Validated at construction**, 1–365. A deployment with a nonsense value fails
+  on the way up rather than quietly minting codes that expired before they were
+  handed out. 365 is not a security boundary — the operator owns the
+  installation — but a typo should not silently produce permanent codes
+- **Applied at minting time and written onto the row** as an absolute moment.
+  Changing the setting governs codes issued from then on and never reaches back:
+  an owner who told somebody "this works until Friday" must not find that an
+  operator moved Friday
+- **`U-` codes are out of scope.** A user code grants nothing, so there is
+  nothing for an expiry to contain; it lives until its owner rotates it
+
+**The frontend never computes expiry.** Creation and list responses carry
+`expiresAt` and the UI renders that value, so a display cannot disagree with the
+row or go stale when an operator changes the setting.
 
 #### Operating them
 
-Claim codes are capabilities that leave the building, so **Admin → Sharing
+Content codes are capabilities that leave the building, so **Admin → Sharing
 codes** exists to see what is outstanding and stop one without going to the
 database.
 
@@ -548,8 +792,8 @@ command is deliberately *not* audited: a cron job reporting its own quiet runs
 is noise, and what it removed is visible in what is no longer there. A person
 deleting records from other people's accounts is a different matter.
 
-Receiver codes are not managed here. Their lifecycle is rotation, which lives on
-the admin **user** page beside the account it identifies.
+User codes are not managed here. Their lifecycle is rotation, which lives on the
+admin **user** page beside the account it identifies.
 
 #### Still out of scope
 
@@ -603,6 +847,37 @@ inferring an age rating from it would put an 18+ warning on a comic somebody
 merely wanted out of the way. Imports and uploads start non-explicit, existing
 comics migrated as non-explicit, and tag edits never touch the flag.
 
+#### Marking 18+ from inside the share flow
+
+The moment somebody decides a comic is adult is almost always the moment they are
+about to hand it to somebody else, so `ShareComicsDialog` carries the decision:
+
+```text
+[ ] These comics contain 18+ / explicit content
+```
+
+Ticking it sets `Comic.explicitContent` on every selected *owned* comic through
+`ExplicitContentPromoter`, for a direct share, a `C-` and a `G-` alike. Making
+somebody cancel, find the comic, edit it and come back is how a comic goes out
+unmarked.
+
+Two properties are load-bearing:
+
+- **One unit of work.** The promotion and the share it belongs to land together
+  or neither does. An ordinary share created because the reclassification failed
+  would be exactly the accident this exists to prevent — which is why the
+  promoter does not flush on its own
+- **Promotion only.** An unticked box is the absence of a claim, never a claim
+  that the comic is fine. A comic that is already 18+ is shown as already 18+ and
+  cannot be silently demoted by sharing it; clearing the flag stays an
+  intentional edit on the comic itself
+
+Only the owner may reclassify, and the promoter checks that again rather than
+inheriting it from the share authorization. Promoting a comic that is **already
+shared** re-gates its existing recipients under the ordinary rule below: a
+recipient must not keep unrestricted access merely because their share predates
+the correction.
+
 #### The two acknowledgements
 
 Both live on the same `ComicShare` row, so one record is the whole audit trail
@@ -614,9 +889,11 @@ an audit trail the audited party can write is not one.
 | `senderResponsibilityAcceptedAt` | the invitation is created | every new share |
 | `adultConfirmedAt` | the recipient declares they are 18+ | explicit comics only |
 
-`POST /api/shares/comics/{comicId}/invitations` rejects a body whose
+`POST /api/shares/invitations/bulk` rejects a body whose
 `senderResponsibilityAccepted` is not literally `true`, with
-`400 share_responsibility_acknowledgement_required`. Resending preserves both
+`400 share_responsibility_acknowledgement_required`, and the content-code
+endpoints apply the same rule — a missing key or a truthy string is not somebody
+having read the notice and ticked the box. Resending preserves both
 timestamps — it is the same relationship reaching the same person. Re-inviting
 somebody after a decline, revoke or lapse reuses the row but takes a fresh
 sender acknowledgement and clears any age declaration: that is a new offer of
@@ -1049,10 +1326,16 @@ php bin/console app:dropbox-sync --dry-run --user-id=1
 
 #### User Entity
 - `id`: Primary key
-- `email`: User's email (unique)
+- `email`: User's email (unique) — private account data, and still the
+  authentication identifier
+- `username`: The account's public identity (unique, required)
+- `usernameCanonical`: Its lowercase twin, which carries the unique index — see
+  [What a username may be](#what-a-username-may-be)
+- `userCode`: The permanent `U-` recipient code (unique, required)
 - `password`: Hashed password
 - `roles`: Array of user roles (ROLE_USER, ROLE_ADMIN)
-- `name`: User's name (optional)
+- `name`: Display name (optional, **not** unique — never used alone to confirm a
+  share recipient)
 - `dropboxAccessToken`: Dropbox OAuth access token (nullable)
 - `dropboxRefreshToken`: Dropbox OAuth refresh token (nullable)
 - `createdAt`: Timestamp of user creation
