@@ -184,16 +184,18 @@ final class SharingCodeService
      */
     public function resolve(string $input, User $caller): ?User
     {
+        // First, before parsing decides anything. Charged whether the code
+        // resolves, is the wrong type, or is not a code at all: the miss-only
+        // allowance below is the second layer, not the first, and a rejection
+        // that costs nothing is a free high-frequency endpoint however cheap it
+        // is to serve. See {@see IdentifierLookupGuard}.
+        $this->lookupGuard->charge($caller, 'user_code');
+
         $parsed = SharingCodeFormat::parse($input);
 
         if ($parsed !== null && !$parsed->is(ShareCodeType::USER)) {
             throw new ShareException($parsed->type->misuseGuidance(), 400, ShareException::CODE_WRONG_CODE_TYPE);
         }
-
-        // Before the query, and charged whether or not the code resolves — the
-        // miss-only allowance below is the second layer, not the first. See
-        // {@see IdentifierLookupGuard}.
-        $this->lookupGuard->charge($caller, 'user_code');
 
         $recipient = $parsed === null
             ? null

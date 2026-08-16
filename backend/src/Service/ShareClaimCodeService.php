@@ -199,6 +199,13 @@ final class ShareClaimCodeService
      */
     public function redeem(string $plaintext, User $redeemer): array
     {
+        // First, and before the hash lookup. Charging only for a miss would
+        // leave a caller who has exhausted the allowance able to redeem a code
+        // they hold while being refused for one they guessed — which is the
+        // oracle the guard exists to close. Charged for a wrong prefix too: it
+        // is cheap to reject and must still not be free to repeat.
+        $this->lookupGuard->charge($redeemer, 'content_code');
+
         $parsed = SharingCodeFormat::parse($plaintext);
 
         if ($parsed !== null && !$parsed->type->isContentCode()) {
@@ -208,12 +215,6 @@ final class ShareClaimCodeService
                 ShareException::CODE_WRONG_CODE_TYPE
             );
         }
-
-        // The flood guard comes before the hash lookup, not after it. Charging
-        // only for a miss would leave a caller who has exhausted the allowance
-        // able to redeem a code they hold while being refused for one they
-        // guessed — which is the oracle the guard exists to close.
-        $this->lookupGuard->charge($redeemer, 'content_code');
 
         $code = $parsed === null ? null : $this->contentCodeRepository->findByParsedCode($parsed);
 

@@ -96,6 +96,17 @@ export function ShareComicsDialog({
   initialRecipient = "",
   initialUsername = "",
   initialUserCode = "",
+  /**
+   * The identity behind `initialUsername`/`initialUserCode`, when the caller
+   * already has it.
+   *
+   * Sharing again with an existing recipient opens from a button that names
+   * them, and the server produced that name from a relationship this owner
+   * already holds — so there is nothing for a Check to establish. Without this
+   * the confirmation gate would make somebody re-confirm a person they are
+   * already sharing with, which is friction with no question behind it.
+   */
+  initialResolved = null,
   initialComicIds = [],
   /** Hide the picker: the caller has already chosen, and re-picking is a step. */
   lockSelection = false,
@@ -117,7 +128,7 @@ export function ShareComicsDialog({
   // Who the typed identifier resolves to. Held separately so a typed character
   // invalidates the confirmation rather than leaving a stale name sitting next
   // to a different handle.
-  const [resolved, setResolved] = useState(null);
+  const [resolved, setResolved] = useState(initialResolved);
   const [isResolving, setIsResolving] = useState(false);
   // Held as text, so the field can be emptied and retyped. Clamping every
   // keystroke turns clearing "1" and typing "4" into 14.
@@ -428,7 +439,11 @@ export function ShareComicsDialog({
       ? (recipientEmail.trim() || "the recipient")
       : (resolved?.label || usernameHandle(stripUsernamePrefix(username)) || userCode || "the recipient");
 
-  const reviewSummary = selectedComics.length === 0
+  // Gated on the ids being sent, not on the ones the library returned. A locked
+  // selection can name a comic the picker never fetched, and "Select at least
+  // one comic above" printed over a request carrying three is the review step
+  // describing a different share from the one about to happen.
+  const reviewSummary = selectedComicIds.length === 0
     ? "Select at least one comic above."
     : mode === MODES.CODE
       ? `${comicCountLabel} will be put behind ${codeType === SHARE_CODE_TYPES.GROUP ? "one group code" : "a comic code"} `
@@ -852,11 +867,15 @@ export function ShareComicsDialog({
                   somebody made deliberately. */}
               <div className="space-y-2 rounded-md border p-3">
                 <div className="flex items-center gap-2">
+                  {/* Disabled on the ids being sent, not on the ones the picker
+                      fetched. Otherwise the entry point this control exists for
+                      — a table selection somebody is about to hand over — is the
+                      one that cannot reach it. */}
                   <Checkbox
                     id="share-mark-explicit"
                     checked={markExplicit}
                     onCheckedChange={(checked) => setMarkExplicit(checked === true)}
-                    disabled={isSending || selectedComics.length === 0}
+                    disabled={isSending || selectedComicIds.length === 0}
                   />
                   <Label htmlFor="share-mark-explicit" className="cursor-pointer text-sm font-medium">
                     These comic(s) contain 18+ / explicit content

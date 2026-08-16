@@ -215,6 +215,31 @@ describe("ShareComicsDialog", () => {
   });
 
   /**
+   * Sharing again with somebody already shared with does not re-ask who they
+   * are. The caller opened from a button naming them, and passes that identity
+   * in — the same reasoning as a recent recipient, one layer up.
+   */
+  it("accepts an identity the caller already has", async () => {
+    const user = userEvent.setup();
+    answerResolveAndShare();
+
+    open({
+      initialUsername: "SilverOtter4821",
+      initialResolved: resolvedRecipient,
+    });
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await acknowledge(user);
+
+    expect(screen.getByText(/^Sharing with/)).toHaveTextContent(
+      "Sharing with Jane Reader (@SilverOtter4821)"
+    );
+    expect(screen.getByRole("button", { name: /Send invitation/i })).not.toBeDisabled();
+    expect(api.post).not.toHaveBeenCalledWith("/api/users/resolve-username", expect.anything());
+  });
+
+  /**
    * A recent recipient arrives already confirmed, because the label beside the
    * button is the identity a Check would go and fetch — the server produced it
    * from a relationship this owner already has.
@@ -508,7 +533,10 @@ describe("ShareComicsDialog", () => {
     answerResolveAndShare({
       created: 0,
       total: 1,
-      results: [{ comicId: 1, status: "not_available", message: "This comic is not available to share." }],
+      // A duplicate, which is the reachable way a batch comes back with
+      // nothing created now that an unshareable comic refuses the whole
+      // request before it gets this far.
+      results: [{ comicId: 1, status: "skipped", message: "This comic is already shared with that person." }],
     });
 
     open();
@@ -519,7 +547,7 @@ describe("ShareComicsDialog", () => {
     await acknowledge(user);
     await user.click(screen.getByRole("button", { name: /Send invitation/i }));
 
-    expect(await screen.findByText("This comic is not available to share.")).toBeInTheDocument();
+    expect(await screen.findByText("This comic is already shared with that person.")).toBeInTheDocument();
     expect(toast).not.toHaveBeenCalled();
   });
 
@@ -577,5 +605,23 @@ describe("ShareComicsDialog", () => {
 
     await screen.findByText("Batman #1");
     expect(screen.getByText(/3 comics will be offered/)).toBeInTheDocument();
+  });
+
+  /**
+   * The case where the two counts diverge completely.
+   *
+   * Every id in the selection is one the picker never returned, so anything
+   * gated on the *found* comics reads as an empty selection — the review step
+   * would say "select at least one comic" over a request carrying two, and the
+   * 18+ control would be disabled for the one entry point it exists to serve.
+   */
+  it("still reviews and can mark 18+ when the picker returned none of the selection", async () => {
+    open({ initialComicIds: [41, 42], lockSelection: true });
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics?ownership=mine"));
+
+    expect(screen.getByText(/2 comics will be offered/)).toBeInTheDocument();
+    expect(screen.queryByText(/Select at least one comic/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/contain 18\+ \/ explicit content/i)).not.toBeDisabled();
   });
 });

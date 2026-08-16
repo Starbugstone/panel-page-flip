@@ -299,6 +299,16 @@ export default function Sharing() {
                           aria-label={`Share another comic with ${recipientLabel(recipient)}`}
                           onClick={() => setShareDialog({
                             ...recipientTarget(recipient),
+                            // Already confirmed: this button names them, and
+                            // the name came from a share this owner already
+                            // has. Nothing for a Check to find out.
+                            resolved: recipient.recipientUsername
+                              ? {
+                                username: recipient.recipientUsername,
+                                name: recipient.recipientName || "",
+                                label: recipientLabel(recipient),
+                              }
+                              : null,
                             comicIds: [],
                           })}
                         >
@@ -637,6 +647,7 @@ export default function Sharing() {
           initialRecipient={shareDialog.email}
           initialUsername={shareDialog.username}
           initialUserCode={shareDialog.userCode}
+          initialResolved={shareDialog.resolved ?? null}
           initialComicIds={shareDialog.comicIds}
           onShared={refreshAfterShare}
         />
