@@ -106,7 +106,7 @@ final class RegistrationController extends AbstractController
         $user->setPassword($userPasswordHasher->hashPassword($user, $password));
 
         $requestedUsername = isset($data['username']) && is_string($data['username'])
-            ? ltrim(trim($data['username']), '@')
+            ? UsernamePolicy::stripPrefix($data['username'])
             : '';
 
         try {

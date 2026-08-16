@@ -233,9 +233,7 @@ final class SharingCodeService
             // is not unique, so it never appears without the username beside
             // it — the whole reason usernames exist is that "Matthew" is not an
             // answer to "am I sharing with the right person?".
-            'label' => $name === ''
-                ? UsernamePolicy::forDisplay($username)
-                : sprintf('%s (%s)', $name, UsernamePolicy::forDisplay($username)),
+            'label' => UsernamePolicy::describe($username, $name),
             'userCode' => SharingCodeFormat::forDisplay(ShareCodeType::USER, $recipient->getUserCode()),
         ];
     }

@@ -291,13 +291,27 @@ export const SHARE_CODE_MISUSE = {
  * so they are corrected here exactly as they are on the server.
  */
 function normaliseToken(value) {
-  return String(value)
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
+  return condense(value)
     .replace(/I|L/g, "1")
     .replace(/O/g, "0")
     .replace(/U/g, "V")
     .slice(0, SHARING_CODE_LENGTH);
+}
+
+/**
+ * Everything a code carries, with everything it does not.
+ *
+ * Punctuation is dropped wherever a code is read rather than only the dashes
+ * this format writes: a code's whole job is to survive a chat window, and chat
+ * clients rewrite an em dash for a hyphen and wrap the lot in smart quotes.
+ */
+function condense(value) {
+  return String(value).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/** The token in fours, which is the only way a code is written down. */
+function groupToken(token) {
+  return (token.match(/.{1,4}/g) || []).join("-");
 }
 
 /**
@@ -309,7 +323,7 @@ function normaliseToken(value) {
 export function parseShareCode(value) {
   if (typeof value !== "string") return null;
 
-  const condensed = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const condensed = condense(value);
   if (condensed.length !== SHARING_CODE_LENGTH + 1) return null;
 
   const type = condensed.slice(0, 1);
@@ -319,7 +333,7 @@ export function parseShareCode(value) {
   if (token.length !== SHARING_CODE_LENGTH) return null;
   if (![...token].every((character) => SHARING_CODE_ALPHABET.includes(character))) return null;
 
-  return { type, token, code: `${type}-${(token.match(/.{1,4}/g) || []).join("-")}` };
+  return { type, token, code: `${type}-${groupToken(token)}` };
 }
 
 /**
@@ -332,14 +346,14 @@ export function parseShareCode(value) {
 export function formatShareCode(value) {
   if (typeof value !== "string") return "";
 
-  const condensed = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const condensed = condense(value);
   if (condensed === "") return "";
 
   const type = Object.values(SHARE_CODE_TYPES).includes(condensed.slice(0, 1))
     ? condensed.slice(0, 1)
     : null;
   const token = normaliseToken(type ? condensed.slice(1) : condensed);
-  const grouped = (token.match(/.{1,4}/g) || []).join("-");
+  const grouped = groupToken(token);
 
   return type ? [type, grouped].filter(Boolean).join("-") : grouped;
 }

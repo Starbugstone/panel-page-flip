@@ -97,4 +97,25 @@ final class UsernamePolicyTest extends TestCase
     {
         self::assertSame('@SilverOtter4821', UsernamePolicy::forDisplay('SilverOtter4821'));
     }
+
+    /**
+     * Somebody pasting a handle out of a chat window has typed the right name,
+     * sigil and surrounding whitespace included.
+     */
+    public function testTheAtSignIsNotPartOfTheName(): void
+    {
+        self::assertSame('SilverOtter4821', UsernamePolicy::stripPrefix('@SilverOtter4821'));
+        self::assertSame('SilverOtter4821', UsernamePolicy::stripPrefix('  @SilverOtter4821  '));
+        self::assertSame('SilverOtter4821', UsernamePolicy::stripPrefix('SilverOtter4821'));
+    }
+
+    /**
+     * A name is never *only* its sigil, so stripping one must not leave
+     * something that then reads as a valid username.
+     */
+    public function testStrippingLeavesNothingBehindForABareSigil(): void
+    {
+        self::assertSame('', UsernamePolicy::stripPrefix('@'));
+        self::assertNotNull(UsernamePolicy::validate(UsernamePolicy::stripPrefix('@')));
+    }
 }

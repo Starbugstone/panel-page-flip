@@ -65,6 +65,19 @@ final class UsernamePolicy
     }
 
     /**
+     * A username as somebody typed it, with the sigil taken back off.
+     *
+     * The `@` is how a username is written, not part of it, so somebody pasting
+     * `@SilverOtter4821` out of a chat window has typed the right name. Every
+     * endpoint that accepts a username has to agree about that — a form that
+     * kept the `@` would be looking up an account nobody can register.
+     */
+    public static function stripPrefix(string $username): string
+    {
+        return ltrim(trim($username), '@');
+    }
+
+    /**
      * Why this username cannot be used, or null when it can.
      *
      * Returns the sentence rather than a code: every caller wants to show it,

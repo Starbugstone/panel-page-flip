@@ -9,6 +9,7 @@ use App\Service\ShareException;
 use App\Service\SharingCodeRecipient;
 use App\Service\SharingCodeService;
 use App\Service\SharingWorkflowService;
+use App\Service\UsernamePolicy;
 use App\Service\UsernameService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -249,7 +250,7 @@ final class SharingWorkflowController extends AbstractController
             // and no autocomplete behind this: knowing somebody's username is
             // how you reach them, and no request here can be turned into a list
             // of who exists.
-            $recipient = $this->usernames->resolve(ltrim(trim($rawUsername), '@'), $sender);
+            $recipient = $this->usernames->resolve(UsernamePolicy::stripPrefix($rawUsername), $sender);
 
             return $recipient ?? $this->json(
                 ['message' => 'No account has that username.'],

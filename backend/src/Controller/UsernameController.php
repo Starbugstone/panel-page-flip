@@ -106,9 +106,7 @@ final class UsernameController extends AbstractController
             return $this->json(['message' => 'A username is required.'], Response::HTTP_BAD_REQUEST);
         }
 
-        // The leading @ is how a username is written, not part of it. Somebody
-        // pasting `@SilverOtter4821` out of a chat has typed the right name.
-        $recipient = $this->usernames->resolve(ltrim(trim($username), '@'), $user);
+        $recipient = $this->usernames->resolve(UsernamePolicy::stripPrefix($username), $user);
 
         if ($recipient === null) {
             return $this->json(['message' => 'No account has that username.'], Response::HTTP_NOT_FOUND);
@@ -122,9 +120,7 @@ final class UsernameController extends AbstractController
             'recipient' => [
                 'username' => $recipient->getUsername(),
                 'name' => $recipient->getName() ?: '',
-                'label' => $recipient->getName()
-                    ? sprintf('%s (%s)', $recipient->getName(), UsernamePolicy::forDisplay($recipient->getUsername()))
-                    : UsernamePolicy::forDisplay($recipient->getUsername()),
+                'label' => UsernamePolicy::describe($recipient->getUsername(), $recipient->getName()),
             ],
         ]);
     }
@@ -147,7 +143,7 @@ final class UsernameController extends AbstractController
             return $this->json(['message' => 'A username is required.'], Response::HTTP_BAD_REQUEST);
         }
 
-        $this->usernames->change($user, ltrim(trim($username), '@'));
+        $this->usernames->change($user, UsernamePolicy::stripPrefix($username));
 
         return $this->json([
             'message' => 'Your username has been changed.',
