@@ -53,6 +53,7 @@ const CODE_TYPE_LABELS = {
  */
 export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
   const [identity, setIdentity] = useState(null);
+  const [identityError, setIdentityError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [redeemValue, setRedeemValue] = useState("");
   const [isRedeeming, setIsRedeeming] = useState(false);
@@ -86,6 +87,11 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
       .catch((err) => {
         if (ignore) return;
         logger.error("Could not load your sharing identity:", err);
+        // Said on the page, not only in the log. Without this the panel sits on
+        // its placeholder code with both buttons disabled, which is
+        // indistinguishable from a slow load and gives somebody nothing to do
+        // about it.
+        setIdentityError(true);
       });
 
     return () => { ignore = true; };
@@ -269,6 +275,11 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
                 : <RefreshCw className="h-4 w-4" />}
             </Button>
           </div>
+          {identityError && (
+            <p className="text-sm text-destructive" role="status">
+              Your username and user code could not be loaded. Reload the page to try again.
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">

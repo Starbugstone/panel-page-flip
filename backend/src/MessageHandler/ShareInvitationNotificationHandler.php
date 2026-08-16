@@ -68,16 +68,30 @@ final class ShareInvitationNotificationHandler
         try {
             $this->shareService->notify($shares, $owner);
         } catch (\Throwable $exception) {
-            foreach ($shares as $share) {
-                $share->markNotificationFailed();
-            }
-            $this->entityManager->flush();
-
+            // Logged first. `notify()` persists and flushes token rows before
+            // it sends, so a Doctrine failure inside it closes the manager —
+            // and the recovery flush below would then throw on its way out,
+            // carrying the real cause away with it and leaving the failure
+            // transport holding an EntityManagerClosedException instead.
             $this->logger->error('A share invitation notice could not be delivered.', [
                 'owner_user_id' => $notification->ownerId,
                 'share_ids' => $notification->shareIds,
                 'exception' => $exception,
             ]);
+
+            // Best effort, for the same reason: recording that delivery failed
+            // is worth trying and never worth replacing the cause of it.
+            try {
+                foreach ($shares as $share) {
+                    $share->markNotificationFailed();
+                }
+                $this->entityManager->flush();
+            } catch (\Throwable $stateFailure) {
+                $this->logger->error('The notification failure state could not be recorded.', [
+                    'share_ids' => $notification->shareIds,
+                    'exception' => $stateFailure,
+                ]);
+            }
 
             // Rethrown so Messenger retries, and so a notice that never lands
             // is visible in the failure transport instead of being swallowed.

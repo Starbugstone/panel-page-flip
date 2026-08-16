@@ -539,6 +539,11 @@ Nothing in this application schedules itself. Retention periods configured in
 and a command has to run for anything to actually be deleted. An instance with
 no cron keeps everything for ever and never notices.
 
+> **One of these is not a cron job and is not optional.** The Messenger worker
+> in [§7.3](#73-symfony-messenger-consumer--required) is a long-running service,
+> and share invitation emails go through it. Without it, shares are created and
+> no mail ever leaves. Set it up before the timers below.
+
 | Command | Suggested cadence | Required? | If it never runs |
 |---|---|---|---|
 | `app:cleanup-logs` | daily | **Yes** | `var/log/app`, `var/log/security` and `var/log/audit` grow without limit. `*_LOG_RETENTION_DAYS` has no effect |
@@ -630,7 +635,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now comics-messenger
 ```
 
-### 7.3 Daily log rotation
+### 7.4 Daily log rotation
 
 The application writes its own daily files and deletes them on its own schedule
 — see [docs/security-logging.md](docs/security-logging.md). Schedule the command
@@ -665,7 +670,7 @@ server's access logs. `/etc/logrotate.d/comics`:
 The glob is deliberately not recursive, so it matches only the files directly in
 `var/log/` and leaves the dated subdirectories to `app:cleanup-logs`.
 
-### 7.4 Retention and privacy cleanups
+### 7.5 Retention and privacy cleanups
 
 Both are required. Together with `app:cleanup-logs` above, these three lines are
 the whole of what this application needs scheduled:

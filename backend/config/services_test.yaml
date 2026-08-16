@@ -17,6 +17,18 @@ services:
     limiter.storage.share_invitation:
         class: Symfony\Component\RateLimiter\Storage\InMemoryStorage
 
+    # Fetched directly by the tests that prove an exhausted lookup allowance
+    # closes the existence oracle. The allowance is deliberately loose — 240 an
+    # hour — because it is the ceiling that keeps a caller away from the
+    # database rather than the control that makes guessing hopeless. Spending it
+    # over HTTP would mean 240 requests to set up one assertion, so those tests
+    # spend it in process and then make the one request that matters.
+    # An alias rather than a redefinition: restating the id would replace the
+    # framework's definition with a classless one and fail the container build.
+    test.limiter.identifier_lookup:
+        alias: limiter.identifier_lookup
+        public: true
+
     # Alert thresholds and cooldowns must not outlive the run that set them. The
     # real pool is filesystem-backed and survives the database, so a cooldown
     # claimed by one run would suppress the alert the next run asserts on — the
@@ -57,5 +69,13 @@ services:
     # App\Tests\Support\SwitchableMailer.
     App\Tests\Support\SwitchableMailer:
         decorates: mailer.mailer
+        arguments:
+            $inner: '@.inner'
+
+    # Same trick for the queue. Committing the shares before dispatching the
+    # notice moved the failure window rather than closing it, and the only way
+    # to stand in that window is to make the dispatch itself fail.
+    App\Tests\Support\SwitchableMessageBus:
+        decorates: messenger.default_bus
         arguments:
             $inner: '@.inner'

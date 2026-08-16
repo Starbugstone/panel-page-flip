@@ -29,6 +29,9 @@ const STATUSES = [
   ["expired", "Expired"],
   ["exhausted", "Used up"],
   ["withdrawn", "Withdrawn"],
+  // Live in every other respect and still unredeemable, because the package
+  // lost a comic. The one dead state an owner has no way to notice.
+  ["comics_removed", "Comics removed"],
 ];
 
 const STATUS_LABELS = {

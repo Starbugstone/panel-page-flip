@@ -50,8 +50,12 @@ final class UsernamePolicyTest extends TestCase
     public static function unacceptableNames(): iterable
     {
         yield 'empty' => ['', 'Choose a username'];
-        yield 'too short' => ['ab', 'between 3 and 32'];
-        yield 'too long' => [str_repeat('a', UsernamePolicy::MAX_LENGTH + 1), 'between 3 and 32'];
+        // Derived from the policy, so widening the range updates the cases
+        // rather than leaving two tests asserting the old numbers.
+        $lengths = sprintf('between %d and %d', UsernamePolicy::MIN_LENGTH, UsernamePolicy::MAX_LENGTH);
+
+        yield 'too short' => [str_repeat('a', UsernamePolicy::MIN_LENGTH - 1), $lengths];
+        yield 'too long' => [str_repeat('a', UsernamePolicy::MAX_LENGTH + 1), $lengths];
         yield 'with a space' => ['silver otter', 'letters, numbers'];
         yield 'starting with a hyphen' => ['-silverotter', 'must start with'];
         yield 'starting with an underscore' => ['_silverotter', 'must start with'];

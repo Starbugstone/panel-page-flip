@@ -46,13 +46,16 @@ final class ExplicitContentPromoter
      *                            to share; only the owner may reclassify, which
      *                            is checked again here rather than assumed
      *
-     * @return int how many were newly marked
+     * @return list<array<string, mixed>> the audit records this promotion earned,
+     *                                    for the caller to emit once its
+     *                                    transaction has committed. Empty when
+     *                                    nothing changed, so its count is also
+     *                                    how many comics were newly marked
      *
      * @throws ShareException when one of them is not the caller's to classify
      */
-    public function promote(array $comics, User $actor): int
+    public function promote(array $comics, User $actor): array
     {
-        $promoted = 0;
         $records = [];
 
         foreach ($comics as $comic) {
@@ -70,7 +73,6 @@ final class ExplicitContentPromoter
             }
 
             $comic->setExplicitContent(true);
-            ++$promoted;
 
             // A recipient who accepted this comic agreed to read something that
             // was not classified 18+, and their old silence is not a
@@ -89,10 +91,25 @@ final class ExplicitContentPromoter
             ];
         }
 
+        return $records;
+    }
+
+    /**
+     * Write down what {@see promote()} did, once the caller has committed it.
+     *
+     * Split from the mutation because this service deliberately does not flush:
+     * the reclassification and the share it belongs to are one decision, so the
+     * service owning that transaction owns the moment the decision becomes
+     * true. Emitting from inside `promote()` published a classification change
+     * that a later refusal — an exhausted allowance, a failed flush, or simply
+     * nothing left to create — could still take away.
+     *
+     * @param list<array<string, mixed>> $records
+     */
+    public function recordPromotions(array $records): void
+    {
         foreach ($records as $record) {
             $this->auditLogger->audit(SecurityAuditLogger::COMIC_EXPLICIT_CLASSIFICATION_CHANGED, $record);
         }
-
-        return $promoted;
     }
 }

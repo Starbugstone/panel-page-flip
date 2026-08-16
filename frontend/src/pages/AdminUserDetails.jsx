@@ -423,10 +423,15 @@ function AdminUserDetailsPage({ userId }) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
+            {/* Guarded in flight: the dialog stays open until the request
+                settles, and every accepted request mints another code. An
+                administrator pressing twice would leave the user reading a
+                code that was replaced while they looked at it. */}
             <AlertDialogAction
+              disabled={isRotatingCode}
               onClick={(event) => { event.preventDefault(); rotateUserCode(); }}
             >
-              Replace their code
+              {isRotatingCode ? "Replacing…" : "Replace their code"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

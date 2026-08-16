@@ -345,4 +345,43 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
 
         self::assertNotNull(ShareClaimCode::RETENTION_AFTER_EXPIRY);
     }
+    /**
+     * A group whose package has lost a comic is not active.
+     *
+     * It is live in every other respect — unrevoked, unexpired, uses left — and
+     * it cannot be redeemed, because a group is handed over whole or not at
+     * all. Listing it as active tells an operator it works, and there was no
+     * filter that would find it so they could withdraw it and ask the owner to
+     * reissue.
+     */
+    public function testACodeWithAMissingComicIsNotListedAsActive(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'broken-package@example.com']);
+        $first = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $second = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $this->postJson('/api/shares/group-codes', [
+            'comicIds' => [$first->getId(), $second->getId()],
+            'maxUses' => 3,
+            'senderResponsibilityAccepted' => true,
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $this->createAndLoginAdmin(['email' => 'package-watcher@example.com']);
+        self::assertSame(1, $this->getJson('/api/admin/sharing-codes?status=active')['pagination']['totalItems']);
+        self::assertSame(0, $this->getJson('/api/admin/sharing-codes?status=comics_removed')['pagination']['totalItems']);
+
+        // One issue of the arc goes away, so the arc can no longer be handed
+        // over as the arc it was advertised as.
+        $this->loginAs($owner);
+        $this->browser()->request('DELETE', '/api/comics/' . $second->getId(), [], [], $this->csrfHeader());
+        self::assertResponseIsSuccessful();
+
+        $this->createAndLoginAdmin(['email' => 'package-watcher-2@example.com']);
+        self::assertSame(0, $this->getJson('/api/admin/sharing-codes?status=active')['pagination']['totalItems']);
+
+        $broken = $this->getJson('/api/admin/sharing-codes?status=comics_removed');
+        self::assertSame(1, $broken['pagination']['totalItems']);
+        self::assertSame('comics_removed', $broken['items'][0]['deadReason']);
+    }
 }

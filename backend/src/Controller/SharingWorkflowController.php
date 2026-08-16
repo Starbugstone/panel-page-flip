@@ -136,6 +136,29 @@ final class SharingWorkflowController extends AbstractController
         // Two of them go through the recipient's public identity and never
         // reveal the address behind it; the third *is* the address, typed by
         // the sender, and is the only way to reach somebody with no account.
+        //
+        // Enforced here rather than left to a precedence order. Quietly
+        // preferring the user code when a client sends a code and an address
+        // means a request whose two halves disagree still shares with
+        // somebody — and which somebody is decided by this function rather
+        // than by the sender.
+        $named = array_keys(array_filter(
+            [
+                'userCode' => $data['userCode'] ?? null,
+                'username' => $data['username'] ?? null,
+                'email' => $data['email'] ?? null,
+            ],
+            static fn (mixed $value): bool => is_string($value) && trim($value) !== ''
+        ));
+
+        if (count($named) !== 1) {
+            return $this->json([
+                'message' => $named === []
+                    ? 'A recipient is required.'
+                    : 'Name the recipient one way only: a username, a user code, or an email address.',
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
         $recipientUser = $this->resolveRecipient($data, $user);
 
         if ($recipientUser instanceof JsonResponse) {

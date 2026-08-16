@@ -125,12 +125,11 @@ final class ShareControllerTest extends AbstractApiTestCase
         $this->browser()->request('DELETE', '/api/comics/' . $comic->getId(), [], [], $this->csrfHeader());
         self::assertResponseStatusCodeSame(403);
 
-        // Refused per comic rather than as a whole request: the bulk endpoint
-        // does not distinguish a comic that is not yours from one that does not
-        // exist, so it cannot be used to find out which ids are real.
-        $reshare = $this->postInvitation((int) $comic->getId(), 'third@test.local');
-        self::assertSame('not_available', $reshare['results'][0]['status']);
-        self::assertSame(0, $reshare['created']);
+        // The whole request is refused, and one message covers a comic that is
+        // not yours and one that does not exist alike — so it cannot be used to
+        // find out which ids are real.
+        $this->postInvitation((int) $comic->getId(), 'third@test.local');
+        self::assertResponseStatusCodeSame(403);
 
         // Downloading the archive is owner-only: a recipient reads through the
         // reader and never takes a copy away.
@@ -693,12 +692,16 @@ final class ShareControllerTest extends AbstractApiTestCase
         $firstToken = $this->invitationTokenFromEmail();
         $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
 
-        // Resending is the manual counterpart to the queued notice, and it is
-        // synchronous — so it can hand the link straight back for an owner
-        // whose recipient is not receiving the email at all.
+        // Resending is the manual counterpart to the queued notice and is
+        // synchronous, so the replacement email is on the collector as soon as
+        // the request returns. The link is read from there and not from the
+        // response: it belongs in one place, and resend is not an exception to
+        // that.
         $second = $this->postJson('/api/shares/' . $shareId . '/resend');
         self::assertResponseIsSuccessful();
-        $secondToken = substr((string) strrchr($second['invitationUrl'], '/'), 1);
+        self::assertArrayNotHasKey('invitationUrl', $second);
+
+        $secondToken = $this->invitationTokenFromEmail();
         self::assertNotSame($firstToken, $secondToken);
 
         $this->getJson('/api/shares/invitations/' . $firstToken);

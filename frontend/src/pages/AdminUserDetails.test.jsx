@@ -70,4 +70,30 @@ describe("AdminUserDetails", () => {
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     expect(screen.queryByText(/U-[0-9A-Z]{4}/)).not.toBeInTheDocument();
   });
+
+  /**
+   * Every accepted request mints another code, and the dialog stays open until
+   * this one settles — so a second press replaces the code the user is at that
+   * moment reading off their own Sharing page.
+   */
+  it("cannot be pressed twice while a rotation is in flight", async () => {
+    const user = userEvent.setup();
+    let release;
+    vi.mocked(api.post).mockReturnValue(new Promise((resolve) => { release = resolve; }));
+
+    renderPage();
+    await openAccountTab(user);
+
+    await user.click(screen.getByRole("button", { name: "Replace user code" }));
+    const confirm = within(screen.getByRole("alertdialog"))
+      .getByRole("button", { name: "Replace their code" });
+    await user.click(confirm);
+
+    await waitFor(() => expect(
+      within(screen.getByRole("alertdialog")).getByRole("button", { name: "Replacing…" })
+    ).toBeDisabled());
+    expect(api.post).toHaveBeenCalledTimes(1);
+
+    release({ message: "User code replaced." });
+  });
 });

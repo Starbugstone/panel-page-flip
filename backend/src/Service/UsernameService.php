@@ -49,6 +49,7 @@ final class UsernameService
         private readonly UserRepository $userRepository,
         private readonly UsernameGenerator $generator,
         private readonly SecurityAuditLogger $auditLogger,
+        private readonly IdentifierLookupGuard $lookupGuard,
         private readonly RateLimiterFactory $usernameLookupLimiter,
         private readonly RateLimiterFactory $usernameChangeLimiter,
     ) {
@@ -116,6 +117,12 @@ final class UsernameService
      */
     public function resolve(string $username, User $caller): ?User
     {
+        // Before the query, and charged whether or not the name exists. The
+        // miss-only allowance below cannot come first: once it is spent, a real
+        // username still resolving while an imaginary one is refused *is* the
+        // oracle. See {@see IdentifierLookupGuard}.
+        $this->lookupGuard->charge($caller, 'username');
+
         $recipient = $this->findByUsername($username);
 
         if ($recipient !== null) {

@@ -56,6 +56,7 @@ final class ShareClaimCodeService
         private readonly AuthorizationCheckerInterface $authorizationChecker,
         private readonly SecurityAuditLogger $auditLogger,
         private readonly SharingCodeService $sharingCodes,
+        private readonly IdentifierLookupGuard $lookupGuard,
         private readonly ExplicitContentPromoter $explicitContent,
         private readonly ShareContentCodeLifetime $lifetime,
         private readonly RateLimiterFactory $shareClaimCodeLimiter,
@@ -126,16 +127,20 @@ final class ShareClaimCodeService
             $comics[] = $comic;
         }
 
-        // Before the code, and flushed with it below, so a code cannot come
-        // into existence carrying comics the reclassification failed to mark.
-        if ($markExplicit) {
-            $this->explicitContent->promote($comics, $owner);
-        }
-
-        // Claimed before the code exists, so a refused request leaves nothing
-        // behind. Creating a code sends no mail, which is why this is its own
-        // allowance rather than the invitation limiter's.
+        // Claimed before anything is mutated, so a refused request leaves
+        // nothing behind — not a code, and not a reclassification. Creating a
+        // code sends no mail, which is why this is its own allowance rather
+        // than the invitation limiter's.
         $this->reserveIssueAllowance($owner);
+
+        // After the allowance and before the code, flushed with it below, so a
+        // code cannot come into existence carrying comics the reclassification
+        // failed to mark. The audit records wait for that flush: a rejection
+        // between here and there must not leave a record claiming a
+        // classification change that never committed.
+        $promotions = $markExplicit
+            ? $this->explicitContent->promote($comics, $owner)
+            : [];
 
         // Both kinds of code come out of the same allocator, so one visible
         // token always means one thing.
@@ -160,6 +165,9 @@ final class ShareClaimCodeService
             // because Doctrine closes it when a flush raises this.
             throw new ShareException('A sharing code could not be created. Please try again.', 500);
         }
+
+        // Committed, so the classification is now true and may be written down.
+        $this->explicitContent->recordPromotions($promotions);
 
         $this->auditLogger->audit(SecurityAuditLogger::SHARE_CLAIM_CODE_CREATED, [
             'actor_user_id' => $owner->getId(),
@@ -201,6 +209,12 @@ final class ShareClaimCodeService
             );
         }
 
+        // The flood guard comes before the hash lookup, not after it. Charging
+        // only for a miss would leave a caller who has exhausted the allowance
+        // able to redeem a code they hold while being refused for one they
+        // guessed — which is the oracle the guard exists to close.
+        $this->lookupGuard->charge($redeemer, 'content_code');
+
         $code = $parsed === null ? null : $this->contentCodeRepository->findByParsedCode($parsed);
 
         if ($code === null) {
@@ -227,7 +241,12 @@ final class ShareClaimCodeService
                 $this->entityManager->commit();
             }
 
-            return $result;
+            // Only now is the redemption a fact. A caller that owns the
+            // transaction is trusted to commit it, which is the same contract
+            // the rest of this service works under.
+            $this->auditLogger->audit(SecurityAuditLogger::SHARE_CLAIM_CODE_REDEEMED, $result['audit']);
+
+            return $result['payload'];
         } catch (\Throwable $exception) {
             if ($ownsTransaction && $connection->isTransactionActive()) {
                 $this->entityManager->rollback();
@@ -240,8 +259,16 @@ final class ShareClaimCodeService
     /**
      * The redemption itself, with the caller holding the transaction.
      *
-     * @return array{results: list<array<string, mixed>>, claimed: int, alreadyHeld: int,
-     *               alreadyRedeemed: bool, type: string, ownerLabel: string}
+     * Hands back the audit record alongside the payload rather than writing it.
+     * An audit entry is a claim that something happened, and inside the lock
+     * this transaction has not committed — a rollback after that point would
+     * leave the record asserting a redemption nobody received. {@see redeem()}
+     * writes it once the commit has made it true.
+     *
+     * @return array{payload: array{results: list<array<string, mixed>>, claimed: int,
+     *                              alreadyHeld: int, alreadyRedeemed: bool, type: string,
+     *                              ownerLabel: string},
+     *               audit: array<string, mixed>}
      *
      * @throws ShareException
      */
@@ -252,11 +279,29 @@ final class ShareClaimCodeService
         // committed one rather than whatever was loaded before the wait.
         $this->entityManager->refresh($code);
 
-        // One answer for a code that never existed, one that has been revoked,
-        // one that ran out, one that expired and one whose package is no longer
-        // whole. Telling them apart would say whether a guess had ever been a
-        // real code.
-        if (!$code->isRedeemable()) {
+        // One account, at most one use. Without this a recipient could submit
+        // the same code ten times and exhaust an offer advertised to ten
+        // people — and the owner's "claimed 10 of 10" would be counting
+        // requests rather than the audience it says it counts.
+        //
+        // Read before the code is judged, because it changes what "used up"
+        // means for this caller. Somebody who already spent a use is replaying
+        // their own redemption, and the count they exhausted was their own.
+        $alreadyRedeemed = $this->redemptionRepository->findFor($code, $redeemer) !== null;
+
+        // Structural death — withdrawn, expired, or a package that can no
+        // longer be handed over whole — refuses everybody, replay included:
+        // there is nothing left to re-report. All of it gives the one generic
+        // answer, so telling a guess from a real code stays impossible.
+        if ($code->isStructurallyDead()) {
+            $this->rejectRedemption($redeemer, $code->getId());
+        }
+
+        // Exhaustion is different, and only for somebody who has no use of
+        // their own. A one-use code that its single redeemer double-clicks must
+        // replay rather than refuse — the alternative is a 404 for the person
+        // holding the very share the code created.
+        if (!$alreadyRedeemed && $code->getUsesRemaining() <= 0) {
             $this->rejectRedemption($redeemer, $code->getId());
         }
 
@@ -267,12 +312,6 @@ final class ShareClaimCodeService
             // reveals nothing the holder does not already know.
             throw new ShareException('This is your own sharing code.', 409);
         }
-
-        // One account, at most one use. Without this a recipient could submit
-        // the same code ten times and exhaust an offer advertised to ten
-        // people — and the owner's "claimed 10 of 10" would be counting
-        // requests rather than the audience it says it counts.
-        $alreadyRedeemed = $this->redemptionRepository->findFor($code, $redeemer) !== null;
 
         // The whole package is judged before any of it is handed over. A group
         // is an offer of an arc, and a recipient who is given eleven issues of
@@ -331,7 +370,7 @@ final class ShareClaimCodeService
 
         $this->entityManager->flush();
 
-        $this->auditLogger->audit(SecurityAuditLogger::SHARE_CLAIM_CODE_REDEEMED, [
+        $audit = [
             'actor_user_id' => $redeemer->getId(),
             'target_type' => 'share_content_code',
             'target_id' => $code->getId(),
@@ -340,9 +379,9 @@ final class ShareClaimCodeService
             'claimed' => $claimed,
             'repeat' => $alreadyRedeemed,
             'uses_remaining' => $code->getUsesRemaining(),
-        ]);
+        ];
 
-        return [
+        $payload = [
             'results' => $results,
             // What arrived now and what they already had, told apart: a group
             // that overlaps a recipient's existing shares is reused rather than
@@ -356,6 +395,8 @@ final class ShareClaimCodeService
             // redeeming one must not become a way to learn that.
             'ownerLabel' => $this->sharingCodes->describe($owner)['label'],
         ];
+
+        return ['payload' => $payload, 'audit' => $audit];
     }
 
     /** @return list<ShareClaimCode> */

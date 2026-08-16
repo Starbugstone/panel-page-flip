@@ -10,6 +10,7 @@ use App\Tests\Functional\AbstractApiTestCase;
 use App\Tests\Functional\InvitationLinkAssertions;
 use Doctrine\ORM\EntityManagerInterface;
 use App\Tests\Support\SwitchableMailer;
+use App\Tests\Support\SwitchableMessageBus;
 
 /**
  * The share is what is true; the email is an announcement of it.
@@ -144,7 +145,10 @@ final class ShareNotificationTest extends AbstractApiTestCase
         SwitchableMailer::reset();
         $resent = $this->postJson('/api/shares/' . $shareId . '/resend');
         self::assertResponseIsSuccessful();
-        self::assertStringContainsString('/share/invitation/', $resent['invitationUrl']);
+        // The link went to the recipient's inbox and nowhere else. Resend is no
+        // exception to that, however convenient handing it back would be.
+        self::assertArrayNotHasKey('invitationUrl', $resent);
+        self::assertStringContainsString('/share/invitation/', $this->invitationUrlFromEmail());
 
         $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
         self::assertSame(ComicShare::NOTIFICATION_SENT, $recipient['notificationState']);
@@ -225,5 +229,50 @@ final class ShareNotificationTest extends AbstractApiTestCase
 
         self::assertSame(ComicShare::NOTIFICATION_PENDING, $share->getNotificationState());
         self::assertNull($share->getNotifiedAt());
+    }
+
+    /**
+     * A queue that is down costs the notice, never the share.
+     *
+     * Committing before dispatching moved this failure rather than removing it.
+     * An exception escaping the dispatch would reach the owner as a 500 for a
+     * share that exists — so they would be told it failed, retry, and meet
+     * their own duplicates. That is the half-success the whole commit-then-
+     * announce design exists to prevent, arriving one step later than before.
+     */
+    public function testAQueueThatIsDownStillReportsTheShareAsCreated(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'unqueued@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        SwitchableMessageBus::failEverything();
+
+        $payload = $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
+            'email' => 'never-told@example.com',
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        // The truthful answer: the share exists, and the notice did not go.
+        self::assertResponseIsSuccessful();
+        self::assertSame(1, $payload['created']);
+        self::assertSame(
+            ComicShare::NOTIFICATION_FAILED,
+            $payload['results'][0]['notificationState']
+        );
+
+        SwitchableMessageBus::reset();
+
+        // And the state survived the request, so the owner is told about it on
+        // the Sharing page rather than only in the response they have closed.
+        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        self::assertSame(ComicShare::NOTIFICATION_FAILED, $recipient['notificationState']);
+
+        // Recoverable by hand, which is what the failed state is for.
+        $this->postJson('/api/shares/' . $recipient['id'] . '/resend');
+        self::assertResponseIsSuccessful();
+
+        $afterResend = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        self::assertSame(ComicShare::NOTIFICATION_SENT, $afterResend['notificationState']);
     }
 }

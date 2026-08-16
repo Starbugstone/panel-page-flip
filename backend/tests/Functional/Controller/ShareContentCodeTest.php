@@ -351,8 +351,6 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         self::assertFalse($stored->isRedeemable($expiresAt));
         self::assertFalse($stored->isExpired($expiresAt->modify('-1 second')));
         self::assertTrue($stored->isRedeemable($expiresAt->modify('-1 second')));
-
-        self::assertNotSame('', $code);
     }
 
     /* ---------------------------------------------------------------------- */
@@ -533,6 +531,42 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         $this->postJson('/api/shares/content-codes/redeem', ['code' => 'G' . substr($code, 1)]);
 
         self::assertResponseStatusCodeSame(404);
+        self::assertSame([], $this->getJson('/api/shares/shared-with-me')['sharedWithMe']);
+    }
+
+    /**
+     * An exhausted allowance stops a real code being redeemed too.
+     *
+     * #135 asks for the flood guard *before* the hash lookup, and this is why
+     * the order matters rather than being tidiness. Charging only for a miss
+     * leaves a spent caller still able to redeem a code they hold while being
+     * refused for one they guessed — so the refusal itself reports whether the
+     * guess was real, which is exactly what grinding through the keyspace wants
+     * to know.
+     */
+    public function testAnExhaustedAllowanceRefusesARealCodeAsWell(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'still-good@example.com']);
+        $code = $this->postJson('/api/shares/comic-codes', [
+            'comicIds' => $this->ownedComicIds($owner, 1),
+            'maxUses' => 5,
+            'senderResponsibilityAccepted' => true,
+        ])['code'];
+
+        $this->createAndLoginUser(['email' => 'grinder@example.com']);
+        $this->exhaustIdentifierLookups();
+
+        $real = $this->postJson('/api/shares/content-codes/redeem', ['code' => $code]);
+        $realStatus = $this->browser()->getResponse()->getStatusCode();
+
+        $imaginary = $this->postJson('/api/shares/content-codes/redeem', ['code' => 'C-ZZZZ-ZZZZ-ZZZZ']);
+
+        self::assertSame(429, $realStatus);
+        self::assertSame($realStatus, $this->browser()->getResponse()->getStatusCode());
+        self::assertSame($real['message'], $imaginary['message']);
+
+        // And the live code really was live: nothing was handed over, so the
+        // refusal was the guard rather than the code having been spent.
         self::assertSame([], $this->getJson('/api/shares/shared-with-me')['sharedWithMe']);
     }
 }

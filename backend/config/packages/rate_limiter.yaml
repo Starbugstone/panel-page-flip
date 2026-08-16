@@ -80,6 +80,24 @@ framework:
             policy: sliding_window
             limit: 3
             interval: '24 hours'
+        # Charged for *every* attempt to turn an identifier into a person —
+        # username, `U-` code, `C-`/`G-` redemption — and charged before the
+        # repository is asked anything.
+        #
+        # The miss-only allowances above cannot do this job alone. Once one of
+        # them is exhausted a known identifier still resolves and an unknown one
+        # is refused, which is precisely the existence oracle they exist to
+        # prevent: the difference between the two answers is the answer. So this
+        # runs first and does not care whether the lookup would have succeeded.
+        #
+        # Deliberately loose. It is the ceiling that keeps an exhausted caller
+        # away from the database, not the control that makes guessing hopeless —
+        # that is entropy for a code, and the tighter miss-only allowance for a
+        # username. Somebody sharing all afternoon must never meet it.
+        identifier_lookup:
+            policy: sliding_window
+            limit: 240
+            interval: '1 hour'
 
         # Outbound lookups against the external metadata providers. Their own
         # documented limits are what this protects: Comic Vine refuses a client

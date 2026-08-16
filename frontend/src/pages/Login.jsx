@@ -62,7 +62,12 @@ export default function Login() {
     let ignore = false;
 
     fetchSuggestion().then((username) => {
-      if (!ignore && username) setRegisterUsername(username);
+      // Only into an empty field. Somebody who started typing before this
+      // request came back has chosen a name, and overwriting it as they type is
+      // the field fighting them.
+      if (!ignore && username) {
+        setRegisterUsername((current) => current || username);
+      }
     });
 
     return () => { ignore = true; };

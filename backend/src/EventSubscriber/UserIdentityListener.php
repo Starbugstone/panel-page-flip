@@ -9,7 +9,9 @@ use App\Repository\ShareClaimCodeRepository;
 use App\Service\SharingCodeFormat;
 use App\Service\UsernameGenerator;
 use App\Service\UsernamePolicy;
+use Doctrine\Bundle\DoctrineBundle\Attribute\AsDoctrineListener;
 use Doctrine\Bundle\DoctrineBundle\Attribute\AsEntityListener;
+use Doctrine\ORM\Event\PostFlushEventArgs;
 use Doctrine\ORM\Event\PrePersistEventArgs;
 use Doctrine\ORM\Events;
 
@@ -32,6 +34,7 @@ use Doctrine\ORM\Events;
  * already visibly taken.
  */
 #[AsEntityListener(event: Events::prePersist, entity: User::class)]
+#[AsDoctrineListener(event: Events::postFlush)]
 final class UserIdentityListener
 {
     /**
@@ -40,7 +43,14 @@ final class UserIdentityListener
      * A query cannot see a sibling created in the same flush, so a request that
      * creates several accounts at once — the sample-data generator does exactly
      * that — could otherwise be given the same name twice and fail on the
-     * insert. Cheap to keep, and it only has to survive the flush.
+     * insert.
+     *
+     * Cleared by {@see postFlush()}, which is the moment they stop being needed:
+     * a committed row is one a query can find. Under PHP-FPM the process ends a
+     * moment later and it would hardly matter, but a Messenger worker or an
+     * import command keeps this listener for hours — and an array that only
+     * grows would hold every name the process ever issued, reserving them
+     * against candidates for no reason.
      *
      * @var array<string, true>
      */
@@ -81,6 +91,15 @@ final class UserIdentityListener
             ));
             $this->pendingCodes[$user->getUserCode()] = true;
         }
+    }
+
+    /**
+     * The rows are committed, so the database can answer for them from here on.
+     */
+    public function postFlush(PostFlushEventArgs $event): void
+    {
+        $this->pendingUsernames = [];
+        $this->pendingCodes = [];
     }
 
     /**

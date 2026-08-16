@@ -323,13 +323,56 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         $this->postJson('/api/shares/content-codes/redeem', ['code' => $code]);
         self::assertResponseIsSuccessful();
 
+        // Somebody who arrived too late. Exhaustion is about them, not about
+        // the account that spent the use — see the replay test below.
+        $this->createAndLoginUser(['email' => 'too-late@example.com']);
         $spent = $this->postJson('/api/shares/content-codes/redeem', ['code' => $code]);
         $spentStatus = $this->browser()->getResponse()->getStatusCode();
 
         $imaginary = $this->postJson('/api/shares/content-codes/redeem', ['code' => 'C-ZZZZ-ZZZZ-ZZZZ']);
 
+        self::assertSame(404, $spentStatus);
         self::assertSame($spentStatus, $this->browser()->getResponse()->getStatusCode());
         self::assertSame($spent['message'], $imaginary['message']);
+    }
+
+    /**
+     * A one-use code, submitted twice by the account that used it.
+     *
+     * The second submission is the same person pressing the button again, not
+     * a second claim, so it replays what they already hold. Refusing it — which
+     * is what judging the code before looking for their redemption does — hands
+     * a 404 to the one person who definitely redeemed it successfully.
+     */
+    public function testTheAccountThatSpentTheLastUseCanStillReplayIt(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'single-use@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $code = $this->postJson('/api/shares/comic-codes', [
+            'comicIds' => [$comic->getId()],
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ])['code'];
+
+        $this->createAndLoginUser(['email' => 'double-clicker@example.com']);
+
+        $first = $this->postJson('/api/shares/content-codes/redeem', ['code' => $code]);
+        self::assertResponseIsSuccessful();
+        self::assertSame(1, $first['claimed']);
+        self::assertFalse($first['alreadyRedeemed']);
+
+        $again = $this->postJson('/api/shares/content-codes/redeem', ['code' => $code]);
+        self::assertResponseIsSuccessful();
+        self::assertTrue($again['alreadyRedeemed']);
+        // Re-reported, not re-granted: the comic they already hold, and no
+        // second use taken from an offer that had none left to give.
+        self::assertSame(0, $again['claimed']);
+        self::assertSame(1, $again['alreadyHeld']);
+
+        $this->loginAs($owner);
+        $codes = $this->getJson('/api/shares/content-codes')['codes'];
+        self::assertSame(1, $codes[0]['timesUsed']);
+        self::assertSame(0, $codes[0]['usesRemaining']);
     }
 
     public function testAnExpiredContentCodeIsRefused(): void

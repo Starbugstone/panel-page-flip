@@ -134,6 +134,20 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
                 $qb->andWhere('c.revokedAt IS NULL')
                     ->andWhere('c.usesRemaining > 0')
                     ->andWhere('c.expiresAt > :now')
+                    // A code whose package has lost a comic cannot be redeemed
+                    // — a group is handed over whole or not at all — so listing
+                    // it as active tells an operator it works when it does not.
+                    ->andWhere('SIZE(c.comics) = c.issuedComicCount')
+                    ->setParameter('now', $now);
+                break;
+            case 'comics_removed':
+                // Live in every other respect and still unredeemable, which is
+                // the one dead state an owner cannot see coming. Findable so an
+                // operator can withdraw it and tell them to reissue.
+                $qb->andWhere('c.revokedAt IS NULL')
+                    ->andWhere('c.usesRemaining > 0')
+                    ->andWhere('c.expiresAt > :now')
+                    ->andWhere('SIZE(c.comics) <> c.issuedComicCount')
                     ->setParameter('now', $now);
                 break;
             case 'withdrawn':

@@ -45,6 +45,47 @@ const acknowledge = async (user) => {
   await user.click(screen.getByLabelText(/I confirm that I have the necessary rights/i));
 };
 
+const resolvedRecipient = {
+  username: "SilverOtter4821",
+  name: "Jane Reader",
+  label: "Jane Reader (@SilverOtter4821)",
+};
+
+/**
+ * Answer the resolve call with a known identity and the share call with a
+ * successful result, so a test can do both without re-mocking in between.
+ */
+const answerResolveAndShare = (shareResult = { created: 1, total: 1, results: [{ comicId: 1, status: "created" }] }) => {
+  vi.mocked(api.post).mockImplementation((url) => {
+    if (url === "/api/users/resolve-username" || url === "/api/shares/user-code/resolve") {
+      return Promise.resolve({ recipient: resolvedRecipient });
+    }
+
+    return Promise.resolve(shareResult);
+  });
+};
+
+/**
+ * Name a recipient the way the dialog requires: type the identifier, press
+ * Check, and wait for the identity to come back.
+ *
+ * Not optional, and that is the point. A username or a `U-` code names an
+ * account the sender cannot see — a code they cannot even read — so a typo
+ * reaches a real stranger rather than failing. Sending before the identity is
+ * on screen is sharing with somebody nobody has looked at.
+ */
+const confirmRecipient = async (user, { username, userCode }) => {
+  if (userCode) {
+    await user.click(screen.getByRole("tab", { name: "U- code" }));
+    await user.type(screen.getByLabelText(/Their U- code/i), userCode);
+  } else {
+    await user.type(screen.getByLabelText(/Their username/i), username);
+  }
+
+  await user.click(screen.getByRole("button", { name: "Check" }));
+  await screen.findByText(/^Sharing with/);
+};
+
 describe("ShareComicsDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -105,17 +146,13 @@ describe("ShareComicsDialog", () => {
 
   it("shares by exact username without ever asking for an address", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({
-      created: 1,
-      total: 1,
-      results: [{ comicId: 1, status: "created" }],
-    });
+    answerResolveAndShare();
 
     open();
     await screen.findByText("Batman #1");
 
     await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
-    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await confirmRecipient(user, { username: "SilverOtter4821" });
     await acknowledge(user);
     await user.click(screen.getByRole("button", { name: /Send invitation/i }));
 
@@ -127,8 +164,79 @@ describe("ShareComicsDialog", () => {
         senderResponsibilityAccepted: true,
       })
     ));
+
     // No address anywhere in the request: that is the point of a username.
-    expect(vi.mocked(api.post).mock.calls[0][1]).not.toHaveProperty("email");
+    const shareCall = vi.mocked(api.post).mock.calls
+      .find(([url]) => url === "/api/shares/invitations/bulk");
+    expect(shareCall[1]).not.toHaveProperty("email");
+  });
+
+  /**
+   * The confirmation is a gate, not a convenience.
+   *
+   * A syntactically valid handle is not a person. Letting Send light up on one
+   * means a mistyped character shares somebody's library with whoever happens
+   * to hold that name, and the sender is never shown who that was.
+   */
+  it("will not send to a username until it has been checked", async () => {
+    const user = userEvent.setup();
+    answerResolveAndShare();
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await acknowledge(user);
+
+    const send = screen.getByRole("button", { name: /Send invitation/i });
+    expect(send).toBeDisabled();
+    expect(screen.getByText(/Check who this is before sending/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Check" }));
+    await screen.findByText(/^Sharing with/);
+
+    expect(screen.getByRole("button", { name: /Send invitation/i })).not.toBeDisabled();
+  });
+
+  it("will not send to a U- code until it has been checked", async () => {
+    const user = userEvent.setup();
+    answerResolveAndShare();
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.click(screen.getByRole("tab", { name: "U- code" }));
+    await user.type(screen.getByLabelText(/Their U- code/i), "u7rfxkp3mq82d");
+    await acknowledge(user);
+
+    expect(screen.getByRole("button", { name: /Send invitation/i })).toBeDisabled();
+  });
+
+  /**
+   * A recent recipient arrives already confirmed, because the label beside the
+   * button is the identity a Check would go and fetch — the server produced it
+   * from a relationship this owner already has.
+   */
+  it("treats a recent recipient as already confirmed", async () => {
+    const user = userEvent.setup();
+    answerResolveAndShare();
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.click(screen.getByRole("button", { name: "Jane Reader (@SilverOtter4821)" }));
+    await acknowledge(user);
+
+    expect(await screen.findByText(/^Sharing with/)).toHaveTextContent(
+      "Sharing with Jane Reader (@SilverOtter4821)"
+    );
+    expect(screen.getByRole("button", { name: /Send invitation/i })).not.toBeDisabled();
+
+    // And no lookup was needed to get there.
+    expect(api.post).not.toHaveBeenCalledWith("/api/users/resolve-username", expect.anything());
   });
 
   it("checks who a username belongs to before anything is offered to them", async () => {
@@ -176,18 +284,13 @@ describe("ShareComicsDialog", () => {
 
   it("shares by U- code, sending the canonical form however it was typed", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({
-      created: 1,
-      total: 1,
-      results: [{ comicId: 1, status: "created" }],
-    });
+    answerResolveAndShare();
 
     open();
     await screen.findByText("Batman #1");
 
     await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
-    await user.click(screen.getByRole("tab", { name: "U- code" }));
-    await user.type(screen.getByLabelText(/Their U- code/i), "u7rfxkp3mq82d");
+    await confirmRecipient(user, { userCode: "u7rfxkp3mq82d" });
     await acknowledge(user);
     await user.click(screen.getByRole("button", { name: /Send invitation/i }));
 
@@ -217,11 +320,7 @@ describe("ShareComicsDialog", () => {
 
   it("still accepts an exact address, for somebody with no account yet", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({
-      created: 1,
-      total: 1,
-      results: [{ comicId: 1, status: "created" }],
-    });
+    answerResolveAndShare();
 
     open();
     await screen.findByText("Batman #1");
@@ -322,17 +421,13 @@ describe("ShareComicsDialog", () => {
 
   it("sends the 18+ decision with the share", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({
-      created: 1,
-      total: 1,
-      results: [{ comicId: 1, status: "created" }],
-    });
+    answerResolveAndShare();
 
     open();
     await screen.findByText("Batman #1");
 
     await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
-    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await confirmRecipient(user, { username: "SilverOtter4821" });
     await user.click(screen.getByLabelText(/contain 18\+ \/ explicit content/i));
     await acknowledge(user);
     await user.click(screen.getByRole("button", { name: /Send invitation/i }));
@@ -364,17 +459,13 @@ describe("ShareComicsDialog", () => {
 
   it("sends markExplicit false rather than nothing when the box is left alone", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({
-      created: 1,
-      total: 1,
-      results: [{ comicId: 1, status: "created" }],
-    });
+    answerResolveAndShare();
 
     open();
     await screen.findByText("Batman #1");
 
     await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
-    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await confirmRecipient(user, { username: "SilverOtter4821" });
     await acknowledge(user);
     await user.click(screen.getByRole("button", { name: /Send invitation/i }));
 
@@ -414,7 +505,7 @@ describe("ShareComicsDialog", () => {
 
   it("reports what the server refused rather than claiming a share went through", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({
+    answerResolveAndShare({
       created: 0,
       total: 1,
       results: [{ comicId: 1, status: "not_available", message: "This comic is not available to share." }],
@@ -424,11 +515,67 @@ describe("ShareComicsDialog", () => {
     await screen.findByText("Batman #1");
 
     await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
-    await user.type(screen.getByLabelText(/Their username/i), "SilverOtter4821");
+    await confirmRecipient(user, { username: "SilverOtter4821" });
     await acknowledge(user);
     await user.click(screen.getByRole("button", { name: /Send invitation/i }));
 
     expect(await screen.findByText("This comic is not available to share.")).toBeInTheDocument();
     expect(toast).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The share exists; the email is queued behind it. Saying "sent" claims
+   * something the response cannot know, and the notification state is where
+   * delivery is actually reported.
+   */
+  it("says the invitation is on its way rather than that it was sent", async () => {
+    const user = userEvent.setup();
+    answerResolveAndShare();
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await confirmRecipient(user, { username: "SilverOtter4821" });
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Send invitation/i }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      description: expect.stringContaining("is on its way"),
+    })));
+  });
+
+  it("says so when the server could not queue the notice", async () => {
+    const user = userEvent.setup();
+    answerResolveAndShare({
+      created: 1,
+      total: 1,
+      results: [{ comicId: 1, status: "created", notificationState: "failed" }],
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await confirmRecipient(user, { username: "SilverOtter4821" });
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Send invitation/i }));
+
+    // The share is real and the notice is not — telling somebody it was sent
+    // leaves them waiting for an answer to a message nobody received.
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      description: expect.stringContaining("could not be notified"),
+    })));
+  });
+
+  /**
+   * A locked selection can name a comic the picker never fetched, because the
+   * picker filters to what is shareable. The count has to describe the request.
+   */
+  it("counts the comics it will send, not the ones the library returned", async () => {
+    open({ initialComicIds: [1, 2, 4], lockSelection: true });
+
+    await screen.findByText("Batman #1");
+    expect(screen.getByText(/3 comics will be offered/)).toBeInTheDocument();
   });
 });

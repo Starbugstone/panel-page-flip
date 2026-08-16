@@ -220,8 +220,9 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
     }
 
     /**
-     * The reclassification and the share are one decision, so a refused
-     * reclassification must not leave an ordinary share behind.
+     * A selection is shared whole or not at all, and the 18+ flag rides on the
+     * same decision: a batch containing a comic the caller cannot share leaves
+     * behind neither a share nor a reclassification.
      */
     public function testAComicYouCannotClassifyBlocksTheWholeShare(): void
     {
@@ -231,18 +232,89 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'overreaching@example.com']);
         $mine = ComicFactory::new()->ownedBy($owner)->create()->object();
 
-        $payload = $this->postJson('/api/shares/invitations/bulk', [
+        $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$mine->getId(), $theirs->getId()],
             'email' => 'reader@example.com',
             'senderResponsibilityAccepted' => true,
             'markExplicit' => true,
         ]);
 
-        // Somebody else's comic never reaches the promoter — it is filtered out
-        // as unshareable first — so this succeeds for the one that is the
-        // caller's and refuses the other, exactly as it would without the flag.
-        self::assertSame(1, $payload['created']);
-        self::assertTrue($this->reload((int) $mine->getId())->isExplicitContent());
+        // One refusal for the whole batch, and the caller's own comic is
+        // untouched: a sender told "1 shared" when they asked for 2 has been
+        // told the wrong thing, and a comic marked 18+ by a share that never
+        // happened is a reclassification nobody asked for.
+        self::assertResponseStatusCodeSame(403);
+        self::assertFalse($this->reload((int) $mine->getId())->isExplicitContent());
         self::assertFalse($this->reload((int) $theirs->getId())->isExplicitContent());
+
+        // And no record claiming otherwise. An audit entry is a statement that
+        // something happened; one written for a reclassification that was
+        // rolled back is a false statement in the place people go to find out
+        // what was true.
+        $this->assertNoAuditEvent(SecurityAuditLogger::COMIC_EXPLICIT_CLASSIFICATION_CHANGED);
+    }
+
+    /**
+     * A refused code leaves no reclassification and no record of one.
+     *
+     * The promotion used to run before the allowance was claimed, so a request
+     * that ran out of allowance had already emitted the audit event for a
+     * change that was never flushed.
+     */
+    public function testARefusedCodeLeavesNeitherTheMarkNorTheRecord(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'over-limit@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        // maxUses outside the permitted range, so the request is refused after
+        // the comics have been resolved and authorised — the window the
+        // promotion used to sit in.
+        $this->postJson('/api/shares/comic-codes', [
+            'comicIds' => [$comic->getId()],
+            'maxUses' => 999,
+            'senderResponsibilityAccepted' => true,
+            'markExplicit' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertFalse($this->reload((int) $comic->getId())->isExplicitContent());
+        self::assertNoAuditEvent(SecurityAuditLogger::COMIC_EXPLICIT_CLASSIFICATION_CHANGED);
+    }
+
+    /**
+     * Marking 18+ sticks even when the share itself is entirely duplicate.
+     *
+     * The reclassification is a change to the owner's own library and does not
+     * depend on a relationship being created from it. `inviteMany` returns
+     * without committing when there is nothing new to make, so a promotion that
+     * rode on that flush was silently dropped for exactly the batch where the
+     * owner was correcting comics they had already shared — which is when
+     * getting the classification right matters most.
+     */
+    public function testMarkingExplicitPersistsWhenEveryShareIsADuplicate(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'corrector@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
+            'email' => 'reader@example.com',
+            'senderResponsibilityAccepted' => true,
+        ]);
+        self::assertResponseIsSuccessful();
+        self::assertFalse($this->reload((int) $comic->getId())->isExplicitContent());
+
+        // The same comic to the same person, now marked 18+. Nothing new to
+        // create, and the classification is the whole point of the request.
+        $payload = $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
+            'email' => 'reader@example.com',
+            'senderResponsibilityAccepted' => true,
+            'markExplicit' => true,
+        ]);
+
+        self::assertSame(0, $payload['created']);
+        self::assertTrue($this->reload((int) $comic->getId())->isExplicitContent());
+        $this->assertLoggedAuditEvent(SecurityAuditLogger::COMIC_EXPLICIT_CLASSIFICATION_CHANGED);
     }
 }

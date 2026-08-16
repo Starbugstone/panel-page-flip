@@ -180,13 +180,41 @@ class ComicShareService
         // the worker reloads the relationships and mints the links at the
         // moment it sends them, so no plaintext token is ever written to the
         // queue and a notice retried later carries a link that still works.
-        $this->messageBus->dispatch(new ShareInvitationNotification(
-            (int) $owner->getId(),
-            array_values(array_map(
-                static fn (ComicShare $share): int => (int) $share->getId(),
-                $prepared
-            ))
-        ));
+        try {
+            $this->messageBus->dispatch(new ShareInvitationNotification(
+                (int) $owner->getId(),
+                array_values(array_map(
+                    static fn (ComicShare $share): int => (int) $share->getId(),
+                    $prepared
+                ))
+            ));
+        } catch (\Throwable $exception) {
+            // The shares are committed and the owner has them. A broker that is
+            // down is a delivery failure, and letting it out of here would tell
+            // the owner the share did not happen — then a retry would meet its
+            // own duplicates. That is the half-success this whole design exists
+            // to prevent, arriving one step later than it used to.
+            foreach ($prepared as $comicId => $share) {
+                $share->markNotificationFailed();
+                $outcomes[$comicId]['notificationState'] = $share->getNotificationState();
+            }
+
+            try {
+                $this->entityManager->flush();
+            } catch (\Throwable $stateFailure) {
+                // Best effort. Losing the delivery state must not replace the
+                // outcome the owner is entitled to.
+                $this->logger->error('A share notification failure could not be recorded.', [
+                    'owner_user_id' => $owner->getId(),
+                    'exception' => $stateFailure,
+                ]);
+            }
+
+            $this->logger->error('A share invitation notice could not be queued.', [
+                'owner_user_id' => $owner->getId(),
+                'exception' => $exception,
+            ]);
+        }
 
         return $outcomes;
     }

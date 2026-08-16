@@ -12,6 +12,7 @@ use App\Service\EmailVerificationService;
 use App\Service\PasswordValidator;
 use App\Service\SecurityAuditLogger;
 use App\Service\ShareException;
+use App\Service\UsernamePolicy;
 use App\Service\UsernameService;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
@@ -135,14 +136,53 @@ final class RegistrationController extends AbstractController
         try {
             $entityManager->flush();
         } catch (UniqueConstraintViolationException) {
-            // Two registrations picked the same username between the check and
-            // this write. The index is the authority and has just said so;
-            // Doctrine closes the manager on it, so the useful answer is a
-            // fresh suggestion rather than a retry this request cannot make.
-            return new JsonResponse([
-                'message' => 'Validation failed',
-                'errors' => ['username' => 'That username was taken a moment ago. Please choose another.'],
-            ], Response::HTTP_CONFLICT);
+            // Something unique was taken between the checks above and this
+            // write, and the index has just said so. *Which* one matters to the
+            // answer: the email was checked a few lines up and can lose that
+            // race too, and telling somebody to pick another username when
+            // their address is the duplicate sends them to the wrong field.
+            //
+            // The index names are Doctrine-generated hashes, so reading them
+            // out of the driver message would be guessing. Doctrine closes the
+            // manager on this exception but the DBAL connection survives it, so
+            // the reliable answer is to ask the database which value is now
+            // present.
+            $connection = $entityManager->getConnection();
+
+            $usernameTaken = (bool) $connection->fetchOne(
+                'SELECT 1 FROM `user` WHERE username_canonical = ?',
+                [UsernamePolicy::canonicalise($user->getUsername())]
+            );
+
+            if ($usernameTaken) {
+                // No fresh suggestion offered here: producing one goes through
+                // the manager Doctrine has just closed. The client asks for
+                // another the same way it asked for the first.
+                return new JsonResponse([
+                    'message' => 'Validation failed',
+                    'errors' => ['username' => 'That username was taken a moment ago. Please choose another.'],
+                ], Response::HTTP_CONFLICT);
+            }
+
+            $emailTaken = (bool) $connection->fetchOne(
+                'SELECT 1 FROM `user` WHERE email = ?',
+                [(string) $data['email']]
+            );
+
+            if ($emailTaken) {
+                return new JsonResponse(
+                    ['message' => 'User with this email already exists'],
+                    Response::HTTP_CONFLICT
+                );
+            }
+
+            // The `U-` code, or something else entirely. Neither is the
+            // caller's to fix, and attributing it to a field they can edit
+            // would send them round a loop that cannot end.
+            return new JsonResponse(
+                ['message' => 'Registration conflicted with another request. Please try again.'],
+                Response::HTTP_CONFLICT
+            );
         }
 
         $plainToken = $verification->issue($user);

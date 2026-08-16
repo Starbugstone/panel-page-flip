@@ -369,15 +369,25 @@ export function ShareComicsDialog({
         ? recipientEmail.trim()
         : (resolved?.label || usernameHandle(stripUsernamePrefix(username)) || "them");
 
+      // The shares exist; the email is queued behind them and a worker sends
+      // it. Saying "sent" would claim something this response cannot know, and
+      // the notification state on the Sharing page is where delivery is
+      // actually reported.
+      const notificationFailed = results.some(
+        (result) => result.notificationState === "failed"
+      );
+
       toast({
         title: created === 1 ? "Comic shared" : `${created} comics shared`,
-        // One email, however many comics went into it — so this says what the
-        // recipient actually receives rather than implying a message each.
-        description: refused.length > 0
-          ? `One invitation was sent to ${sentTo}. `
-            + `${refused.length} ${refused.length === 1 ? "comic was" : "comics were"} left out`
-            + `${reason ? `: ${reason}` : "."}`
-          : `One invitation was sent to ${sentTo}.`,
+        // One invitation, however many comics went into it — so this says what
+        // the recipient receives rather than implying a message each.
+        description: notificationFailed
+          ? `${sentTo} could not be notified. The share exists — resend the invitation from the Sharing page.`
+          : refused.length > 0
+            ? `One invitation to ${sentTo} is on its way. `
+              + `${refused.length} ${refused.length === 1 ? "comic was" : "comics were"} left out`
+              + `${reason ? `: ${reason}` : "."}`
+            : `One invitation to ${sentTo} is on its way.`,
       });
 
       try {
@@ -385,8 +395,8 @@ export function ShareComicsDialog({
       } catch (refreshError) {
         logger.error("Sharing data refresh failed:", refreshError);
         toast({
-          title: "Invitation sent",
-          description: "The invitation was sent, but the Sharing list could not refresh. Reload the page to see the latest state.",
+          title: "Comics shared",
+          description: "The share was created, but the Sharing list could not refresh. Reload the page to see the latest state.",
           variant: "destructive",
         });
       }
@@ -406,7 +416,11 @@ export function ShareComicsDialog({
 
   const alreadyExplicitCount = selectedComics.filter((comic) => comic.explicitContent).length;
 
-  const comicCountLabel = `${selectedComics.length} ${selectedComics.length === 1 ? "comic" : "comics"}`;
+  // Counted from the ids that will be sent, not from the ones the library
+  // happened to return. A locked selection can name a comic the picker never
+  // fetched — it filters to `canShare` — and a review line reading "2 comics"
+  // in front of a request carrying 3 describes somebody else's share.
+  const comicCountLabel = `${selectedComicIds.length} ${selectedComicIds.length === 1 ? "comic" : "comics"}`;
 
   const recipientDescription = mode === MODES.CODE
     ? "whoever you give the code to"
@@ -423,16 +437,38 @@ export function ShareComicsDialog({
       : `${comicCountLabel} will be offered to ${recipientDescription} in one invitation. `
         + "They must accept each one before they can read it, and you can withdraw any of them later.";
 
+  // An address is its own confirmation: the sender typed the thing the comic is
+  // going to, and there is no second identity behind it to check against.
+  //
+  // A username or a `U-` code is not. Both name an account the sender cannot
+  // see, and a code names one they cannot even read — so a typo reaches a real
+  // stranger rather than failing. `resolved` is cleared the moment either field
+  // changes, so requiring it here means the identity on screen is the identity
+  // being shared with, and the sender has seen whose it is.
+  const recipientConfirmed = resolved !== null;
+
   const recipientChosen = mode === MODES.CODE
     || (target === TARGETS.EMAIL && isValidShareEmail(recipientEmail))
-    || (target === TARGETS.USERNAME && isValidUsername(username))
-    || (target === TARGETS.CODE && isValidShareCode(userCode, SHARE_CODE_TYPES.USER));
+    || (target === TARGETS.USERNAME && isValidUsername(username) && recipientConfirmed)
+    || (target === TARGETS.CODE && isValidShareCode(userCode, SHARE_CODE_TYPES.USER) && recipientConfirmed);
 
   const canSubmit = selectedComicIds.length > 0 && responsibilityAccepted && recipientChosen;
 
+  // Said out loud, because an inert Send button with no reason beside it reads
+  // as a broken dialog rather than as a step not yet taken.
+  const confirmationPending = mode === MODES.DIRECT
+    && target !== TARGETS.EMAIL
+    && !recipientConfirmed
+    && (target === TARGETS.USERNAME
+      ? isValidUsername(username)
+      : isValidShareCode(userCode, SHARE_CODE_TYPES.USER));
+
+  // One invitation however many comics go into it, which is what the recipient
+  // actually receives — the count belongs in the review summary above, where it
+  // describes the comics rather than the messages.
   const submitLabel = mode === MODES.CODE
     ? `Create ${codeType === SHARE_CODE_TYPES.GROUP ? "group" : "comic"} code`
-    : `Send ${selectedComicIds.length > 1 ? `${selectedComicIds.length} invitations` : "invitation"}`;
+    : "Send invitation";
 
   return (
     <Dialog
@@ -614,11 +650,20 @@ export function ShareComicsDialog({
                             variant="outline"
                             disabled={isSending}
                             onClick={() => {
-                              setResolved(null);
                               if (recipient.username) {
                                 setTarget(TARGETS.USERNAME);
                                 setUsername(recipient.username);
+                                // Already confirmed, and by the server: this
+                                // list is people the owner has shared with
+                                // before, and the label beside the button is
+                                // the identity a Check would go and fetch.
+                                setResolved({
+                                  username: recipient.username,
+                                  name: recipient.name || "",
+                                  label: recipient.label,
+                                });
                               } else {
+                                setResolved(null);
                                 setTarget(TARGETS.EMAIL);
                                 setRecipientEmail(recipient.email);
                               }
@@ -787,6 +832,13 @@ export function ShareComicsDialog({
                 <h3 className="font-semibold">3. Review</h3>
                 <p className="text-sm text-muted-foreground">{reviewSummary}</p>
               </div>
+
+              {confirmationPending && (
+                <p className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-500">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  Check who this is before sending, so you can see whose library it goes to.
+                </p>
+              )}
 
               {selectedComics.length > 0 && !lockSelection && (
                 <ul className="max-h-28 list-disc overflow-y-auto pl-5 text-sm">

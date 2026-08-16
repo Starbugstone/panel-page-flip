@@ -55,7 +55,7 @@ final class AdminShareCodeController extends AbstractController
         );
 
         $status = $request->query->get('status');
-        if (!in_array($status, ['active', 'expired', 'withdrawn', 'exhausted'], true)) {
+        if (!in_array($status, ['active', 'expired', 'withdrawn', 'exhausted', 'comics_removed'], true)) {
             $status = null;
         }
 

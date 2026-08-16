@@ -96,7 +96,6 @@ final class SharingWorkflowService
             $name = $row['currentName'] === null ? null : (string) $row['currentName'];
 
             if ($username !== null) {
-                $handle = UsernamePolicy::forDisplay($username);
                 $recipients[] = [
                     // Withheld for a recipient the owner was never shown, and
                     // kept for one whose address they typed themselves — where
@@ -107,9 +106,10 @@ final class SharingWorkflowService
                         ? null
                         : SharingCodeFormat::forDisplay(ShareCodeType::USER, $currentCode),
                     'name' => $name,
-                    'label' => $name === null || $name === ''
-                        ? $handle
-                        : sprintf('%s (%s)', $name, $handle),
+                    // The same rule the shared-by-me list uses, so the label a
+                    // sender picks from and the label they read afterwards
+                    // cannot describe one person two ways.
+                    'label' => UsernamePolicy::describe($username, $name),
                 ];
                 continue;
             }
@@ -167,31 +167,48 @@ final class SharingWorkflowService
             // The picker only sends owned ids, but a hand-written request must
             // not turn this endpoint into a comic-id discovery oracle.
             if (!$comic instanceof Comic || !$this->authorizationChecker->isGranted(ComicVoter::SHARE, $comic)) {
-                $results[$comicId] = [
-                    'status' => 'not_available',
-                    'message' => 'This comic is not available to share.',
-                ];
-                continue;
+                // The whole batch fails, and nothing is created. Sharing five
+                // of six comics and reporting the sixth in a per-comic list is
+                // a sender told "5 shared" while they meant 6, and the one that
+                // did not go is the one they will not notice. Refused before
+                // any mutation, so there is nothing to undo.
+                throw new ShareException(
+                    'One or more of those comics is not available to share, so nothing was shared.',
+                    403
+                );
             }
 
             $shareable[$comicId] = $comic;
         }
 
-        // Before the shares, and inside the same unit of work, so an ordinary
-        // share can never be created because the reclassification failed. A
-        // throw here leaves nothing behind.
-        if ($markExplicit && $shareable !== []) {
-            $this->explicitContent->promote(array_values($shareable), $owner);
+        if ($shareable === []) {
+            throw new ShareException('Select at least one comic to share.', 400);
         }
 
-        if ($shareable !== []) {
-            $results += $this->shareService->inviteMany(
-                array_values($shareable),
-                $owner,
-                $recipientEmail,
-                $senderResponsibilityAccepted,
-                $viaSharingCode
-            );
+        // Before the shares, and inside the same unit of work, so an ordinary
+        // share can never be created because the reclassification failed. A
+        // throw here leaves nothing behind. The audit records wait for the
+        // commit below.
+        $promotions = $markExplicit
+            ? $this->explicitContent->promote(array_values($shareable), $owner)
+            : [];
+
+        $results += $this->shareService->inviteMany(
+            array_values($shareable),
+            $owner,
+            $recipientEmail,
+            $senderResponsibilityAccepted,
+            $viaSharingCode
+        );
+
+        // A reclassification is a change to the owner's own library and does
+        // not depend on a share being created from it. `inviteMany` returns
+        // without committing when every relationship it was asked for already
+        // exists, so this cannot ride on that flush — an all-duplicate batch
+        // would otherwise leave the promotion in memory and drop it.
+        if ($promotions !== []) {
+            $this->entityManager->flush();
+            $this->explicitContent->recordPromotions($promotions);
         }
 
         // Reported in the order the caller asked, so the response lines up with

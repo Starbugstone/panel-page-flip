@@ -300,11 +300,24 @@ class ShareClaimCode
      */
     public function isRedeemable(?\DateTimeImmutable $now = null): bool
     {
-        return $this->revokedAt === null
-            && $this->usesRemaining > 0
-            && $this->isPackageIntact()
-            && !$this->comics->isEmpty()
-            && !$this->isExpired($now);
+        return $this->usesRemaining > 0 && !$this->isStructurallyDead($now);
+    }
+
+    /**
+     * Dead for everybody, as opposed to merely used up.
+     *
+     * The distinction matters to exactly one caller. An account replaying its
+     * own redemption has already spent a use, so an exhausted count is not a
+     * reason to refuse *them* — but a withdrawn code, an expired one, or a
+     * package that can no longer be handed over whole refuses everybody,
+     * because there is nothing left to re-report.
+     */
+    public function isStructurallyDead(?\DateTimeImmutable $now = null): bool
+    {
+        return $this->revokedAt !== null
+            || !$this->isPackageIntact()
+            || $this->comics->isEmpty()
+            || $this->isExpired($now);
     }
 
     /** Spend one use. Callers check {@see isRedeemable()} first. */

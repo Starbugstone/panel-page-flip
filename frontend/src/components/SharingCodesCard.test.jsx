@@ -233,4 +233,24 @@ describe("SharingCodesCard", () => {
     expect(await screen.findByText(/already been used up/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/^C-XXXX/)).toHaveValue("C-7RFX-KP3M-Q82D");
   });
+
+  /**
+   * A failed identity load must say so.
+   *
+   * Without it the panel sits on its placeholder code with copy and rotate
+   * both disabled, which looks exactly like a slow request and gives somebody
+   * nothing to act on.
+   */
+  it("says when the identity could not be loaded", async () => {
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (url === "/api/shares/user-code") return Promise.reject(new Error("offline"));
+      if (url === "/api/shares/content-codes") return Promise.resolve({ codes: [] });
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    renderCard();
+
+    expect(await screen.findByText(/could not be loaded/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy your user code" })).toBeDisabled();
+  });
 });

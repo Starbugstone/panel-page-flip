@@ -45,7 +45,8 @@ This document provides detailed information for developers working on the projec
 - **Sharing Codes**: `SharingCodeFormat.php` and `ShareCodeType.php` define one wire format in three flavours — `U-` identifies a person, `C-` carries exactly one comic, `G-` carries a package of 2–20. `SharingCodeService.php` issues and resolves user codes; `ShareClaimCodeService.php` mints and redeems content codes. See [Sharing codes](#sharing-codes)
 - **Content Code Lifetime**: `ShareContentCodeLifetime.php` turns `SHARE_CONTENT_CODE_TTL_DAYS` (default 7) into an absolute expiry stamped on each code at minting time, and refuses to construct on a nonsense value so a bad deployment fails on the way up
 - **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients` and `POST /api/shares/invitations/bulk` — the one path that opens a direct share. Recipients come only from the caller's own share history and never from a user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
-- **Explicit Promotion**: `ExplicitContentPromoter.php` marks selected comics 18+ from inside the share flow, in the same unit of work as the share. It only ever promotes — an unticked box is the absence of a claim, not a claim that the comic is fine
+- **Explicit Promotion**: `ExplicitContentPromoter.php` marks selected comics 18+ from inside the share flow, in the same unit of work as the share. It only ever promotes — an unticked box is the absence of a claim, not a claim that the comic is fine. It returns its audit records rather than writing them, so the service owning the transaction emits them only once the commit has made them true
+- **Lookup Flood Guard**: `IdentifierLookupGuard.php` charges every attempt to turn an identifier into a person *before* the repository is asked, so an exhausted caller cannot still resolve the identifiers that happen to be real. See [Why this is not a user directory](#why-this-is-not-a-user-directory)
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
 - **Email Notifications**: Shares commit first; `ShareInvitationNotification` is then queued carrying share ids and nothing else, and `ShareInvitationNotificationHandler` reloads the relationships and mints the links as it writes the mail. A bulk share sends one grouped email, so twenty comics are not twenty messages. See [Notification is a notice, not a condition](#notification-is-a-notice-not-a-condition)
 - **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered, and content codes that have been dead for over a month. The work itself is in `ExpiredShareCleanupService`, because an administrator can run the same sweep from the admin page and a deletion rule that exists twice will eventually disagree with itself
@@ -292,8 +293,17 @@ Two properties follow from the payload being ids:
 
 `ComicShare.notificationState` is `pending`, `sent` or `failed`, so an owner is
 told the email did not arrive rather than wondering why nobody answered. Resend
-stays **synchronous** and hands the link back: somebody pressing it is standing
-in front of the screen asking whether it went this time.
+stays **synchronous**, because somebody pressing it is standing in front of the
+screen asking whether it went this time — but it does **not** return the link.
+The link is a bearer capability belonging to the recipient, and it exists in one
+place: the email.
+
+**A queue that is down costs the notice, never the share.** Committing before
+dispatching moved that failure rather than removing it, so the dispatch is
+guarded: the shares are reported as created, their `notificationState` becomes
+`failed`, and the owner is told to resend. Letting the exception out would hand
+the owner a 500 for a share that exists, and their retry would meet its own
+duplicates.
 
 Under `when@test` the `async` transport is `sync://`, so a test asserting what
 lands in an inbox does not have to run a worker. The production path is
@@ -346,7 +356,7 @@ The dialog picks owned comics (`GET /api/comics?ownership=mine`, filtered again 
 | Endpoint | Returns |
 |---|---|
 | `GET /api/shares/recent-recipients` | up to 20 recipients this owner has shared with before, most recent first — registered ones by username |
-| `POST /api/shares/invitations/bulk` | a per-comic result for up to 20 comics — `created`, `skipped`, `rate_limited`, `failed` or `not_available` |
+| `POST /api/shares/invitations/bulk` | a per-comic result for up to 20 comics — `created`, `skipped`, `rate_limited` or `failed`. A comic the caller cannot share refuses the **whole batch** before this point |
 
 `SharingWorkflowService` is only the permission gate: it resolves each id, asks
 `ComicVoter::SHARE` about it, and hands what is left to
@@ -371,9 +381,24 @@ allowance:
   relationship. See
   [Notification is a notice, not a condition](#notification-is-a-notice-not-a-condition)
 
-A comic that is missing and a comic belonging to somebody else both come back as
-`not_available` with the same message. The picker only ever sends owned ids, but
-a hand-written request must not turn the endpoint into a comic-id oracle.
+**A selection is shared whole or not at all.** If any requested comic is
+missing, somebody else's, restricted or already received from another owner, the
+request is refused with one message and nothing is created — not even for the
+comics that were fine. Sharing five of six and reporting the sixth in a
+per-comic list tells a sender who asked for six that they got five, in a line
+they have to go and read; the one that did not go is the one they will not
+notice. Legitimate duplicates are different and remain idempotent: an existing
+live share is `skipped`, not a refusal.
+
+A comic that is missing and a comic belonging to somebody else produce the same
+message. The picker only ever sends owned ids, but a hand-written request must
+not turn the endpoint into a comic-id oracle.
+
+**Exactly one way of naming a recipient per request.** `username`, `userCode`
+and `email` are mutually exclusive and one is required; zero or more than one is
+a `400`. A precedence order would answer a contradictory request by sharing with
+*somebody*, chosen by the order the server happens to check in rather than by
+the sender.
 
 ### Privacy: registered users are never discoverable
 
@@ -630,6 +655,14 @@ and caught, because trying creates half of it.
 
 **Redeeming a group costs one use, not one per comic.** A use is a person.
 
+**A replay is not a second claim.** The account that already spent a use on a
+code can submit it again and be re-told what it holds, even when that use was
+the last one — the code is judged for *structural* death (withdrawn, expired,
+package broken) before it is judged for exhaustion, and exhaustion only refuses
+somebody who has no use of their own. Judging the count first hands a `404` to
+the one person who definitely redeemed the code successfully, which is what a
+double-click on a one-use code looks like from the inside.
+
 **Overlap is ordinary.** A recipient who already holds part of a group keeps
 those relationships and gains the missing ones, and the response distinguishes
 what was newly added from what was already theirs.
@@ -712,9 +745,21 @@ sharing has, and it is built to be a bad one:
 - **One generic answer** for every code that does not resolve — malformed, spent,
   expired, revoked or imaginary alike. Telling them apart would say whether a
   guess had ever been real
-- **A `sharing_code_lookup` allowance** charged only for lookups that find
-  nothing, so pasting a code never meets it and grinding through candidates does.
-  Exhausting it raises `security.share.sharing_code_enumeration_attempt`
+- **Two allowances, in that order.** `IdentifierLookupGuard` charges an
+  `identifier_lookup` allowance for **every** attempt, *before* the repository is
+  touched — username resolution, `U-` resolution and `C-`/`G-` redemption alike.
+  Behind it, the tighter `sharing_code_lookup` and `username_lookup` allowances
+  are charged only for lookups that find nothing, so pasting a real code or
+  sharing with somebody you know never meets them. Exhausting either raises a
+  `security.share.*_enumeration_attempt` event.
+
+  **The order is the whole point.** A miss-only allowance charged after the
+  lookup stops being a control the moment it runs out: a real identifier still
+  resolves and an imaginary one is refused, and the difference between those two
+  answers is exactly the fact the allowance was protecting. The lookup has to
+  become *unreachable*, not merely uncharged, which is why the preflight
+  allowance is loose enough that ordinary sharing never notices it and strict
+  enough that nobody works through a keyspace behind it
 - **Public identity only** on success. Username, display name, and a label built
   from the two. Not the address, not the id, not whether the account is verified,
   active or an administrator. Somebody holding a code is entitled to know they

@@ -40,6 +40,7 @@ final class SharingCodeService
         private readonly UserRepository $userRepository,
         private readonly ShareClaimCodeRepository $contentCodeRepository,
         private readonly SecurityAuditLogger $auditLogger,
+        private readonly IdentifierLookupGuard $lookupGuard,
         private readonly RateLimiterFactory $sharingCodeLookupLimiter,
         private readonly RateLimiterFactory $sharingCodeRotationLimiter,
     ) {
@@ -188,6 +189,11 @@ final class SharingCodeService
         if ($parsed !== null && !$parsed->is(ShareCodeType::USER)) {
             throw new ShareException($parsed->type->misuseGuidance(), 400, ShareException::CODE_WRONG_CODE_TYPE);
         }
+
+        // Before the query, and charged whether or not the code resolves — the
+        // miss-only allowance below is the second layer, not the first. See
+        // {@see IdentifierLookupGuard}.
+        $this->lookupGuard->charge($caller, 'user_code');
 
         $recipient = $parsed === null
             ? null

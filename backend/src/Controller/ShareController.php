@@ -110,12 +110,16 @@ class ShareController extends AbstractController
             return $share;
         }
 
-        $invitation = $this->shareService->resend($share);
+        $this->shareService->resend($share);
 
+        // The link is not handed back. It is a bearer capability belonging to
+        // the recipient, and the rest of sharing now mints it as the email is
+        // written precisely so that it exists in one place — returning it here
+        // would put it in a response body, a browser history and any proxy log
+        // on the way, for the one path that used to be the exception.
         return $this->json([
             'message' => 'Invitation resent.',
             'share' => $this->shareSerializer->forOwner($share),
-            'invitationUrl' => $invitation->invitationUrl,
         ]);
     }
 

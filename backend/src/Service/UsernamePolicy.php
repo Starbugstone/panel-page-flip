@@ -108,4 +108,30 @@ final class UsernamePolicy
     {
         return '@' . $username;
     }
+
+    /**
+     * How a registered person is named wherever one is shown.
+     *
+     * `Jane Reader (@SilverOtter4821)` when there is a display name to lead
+     * with, the handle alone when there is not — and the handle is what makes
+     * it a confirmation, because a display name is not unique.
+     *
+     * One definition because at least three surfaces need it — the recipient
+     * picker, the shared-by-me list and the shared-with-me list — and they have
+     * to agree. A sender who confirms one label and then reads a different one
+     * beside the finished share has been shown two facts about one person.
+     *
+     * Null when there is no account behind the row, which is the caller's cue
+     * to fall back to whatever it does know.
+     */
+    public static function describe(?string $username, ?string $name = null): ?string
+    {
+        if ($username === null || $username === '') {
+            return null;
+        }
+
+        $handle = self::forDisplay($username);
+
+        return $name === null || $name === '' ? $handle : sprintf('%s (%s)', $name, $handle);
+    }
 }

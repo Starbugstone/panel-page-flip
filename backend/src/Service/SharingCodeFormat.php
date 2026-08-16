@@ -52,6 +52,18 @@ final class SharingCodeFormat
      * somebody holding the wrong one, so they are corrected. A missing or
      * unrecognised prefix is neither: it is a code this application does not
      * issue, and it is refused rather than guessed at.
+     *
+     * **Every non-alphanumeric character is treated as formatting**, not only
+     * the dashes this format writes. That is deliberate rather than sloppy: a
+     * code's whole job is to survive a chat window, and chat clients rewrite
+     * punctuation — an em dash for a hyphen, a non-breaking space, a pair of
+     * smart quotes around the whole thing. Refusing those would reject codes
+     * that are correct in every way a person can see, to buy strictness about
+     * characters that carry no meaning here.
+     *
+     * What is *not* relaxed is the part that decides anything: the prefix must
+     * be one this application issues, and what remains after the punctuation is
+     * dropped must be exactly {@see LENGTH} characters of {@see ALPHABET}.
      */
     public static function parse(string $input): ?ParsedShareCode
     {

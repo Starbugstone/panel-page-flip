@@ -431,4 +431,43 @@ final class UsernameIdentityTest extends AbstractApiTestCase
         self::assertNotNull($refused, 'Renaming should run out of allowance.');
         self::assertStringContainsString('too many times', $refused['message']);
     }
+
+    /**
+     * An exhausted allowance must refuse a real username too.
+     *
+     * This is the whole reason the preflight guard exists. Charging only for a
+     * miss leaves the two answers different once the allowance is gone — a name
+     * that exists still resolves, one that does not is refused — and that
+     * difference is the fact the allowance was protecting. Whether a lookup
+     * would have succeeded has to stop being observable, which means the
+     * repository has to become unreachable rather than merely uncharged.
+     */
+    public function testAnExhaustedAllowanceStopsTellingRealUsernamesFromImaginaryOnes(): void
+    {
+        $known = UserFactory::createOne([
+            'email' => 'findable@example.com',
+            'username' => 'FindableOtter4821',
+        ])->object();
+
+        $this->createAndLoginUser(['email' => 'oracle@example.com']);
+
+        // Sanity: this name resolves while there is allowance left, so the
+        // refusals below are the allowance and not a broken fixture.
+        $found = $this->postJson('/api/users/resolve-username', ['username' => $known->getUsername()]);
+        self::assertResponseIsSuccessful();
+        self::assertSame('FindableOtter4821', $found['recipient']['username']);
+
+        $this->exhaustIdentifierLookups();
+
+        $real = $this->postJson('/api/users/resolve-username', ['username' => $known->getUsername()]);
+        $realStatus = $this->browser()->getResponse()->getStatusCode();
+
+        $imaginary = $this->postJson('/api/users/resolve-username', ['username' => 'NobodyHoldsThisOne']);
+
+        self::assertSame(429, $realStatus);
+        self::assertSame($realStatus, $this->browser()->getResponse()->getStatusCode());
+        // Same status and same sentence, so nothing distinguishes the name that
+        // exists from the name that does not.
+        self::assertSame($real['message'], $imaginary['message']);
+    }
 }

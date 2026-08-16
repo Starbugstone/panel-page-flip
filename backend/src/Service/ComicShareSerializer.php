@@ -110,10 +110,10 @@ class ComicShareSerializer
      */
     private static function label(?string $username, ?string $name, bool $hidden, string $email): string
     {
-        if ($username !== null) {
-            $handle = UsernamePolicy::forDisplay($username);
+        $described = UsernamePolicy::describe($username, $name);
 
-            return $name === null || $name === '' ? $handle : sprintf('%s (%s)', $name, $handle);
+        if ($described !== null) {
+            return $described;
         }
 
         if ($hidden) {
@@ -121,6 +121,27 @@ class ComicShareSerializer
         }
 
         return $email;
+    }
+
+    /**
+     * The owner as a recipient may see them.
+     *
+     * Its own method rather than {@see label()} with an empty address and
+     * `hidden = true`. Neither of those values describes an owner; they were
+     * there only to steer past the address branch, and a future change to the
+     * hidden branch would quietly start labelling owners "Shared by code".
+     *
+     * An owner's address is never shown to a recipient, so there is no branch
+     * to steer past: the account's public identity, or the snapshot left behind
+     * when the account is gone.
+     */
+    private static function ownerLabel(ComicShare $share): string
+    {
+        $owner = $share->getOwner();
+        $snapshot = $share->getOwnerNameSnapshot();
+
+        return UsernamePolicy::describe($owner?->getUsername() ?: null, $owner?->getName() ?: $snapshot)
+            ?? ($snapshot !== '' ? $snapshot : 'A former member');
     }
 
     /**
@@ -139,12 +160,7 @@ class ComicShareSerializer
             // the same handle the owner would give them today. Null once the
             // account is gone, where the snapshot above is all that is left.
             'ownerUsername' => $owner?->getUsername() ?: null,
-            'ownerLabel' => self::label(
-                $owner?->getUsername() ?: null,
-                $owner?->getName() ?: $share->getOwnerNameSnapshot(),
-                true,
-                ''
-            ),
+            'ownerLabel' => self::ownerLabel($share),
             'ownerId' => $owner?->getId(),
             'removedFromCollection' => $share->getRecipientRemovedAt()?->format('c'),
             // An invitation can still be answered from the Sharing page while it
