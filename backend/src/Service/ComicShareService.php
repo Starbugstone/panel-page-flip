@@ -1265,15 +1265,7 @@ class ComicShareService
         $limit = $this->shareInvitationLimiter->create((string) $owner->getId())->consume();
 
         if (!$limit->isAccepted()) {
-            $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
-
-            throw new ShareException(
-                sprintf(
-                    'You have sent too many invitations recently. Please try again in %d minute(s).',
-                    (int) ceil($retryAfter / 60)
-                ),
-                429
-            );
+            throw ShareException::rateLimited('You have sent too many invitations recently.', $limit);
         }
     }
 

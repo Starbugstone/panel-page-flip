@@ -485,15 +485,7 @@ final class ShareClaimCodeService
             return;
         }
 
-        $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
-
-        throw new ShareException(
-            sprintf(
-                'You have created too many sharing codes recently. Please try again in %d minute(s).',
-                (int) ceil($retryAfter / 60)
-            ),
-            429
-        );
+        throw ShareException::rateLimited('You have created too many sharing codes recently.', $limit);
     }
 
     /**

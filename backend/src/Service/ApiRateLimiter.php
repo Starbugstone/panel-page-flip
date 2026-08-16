@@ -46,7 +46,7 @@ final class ApiRateLimiter
             ['limiter' => $limiterName, 'path' => $request->getPathInfo()]
         );
 
-        $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
+        $retryAfter = RateLimitRetry::seconds($limit);
         $response = new JsonResponse([
             'message' => 'Too many requests. Please try again later.',
             'retryAfter' => $retryAfter,

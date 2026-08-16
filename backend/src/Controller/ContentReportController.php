@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Service\ContentReportService;
 use App\Service\ContentReportValidationException;
+use App\Service\RateLimitRetry;
 use App\Service\SecurityAuditLogger;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -27,9 +28,8 @@ final class ContentReportController extends AbstractController
                 'limiter' => 'content_report',
                 'path' => $request->getPathInfo(),
             ]);
-            $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
             return $this->json(['message' => 'Too many reports. Please try again later.'], Response::HTTP_TOO_MANY_REQUESTS, [
-                'Retry-After' => (string) $retryAfter,
+                'Retry-After' => (string) RateLimitRetry::seconds($limit),
             ]);
         }
 

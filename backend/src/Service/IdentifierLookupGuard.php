@@ -64,16 +64,8 @@ final class IdentifierLookupGuard
             1
         );
 
-        $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
-
         // The same wording whatever was being looked up and whether or not it
         // existed, so the refusal itself says nothing.
-        throw new ShareException(
-            sprintf(
-                'Too many lookups. Please try again in %d minute(s).',
-                (int) ceil($retryAfter / 60)
-            ),
-            429
-        );
+        throw ShareException::rateLimited('Too many lookups.', $limit);
     }
 }

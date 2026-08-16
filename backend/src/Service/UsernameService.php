@@ -221,13 +221,7 @@ final class UsernameService
             return;
         }
 
-        throw new ShareException(
-            sprintf(
-                'You have changed your username too many times recently. Please try again in %d minute(s).',
-                self::retryMinutes($limit->getRetryAfter()->getTimestamp())
-            ),
-            429
-        );
+        throw ShareException::rateLimited('You have changed your username too many times recently.', $limit);
     }
 
     /**
@@ -254,17 +248,6 @@ final class UsernameService
             1
         );
 
-        throw new ShareException(
-            sprintf(
-                'Too many usernames have been looked up. Please try again in %d minute(s).',
-                self::retryMinutes($limit->getRetryAfter()->getTimestamp())
-            ),
-            429
-        );
-    }
-
-    private static function retryMinutes(int $retryAfterTimestamp): int
-    {
-        return (int) ceil(max(1, $retryAfterTimestamp - time()) / 60);
+        throw ShareException::rateLimited('Too many usernames have been looked up.', $limit);
     }
 }

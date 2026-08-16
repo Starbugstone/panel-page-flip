@@ -255,15 +255,7 @@ final class SharingCodeService
             return;
         }
 
-        $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
-
-        throw new ShareException(
-            sprintf(
-                'You have changed your sharing code too many times recently. Please try again in %d minute(s).',
-                (int) ceil($retryAfter / 60)
-            ),
-            429
-        );
+        throw ShareException::rateLimited('You have changed your sharing code too many times recently.', $limit);
     }
 
     /**
@@ -291,14 +283,6 @@ final class SharingCodeService
             1
         );
 
-        $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
-
-        throw new ShareException(
-            sprintf(
-                'Too many sharing codes have been tried. Please try again in %d minute(s).',
-                (int) ceil($retryAfter / 60)
-            ),
-            429
-        );
+        throw ShareException::rateLimited('Too many sharing codes have been tried.', $limit);
     }
 }

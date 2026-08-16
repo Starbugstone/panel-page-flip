@@ -2,6 +2,8 @@
 
 namespace App\Service;
 
+use Symfony\Component\RateLimiter\RateLimit;
+
 /**
  * A sharing operation that failed for a reason the caller should be told about,
  * carrying the HTTP status that reason maps to.
@@ -40,6 +42,27 @@ class ShareException extends \RuntimeException
         private readonly ?string $errorCode = null,
     ) {
         parent::__construct($message);
+    }
+
+    /**
+     * A refusal by a rate limiter, told to the person who hit it.
+     *
+     * Every allowance in sharing refuses the same way — say what there was too
+     * much of, then say when to come back — and the second half is identical
+     * wherever it appears. Only the first half is the caller's to write, so only
+     * the first half is asked for; the wait is read off the limiter rather than
+     * recomputed, and the status is not a decision any caller has to get right.
+     *
+     * @param string $whatHappened a complete sentence naming what was refused,
+     *                             ending in a full stop — "You have sent too
+     *                             many invitations recently."
+     */
+    public static function rateLimited(string $whatHappened, RateLimit $limit): self
+    {
+        return new self(
+            sprintf('%s Please try again in %d minute(s).', $whatHappened, RateLimitRetry::minutes($limit)),
+            429
+        );
     }
 
     public function getStatusCode(): int
