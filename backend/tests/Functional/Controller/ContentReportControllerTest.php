@@ -134,11 +134,15 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         $this->getJson('/api/comics/'.$comic->getId());
         self::assertResponseIsSuccessful();
 
-        $this->postJson('/api/shares/comics/'.$comic->getId().'/invitations', [
+        // Reported per comic by the bulk endpoint, which judges each one and
+        // creates nothing rather than refusing the whole request.
+        $blocked = $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
             'email' => 'another@example.com',
             'senderResponsibilityAccepted' => true,
         ]);
-        self::assertResponseStatusCodeSame(403);
+        self::assertSame(0, $blocked['created']);
+        self::assertSame('not_available', $blocked['results'][0]['status']);
     }
 
     public function testAdminCanLiftARestrictionWithoutRecreatingShares(): void

@@ -56,6 +56,7 @@ final class ShareClaimCodeService
         private readonly AuthorizationCheckerInterface $authorizationChecker,
         private readonly SecurityAuditLogger $auditLogger,
         private readonly SharingCodeService $sharingCodes,
+        private readonly ExplicitContentPromoter $explicitContent,
         private readonly ShareContentCodeLifetime $lifetime,
         private readonly RateLimiterFactory $shareClaimCodeLimiter,
     ) {
@@ -75,7 +76,8 @@ final class ShareClaimCodeService
         User $owner,
         ShareCodeType $type,
         int $maxUses,
-        bool $senderResponsibilityAccepted
+        bool $senderResponsibilityAccepted,
+        bool $markExplicit = false
     ): array {
         if (!$type->isContentCode()) {
             throw new ShareException('A user code does not carry comics.', 400);
@@ -122,6 +124,12 @@ final class ShareClaimCodeService
             }
 
             $comics[] = $comic;
+        }
+
+        // Before the code, and flushed with it below, so a code cannot come
+        // into existence carrying comics the reclassification failed to mark.
+        if ($markExplicit) {
+            $this->explicitContent->promote($comics, $owner);
         }
 
         // Claimed before the code exists, so a refused request leaves nothing

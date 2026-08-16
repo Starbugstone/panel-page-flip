@@ -39,6 +39,11 @@ abstract class AbstractApiTestCase extends WebTestCase
         // happened to create. Clearing the pool makes every limiter test see the
         // full allowance, whichever order they run in.
         static::getContainer()->get('cache.rate_limiter')->clear();
+
+        // A test that made the mail server fail must not leave it failing for
+        // the next one; the switch is static, because the service it stands in
+        // for cannot be replaced once the container has built it.
+        \App\Tests\Support\SwitchableMailer::reset();
     }
 
     protected function browser(): KernelBrowser

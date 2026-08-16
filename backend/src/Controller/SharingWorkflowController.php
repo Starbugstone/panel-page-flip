@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Entity\ComicShare;
+use App\Service\ShareException;
 use App\Service\SharingCodeRecipient;
 use App\Service\SharingCodeService;
 use App\Service\SharingWorkflowService;
@@ -122,9 +123,13 @@ final class SharingWorkflowController extends AbstractController
         }
 
         if (($data['senderResponsibilityAccepted'] ?? null) !== true) {
-            return $this->json([
-                'message' => 'You must acknowledge responsibility for the content you share.',
-            ], Response::HTTP_BAD_REQUEST);
+            // Carries the error code as well as the sentence, so a client can
+            // reopen the acknowledgement rather than only display the failure.
+            throw new ShareException(
+                'You must acknowledge responsibility for the content you share.',
+                Response::HTTP_BAD_REQUEST,
+                ShareException::CODE_RESPONSIBILITY_REQUIRED
+            );
         }
 
         // Three ways to name a recipient, and exactly one of them per request.
@@ -183,7 +188,11 @@ final class SharingWorkflowController extends AbstractController
             $user,
             $email,
             true,
-            $viaSharingCode
+            $viaSharingCode,
+            // Promotion only. An absent or false flag is the absence of a
+            // claim, never a claim that the comics are fine — clearing 18+ is
+            // an intentional edit on the comic itself.
+            ($data['markExplicit'] ?? null) === true
         );
 
         $status = $result['created'] === $result['total']

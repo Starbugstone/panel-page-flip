@@ -123,7 +123,8 @@ final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
 
         $recipient = UserFactory::createOne(['email' => 'ack-recipient@test.local'])->object();
-        $this->postJson('/api/shares/comics/' . $comic->getId() . '/invitations', [
+        $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
             'email' => $recipient->getEmail(),
             'senderResponsibilityAccepted' => true,
         ]);

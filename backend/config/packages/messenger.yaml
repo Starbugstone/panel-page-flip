@@ -26,5 +26,20 @@ framework:
             Symfony\Component\Notifier\Message\ChatMessage: async
             Symfony\Component\Notifier\Message\SmsMessage: async
 
-            # Route your messages to the transports
-            # 'App\Message\YourMessage': async
+            # Telling somebody about a share they have already been given. The
+            # message carries share ids and nothing else — the worker reloads
+            # the relationships and mints the invitation links at the moment it
+            # sends them — so no plaintext bearer token is written to the queue,
+            # retried through it, or left in the failure transport for an
+            # operator to read.
+            App\Message\ShareInvitationNotification: async
+
+when@test:
+    framework:
+        messenger:
+            transports:
+                # Handled inline, so a test that asserts what lands in somebody's
+                # inbox does not have to run a worker. The production path is
+                # unchanged: the notice is still dispatched after the commit,
+                # and still carries only ids.
+                async: 'sync://'

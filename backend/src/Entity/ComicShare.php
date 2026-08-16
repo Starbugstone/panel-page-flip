@@ -36,6 +36,20 @@ class ComicShare
     public const STATUS_DECLINED = 'declined';
     public const STATUS_REVOKED = 'revoked';
 
+    /**
+     * How the notice about this share is getting on.
+     *
+     * The relationship is the thing that is true; the email is an announcement
+     * of it, and SMTP is not a participant in a database transaction. Recording
+     * the announcement separately is what lets a share exist and be usable
+     * while its notice is still queued or has failed outright — and lets the
+     * owner be told so, and offered a resend, instead of the share being rolled
+     * back because a mail server was busy.
+     */
+    public const NOTIFICATION_PENDING = 'pending';
+    public const NOTIFICATION_SENT = 'sent';
+    public const NOTIFICATION_FAILED = 'failed';
+
     public const REASON_OWNER_DELETED = 'owner_deleted';
     public const REASON_OWNER_ACCOUNT_DELETED = 'owner_account_deleted';
     public const REASON_FILE_MISSING = 'file_missing';
@@ -161,6 +175,17 @@ class ComicShare
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $adultConfirmedAt = null;
 
+    /**
+     * Defaults to `sent` for the rows that predate this column: they were
+     * created under the previous rule, where a share only came into existence
+     * if its email had already gone out.
+     */
+    #[ORM\Column(length: 16, options: ['default' => self::NOTIFICATION_SENT])]
+    private string $notificationState = self::NOTIFICATION_SENT;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $notifiedAt = null;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $unavailableAt = null;
 
@@ -280,6 +305,48 @@ class ComicShare
     public function getRecipientUserCode(): ?string
     {
         return $this->recipientUserCode;
+    }
+
+    public function getNotificationState(): string
+    {
+        return $this->notificationState;
+    }
+
+    public function getNotifiedAt(): ?\DateTimeImmutable
+    {
+        return $this->notifiedAt;
+    }
+
+    /** The notice is queued and has not been attempted yet. */
+    public function awaitNotification(): self
+    {
+        $this->notificationState = self::NOTIFICATION_PENDING;
+        $this->notifiedAt = null;
+
+        return $this;
+    }
+
+    public function markNotified(): self
+    {
+        $this->notificationState = self::NOTIFICATION_SENT;
+        $this->notifiedAt = new \DateTimeImmutable();
+
+        return $this;
+    }
+
+    /**
+     * The notice could not be delivered.
+     *
+     * Recorded rather than thrown away, and deliberately not fatal: the share
+     * is real and the recipient can still find it on their Sharing page. What
+     * the owner needs is to know that the email did not arrive, so they can say
+     * so or press resend.
+     */
+    public function markNotificationFailed(): self
+    {
+        $this->notificationState = self::NOTIFICATION_FAILED;
+
+        return $this;
     }
 
     public function getComic(): ?Comic

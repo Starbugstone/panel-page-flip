@@ -161,7 +161,11 @@ final class ShareClaimCodeController extends AbstractController
             // Strictly true, the same rule the emailed invitation applies:
             // a missing key or a truthy string is not somebody having read
             // the notice and ticked the box.
-            ($data['senderResponsibilityAccepted'] ?? null) === true
+            ($data['senderResponsibilityAccepted'] ?? null) === true,
+            // Promotion only. An absent or false flag is the absence of a
+            // claim, never a claim that the comics are fine — clearing 18+ is
+            // an intentional edit on the comic itself.
+            ($data['markExplicit'] ?? null) === true
         );
 
         return $this->json([

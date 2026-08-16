@@ -10,6 +10,7 @@ use App\Service\SecurityAuditLogger;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use App\Tests\Functional\InvitationLinkAssertions;
 use App\Tests\Functional\SecurityLogAssertions;
 
 /**
@@ -29,12 +30,10 @@ use App\Tests\Functional\SecurityLogAssertions;
  */
 final class ShareAuditLoggingTest extends AbstractApiTestCase
 {
+    use InvitationLinkAssertions;
     use SecurityLogAssertions;
 
     private const EXPLICIT_TITLE = 'A Very Identifiable Explicit Title';
-
-    /** The link returned by the most recent {@see invite()}. */
-    private string $lastInvitationUrl = '';
 
     public function testCreatingAShareRecordsTheSendersAcknowledgement(): void
     {
@@ -73,9 +72,9 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
         $comic = $this->explicitComic($owner);
         $recipient = UserFactory::createOne(['email' => 'careful-invitee@test.local'])->object();
 
-        $response = $this->invite($comic, (string) $recipient->getEmail());
-        $invitationUrl = $response['invitationUrl'];
-        $token = substr($invitationUrl, strrpos($invitationUrl, '/') + 1);
+        $this->invite($comic, (string) $recipient->getEmail());
+        $invitationUrl = $this->invitationUrlFromEmail();
+        $token = $this->invitationTokenFromEmail();
 
         $this->assertNothingLogged($token, 'An invitation token');
         $this->assertNothingLogged($invitationUrl, 'A full invitation URL');
@@ -179,8 +178,7 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
         $recipient = UserFactory::createOne(['email' => 'intended@test.local'])->object();
         $this->invite($comic, (string) $recipient->getEmail());
 
-        $invitationUrl = $this->lastInvitationUrl;
-        $token = substr($invitationUrl, strrpos($invitationUrl, '/') + 1);
+        $token = $this->invitationTokenFromEmail();
 
         // Somebody who was forwarded the link, signed in as themselves.
         $interloper = UserFactory::createOne(['email' => 'interloper@test.local'])->object();
@@ -310,11 +308,14 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     private function invite(Comic $comic, string $email): array
     {
         $response = $this->postJson(
-            '/api/shares/comics/' . $comic->getId() . '/invitations',
-            ['email' => $email, 'senderResponsibilityAccepted' => true]
+            '/api/shares/invitations/bulk',
+            [
+                'comicIds' => [$comic->getId()],
+                'email' => $email,
+                'senderResponsibilityAccepted' => true,
+            ]
         );
         self::assertResponseStatusCodeSame(201);
-        $this->lastInvitationUrl = $response['invitationUrl'];
 
         return $response;
     }

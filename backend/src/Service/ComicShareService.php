@@ -7,6 +7,7 @@ use App\Entity\ComicShare;
 use App\Entity\ShareInvitationToken;
 use App\Entity\User;
 use App\Repository\ComicShareRepository;
+use App\Message\ShareInvitationNotification;
 use App\Repository\ShareInvitationTokenRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
@@ -14,6 +15,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Twig\Environment;
 
@@ -50,58 +52,13 @@ class ComicShareService
         private readonly LoggerInterface $logger,
         private readonly SecurityAuditLogger $auditLogger,
         private readonly RateLimiterFactory $shareInvitationLimiter,
+        private readonly MessageBusInterface $messageBus,
         private readonly PublicUrl $publicUrl,
         #[Autowire('%mailer_from_address%')]
         private readonly string $mailerFromAddress,
         #[Autowire('%mailer_from_name%')]
         private readonly string $mailerFromName,
     ) {
-    }
-
-    /**
-     * Invite somebody to read a comic, or re-open an invitation that was
-     * declined, revoked or left unanswered.
-     *
-     * The relationship and the email are one unit of work: a send that fails
-     * rolls the invitation back, so the owner is never shown a recipient who
-     * was never actually contacted.
-     *
-     * @param bool $senderResponsibilityAccepted the sender's acknowledgement
-     *                                           that they are responsible for
-     *                                           what they hand out, and for
-     *                                           having classified it correctly
-     *
-     * @throws ShareException
-     */
-    public function invite(
-        Comic $comic,
-        User $owner,
-        string $recipientEmail,
-        bool $senderResponsibilityAccepted
-    ): IssuedInvitation {
-        $this->assertSenderResponsibility($senderResponsibilityAccepted);
-        $this->assertSharingAvailable($comic, $owner);
-        $email = $this->assertInvitableRecipient($owner, $recipientEmail);
-        $reusable = $this->assertNoLiveInvitation($comic, $email);
-
-        // The last thing checked before anything is created, so only invitations
-        // that actually go out count against the allowance — a request rejected
-        // as a duplicate, by permissions or by validation spends nothing — and
-        // nothing half-built is left in the unit of work when it is refused.
-        $this->reserveInvitationAllowance($owner);
-
-        $prepared = $this->openInvitation($reusable, $comic, $owner, $email);
-
-        $this->deliver(
-            [$prepared],
-            fn () => $this->sendInvitationEmail($prepared->share, $comic, $owner, $prepared->plaintextToken)
-        );
-
-        // After the send, so nothing is recorded as shared that was rolled back
-        // when the email failed.
-        $this->auditInvitation($prepared, $owner);
-
-        return new IssuedInvitation($prepared->share, $this->invitationUrl($prepared->plaintextToken));
     }
 
     /**
@@ -124,10 +81,15 @@ class ComicShareService
      *   put in somebody's inbox — is exactly what it protected before bulk
      *   sharing existed.
      *
-     * A failed send leaves nothing behind: the grouped email is the only notice
-     * the recipient gets, so invitations nobody will ever hear about are worse
-     * than no invitations. See {@see deliver()} for what that guarantee does
-     * and does not cover.
+     * The relationships are committed first and announced afterwards. SMTP is
+     * not a participant in a database transaction, and the previous arrangement
+     * — send inside the transaction, roll back on failure — bought "no
+     * invitation nobody was told about" at the price of losing a perfectly good
+     * share every time a mail server was briefly busy. The share is the thing
+     * that is true; the email is an announcement of it, queued as
+     * {@see \App\Message\ShareInvitationNotification} and retryable, with its
+     * delivery state on the row so the owner can see it did not arrive and
+     * press resend.
      *
      * The caller is responsible for having checked {@see ComicVoter::SHARE} on
      * every comic it passes in.
@@ -188,7 +150,7 @@ class ComicShareService
             // told it — going on hiding it would withhold something they
             // already hold.
             if ($viaSharingCode !== null) {
-                $prepared[$comicId]->share
+                $prepared[$comicId]
                     ->hideRecipientBehindSharingCode(
                         $viaSharingCode->userCode,
                         $viaSharingCode->name
@@ -198,46 +160,33 @@ class ComicShareService
                     // code, is what still points at them after a rotation.
                     ->linkRecipientUser($viaSharingCode->user);
             } else {
-                $prepared[$comicId]->share->revealRecipientAddressToOwner();
+                $prepared[$comicId]->revealRecipientAddressToOwner();
             }
         }
 
-        // Whether this call is the one that would roll the batch back. Reporting
-        // a failed send as a per-comic result is only truthful when the rows
-        // actually went away; inside a transaction somebody else owns, they did
-        // not, and that caller's commit would then persist relationships this
-        // method had already reported as failed. So the exception is left to
-        // travel up to whoever can undo it.
-        $ownsTransaction = !$this->entityManager->getConnection()->isTransactionActive();
+        $this->commit();
 
-        try {
-            $this->deliver(
-                array_values($prepared),
-                fn () => $this->sendGroupedInvitationEmail(array_values($prepared), $owner)
-            );
-        } catch (ShareException $exception) {
-            if (!$ownsTransaction) {
-                throw $exception;
-            }
-
-            // The rollback did undo every relationship in the batch, so the
-            // whole group reports the same failure rather than the request
-            // looking partly successful.
-            foreach (array_keys($prepared) as $comicId) {
-                $outcomes[$comicId] = $this->describeFailure($exception);
-            }
-
-            return $outcomes;
-        }
-
-        foreach ($prepared as $comicId => $invitation) {
-            $this->auditInvitation($invitation, $owner);
+        foreach ($prepared as $comicId => $share) {
+            $this->auditInvitation($share, $owner);
 
             $outcomes[$comicId] = [
                 'status' => 'created',
-                'shareId' => $invitation->share->getId(),
+                'shareId' => $share->getId(),
+                'notificationState' => $share->getNotificationState(),
             ];
         }
+
+        // After the commit, and carrying ids rather than a rendered message:
+        // the worker reloads the relationships and mints the links at the
+        // moment it sends them, so no plaintext token is ever written to the
+        // queue and a notice retried later carries a link that still works.
+        $this->messageBus->dispatch(new ShareInvitationNotification(
+            (int) $owner->getId(),
+            array_values(array_map(
+                static fn (ComicShare $share): int => (int) $share->getId(),
+                $prepared
+            ))
+        ));
 
         return $outcomes;
     }
@@ -351,6 +300,14 @@ class ComicShareService
      * Send a fresh link for an invitation that is already pending, invalidating
      * the previous one.
      *
+     * This is the manual counterpart to the queued notice, and it is deliberately
+     * synchronous. Somebody pressing "resend" is standing in front of the screen
+     * asking whether the email went this time, so a failure is reported to them
+     * rather than retried quietly an hour later — and the link comes back in the
+     * response, which is the way out when the mail is not arriving at all.
+     *
+     * The relationship survives a failed send either way. It already existed.
+     *
      * @throws ShareException
      */
     public function resend(ComicShare $share): IssuedInvitation
@@ -377,12 +334,29 @@ class ComicShareService
 
         [$plaintext, $hash] = ShareInvitationToken::generate();
         $this->entityManager->persist(new ShareInvitationToken($share, $hash, $this->invitationExpiry()));
-        $prepared = new PreparedInvitation($share, $comic, $plaintext);
+        $share->awaitNotification();
+        $this->entityManager->flush();
 
-        $this->deliver(
-            [$prepared],
-            fn () => $this->sendInvitationEmail($share, $comic, $owner, $plaintext)
-        );
+        try {
+            $this->sendInvitationEmail($share, $comic, $owner, $plaintext);
+        } catch (\Throwable $exception) {
+            $share->markNotificationFailed();
+            $this->entityManager->flush();
+
+            $this->logger->error('Failed to resend a comic share invitation.', [
+                'share_id' => $share->getId(),
+                'comic_id' => $comic->getId(),
+                'exception' => $exception,
+            ]);
+
+            throw new ShareException(
+                'The invitation email could not be sent. The share is unaffected — try again, or copy the link.',
+                502
+            );
+        }
+
+        $share->markNotified();
+        $this->entityManager->flush();
 
         return new IssuedInvitation($share, $this->invitationUrl($plaintext));
     }
@@ -848,11 +822,16 @@ class ComicShareService
     }
 
     /**
-     * Open the relationship and mint the link, without flushing or sending.
+     * Open the relationship, without flushing, minting or sending.
+     *
+     * Deliberately does not create an invitation token. A token is a capability
+     * with an expiry, and minting it here would mean putting it on a queue and
+     * hoping the notice goes out before it lapsed; the worker mints one at the
+     * moment it is about to write it into an email instead.
      *
      * @param ComicShare|null $share the row {@see assertNoLiveInvitation} found
      */
-    private function openInvitation(?ComicShare $share, Comic $comic, User $owner, string $email): PreparedInvitation
+    private function openInvitation(?ComicShare $share, Comic $comic, User $owner, string $email): ComicShare
     {
         if ($share === null) {
             $share = new ComicShare($comic, $owner, $email);
@@ -872,89 +851,98 @@ class ComicShareService
         // A new share, so a new acknowledgement. Resending does not come through
         // here and keeps the timestamp it already has.
         $share->acceptSenderResponsibility();
+        $share->awaitNotification();
 
         $this->revokeOutstandingTokens($share);
 
-        [$plaintext, $hash] = ShareInvitationToken::generate();
-        $this->entityManager->persist(new ShareInvitationToken($share, $hash, $this->invitationExpiry()));
-
-        return new PreparedInvitation($share, $comic, $plaintext);
+        return $share;
     }
 
     /**
-     * Commit the prepared relationships and announce them, as one unit of work.
+     * Make the prepared relationships real.
      *
-     * The send is inside the transaction on purpose: a send that fails rolls the
-     * invitations back, so nobody is shown a recipient who was never actually
-     * contacted.
+     * Nothing is announced from here. The shares are the authoritative record
+     * and the email is a notice about them, so the notice is queued after the
+     * commit and cannot take a valid share down with it when a mail server is
+     * having a bad afternoon.
      *
-     * That is the guarantee, and it is worth being exact about its limit,
-     * because an SMTP call is not a participant in a database transaction and
-     * no arrangement of this code can make it one. What holds is one direction:
-     * **a failed send leaves no invitation behind.** The reverse does not — if
-     * the send succeeds and the commit then fails, the recipient is holding
-     * links to relationships that no longer exist, and they will find the
-     * invitation is not valid. Ordering it the other way round trades that for
-     * invitations nobody was told about, which is recoverable by resending but
-     * happens on every transport hiccup rather than on the rarer commit
-     * failure. Making both impossible needs a transactional outbox: the shares
-     * and a pending-notification row committed together, and a worker sending
-     * after the commit. That is a change to how this application delivers
-     * everything, not to this method.
-     *
-     * @param list<PreparedInvitation> $prepared for the failure log only
-     * @param callable(): void         $send
-     *
-     * @throws ShareException
+     * Avoids nesting commits when a caller already owns the transaction, the
+     * same way account deletion does — a nested commit would escape the test
+     * suite's rollback wrapper.
      */
-    private function deliver(array $prepared, callable $send): void
+    private function commit(): void
     {
-        // Avoid nesting commits when a caller already owns the transaction, the
-        // same way account deletion does — a nested commit would escape the
-        // test suite's rollback wrapper.
-        $connection = $this->entityManager->getConnection();
-        $ownsTransaction = !$connection->isTransactionActive();
+        if ($this->entityManager->getConnection()->isTransactionActive()) {
+            $this->entityManager->flush();
+
+            return;
+        }
+
+        $this->entityManager->beginTransaction();
 
         try {
-            if ($ownsTransaction) {
-                $this->entityManager->beginTransaction();
-            }
-
             $this->entityManager->flush();
-            $send();
-
-            if ($ownsTransaction) {
-                $this->entityManager->commit();
-            }
+            $this->entityManager->commit();
         } catch (\Throwable $exception) {
-            if ($ownsTransaction && $connection->isTransactionActive()) {
-                $this->entityManager->rollback();
-            }
+            $this->entityManager->rollback();
 
-            if ($exception instanceof ShareException) {
-                throw $exception;
-            }
-
-            $this->logger->error('Failed to send a comic share invitation.', [
-                'comic_ids' => array_map(
-                    static fn (PreparedInvitation $invitation): ?int => $invitation->comic->getId(),
-                    $prepared
-                ),
-                'exception' => $exception,
-            ]);
-
-            throw new ShareException(
-                'The invitation email could not be sent, so no invitation was created.',
-                502
-            );
+            throw $exception;
         }
     }
 
-    /** The two records every new sharing relationship leaves behind. */
-    private function auditInvitation(PreparedInvitation $invitation, User $owner): void
+    /**
+     * Announce shares that already exist, as one email.
+     *
+     * Called by the worker rather than by the request that created them, which
+     * is what makes minting the links here the right moment: a notice retried
+     * after a transport outage carries a link that works, and no plaintext
+     * token was ever written to the queue on the way.
+     *
+     * Marks what it managed to send. A throw leaves the state alone for the
+     * handler to record as failed, so "we tried and it did not work" and "we
+     * have not tried yet" stay distinguishable on the owner's page.
+     *
+     * @param list<ComicShare> $shares all addressed to the same recipient
+     */
+    public function notify(array $shares, User $owner): void
     {
-        $share = $invitation->share;
-        $comic = $invitation->comic;
+        $prepared = [];
+
+        foreach ($shares as $share) {
+            $comic = $share->getComic();
+            if ($comic === null) {
+                continue;
+            }
+
+            $this->revokeOutstandingTokens($share);
+
+            [$plaintext, $hash] = ShareInvitationToken::generate();
+            $this->entityManager->persist(new ShareInvitationToken($share, $hash, $this->invitationExpiry()));
+
+            $prepared[] = new PreparedInvitation($share, $comic, $plaintext);
+        }
+
+        if ($prepared === []) {
+            return;
+        }
+
+        // Flushed before the send so the hashes the email's links resolve
+        // against are committed by the time anybody can click one.
+        $this->entityManager->flush();
+
+        $this->sendGroupedInvitationEmail($prepared, $owner);
+
+        foreach ($prepared as $invitation) {
+            $invitation->share->markNotified();
+        }
+
+        $this->entityManager->flush();
+    }
+
+    /** The two records every new sharing relationship leaves behind. */
+    private function auditInvitation(ComicShare $share, User $owner): void
+    {
+        $comic = $share->getComic();
 
         $this->auditLogger->audit(SecurityAuditLogger::SHARE_CREATED, [
             'actor_user_id' => $owner->getId(),

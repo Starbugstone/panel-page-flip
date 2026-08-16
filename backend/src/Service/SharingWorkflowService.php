@@ -33,6 +33,7 @@ final class SharingWorkflowService
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly ComicShareService $shareService,
+        private readonly ExplicitContentPromoter $explicitContent,
         private readonly AuthorizationCheckerInterface $authorizationChecker,
     ) {
     }
@@ -152,7 +153,8 @@ final class SharingWorkflowService
         User $owner,
         string $recipientEmail,
         bool $senderResponsibilityAccepted,
-        ?SharingCodeRecipient $viaSharingCode = null
+        ?SharingCodeRecipient $viaSharingCode = null,
+        bool $markExplicit = false
     ): array {
         $ids = array_values(array_unique(array_map('intval', $comicIds)));
         $shareable = [];
@@ -173,6 +175,13 @@ final class SharingWorkflowService
             }
 
             $shareable[$comicId] = $comic;
+        }
+
+        // Before the shares, and inside the same unit of work, so an ordinary
+        // share can never be created because the reclassification failed. A
+        // throw here leaves nothing behind.
+        if ($markExplicit && $shareable !== []) {
+            $this->explicitContent->promote(array_values($shareable), $owner);
         }
 
         if ($shareable !== []) {
