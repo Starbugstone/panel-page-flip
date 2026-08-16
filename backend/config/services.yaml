@@ -24,6 +24,10 @@ parameters:
     # way up rather than minting codes that expired before they were handed out.
     share_content_code_ttl_days: '%env(int:default:share_content_code_ttl_days_default:SHARE_CONTENT_CODE_TTL_DAYS)%'
     share_content_code_ttl_days_default: 7
+    # Where share invitation notices go. `sync://` unless an operator has a
+    # Messenger worker running — see the transport comment in
+    # config/packages/messenger.yaml for why that is the safe default.
+    share_notification_transport_dsn_default: 'sync://'
     max_concurrent_uploads: '%env(int:default:max_concurrent_uploads_default:MAX_CONCURRENT_UPLOADS)%'
     max_concurrent_uploads_default: 3
     upload_max_chunk_bytes: 2097152

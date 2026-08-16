@@ -305,11 +305,22 @@ guarded: the shares are reported as created, their `notificationState` becomes
 the owner a 500 for a share that exists, and their retry would meet its own
 duplicates.
 
-Under `when@test` the `async` transport is `sync://`, so a test asserting what
-lands in an inbox does not have to run a worker. The production path is
-unchanged — the notice is still dispatched after the commit, and still carries
-only ids. A deployment therefore **needs a Messenger worker running**
-(`messenger:consume async`); without one, shares are created and no mail leaves.
+**The transport is `sync://` by default, and that is not a test-only setting.**
+Nothing else in this application puts a message on a queue — the mailer routing
+in `messenger.yaml` is commented out — so shipping a queued notice without also
+shipping a worker would create shares and silently never tell anybody, which is
+a worse failure than the one the queue was introduced to fix.
+
+What the design needs is that the notice is dispatched *after* the commit, and
+that holds either way: `sync://` runs the handler inline, a failed send marks
+`notificationState` and is recoverable with Resend, and the share survives. What
+a queue adds is automatic retry and a response that does not wait on SMTP.
+
+`SHARE_NOTIFICATION_TRANSPORT_DSN` switches it, once
+`messenger:consume share_notifications` is actually running — see
+[SSH-deploy.md §7.3](SSH-deploy.md#73-symfony-messenger-consumer--optional).
+Tests pin the transport to `sync://` so they exercise the handler whichever way
+an installation is configured.
 
 Sends and resends are limited per owner by the `share_invitation` rate limiter
 (`config/packages/rate_limiter.yaml`, sliding window, 10 per hour). The
