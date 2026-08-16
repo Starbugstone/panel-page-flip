@@ -50,6 +50,11 @@ class SecurityAuditLogger
     // somebody working through the keyspace rather than pasting a code.
     public const SHARING_CODE_ENUMERATION_ATTEMPT = 'security.share.sharing_code_enumeration_attempt';
     public const SHARE_CLAIM_CODE_REJECTED = 'security.share.claim_code_rejected';
+    // The other identifier a person types at another person. Watched separately
+    // from sharing codes because the two say different things: a run of failed
+    // code lookups is somebody guessing at the keyspace, while a run of failed
+    // username lookups is somebody guessing at *people*.
+    public const USERNAME_ENUMERATION_ATTEMPT = 'security.share.username_enumeration_attempt';
     public const DATA_INTEGRITY_FAILURE = 'security.data_integrity.failure';
     // The alarm raised by a sweep large enough to look like a compromised
     // account. Its own name rather than the audit event below reused: the two
@@ -83,6 +88,11 @@ class SecurityAuditLogger
     // recipients who lost access.
     public const SHARES_CLEARED = 'audit.share.dead_records_cleared';
     public const SHARING_CODE_ROTATED = 'audit.share.sharing_code_rotated';
+    // Both names go in this one, unlike the code rotation above. A username is
+    // an account's public identity by definition, so neither half is a secret —
+    // and the question this record exists to answer is precisely "who used to
+    // be called that?" after somebody reports an impersonation.
+    public const USERNAME_CHANGED = 'audit.user.username_changed';
     public const SHARE_CLAIM_CODE_CREATED = 'audit.share.claim_code_created';
     public const SHARE_CLAIM_CODE_REDEEMED = 'audit.share.claim_code_redeemed';
     public const SHARE_CLAIM_CODE_REVOKED = 'audit.share.claim_code_revoked';

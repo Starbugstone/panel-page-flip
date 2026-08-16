@@ -5,6 +5,7 @@ namespace App\Service;
 use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\User;
+use App\Enum\ShareCodeType;
 use App\Security\Voter\ComicVoter;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
@@ -37,16 +38,20 @@ final class SharingWorkflowService
     }
 
     /**
-     * Addresses this owner has already shared with, newest relationship first.
+     * People this owner has already shared with, newest relationship first.
      *
-     * No User join is allowed here: the caller learns only information they
-     * previously entered, never whether an address belongs to a registered
-     * account or anything about that account.
+     * No directory and no search: the rows are restricted to people this owner
+     * already has a sharing relationship with, so nothing is learned that
+     * sharing with them did not already establish. It is an address book of
+     * known correspondents, not a lookup of who exists.
      *
-     * Recipients reached by receiver code are listed too, but by their code and
-     * name — never by the address the sender was deliberately not given.
+     * Registered recipients are offered by username, because that is their
+     * public identity and it is the one that survives them changing anything
+     * else. Recipients the owner reached without seeing their address are never
+     * listed by address — that is the one thing being withheld.
      *
-     * @return list<array{email: string|null, sharingCode: string|null, name: string|null, label: string}>
+     * @return list<array{email: string|null, username: string|null, userCode: string|null,
+     *                    name: string|null, label: string}>
      */
     public function recentRecipients(User $owner, int $limit = self::RECENT_RECIPIENT_LIMIT): array
     {
@@ -54,18 +59,13 @@ final class SharingWorkflowService
 
         $rows = $this->entityManager->createQueryBuilder()
             ->select('s.recipientEmailNormalized AS email')
-            // Whether this relationship was made by code, not which code. The
-            // stored one is a note about how it began and goes stale the moment
-            // the recipient rotates; offering it back would put a retired code
-            // straight into the picker and defeat the rotation.
-            ->addSelect('s.recipientSharingCode AS historicalCode')
-            // The recipient's handle as it is now. Joining User is forbidden
-            // everywhere else in this service, and allowed here for one reason:
-            // the rows are already restricted to people this owner has an
-            // existing sharing relationship with, so nothing is learned that
-            // sharing with them did not already establish. It is a lookup of a
-            // known correspondent, not a search of the directory.
-            ->addSelect('ru.sharingCode AS currentCode')
+            // Whether the owner was kept from this address, not which code did
+            // it. The stored one is a note about how the relationship began and
+            // goes stale the moment the recipient rotates; offering it back
+            // would put a retired code straight into the picker.
+            ->addSelect('s.recipientUserCode AS historicalCode')
+            ->addSelect('ru.username AS username')
+            ->addSelect('ru.userCode AS currentCode')
             ->addSelect('ru.name AS currentName')
             ->addSelect('MAX(s.id) AS HIDDEN lastShareId')
             ->from(ComicShare::class, 's')
@@ -78,8 +78,9 @@ final class SharingWorkflowService
             // per way of reaching them, rather than one entry silently carrying
             // the other's label.
             ->groupBy('s.recipientEmailNormalized')
-            ->addGroupBy('s.recipientSharingCode')
-            ->addGroupBy('ru.sharingCode')
+            ->addGroupBy('s.recipientUserCode')
+            ->addGroupBy('ru.username')
+            ->addGroupBy('ru.userCode')
             ->addGroupBy('ru.name')
             ->orderBy('lastShareId', 'DESC')
             ->setMaxResults($safeLimit)
@@ -88,34 +89,43 @@ final class SharingWorkflowService
 
         $recipients = [];
         foreach ($rows as $row) {
-            $byCode = $row['historicalCode'] !== null;
-            $currentCode = $row['currentCode'] === null ? null : (string) $row['currentCode'];
+            $hidden = $row['historicalCode'] !== null;
+            $username = ($row['username'] ?? null) === null ? null : (string) $row['username'];
+            $currentCode = ($row['currentCode'] ?? null) === null ? null : (string) $row['currentCode'];
             $name = $row['currentName'] === null ? null : (string) $row['currentName'];
 
-            if (!$byCode) {
+            if ($username !== null) {
+                $handle = UsernamePolicy::forDisplay($username);
                 $recipients[] = [
-                    'email' => (string) $row['email'],
-                    'sharingCode' => null,
-                    'name' => null,
-                    'label' => (string) $row['email'],
+                    // Withheld for a recipient the owner was never shown, and
+                    // kept for one whose address they typed themselves — where
+                    // hiding it now would withhold something they already have.
+                    'email' => $hidden ? null : (string) $row['email'],
+                    'username' => $username,
+                    'userCode' => $currentCode === null
+                        ? null
+                        : SharingCodeFormat::forDisplay(ShareCodeType::USER, $currentCode),
+                    'name' => $name,
+                    'label' => $name === null || $name === ''
+                        ? $handle
+                        : sprintf('%s (%s)', $name, $handle),
                 ];
                 continue;
             }
 
-            // A code recipient whose account can no longer be resolved, or who
-            // has no code right now, is simply not offered. The alternative —
-            // falling back to the address — would hand over the one thing the
-            // code existed to withhold.
-            if ($currentCode === null) {
+            // No account behind this row. A hidden recipient whose account has
+            // gone is simply not offered: the alternative — falling back to the
+            // address — would hand over the one thing that was being withheld.
+            if ($hidden) {
                 continue;
             }
 
-            $display = SharingCodeFormat::forDisplay($currentCode);
             $recipients[] = [
-                'email' => null,
-                'sharingCode' => $display,
-                'name' => $name,
-                'label' => $name ?: $display,
+                'email' => (string) $row['email'],
+                'username' => null,
+                'userCode' => null,
+                'name' => null,
+                'label' => (string) $row['email'],
             ];
         }
 

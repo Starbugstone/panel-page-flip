@@ -19,6 +19,11 @@ parameters:
     legal_email: '%env(default:privacy_email:LEGAL_EMAIL)%'
     content_report_retention_days: '%env(int:default:content_report_retention_days_default:CONTENT_REPORT_RETENTION_DAYS)%'
     content_report_retention_days_default: 730
+    # The single source of truth for C-/G- code expiry. The service validates it
+    # and refuses to build on a nonsense value, so a bad deployment fails on the
+    # way up rather than minting codes that expired before they were handed out.
+    share_content_code_ttl_days: '%env(int:default:share_content_code_ttl_days_default:SHARE_CONTENT_CODE_TTL_DAYS)%'
+    share_content_code_ttl_days_default: 7
     max_concurrent_uploads: '%env(int:default:max_concurrent_uploads_default:MAX_CONCURRENT_UPLOADS)%'
     max_concurrent_uploads_default: 3
     upload_max_chunk_bytes: 2097152
@@ -138,6 +143,10 @@ services:
         arguments:
             $mailerFromAddress: '%mailer_from_address%'
             $mailerFromName: '%mailer_from_name%'
+
+    App\Service\ShareContentCodeLifetime:
+        arguments:
+            $contentCodeTtlDays: '%share_content_code_ttl_days%'
 
     App\Service\AppDataEncryptionService:
         arguments:

@@ -2,6 +2,7 @@
 
 namespace App\Entity;
 
+use App\Enum\ShareCodeType;
 use App\Repository\ShareClaimCodeRepository;
 use App\Service\SharingCodeFormat;
 use Doctrine\Common\Collections\ArrayCollection;
@@ -10,22 +11,30 @@ use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * An offer of some comics to whoever the owner hands the code to.
+ * An offer of comics to whoever the owner hands the code to.
  *
- * The counterpart to a receiver code, and the opposite direction: a receiver
- * code says "this is me, share with me", while this says "these are mine, come
- * and get them". It exists for the case where the owner does not know, and
- * should not have to ask for, the other person's address.
+ * The counterpart to a `U-` user code, and the opposite direction: a user code
+ * says "this is me, share with me", while this says "these are mine, come and
+ * get them". It exists for the case where the owner does not know, and should
+ * not have to ask for, the other person's address.
+ *
+ * Two shapes, one row. A `C-` code carries exactly one comic and a `G-` code
+ * carries a deliberate package of two to twenty — a story arc handed over as
+ * one thing. They share a table because they share a lifecycle down to the last
+ * rule; they do not share a prefix, because "how many comics is behind this?"
+ * is the first thing anybody holding one wants to know.
  *
  * It is a capability, so it is treated like one:
  *
  * - **Only the hash is stored.** The plaintext exists once, in the message the
  *   owner sends, exactly like an invitation link
- * - **It expires in a day.** A code pasted into a group chat is out of its
- *   owner's hands the moment it is sent; a short life is what stops it from
- *   still working weeks later
+ * - **It expires**, after the operator's configured lifetime and seven days by
+ *   default. A code pasted into a group chat is out of its owner's hands the
+ *   moment it is sent; a bounded life is what stops it from still working
+ *   months later
  * - **It is spent as it is used**, at most ten times and as few as one, so the
- *   owner decides up front how far it may travel
+ *   owner decides up front how far it may travel. A group costs one use, not
+ *   one per comic — the recipient took up the offer once
  * - **It grants nothing by itself.** Redeeming requires being signed in, and
  *   creates the same ordinary {@see ComicShare} an emailed invitation would.
  *   Every rule that follows — the 18+ gate, revocation, tombstones — is
@@ -35,8 +44,11 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Table(name: 'share_claim_code')]
 class ShareClaimCode
 {
-    /** How long an unredeemed code stays live. */
-    public const TTL = '+1 day';
+    /** The smallest package a `G-` code may carry. One comic is a `C-` code. */
+    public const MIN_GROUP_COMICS = 2;
+
+    /** And the largest, which is also the ceiling on a direct bulk share. */
+    public const MAX_GROUP_COMICS = 20;
 
     /**
      * How long a dead code is kept before it is deleted.
@@ -62,7 +74,22 @@ class ShareClaimCode
     #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     private ?User $owner = null;
 
-    /** SHA-256 of the normalised plaintext. Unique, so a collision cannot hide. */
+    /**
+     * Which kind of content code this is, as a fact about the row.
+     *
+     * Stored rather than derived from the comic count, because the count can
+     * change underneath it: deleting a comic off a two-comic group would turn a
+     * `G-` code into something that looked like a `C-` code and read back with
+     * the wrong prefix. The type a code was issued as is the type it stays.
+     */
+    #[ORM\Column(length: 1, enumType: ShareCodeType::class)]
+    private ShareCodeType $type;
+
+    /**
+     * SHA-256 of the type and the normalised token together. Unique, so a
+     * collision cannot hide, and typed, so a `C-` code cannot be redeemed as
+     * the `G-` code that drew the same twelve characters.
+     */
     #[ORM\Column(length: 64, unique: true)]
     private string $codeHash;
 
@@ -80,6 +107,20 @@ class ShareClaimCode
     #[ORM\JoinColumn(onDelete: 'CASCADE')]
     #[ORM\InverseJoinColumn(onDelete: 'CASCADE')]
     private Collection $comics;
+
+    /**
+     * How many comics were on this code when it was issued.
+     *
+     * The join rows cascade away with the comics, so the collection above
+     * silently shrinks when an owner deletes something they had put behind a
+     * code. For a `C-` code that empties it, which stops it dead. For a `G-`
+     * code it would quietly turn a fifteen-issue arc into a fourteen-issue one,
+     * and the recipient would have no way to know what they were missing —
+     * so the issued count is written down and a group that no longer matches it
+     * is not redeemable at all.
+     */
+    #[ORM\Column(options: ['default' => 0])]
+    private int $issuedComicCount = 0;
 
     #[ORM\Column]
     private int $maxUses;
@@ -107,11 +148,19 @@ class ShareClaimCode
     /**
      * @param list<Comic> $comics
      */
-    public function __construct(User $owner, string $codeHash, array $comics, int $maxUses, \DateTimeImmutable $expiresAt)
-    {
+    public function __construct(
+        User $owner,
+        ShareCodeType $type,
+        string $codeHash,
+        array $comics,
+        int $maxUses,
+        \DateTimeImmutable $expiresAt
+    ) {
         $this->owner = $owner;
+        $this->type = $type;
         $this->codeHash = $codeHash;
         $this->comics = new ArrayCollection($comics);
+        $this->issuedComicCount = count($comics);
         $this->maxUses = $maxUses;
         $this->usesRemaining = $maxUses;
         $this->createdAt = new \DateTimeImmutable();
@@ -119,15 +168,45 @@ class ShareClaimCode
         $this->senderResponsibilityAcceptedAt = $this->createdAt;
     }
 
-    public static function expiry(): \DateTimeImmutable
-    {
-        return (new \DateTimeImmutable())->modify(self::TTL);
-    }
-
     /** Whether a count of uses is one this entity will accept. */
     public static function isUsableCount(int $maxUses): bool
     {
         return $maxUses >= self::MIN_USES && $maxUses <= self::MAX_USES;
+    }
+
+    /**
+     * Whether this many comics is a legal package for that kind of code.
+     *
+     * The invariant the two prefixes exist to promise: a `C-` code is one comic
+     * and a `G-` code is a group. Stated once, here, so the creation endpoints
+     * and the tests are reading the same rule.
+     */
+    public static function isUsableComicCount(ShareCodeType $type, int $count): bool
+    {
+        return match ($type) {
+            ShareCodeType::COMIC => $count === 1,
+            ShareCodeType::GROUP => $count >= self::MIN_GROUP_COMICS && $count <= self::MAX_GROUP_COMICS,
+            ShareCodeType::USER => false,
+        };
+    }
+
+    /** Why that many comics is not a package of this kind, or null. */
+    public static function describeComicCountProblem(ShareCodeType $type): string
+    {
+        return match ($type) {
+            ShareCodeType::COMIC => 'A comic code carries exactly one comic.',
+            ShareCodeType::GROUP => sprintf(
+                'A group code carries between %d and %d comics.',
+                self::MIN_GROUP_COMICS,
+                self::MAX_GROUP_COMICS
+            ),
+            ShareCodeType::USER => 'A user code does not carry comics.',
+        };
+    }
+
+    public function getType(): ShareCodeType
+    {
+        return $this->type;
     }
 
     public function getId(): ?int
@@ -193,17 +272,37 @@ class ShareClaimCode
         return $this->expiresAt <= ($now ?? new \DateTimeImmutable());
     }
 
+    public function getIssuedComicCount(): int
+    {
+        return $this->issuedComicCount;
+    }
+
+    /**
+     * Whether the package this code was issued for is still whole.
+     *
+     * All or nothing, for a group especially: somebody redeeming a fifteen-issue
+     * arc is taking up an offer of fifteen issues, and handing them fourteen
+     * without saying so is worse than handing them nothing. The owner's way out
+     * is to withdraw the code and issue a new one for what they still have.
+     */
+    public function isPackageIntact(): bool
+    {
+        return $this->comics->count() === $this->issuedComicCount;
+    }
+
     /**
      * Every reason a code may be redeemed, in one place.
      *
-     * A code with no comics left on it is spent as surely as one with no uses
-     * left: every comic it offered has since been deleted, and redeeming it
-     * would create nothing.
+     * A code whose package is no longer whole is spent as surely as one with no
+     * uses left: for a `C-` code the comic it offered has been deleted and
+     * redeeming it would create nothing, and for a `G-` code the arc it
+     * promised cannot be delivered.
      */
     public function isRedeemable(?\DateTimeImmutable $now = null): bool
     {
         return $this->revokedAt === null
             && $this->usesRemaining > 0
+            && $this->isPackageIntact()
             && !$this->comics->isEmpty()
             && !$this->isExpired($now);
     }
@@ -247,7 +346,7 @@ class ShareClaimCode
         if ($this->usesRemaining <= 0) {
             return 'used_up';
         }
-        if ($this->comics->isEmpty()) {
+        if (!$this->isPackageIntact()) {
             return 'comics_removed';
         }
 
@@ -280,8 +379,12 @@ class ShareClaimCode
 
         return [
             'id' => $this->id,
+            'type' => $this->type->value,
             'comicTitles' => $titles,
             'comicCount' => count($titles),
+            // What the owner offered, which is what their list should say even
+            // after one of the comics behind it has gone.
+            'issuedComicCount' => $this->issuedComicCount,
             'maxUses' => $this->maxUses,
             'usesRemaining' => $this->usesRemaining,
             // How many people took it up, which is the question the owner is
@@ -332,9 +435,9 @@ class ShareClaimCode
         ];
     }
 
-    /** The grouped form of a plaintext code, for the one response that shows it. */
-    public static function forDisplay(string $plaintext): string
+    /** The grouped, prefixed form of a token, for the one response that shows it. */
+    public static function forDisplay(ShareCodeType $type, string $token): string
     {
-        return SharingCodeFormat::forDisplay($plaintext);
+        return SharingCodeFormat::forDisplay($type, $token);
     }
 }

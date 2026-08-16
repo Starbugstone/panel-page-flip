@@ -17,6 +17,7 @@ final class ApiRateLimiter
         private readonly RateLimiterFactory $forgotPasswordLimiter,
         private readonly RateLimiterFactory $verificationResendLimiter,
         private readonly RateLimiterFactory $comicSearchLimiter,
+        private readonly RateLimiterFactory $usernameLookupLimiter,
         private readonly SecurityAuditLogger $auditLogger
     ) {
     }
@@ -29,6 +30,7 @@ final class ApiRateLimiter
             'forgot_password' => $this->forgotPasswordLimiter,
             'verification_resend' => $this->verificationResendLimiter,
             'comic_search' => $this->comicSearchLimiter,
+            'username_lookup' => $this->usernameLookupLimiter,
             default => throw new \InvalidArgumentException(sprintf('Unknown limiter "%s".', $limiterName)),
         };
 

@@ -4,8 +4,10 @@ namespace App\Repository;
 
 use App\Entity\ShareClaimCode;
 use App\Entity\User;
+use App\Enum\ShareCodeType;
 use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
+use App\Service\ParsedShareCode;
 use App\Service\SharingCodeFormat;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -29,22 +31,42 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
     }
 
     /**
-     * Find a code by what somebody typed.
+     * Find a code by what somebody typed, once it has been recognised.
      *
      * By hash, so the plaintext is never compared against anything stored and a
-     * database leak yields nothing redeemable. Returns whatever the hash finds,
-     * live or not — deciding whether it may still be used belongs to the
-     * service, which has to answer identically for a spent code and a code that
-     * never existed.
+     * database leak yields nothing redeemable. The hash covers the type as well
+     * as the token, so a `C-` code cannot find the `G-` row that drew the same
+     * twelve characters.
+     *
+     * Returns whatever the hash finds, live or not — deciding whether it may
+     * still be used belongs to the service, which has to answer identically for
+     * a spent code and a code that never existed.
      */
-    public function findByPlaintext(string $plaintext): ?ShareClaimCode
+    public function findByParsedCode(ParsedShareCode $code): ?ShareClaimCode
     {
-        $normalised = SharingCodeFormat::normalise($plaintext);
-        if ($normalised === '') {
-            return null;
-        }
+        return $this->findOneBy(['codeHash' => $code->hash()]);
+    }
 
-        return $this->findOneBy(['codeHash' => SharingCodeFormat::hash($normalised)]);
+    /**
+     * Whether any content code was minted from this token, of either type.
+     *
+     * Asked by the allocator, which keeps one visible token from meaning two
+     * things at once. That is not what makes the three kinds unambiguous — the
+     * prefix does that — but it is what makes a code safe to read aloud.
+     */
+    public function existsForToken(string $token): bool
+    {
+        $hashes = array_map(
+            static fn (ShareCodeType $type): string => SharingCodeFormat::hash($type, $token),
+            [ShareCodeType::COMIC, ShareCodeType::GROUP]
+        );
+
+        return (int) $this->createQueryBuilder('c')
+            ->select('COUNT(c.id)')
+            ->andWhere('c.codeHash IN (:hashes)')
+            ->setParameter('hashes', $hashes)
+            ->getQuery()
+            ->getSingleScalarResult() > 0;
     }
 
     /**

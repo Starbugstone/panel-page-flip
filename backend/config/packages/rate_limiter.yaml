@@ -62,6 +62,24 @@ framework:
             policy: sliding_window
             limit: 5
             interval: '1 hour'
+        # The other end of the same problem, and the harder one. A username is
+        # short, memorable and chosen, so unlike a sixty-bit code it is a name
+        # somebody could plausibly guess — which makes this limit the control
+        # that actually does the work rather than a backstop behind entropy.
+        # Charged per miss, so sharing with the people you know is free.
+        username_lookup:
+            policy: sliding_window
+            limit: 30
+            interval: '1 hour'
+        # Changing a handle other people have written down is an identity
+        # change, and one that can be done freely is one that can be done
+        # *into*: taking a name somebody has just vacated is the cheapest
+        # impersonation there is. Generous enough that somebody settling on a
+        # name they like never notices it.
+        username_change:
+            policy: sliding_window
+            limit: 3
+            interval: '24 hours'
 
         # Outbound lookups against the external metadata providers. Their own
         # documented limits are what this protects: Comic Vine refuses a client
@@ -103,6 +121,13 @@ when@test:
             # the ones that do assert a limit are written to tolerate arriving
             # at a key somebody else already used.
             share_claim_code:
+                limit: 1000
+            # Same reason: the limiter outlives the rolled-back database, so a
+            # user id that comes round again would inherit a spent allowance.
+            # The tests that assert these limits create their own keys.
+            username_lookup:
+                limit: 1000
+            username_change:
                 limit: 1000
             # Provider lookups are cache-backed like the others, so raise it
             # rather than have an unrelated test spend the allowance.

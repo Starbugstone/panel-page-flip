@@ -19,6 +19,15 @@ class ShareException extends \RuntimeException
     public const CODE_ADULT_CONFIRMATION_REQUIRED = 'adult_confirmation_required';
 
     /**
+     * A real sharing code, of a kind this endpoint does not take.
+     *
+     * Distinct from "invalid" so the client can show the guidance the message
+     * carries — where this code *does* go — rather than the generic failure it
+     * shows for a code that resolves to nothing.
+     */
+    public const CODE_WRONG_CODE_TYPE = 'share_code_wrong_type';
+
+    /**
      * @param string|null $errorCode a stable identifier for failures the client
      *                               has to react to rather than merely display,
      *                               such as opening the age gate. Most failures

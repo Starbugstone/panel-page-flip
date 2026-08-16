@@ -190,7 +190,7 @@ class ComicShareService
             if ($viaSharingCode !== null) {
                 $prepared[$comicId]->share
                     ->hideRecipientBehindSharingCode(
-                        $viaSharingCode->sharingCode,
+                        $viaSharingCode->userCode,
                         $viaSharingCode->name
                     )
                     // A code is an account, so this relationship knows who it is
@@ -304,6 +304,14 @@ class ComicShareService
             ->markPending(new \DateTimeImmutable(self::INVITATION_TTL))
             ->refreshSnapshots()
             ->linkRecipientUser($recipient)
+            // The owner never typed this address and was never told it: they
+            // put a code into the world and somebody they may not know picked
+            // it up. Linking the account without saying so is what let the
+            // redeemer's address surface on the owner's Sharing page later,
+            // which turns "hand this to a stranger" into "collect addresses
+            // from strangers". They get the recipient's public identity, which
+            // is exactly what the recipient publishes.
+            ->hideRecipientBehindSharingCode($recipient->getUserCode(), $recipient->getName())
             ->inheritSenderResponsibility($acknowledgedAt);
 
         $this->auditLogger->audit(SecurityAuditLogger::SHARE_CREATED, [
@@ -1157,6 +1165,24 @@ class ComicShareService
         if ($share->isExpired()) {
             throw new ShareException('This invitation has expired.', 410);
         }
+    }
+
+    /**
+     * The same question {@see assertSharingAvailable()} answers, as a predicate.
+     *
+     * Content-code redemption has to judge a whole package before creating any
+     * of it — a group is handed over whole or not at all — so it needs to ask
+     * rather than to try and catch. Both forms read the one rule.
+     */
+    public function isShareableBy(Comic $comic, User $owner): bool
+    {
+        try {
+            $this->assertSharingAvailable($comic, $owner);
+        } catch (ShareException) {
+            return false;
+        }
+
+        return true;
     }
 
     private function assertSharingAvailable(Comic $comic, User $owner): void

@@ -112,13 +112,13 @@ class ComicShare
     private string $ownerNameSnapshot = '';
 
     /**
-     * Set when the sender reached this recipient through their receiver code
-     * rather than by typing their address.
+     * Set when the owner reached this recipient without ever seeing their
+     * address — by username, by `U-` code, or because the recipient redeemed a
+     * content code the owner put into the world.
      *
-     * The point of a receiver code is that the sender never learns the address,
-     * so the address they never learned must not be handed back to them by the
-     * page that lists what they shared. These two carry what the owner is shown
-     * instead: the recipient's name as it was, and the code they can use to
+     * The address the owner never learned must not be handed back to them by
+     * the page that lists what they shared. These two carry what they are shown
+     * instead: the recipient's name as it was, and the code that can be used to
      * offer them something else.
      *
      * Both null for an ordinary email invitation, where the sender typed the
@@ -128,7 +128,7 @@ class ComicShare
     private ?string $recipientAliasName = null;
 
     #[ORM\Column(length: 16, nullable: true)]
-    private ?string $recipientSharingCode = null;
+    private ?string $recipientUserCode = null;
 
     /**
      * Whether the comic was marked explicit when the snapshots were last taken.
@@ -218,14 +218,15 @@ class ComicShare
     }
 
     /**
-     * Record that this relationship was made through a receiver code.
+     * Record that the owner never saw this recipient's address.
      *
-     * Called with the recipient's own name and code, both of which they published
-     * by handing the code out. Nothing else about them crosses over.
+     * Called with the recipient's own name and `U-` code, both of which they
+     * publish by having an account other people can share with. Nothing else
+     * about them crosses over.
      */
-    public function hideRecipientBehindSharingCode(string $sharingCode, ?string $recipientName): self
+    public function hideRecipientBehindSharingCode(string $userCode, ?string $recipientName): self
     {
-        $this->recipientSharingCode = $sharingCode;
+        $this->recipientUserCode = $userCode;
         $this->recipientAliasName = $recipientName;
 
         return $this;
@@ -239,7 +240,7 @@ class ComicShare
      * receiver code is the exception: the code *is* an account, so the
      * relationship knows who it is for from the start.
      *
-     * That link is what survives a rotation. `recipientSharingCode` records how
+     * That link is what survives a rotation. `recipientUserCode` records how
      * this relationship began and goes stale the moment the recipient replaces
      * their code; anything that needs their current handle asks the account.
      */
@@ -259,7 +260,7 @@ class ComicShare
      */
     public function revealRecipientAddressToOwner(): self
     {
-        $this->recipientSharingCode = null;
+        $this->recipientUserCode = null;
         $this->recipientAliasName = null;
 
         return $this;
@@ -268,7 +269,7 @@ class ComicShare
     /** Whether the owner may be shown this recipient's address. */
     public function isRecipientAddressHiddenFromOwner(): bool
     {
-        return $this->recipientSharingCode !== null;
+        return $this->recipientUserCode !== null;
     }
 
     public function getRecipientAliasName(): ?string
@@ -276,9 +277,9 @@ class ComicShare
         return $this->recipientAliasName;
     }
 
-    public function getRecipientSharingCode(): ?string
+    public function getRecipientUserCode(): ?string
     {
-        return $this->recipientSharingCode;
+        return $this->recipientUserCode;
     }
 
     public function getComic(): ?Comic

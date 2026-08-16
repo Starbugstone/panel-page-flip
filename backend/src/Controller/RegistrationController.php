@@ -11,6 +11,9 @@ use App\Service\EmailVerificationMailer;
 use App\Service\EmailVerificationService;
 use App\Service\PasswordValidator;
 use App\Service\SecurityAuditLogger;
+use App\Service\ShareException;
+use App\Service\UsernameService;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -33,7 +36,8 @@ final class RegistrationController extends AbstractController
         ApiRateLimiter $rateLimiter,
         EmailVerificationService $verification,
         EmailVerificationMailer $verificationMailer,
-        SecurityAuditLogger $securityLogger
+        SecurityAuditLogger $securityLogger,
+        UsernameService $usernames
     ): Response {
         if ($this->getUser()) {
             return new JsonResponse(['message' => 'User already authenticated.'], Response::HTTP_FORBIDDEN);
@@ -51,6 +55,12 @@ final class RegistrationController extends AbstractController
             'password' => new Assert\Optional(new Assert\Type('string')),
             'plainPassword' => new Assert\Optional(new Assert\Type('string')),
             'name' => new Assert\Optional(new Assert\Type('string')),
+            // Optional on the wire, required on the account. The form always
+            // sends one because it is shown a suggestion, but a client that
+            // omits it gets a generated name rather than an error: an account
+            // with no username cannot be shared with, so there is no state in
+            // which leaving it out is better than filling it in.
+            'username' => new Assert\Optional(new Assert\Type('string')),
             'agreeTerms' => new Assert\Required([
                 new Assert\NotNull(['message' => 'Terms acceptance is required']),
                 new Assert\IsTrue(['message' => 'You must agree to the Terms of Service']),
@@ -94,7 +104,47 @@ final class RegistrationController extends AbstractController
         $user->setRoles(['ROLE_USER']);
         $user->setPassword($userPasswordHasher->hashPassword($user, $password));
 
+        $requestedUsername = isset($data['username']) && is_string($data['username'])
+            ? ltrim(trim($data['username']), '@')
+            : '';
+
+        try {
+            $usernames->assign(
+                $user,
+                $requestedUsername !== '' ? $requestedUsername : $usernames->suggest()
+            );
+        } catch (ShareException $exception) {
+            // A name the caller chose and cannot have. Reported under
+            // `username` so the form can put the message next to the field and
+            // offer another suggestion, rather than as a bare 409 the user has
+            // to interpret.
+            return new JsonResponse([
+                'message' => 'Validation failed',
+                'errors' => ['username' => $exception->getMessage()],
+                'suggestion' => $usernames->suggest(),
+            ], $exception->getStatusCode());
+        }
+
+        // The `U-` code is filled in by UserIdentityListener on persist, along
+        // with a username for any caller that did not send one. Issued at
+        // creation rather than on first use because a code is how other people
+        // reach this account, and one that only exists after its owner next
+        // visits the Sharing page cannot be shared with until then.
         $entityManager->persist($user);
+
+        try {
+            $entityManager->flush();
+        } catch (UniqueConstraintViolationException) {
+            // Two registrations picked the same username between the check and
+            // this write. The index is the authority and has just said so;
+            // Doctrine closes the manager on it, so the useful answer is a
+            // fresh suggestion rather than a retry this request cannot make.
+            return new JsonResponse([
+                'message' => 'Validation failed',
+                'errors' => ['username' => 'That username was taken a moment ago. Please choose another.'],
+            ], Response::HTTP_CONFLICT);
+        }
+
         $plainToken = $verification->issue($user);
         $verificationMailer->send($user, $plainToken);
 

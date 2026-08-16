@@ -64,6 +64,16 @@ security:
         # It is a GET that changes nothing; accepting and declining are POSTs on
         # longer paths, which this pattern deliberately does not match.
         - { path: '^/api/shares/invitations/[^/]+$', methods: [GET], roles: PUBLIC_ACCESS }
+        # Registration has to offer a username and check one before an account
+        # exists, so both are public — and both are rate limited per IP inside
+        # the controller, because availability is the one place an
+        # unauthenticated caller can ask whether a name is in use.
+        - { path: ^/api/users/username-suggestion$, methods: [GET], roles: PUBLIC_ACCESS }
+        - { path: ^/api/users/username-available$, methods: [GET], roles: PUBLIC_ACCESS }
+        # These live under /api/users but belong to the account holder, not to
+        # an administrator, so they are listed ahead of the admin rule below.
+        - { path: ^/api/users/resolve-username$, methods: [POST], roles: IS_AUTHENTICATED_FULLY }
+        - { path: ^/api/users/username$, methods: [PUT], roles: IS_AUTHENTICATED_FULLY }
 
         # Admin routes (all methods). Not anchored on the id, so sub-resources
         # such as /api/users/{id}/verify and /api/users/{id}/sharing-code/rotate
