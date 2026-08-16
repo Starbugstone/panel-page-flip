@@ -76,7 +76,7 @@ security:
         - { path: ^/api/users/username$, methods: [PUT], roles: IS_AUTHENTICATED_FULLY }
 
         # Admin routes (all methods). Not anchored on the id, so sub-resources
-        # such as /api/users/{id}/verify and /api/users/{id}/sharing-code/rotate
+        # such as /api/users/{id}/verify and /api/users/{id}/user-code/rotate
         # are covered by the firewall as well as by their own in-controller
         # check, rather than falling through to plain authentication.
         - { path: ^/api/users(/|$), roles: ROLE_ADMIN }

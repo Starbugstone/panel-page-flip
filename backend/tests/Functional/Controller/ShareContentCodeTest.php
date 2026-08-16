@@ -569,4 +569,84 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         // refusal was the guard rather than the code having been spent.
         self::assertSame([], $this->getJson('/api/shares/shared-with-me')['sharedWithMe']);
     }
+    /* ---------------------------------------------------------------------- */
+    /* The age gate                                                            */
+    /* ---------------------------------------------------------------------- */
+
+    /**
+     * Redeeming a code is affirmative acceptance, and the age gate is the one
+     * thing it cannot wave through.
+     *
+     * A group may legitimately mix ordinary and 18+ comics. The ordinary ones
+     * are accepted on the spot, because typing a code somebody gave you is a
+     * decision; the explicit one is left pending until its recipient declares
+     * their age. Deciding it before the share is accepted rather than undoing
+     * it afterwards means there is no moment where an unconfirmed recipient
+     * holds an accepted share.
+     */
+    public function testAnExplicitComicInAGroupIsLeftBehindTheAgeGate(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'mixed-arc@example.com']);
+        $ordinary = ComicFactory::new()->ownedBy($owner)->create(['title' => 'All Ages'])->object();
+        $adult = ComicFactory::new()->ownedBy($owner)->explicit()->create(['title' => 'Adults Only'])->object();
+
+        $code = $this->postJson('/api/shares/group-codes', [
+            'comicIds' => [$ordinary->getId(), $adult->getId()],
+            'maxUses' => 2,
+            'senderResponsibilityAccepted' => true,
+        ])['code'];
+        self::assertResponseStatusCodeSame(201);
+
+        $this->createAndLoginUser(['email' => 'unconfirmed@example.com']);
+        $redeemed = $this->postJson('/api/shares/content-codes/redeem', ['code' => $code]);
+        self::assertResponseIsSuccessful();
+
+        $byComic = [];
+        foreach ($redeemed['results'] as $result) {
+            $byComic[(int) $result['comicId']] = $result['status'];
+        }
+
+        self::assertSame('claimed', $byComic[(int) $ordinary->getId()]);
+        self::assertSame('awaiting_age_confirmation', $byComic[(int) $adult->getId()]);
+
+        // And the gate is real, not merely reported: the explicit comic is not
+        // readable, and the serializer withholds even its title.
+        $received = $this->getJson('/api/shares/shared-with-me')['sharedWithMe'];
+        $gated = null;
+        foreach ($received as $share) {
+            if ($share['comicTitle'] === null) {
+                $gated = $share;
+            }
+        }
+
+        self::assertNotNull($gated, 'The explicit comic should be withheld until an age is declared.');
+        self::assertTrue($gated['requiresAdultConfirmation']);
+        self::assertFalse($gated['adultConfirmed']);
+        self::assertNull($gated['comicId']);
+
+        $this->getJson('/api/comics/' . $adult->getId());
+        self::assertResponseStatusCodeSame(403);
+
+        // Declaring an age is not the same as taking the comic. The share was
+        // deliberately never accepted, so confirming alone must not open it —
+        // otherwise redeeming a code would accept an explicit comic on the
+        // recipient's behalf, which is the thing leaving it pending prevents.
+        $this->postJson('/api/shares/' . $gated['id'] . '/confirm-adult', ['adultConfirmed' => true]);
+        self::assertResponseIsSuccessful();
+
+        $this->getJson('/api/comics/' . $adult->getId());
+        self::assertResponseStatusCodeSame(403);
+
+        // Accepting is the second, separate act, and only now is it readable.
+        $this->postJson('/api/shares/' . $gated['id'] . '/accept');
+        self::assertResponseIsSuccessful();
+
+        $this->getJson('/api/comics/' . $adult->getId());
+        self::assertResponseIsSuccessful();
+
+        // The ordinary comic needed neither step: entering the code was the
+        // affirmative act, and it was readable from the moment it arrived.
+        $this->getJson('/api/comics/' . $ordinary->getId());
+        self::assertResponseIsSuccessful();
+    }
 }

@@ -441,7 +441,12 @@ export function describeNotification(recipient) {
     case NOTIFICATION_STATE.PENDING:
       return "The share is ready. Its email has not gone out yet.";
     case NOTIFICATION_STATE.FAILED:
-      return "The share was created, but its email could not be delivered. Resend it, or send them the link yourself.";
+      // Resend is the route back, and deliberately the only one the owner has:
+      // the invitation link is minted as the email is written and is never
+      // handed to them, so telling them to pass it on themselves would be
+      // advice they cannot follow. A recipient who already has an account does
+      // not need the email at all — the share is waiting on their own page.
+      return "The share was created, but its email could not be delivered. Resend it. If they already have an account, it is waiting on their Sharing page.";
     default:
       return null;
   }
