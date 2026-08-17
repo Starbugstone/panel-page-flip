@@ -24,10 +24,27 @@ use Symfony\Component\Routing\RouterInterface;
 final class AdminSurfaceIsClosedTest extends AbstractApiTestCase
 {
     /**
+     * `/api/users` contains a small number of deliberately non-administrative
+     * routes. Keep the exceptions explicit here rather than deriving them from
+     * `security.yaml`: this test must remain capable of catching an accidental
+     * relaxation of that configuration.
+     *
+     * @var array<string, true>
+     */
+    private const NON_ADMIN_USER_ROUTES = [
+        'GET /api/users/username-suggestion' => true,
+        'GET /api/users/username-available' => true,
+        'POST /api/users/resolve-username' => true,
+        'PUT /api/users/username' => true,
+    ];
+
+    /**
      * Routes an ordinary user must never get past.
      *
      * `/api/users` is included alongside `/api/admin`: managing accounts is an
-     * administrative surface that simply does not live under that prefix.
+     * administrative surface that simply does not live under that prefix. The
+     * handful of registration/account-holder routes under the same prefix are
+     * excluded explicitly above.
      *
      * @return list<array{0: string, 1: string}> method and path
      */
@@ -49,6 +66,10 @@ final class AdminSurfaceIsClosedTest extends AbstractApiTestCase
             $url = (string) preg_replace('/\{[^}]+\}/', '4242', $path);
 
             foreach ($route->getMethods() ?: ['GET'] as $method) {
+                if (isset(self::NON_ADMIN_USER_ROUTES[$method.' '.$path])) {
+                    continue;
+                }
+
                 $routes[] = [$method, $url];
             }
         }
