@@ -52,12 +52,12 @@ final class ShareControllerTest extends AbstractApiTestCase
         $this->getJson('/api/comics/' . $comic->getId());
         self::assertResponseStatusCodeSame(403);
 
-        // Both the denial and a missing archive answer 404, so the message is
-        // what distinguishes "you may not read this" from "there is nothing to
-        // read" — and only the first is being asserted here.
+        // Refused, not hidden. An invitation is addressed to them by name, so
+        // they already know this comic exists; every endpoint says the same
+        // thing about it rather than the metadata refusing and the bytes
+        // pretending there is nothing there.
         $this->browser()->request('GET', '/api/comics/' . $comic->getId() . '/pages/1');
-        self::assertResponseStatusCodeSame(404);
-        self::assertSame('Comic not found', $this->json()['message']);
+        self::assertResponseStatusCodeSame(403);
 
         $this->browser()->request(
             'GET',
@@ -194,9 +194,10 @@ final class ShareControllerTest extends AbstractApiTestCase
         $this->loginAs($recipient);
         $this->getJson('/api/comics/' . $comic->getId());
         self::assertResponseStatusCodeSame(403);
+        // A revoked share is still a share they remember being given, so the
+        // refusal is plain rather than a pretence that the comic never existed.
         $this->browser()->request('GET', '/api/comics/' . $comic->getId() . '/pages/1');
-        self::assertResponseStatusCodeSame(404);
-        self::assertSame('Comic not found', $this->json()['message']);
+        self::assertResponseStatusCodeSame(403);
         self::assertSame([], $this->getJson('/api/comics')['comics']);
     }
 
@@ -458,8 +459,11 @@ final class ShareControllerTest extends AbstractApiTestCase
         $this->postJson('/api/shares/invitations/' . $plaintext . '/accept');
         self::assertResponseStatusCodeSame(403);
 
+        // Nobody invited them, so as far as the API is concerned there is no
+        // such comic — holding a token addressed to somebody else must not
+        // confirm that the thing it names is real.
         $this->getJson('/api/comics/' . $comic->getId());
-        self::assertResponseStatusCodeSame(403);
+        self::assertResponseStatusCodeSame(404);
     }
 
     public function testAcceptingAnInvitationSpendsItsToken(): void

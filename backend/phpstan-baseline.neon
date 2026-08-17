@@ -121,12 +121,6 @@ parameters:
 			path: src/Controller/ComicController.php
 
 		-
-			message: '#^Method App\\Controller\\ComicController\:\:getMimeTypeForExtension\(\) is unused\.$#'
-			identifier: method.unused
-			count: 1
-			path: src/Controller/ComicController.php
-
-		-
 			message: '#^Result of && is always false\.$#'
 			identifier: booleanAnd.alwaysFalse
 			count: 2

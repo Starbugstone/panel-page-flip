@@ -119,6 +119,7 @@ final class ComicStructuredMetadataUpdateTest extends AbstractApiTestCase
 
         $this->putJson(sprintf('/api/comics/%d', $comic->getId()), ['series' => 'Batman']);
 
-        self::assertResponseStatusCodeSame(403);
+        // Not "you may not edit that", which would confirm there is a that.
+        self::assertResponseStatusCodeSame(404);
     }
 }

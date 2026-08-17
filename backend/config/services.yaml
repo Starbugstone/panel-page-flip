@@ -267,13 +267,17 @@ services:
                 - '%quarantine_directory%'
 
     # Comic controller with comics directory configuration
-    App\Controller\ComicController:
+    App\Controller\ComicUploadController:
         arguments:
-            $comicsDirectory: '%comics_directory%'
             $uploadMaxChunkBytes: '%upload_max_chunk_bytes%'
             $uploadMaxTotalBytes: '%upload_max_total_bytes%'
             $uploadMaxTotalChunks: '%upload_max_total_chunks%'
-            
+
+    App\Controller\ComicPageController:
+        arguments:
+            $comicsDirectory: '%comics_directory%'
+
+
     App\Service\DropboxImportService:
         arguments:
             $dropboxAppFolder: '%dropbox_app_folder%'

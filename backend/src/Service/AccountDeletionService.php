@@ -41,7 +41,7 @@ final class AccountDeletionService
         // from the retention sweep, which is the one case where nobody asked.
         $userId = $user->getId();
         $actorId = $actor?->getId();
-        $wasAdmin = in_array('ROLE_ADMIN', $user->getRoles(), true);
+        $wasAdmin = $user->isAdmin();
 
         $quarantinedFiles = [];
         $pendingFileDeletions = [];
@@ -56,7 +56,7 @@ final class AccountDeletionService
                 $entityManager->beginTransaction();
             }
 
-            if (in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+            if ($user->isAdmin()) {
                 $this->userRepository->lockAdministrators();
                 if ($this->userRepository->countAdminsExcluding($user) === 0) {
                     throw new \DomainException('The last administrator account cannot be deleted.');

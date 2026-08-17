@@ -306,6 +306,24 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
+    /**
+     * Whether this account holds administrative privilege.
+     *
+     * Asking the entity keeps the question answerable where there is no
+     * security token to ask instead — a console command, a serializer, a
+     * service reasoning about somebody who is not the current user. Two dozen
+     * open-coded `in_array` checks had drifted apart on strictness, and a
+     * needle that is not compared strictly is a needle that can be matched by
+     * something that is not a role name.
+     *
+     * Where a token *is* available, prefer `isGranted('ROLE_ADMIN')`: only the
+     * authorization checker honours the role hierarchy.
+     */
+    public function isAdmin(): bool
+    {
+        return in_array('ROLE_ADMIN', $this->getRoles(), true);
+    }
+
     public function isSharingRestricted(): bool
     {
         return $this->sharingRestrictedAt !== null;

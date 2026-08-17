@@ -38,7 +38,7 @@ class MeController extends AbstractController
                 'email' => $user->getEmail(),
                 'name' => $user->getName(),
                 'roles' => $user->getRoles(),
-                'isAdmin' => in_array('ROLE_ADMIN', $user->getRoles(), true),
+                'isAdmin' => $user->isAdmin(),
             ],
             'sessionRefreshed' => $sessionRefreshed,
         ]);

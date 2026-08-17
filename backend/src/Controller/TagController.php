@@ -244,7 +244,7 @@ class TagController extends AbstractController
         }
 
         // Check if user is the creator of the tag
-        if ($tag->getCreator()?->getId() !== $user->getId() && !in_array('ROLE_ADMIN', $user->getRoles())) {
+        if ($tag->getCreator()?->getId() !== $user->getId() && !$user->isAdmin()) {
             return $this->json(['message' => 'You are not authorized to update this tag'], Response::HTTP_FORBIDDEN);
         }
 
@@ -319,7 +319,7 @@ class TagController extends AbstractController
         }
 
         // Check if user is the creator of the tag or an admin
-        if ($tag->getCreator()?->getId() !== $user->getId() && !in_array('ROLE_ADMIN', $user->getRoles())) {
+        if ($tag->getCreator()?->getId() !== $user->getId() && !$user->isAdmin()) {
             return $this->json(['message' => 'You are not authorized to delete this tag'], Response::HTTP_FORBIDDEN);
         }
 

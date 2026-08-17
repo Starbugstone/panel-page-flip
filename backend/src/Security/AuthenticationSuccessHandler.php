@@ -40,7 +40,7 @@ class AuthenticationSuccessHandler implements AuthenticationSuccessHandlerInterf
             SecurityAuditLogger::AUTHENTICATION_SUCCEEDED,
             [
                 'actor_user_id' => $user->getId(),
-                'is_admin' => in_array('ROLE_ADMIN', $user->getRoles(), true),
+                'is_admin' => $user->isAdmin(),
                 'user_agent' => $request->headers->get('User-Agent'),
             ],
             LogLevel::INFO,

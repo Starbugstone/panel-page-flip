@@ -78,7 +78,9 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
             'query' => ['series' => 'Batman'],
         ]);
 
-        self::assertResponseStatusCodeSame(403);
+        // Answered as a missing comic, not a refused one: a stranger who can
+        // tell the two apart has been handed a way to count somebody's library.
+        self::assertResponseStatusCodeSame(404);
     }
 
     public function testAComicWithNothingToSearchOnIsRejected(): void
@@ -99,7 +101,7 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
         $this->loginAs(UserFactory::createOne()->object());
         $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()));
 
-        self::assertResponseStatusCodeSame(403);
+        self::assertResponseStatusCodeSame(404);
     }
 
     public function testAnonymousIsRefused(): void
@@ -193,6 +195,6 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
             'externalId' => '1',
         ]);
 
-        self::assertResponseStatusCodeSame(403);
+        self::assertResponseStatusCodeSame(404);
     }
 }

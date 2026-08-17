@@ -37,7 +37,11 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
 
         $this->browser()->request('GET', sprintf('/api/comics/cover/%d/%d/cover.png', $owner->getId(), $comic->getId()));
 
-        self::assertResponseStatusCodeSame(403);
+        // Missing, as far as a stranger is concerned. A 403 here would have
+        // confirmed the comic exists to somebody with no business knowing, and
+        // covers are addressed by owner and comic id — the two numbers an
+        // enumerator would most like to have checked for them.
+        self::assertResponseStatusCodeSame(404);
     }
 
     public function testAdminCanReadAnotherUsersCover(): void

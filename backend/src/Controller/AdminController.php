@@ -27,10 +27,24 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\Cache\ItemInterface;
 
+/**
+ * One guard for the whole class, rather than one per action.
+ *
+ * The rule was previously restated in every method, in two dialects — ten
+ * `denyAccessUnlessGranted` calls and three actions relying on `getAdminUser()`
+ * to refuse on their way past. Every one of them was correct, which is the
+ * least reassuring way for a security check to be written: nothing about the
+ * arrangement made the eleventh action inherit it, and reading the class was
+ * the only way to find out which kind an action was.
+ *
+ * Declared here, an action cannot be added without it.
+ */
 #[Route('/api/admin', name: 'api_admin_')]
+#[IsGranted('ROLE_ADMIN')]
 class AdminController extends AbstractController
 {
     private const SECRET_COLUMN_LENGTH = 1024;
@@ -49,21 +63,18 @@ class AdminController extends AbstractController
     #[Route('/comic-formats', name: 'comic_formats', methods: ['GET'])]
     public function comicFormats(ComicFormatService $formats, ComicPageDelivery $delivery): JsonResponse
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
         return $this->json(['formats' => $formats->status(), 'delivery' => $delivery->describe()]);
     }
 
     #[Route('/comic-formats/verify', name: 'comic_formats_verify', methods: ['POST'])]
     public function verifyComicFormats(ComicFormatService $formats, ComicPageDelivery $delivery): JsonResponse
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
         return $this->json(['formats' => $formats->status(true), 'delivery' => $delivery->describe()]);
     }
 
     #[Route('/comic-formats', name: 'comic_formats_update', methods: ['PUT'])]
     public function updateComicFormats(Request $request, ComicFormatService $formats, AdminAuditService $auditService, EntityManagerInterface $entityManager): JsonResponse
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
         $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data) || !is_array($data['enabled'] ?? null)) return $this->json(['message' => 'Enabled formats must be an array.'], Response::HTTP_BAD_REQUEST);
         try {
@@ -83,8 +94,6 @@ class AdminController extends AbstractController
         MetadataProviderRegistry $providers,
         MetadataProviderConfigurationService $configuration
     ): JsonResponse {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
-
         // Whether a provider is configured, never what it was configured with.
         // The quota alongside it is what the provider last told us about the
         // account, which is the only honest source for a daily budget.
@@ -117,8 +126,6 @@ class AdminController extends AbstractController
         MetadataProviderConfigurationService $configuration,
         MetadataProviderRegistry $providers
     ): JsonResponse {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
-
         $submitted = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($submitted)) {
             $submitted = [];
@@ -148,8 +155,6 @@ class AdminController extends AbstractController
         AdminAuditService $auditService,
         EntityManagerInterface $entityManager
     ): JsonResponse {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
-
         $data = \App\Http\JsonRequestDecoder::decode($request);
         if (!is_array($data)) {
             return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
@@ -243,8 +248,6 @@ class AdminController extends AbstractController
     #[Route('/stats', name: 'stats', methods: ['GET'])]
     public function stats(EntityManagerInterface $entityManager): JsonResponse
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
-
         $stats = $this->cache->get('admin.stats.v1', function (ItemInterface $item) use ($entityManager): array {
             $item->expiresAfter(60);
 
@@ -291,8 +294,6 @@ class AdminController extends AbstractController
     #[Route('/dropbox-users', name: 'dropbox_users', methods: ['GET'])]
     public function dropboxUsers(EntityManagerInterface $entityManager): JsonResponse
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
-
         // Either credential counts, matching User::hasDropboxConnection() and the
         // guards on the actions offered for each row. Listing only accounts with
         // a live access token hid the ones whose token had been cleared but
@@ -401,8 +402,6 @@ class AdminController extends AbstractController
     #[Route('/cleanup/dry-run', name: 'cleanup_dry_run', methods: ['POST'])]
     public function cleanupDryRun(ComicCleanupService $cleanupService): JsonResponse
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
-
         return $this->json(['cleanup' => $cleanupService->scan()]);
     }
 
@@ -453,8 +452,6 @@ class AdminController extends AbstractController
     #[Route('/audit-logs', name: 'audit_logs', methods: ['GET'])]
     public function auditLogs(Request $request, EntityManagerInterface $entityManager): JsonResponse
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
-
         $pagination = PaginationRequest::fromRequest($request, AdminAuditLogRepository::ADMIN_SORT_FIELDS, 'createdAt');
 
         /** @var AdminAuditLogRepository $repository */
@@ -483,10 +480,17 @@ class AdminController extends AbstractController
         ]);
     }
 
+    /**
+     * The signed-in administrator, as the entity the audit log needs.
+     *
+     * No longer a guard — the class attribute settled that before this method
+     * could be reached. What is left is the narrowing from the framework's
+     * UserInterface, and a refusal for the case that narrowing cannot cover.
+     */
     private function getAdminUser(): User
     {
         $user = $this->getUser();
-        if (!$user instanceof User || !$this->isGranted('ROLE_ADMIN')) {
+        if (!$user instanceof User) {
             throw $this->createAccessDeniedException();
         }
 

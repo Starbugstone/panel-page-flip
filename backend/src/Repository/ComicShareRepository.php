@@ -381,6 +381,26 @@ class ComicShareRepository extends ServiceEntityRepository
     }
 
     /**
+     * Whether this comic was ever put in front of this user, on any terms.
+     *
+     * Deliberately indifferent to status, expiry and tombstones, because it
+     * answers a different question from {@see findAccessFor()}: not "may they
+     * read it" but "do they already know it exists". Somebody sitting on a
+     * declined invitation, a revoked share or one they have not aged into can
+     * name the comic perfectly well, and is owed a straight refusal rather than
+     * the "no such comic" that protects a stranger.
+     */
+    public function hasAnyShareFor(User $user, Comic $comic): bool
+    {
+        return (int) $this->recipientQueryBuilder($user)
+            ->select('COUNT(s.id)')
+            ->andWhere('s.comic = :comic')
+            ->setParameter('comic', $comic)
+            ->getQuery()
+            ->getSingleScalarResult() > 0;
+    }
+
+    /**
      * Matching a recipient by user *or* email is the rule everywhere, because a
      * share created before the recipient registered has no user attached yet.
      */
