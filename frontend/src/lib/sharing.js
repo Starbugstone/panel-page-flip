@@ -206,63 +206,200 @@ export function isValidShareEmail(email) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Usernames                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Mirrors UsernamePolicy on the server.
+ *
+ * The server is the authority — it owns the reserved list and the unique index
+ * — and this exists so the registration form can say "too short" before it asks
+ * anybody to wait for a round trip.
+ */
+export const USERNAME_MIN_LENGTH = 3;
+export const USERNAME_MAX_LENGTH = 32;
+
+/** How a username is written wherever it stands for a person. */
+export function usernameHandle(username) {
+  return typeof username === "string" && username !== "" ? `@${username}` : "";
+}
+
+/** The @ is how a username is written, not part of it. */
+export function stripUsernamePrefix(value) {
+  return typeof value === "string" ? value.trim().replace(/^@+/, "") : "";
+}
+
+/** Why this username cannot be used, or null. The server checks again. */
+export function validateUsername(value) {
+  const username = stripUsernamePrefix(value);
+
+  if (username === "") return "Choose a username.";
+  if (username.length < USERNAME_MIN_LENGTH || username.length > USERNAME_MAX_LENGTH) {
+    return `A username must be between ${USERNAME_MIN_LENGTH} and ${USERNAME_MAX_LENGTH} characters.`;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(username)) {
+    return "A username can use letters, numbers, hyphens and underscores, and must start with a letter or number.";
+  }
+
+  return null;
+}
+
+export function isValidUsername(value) {
+  return validateUsername(value) === null;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Sharing codes                                                               */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Mirrors SharingCodeFormat on the server: twelve characters from Crockford's
- * alphabet, shown in threes. No I, L, O or U, so a code read off one screen and
- * typed into another survives the trip.
+ * Mirrors SharingCodeFormat on the server: a type letter, then twelve
+ * characters from Crockford's alphabet shown in threes. No I, L, O or U, so a
+ * code read off one screen and typed into another survives the trip.
  */
 export const SHARING_CODE_LENGTH = 12;
 
 const SHARING_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /**
- * What somebody typed, reduced to the form the server compares.
+ * What each prefix means.
+ *
+ * The letter is outside the random token, so it costs no entropy and buys the
+ * one thing entropy cannot: a code can be classified before anything is looked
+ * up, and somebody who pastes a comic code into the recipient box can be told
+ * what they are holding instead of being told it is invalid.
+ */
+export const SHARE_CODE_TYPES = {
+  USER: "U",
+  COMIC: "C",
+  GROUP: "G",
+};
+
+/** Where a code of each type actually belongs, for when one is in the wrong box. */
+export const SHARE_CODE_MISUSE = {
+  [SHARE_CODE_TYPES.USER]: "This is a user code. Use it when sharing directly with another user.",
+  [SHARE_CODE_TYPES.COMIC]: "This is a comic code. Redeem it under Shared with me.",
+  [SHARE_CODE_TYPES.GROUP]: "This is a group code. Redeem it under Shared with me.",
+};
+
+/**
+ * The token half of what somebody typed, reduced to the form the server
+ * compares.
  *
  * Lowercase, spaces, missing dashes and the letters the alphabet leaves out are
  * all somebody transcribing a code by hand rather than holding the wrong one,
  * so they are corrected here exactly as they are on the server.
  */
-export function normaliseSharingCode(value) {
-  if (typeof value !== "string") return "";
-
-  return value
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
+function normaliseToken(value) {
+  return condense(value)
     .replace(/I|L/g, "1")
     .replace(/O/g, "0")
     .replace(/U/g, "V")
     .slice(0, SHARING_CODE_LENGTH);
 }
 
-/** The grouped form, which is the only form anybody is shown. */
-export function formatSharingCode(value) {
-  const normalised = normaliseSharingCode(value);
-
-  return (normalised.match(/.{1,4}/g) || []).join("-");
+/**
+ * Everything a code carries, with everything it does not.
+ *
+ * Punctuation is dropped wherever a code is read rather than only the dashes
+ * this format writes: a code's whole job is to survive a chat window, and chat
+ * clients rewrite an em dash for a hyphen and wrap the lot in smart quotes.
+ */
+function condense(value) {
+  return String(value).toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-export function isValidSharingCode(value) {
-  const normalised = normaliseSharingCode(value);
-
-  return normalised.length === SHARING_CODE_LENGTH
-    && [...normalised].every((character) => SHARING_CODE_ALPHABET.includes(character));
+/** The token in fours, which is the only way a code is written down. */
+function groupToken(token) {
+  return (token.match(/.{1,4}/g) || []).join("-");
 }
 
-/** How the two kinds of code are described wherever they are offered. */
+/**
+ * What somebody typed, split into the type it claims and its token.
+ *
+ * Returns null for anything that is not one of the three shapes — including the
+ * old unprefixed form, which this release deliberately stopped accepting.
+ */
+export function parseShareCode(value) {
+  if (typeof value !== "string") return null;
+
+  const condensed = condense(value);
+  if (condensed.length !== SHARING_CODE_LENGTH + 1) return null;
+
+  const type = condensed.slice(0, 1);
+  if (!Object.values(SHARE_CODE_TYPES).includes(type)) return null;
+
+  const token = normaliseToken(condensed.slice(1));
+  if (token.length !== SHARING_CODE_LENGTH) return null;
+  if (![...token].every((character) => SHARING_CODE_ALPHABET.includes(character))) return null;
+
+  return { type, token, code: `${type}-${groupToken(token)}` };
+}
+
+/**
+ * The grouped form, as somebody types it.
+ *
+ * Keeps a prefix the moment one is recognisable and leaves the rest alone, so
+ * the field can be typed into left to right rather than rewriting itself into
+ * something the typist did not mean.
+ */
+export function formatShareCode(value) {
+  if (typeof value !== "string") return "";
+
+  const condensed = condense(value);
+  if (condensed === "") return "";
+
+  const type = Object.values(SHARE_CODE_TYPES).includes(condensed.slice(0, 1))
+    ? condensed.slice(0, 1)
+    : null;
+  const token = normaliseToken(type ? condensed.slice(1) : condensed);
+  const grouped = groupToken(token);
+
+  return type ? [type, grouped].filter(Boolean).join("-") : grouped;
+}
+
+/**
+ * Whether this is a complete code, optionally of a particular kind.
+ *
+ * @param {string|string[]} [expected] one type or several; omitted accepts any
+ */
+export function isValidShareCode(value, expected) {
+  const parsed = parseShareCode(value);
+  if (parsed === null) return false;
+  if (expected === undefined) return true;
+
+  return (Array.isArray(expected) ? expected : [expected]).includes(parsed.type);
+}
+
+/**
+ * The guidance for a code of the wrong kind, or null.
+ *
+ * Returns null both when the code is the right kind and when it is not a code
+ * at all: a half-typed one is not a mistake worth interrupting somebody over.
+ */
+export function shareCodeMisuse(value, expected) {
+  const parsed = parseShareCode(value);
+  if (parsed === null) return null;
+
+  const wanted = Array.isArray(expected) ? expected : [expected];
+
+  return wanted.includes(parsed.type) ? null : SHARE_CODE_MISUSE[parsed.type];
+}
+
+/** How the three kinds of code are described wherever they are offered. */
 export const SHARING_CODE_COPY = {
   mine: "Give this to someone so they can share comics with you. It only ever shows them "
-    + "your name — never your email address.",
+    + "your username — never your email address.",
   rotate: "Replace your code if it has ended up somewhere you did not intend. The old one stops "
-    + "working immediately, and anyone who still has it will need the new one. Comics already "
-    + "shared with you are not affected.",
-  recipient: "Share with someone by their code instead of their email address. "
-    + "You will see their name to check you have the right person.",
-  claim: "Create a code instead of naming anyone. Anyone you give it to can claim these "
-    + "comics until it runs out of uses, and it expires after 24 hours.",
-  redeem: "Someone sent you a code? Redeem it here to add their comics to your collection.",
+    + "working immediately, and anyone who still has it will need the new one. Your username and "
+    + "the comics already shared with you are not affected.",
+  recipient: "Share with someone by their username or their U- code instead of their email "
+    + "address. You will see who they are before anything is sent.",
+  comicCode: "Create a C- code for this one comic instead of naming anyone. Anyone you give it "
+    + "to can claim it until it runs out of uses or expires.",
+  groupCode: "Create a G- code for these comics as one package — a story arc handed over with a "
+    + "single code. Redeeming it costs one use however many comics it carries.",
+  redeem: "Someone sent you a C- or G- code? Redeem it here to add their comics to your collection.",
   handedOut: "Withdraw a code at any time to stop anyone else using it. Anyone who already "
     + "claimed a comic keeps it until you revoke them. Codes that have stopped working are kept "
     + "for a month so you can see who took them up.",
@@ -271,20 +408,62 @@ export const SHARING_CODE_COPY = {
 /**
  * What an owner is shown against a recipient.
  *
- * A recipient reached by code has no address to show — that was the point —
- * so the server sends a label instead and this prefers it wherever it exists.
+ * Username first wherever there is one: it is the public identity of a
+ * registered account and, unlike a display name, it identifies exactly one
+ * person. An address only appears for somebody with no account yet, where it is
+ * genuinely all either side knows.
  */
 export function recipientLabel(recipient) {
-  return recipient?.recipientLabel || recipient?.recipientEmail || "Shared by code";
+  return recipient?.recipientLabel
+    || usernameHandle(recipient?.recipientUsername)
+    || recipient?.recipientEmail
+    || "Shared by code";
 }
 
 /** Whether this recipient can be reached again, and how. */
 export function recipientTarget(recipient) {
-  if (recipient?.recipientSharingCode) {
-    return { sharingCode: recipient.recipientSharingCode, email: "" };
+  if (recipient?.recipientUsername) {
+    return { username: recipient.recipientUsername, userCode: "", email: "" };
+  }
+  if (recipient?.recipientUserCode) {
+    return { username: "", userCode: recipient.recipientUserCode, email: "" };
   }
 
-  return { sharingCode: "", email: recipient?.recipientEmail || "" };
+  return { username: "", userCode: "", email: recipient?.recipientEmail || "" };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Notification delivery                                                       */
+/* -------------------------------------------------------------------------- */
+
+export const NOTIFICATION_STATE = {
+  PENDING: "pending",
+  SENT: "sent",
+  FAILED: "failed",
+};
+
+/**
+ * What to say about the email that announces a share, or null when there is
+ * nothing worth saying.
+ *
+ * The share is real in every one of these states. This exists so an owner whose
+ * mail server was having a bad afternoon is told the notice did not arrive,
+ * rather than being left to wonder why nobody answered.
+ */
+export function describeNotification(recipient) {
+  switch (recipient?.notificationState) {
+    case NOTIFICATION_STATE.PENDING:
+      return "The share is ready. Its email has not gone out yet.";
+    case NOTIFICATION_STATE.FAILED:
+      // Resend is the route back, and deliberately the only one the owner has:
+      // the invitation link is minted as the email is written and is never
+      // handed to them, so telling them to pass it on themselves would be
+      // advice they cannot follow. A recipient who already has an account does
+      // not need the email at all — the share is waiting on their own page.
+      return "The share was created, but its email could not be delivered. Resend it. If they already have an account, it is waiting on their Sharing page.";
+    default:
+      return null;
+  }
 }
 
 /* -------------------------------------------------------------------------- */

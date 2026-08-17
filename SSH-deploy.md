@@ -539,6 +539,12 @@ Nothing in this application schedules itself. Retention periods configured in
 and a command has to run for anything to actually be deleted. An instance with
 no cron keeps everything for ever and never notices.
 
+> **One of these is not a cron job.** The Messenger worker in
+> [§7.3](#73-symfony-messenger-consumer--optional) is a long-running service and
+> is **optional** — share notices are handled inline by default, so an
+> installation without a worker sends its mail exactly as it always has. Turn it
+> on only if you want automatic retry and a request that does not wait on SMTP.
+
 | Command | Suggested cadence | Required? | If it never runs |
 |---|---|---|---|
 | `app:cleanup-logs` | daily | **Yes** | `var/log/app`, `var/log/security` and `var/log/audit` grow without limit. `*_LOG_RETENTION_DAYS` has no effect |
@@ -595,7 +601,36 @@ behind by deleted comics, and `--dry-run` reports without deleting.
 
 Skipping this cron is not dangerous; the cache simply keeps growing.
 
-### 7.3 Symfony Messenger consumer (if you switch from sync to async)
+### 7.3 Symfony Messenger consumer — optional
+
+Share invitation notices go to the `share_notifications` transport, which is
+**`sync://` by default**: the notice is handled inline, in the request that
+created the shares, and no worker is involved. That is deliberate. Nothing else
+in this application puts a message on a queue — the mailer routing in
+`config/packages/messenger.yaml` is commented out — so an installation that
+upgraded into a queued notice *without* also gaining a worker would create
+shares and silently never tell anybody.
+
+**Receiving mail today is not evidence that a worker is running.** It is
+evidence that one is not needed.
+
+The guarantee the sharing redesign actually needs holds either way: the notice
+is dispatched *after* the shares commit, so a mail server having a bad minute
+costs a notification and never a share, and the owner can Resend.
+
+Switching to the queue buys two things — automatic retry, and a response that
+does not wait on SMTP. To do it, run a worker **and** point the transport at the
+queue:
+
+```dotenv
+# backend/.env.prod.local
+SHARE_NOTIFICATION_TRANSPORT_DSN=doctrine://default?auto_setup=0
+```
+
+The queued message carries share ids and nothing else; the worker reloads the
+relationships and mints the invitation links as it writes the mail. That is why a
+notice retried an hour later still carries a working link, and why no plaintext
+bearer token is ever written to the queue or left in the failure transport.
 
 Systemd unit `/etc/systemd/system/comics-messenger.service`:
 
@@ -607,7 +642,7 @@ After=network.target
 [Service]
 User=www-data
 WorkingDirectory=/var/www/comics/backend
-ExecStart=/usr/bin/php bin/console messenger:consume async --time-limit=3600 --memory-limit=128M --env=prod
+ExecStart=/usr/bin/php bin/console messenger:consume share_notifications --time-limit=3600 --memory-limit=128M --env=prod
 Restart=always
 RestartSec=5
 
@@ -620,7 +655,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now comics-messenger
 ```
 
-### 7.3 Daily log rotation
+### 7.4 Daily log rotation
 
 The application writes its own daily files and deletes them on its own schedule
 — see [docs/security-logging.md](docs/security-logging.md). Schedule the command
@@ -655,7 +690,7 @@ server's access logs. `/etc/logrotate.d/comics`:
 The glob is deliberately not recursive, so it matches only the files directly in
 `var/log/` and leaves the dated subdirectories to `app:cleanup-logs`.
 
-### 7.4 Retention and privacy cleanups
+### 7.5 Retention and privacy cleanups
 
 Both are required. Together with `app:cleanup-logs` above, these three lines are
 the whole of what this application needs scheduled:

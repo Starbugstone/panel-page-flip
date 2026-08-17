@@ -36,6 +36,20 @@ class ComicShare
     public const STATUS_DECLINED = 'declined';
     public const STATUS_REVOKED = 'revoked';
 
+    /**
+     * How the notice about this share is getting on.
+     *
+     * The relationship is the thing that is true; the email is an announcement
+     * of it, and SMTP is not a participant in a database transaction. Recording
+     * the announcement separately is what lets a share exist and be usable
+     * while its notice is still queued or has failed outright — and lets the
+     * owner be told so, and offered a resend, instead of the share being rolled
+     * back because a mail server was busy.
+     */
+    public const NOTIFICATION_PENDING = 'pending';
+    public const NOTIFICATION_SENT = 'sent';
+    public const NOTIFICATION_FAILED = 'failed';
+
     public const REASON_OWNER_DELETED = 'owner_deleted';
     public const REASON_OWNER_ACCOUNT_DELETED = 'owner_account_deleted';
     public const REASON_FILE_MISSING = 'file_missing';
@@ -112,13 +126,13 @@ class ComicShare
     private string $ownerNameSnapshot = '';
 
     /**
-     * Set when the sender reached this recipient through their receiver code
-     * rather than by typing their address.
+     * Set when the owner reached this recipient without ever seeing their
+     * address — by username, by `U-` code, or because the recipient redeemed a
+     * content code the owner put into the world.
      *
-     * The point of a receiver code is that the sender never learns the address,
-     * so the address they never learned must not be handed back to them by the
-     * page that lists what they shared. These two carry what the owner is shown
-     * instead: the recipient's name as it was, and the code they can use to
+     * The address the owner never learned must not be handed back to them by
+     * the page that lists what they shared. These two carry what they are shown
+     * instead: the recipient's name as it was, and the code that can be used to
      * offer them something else.
      *
      * Both null for an ordinary email invitation, where the sender typed the
@@ -128,7 +142,7 @@ class ComicShare
     private ?string $recipientAliasName = null;
 
     #[ORM\Column(length: 16, nullable: true)]
-    private ?string $recipientSharingCode = null;
+    private ?string $recipientUserCode = null;
 
     /**
      * Whether the comic was marked explicit when the snapshots were last taken.
@@ -160,6 +174,17 @@ class ComicShare
      */
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $adultConfirmedAt = null;
+
+    /**
+     * Defaults to `sent` for the rows that predate this column: they were
+     * created under the previous rule, where a share only came into existence
+     * if its email had already gone out.
+     */
+    #[ORM\Column(length: 16, options: ['default' => self::NOTIFICATION_SENT])]
+    private string $notificationState = self::NOTIFICATION_SENT;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $notifiedAt = null;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $unavailableAt = null;
@@ -218,14 +243,15 @@ class ComicShare
     }
 
     /**
-     * Record that this relationship was made through a receiver code.
+     * Record that the owner never saw this recipient's address.
      *
-     * Called with the recipient's own name and code, both of which they published
-     * by handing the code out. Nothing else about them crosses over.
+     * Called with the recipient's own name and `U-` code, both of which they
+     * publish by having an account other people can share with. Nothing else
+     * about them crosses over.
      */
-    public function hideRecipientBehindSharingCode(string $sharingCode, ?string $recipientName): self
+    public function hideRecipientBehindSharingCode(string $userCode, ?string $recipientName): self
     {
-        $this->recipientSharingCode = $sharingCode;
+        $this->recipientUserCode = $userCode;
         $this->recipientAliasName = $recipientName;
 
         return $this;
@@ -239,7 +265,7 @@ class ComicShare
      * receiver code is the exception: the code *is* an account, so the
      * relationship knows who it is for from the start.
      *
-     * That link is what survives a rotation. `recipientSharingCode` records how
+     * That link is what survives a rotation. `recipientUserCode` records how
      * this relationship began and goes stale the moment the recipient replaces
      * their code; anything that needs their current handle asks the account.
      */
@@ -259,7 +285,7 @@ class ComicShare
      */
     public function revealRecipientAddressToOwner(): self
     {
-        $this->recipientSharingCode = null;
+        $this->recipientUserCode = null;
         $this->recipientAliasName = null;
 
         return $this;
@@ -268,7 +294,7 @@ class ComicShare
     /** Whether the owner may be shown this recipient's address. */
     public function isRecipientAddressHiddenFromOwner(): bool
     {
-        return $this->recipientSharingCode !== null;
+        return $this->recipientUserCode !== null;
     }
 
     public function getRecipientAliasName(): ?string
@@ -276,9 +302,51 @@ class ComicShare
         return $this->recipientAliasName;
     }
 
-    public function getRecipientSharingCode(): ?string
+    public function getRecipientUserCode(): ?string
     {
-        return $this->recipientSharingCode;
+        return $this->recipientUserCode;
+    }
+
+    public function getNotificationState(): string
+    {
+        return $this->notificationState;
+    }
+
+    public function getNotifiedAt(): ?\DateTimeImmutable
+    {
+        return $this->notifiedAt;
+    }
+
+    /** The notice is queued and has not been attempted yet. */
+    public function awaitNotification(): self
+    {
+        $this->notificationState = self::NOTIFICATION_PENDING;
+        $this->notifiedAt = null;
+
+        return $this;
+    }
+
+    public function markNotified(): self
+    {
+        $this->notificationState = self::NOTIFICATION_SENT;
+        $this->notifiedAt = new \DateTimeImmutable();
+
+        return $this;
+    }
+
+    /**
+     * The notice could not be delivered.
+     *
+     * Recorded rather than thrown away, and deliberately not fatal: the share
+     * is real and the recipient can still find it on their Sharing page. What
+     * the owner needs is to know that the email did not arrive, so they can say
+     * so or press resend.
+     */
+    public function markNotificationFailed(): self
+    {
+        $this->notificationState = self::NOTIFICATION_FAILED;
+
+        return $this;
     }
 
     public function getComic(): ?Comic

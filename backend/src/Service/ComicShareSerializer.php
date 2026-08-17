@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use App\Entity\ComicShare;
+use App\Enum\ShareCodeType;
 
 /**
  * The shape of a sharing relationship in API responses.
@@ -54,27 +55,33 @@ class ComicShareSerializer
         $hidden = $share->isRecipientAddressHiddenFromOwner();
         $sharingUnavailable = ($share->getComic()?->isSharingRestricted() ?? false)
             || ($share->getComic()?->isQuarantined() ?? false);
-        // The recipient's handle as it is now, never the one stored on the
-        // share. That one records how the relationship began and goes stale the
-        // moment they rotate; showing it would offer the owner a retired code
-        // and quietly undo the rotation. A recipient whose account has gone
-        // keeps their name and loses the code, rather than falling back to the
-        // address the code existed to withhold.
-        $currentCode = $hidden ? $share->getRecipientUser()?->getSharingCode() : null;
+        $recipientUser = $share->getRecipientUser();
+        // The recipient's handles as they are now, never the ones stored on the
+        // share. Those record how the relationship began and go stale the
+        // moment the recipient rotates or renames; showing them would offer the
+        // owner a retired code and quietly undo the rotation. A recipient whose
+        // account has gone keeps the name snapshot and loses the code, rather
+        // than falling back to the address the code existed to withhold.
+        $currentCode = $hidden ? ($recipientUser?->getUserCode() ?: null) : null;
+        $username = $recipientUser?->getUsername() ?: null;
         $currentName = $hidden
-            ? ($share->getRecipientUser()?->getName() ?: $share->getRecipientAliasName())
-            : $share->getRecipientUser()?->getName();
+            ? ($recipientUser?->getName() ?: $share->getRecipientAliasName())
+            : $recipientUser?->getName();
 
         return $this->common($share, false) + [
             'recipientEmail' => $hidden ? null : $share->getRecipientEmailNormalized(),
-            // Grouped, because that is the only form a code is ever shown in
-            // and the sender will be pasting it back into the share dialog.
-            'recipientSharingCode' => $currentCode === null
+            'recipientUsername' => $username,
+            // Grouped and prefixed, because that is the only form a code is ever
+            // shown in and the sender will be pasting it back into the share
+            // dialog.
+            'recipientUserCode' => $currentCode === null
                 ? null
-                : SharingCodeFormat::forDisplay($currentCode),
-            'recipientLabel' => $hidden
-                ? ($currentName ?: 'Shared by code')
-                : $share->getRecipientEmailNormalized(),
+                : SharingCodeFormat::forDisplay(ShareCodeType::USER, $currentCode),
+            // Username first wherever there is one. It is the public identity
+            // of a registered account, and unlike the display name it is
+            // unique — so it is what an owner should be reading when they
+            // decide whether to revoke somebody.
+            'recipientLabel' => self::label($username, $currentName, $hidden, $share->getRecipientEmailNormalized()),
             'recipientName' => $currentName,
             // Resending only makes sense while the recipient still has a choice
             // to make and there is still a comic behind the invitation.
@@ -83,7 +90,58 @@ class ComicShareSerializer
                 && $share->getStatus() !== ComicShare::STATUS_ACCEPTED,
             'canRevoke' => !$share->isTombstoned()
                 && in_array($share->getStatus(), [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED], true),
+            // The share is real whatever this says. It exists so an owner whose
+            // mail server was having a bad afternoon is told the notice did not
+            // arrive, rather than being left to wonder why nobody answered.
+            'notificationState' => $share->getNotificationState(),
+            'notifiedAt' => $share->getNotifiedAt()?->format('c'),
         ];
+    }
+
+    /**
+     * How to name a recipient in one line.
+     *
+     * A registered account is its username, optionally with the display name in
+     * front of it — never the display name alone, which is not unique and so
+     * cannot confirm anything. An invitation to somebody with no account yet is
+     * the address the sender typed, because that is genuinely all either side
+     * knows. And a hidden recipient with no account left to ask keeps whatever
+     * name was snapshotted rather than falling back to the address.
+     */
+    private static function label(?string $username, ?string $name, bool $hidden, string $email): string
+    {
+        $described = UsernamePolicy::describe($username, $name);
+
+        if ($described !== null) {
+            return $described;
+        }
+
+        if ($hidden) {
+            return $name !== null && $name !== '' ? $name : 'Shared by code';
+        }
+
+        return $email;
+    }
+
+    /**
+     * The owner as a recipient may see them.
+     *
+     * Its own method rather than {@see label()} with an empty address and
+     * `hidden = true`. Neither of those values describes an owner; they were
+     * there only to steer past the address branch, and a future change to the
+     * hidden branch would quietly start labelling owners "Shared by code".
+     *
+     * An owner's address is never shown to a recipient, so there is no branch
+     * to steer past: the account's public identity, or the snapshot left behind
+     * when the account is gone.
+     */
+    private static function ownerLabel(ComicShare $share): string
+    {
+        $owner = $share->getOwner();
+        $snapshot = $share->getOwnerNameSnapshot();
+
+        return UsernamePolicy::describe($owner?->getUsername() ?: null, $owner?->getName() ?: $snapshot)
+            ?? ($snapshot !== '' ? $snapshot : 'A former member');
     }
 
     /**
@@ -98,6 +156,11 @@ class ComicShareSerializer
 
         return $this->common($share, $needsConfirmation) + [
             'ownerName' => $share->getOwnerNameSnapshot(),
+            // The owner's public identity as it is now, so a recipient reads
+            // the same handle the owner would give them today. Null once the
+            // account is gone, where the snapshot above is all that is left.
+            'ownerUsername' => $owner?->getUsername() ?: null,
+            'ownerLabel' => self::ownerLabel($share),
             'ownerId' => $owner?->getId(),
             'removedFromCollection' => $share->getRecipientRemovedAt()?->format('c'),
             // An invitation can still be answered from the Sharing page while it

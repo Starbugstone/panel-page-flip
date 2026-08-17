@@ -27,7 +27,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
-import { ShareComicModal } from "@/components/ShareComicModal";
 import { ShareComicsDialog } from "@/components/ShareComicsDialog";
 import { SharingCodesCard } from "@/components/SharingCodesCard";
 import { useSharingLists } from "@/hooks/use-sharing";
@@ -40,6 +39,7 @@ import {
   SHARE_STATUS_LABELS,
   SHARING_PAGE_RESPONSIBILITY_REMINDER,
   describeDeadShareCleanup,
+  describeNotification,
   describeReceivedShare,
   groupReceivedShares,
   recipientLabel,
@@ -99,7 +99,6 @@ export default function Sharing() {
   // comics it should open with, so "Share another comic" can arrive with the
   // recipient already chosen.
   const [shareDialog, setShareDialog] = useState(null);
-  const [inviteTarget, setInviteTarget] = useState(null);
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [stopSharingTarget, setStopSharingTarget] = useState(null);
   // Controlled so a completed share can move the page to the half that now has
@@ -199,7 +198,7 @@ export default function Sharing() {
             </p>
             <Button
               className="mt-4"
-              onClick={() => setShareDialog({ email: "", sharingCode: "", comicIds: [] })}
+              onClick={() => setShareDialog({ email: "", username: "", userCode: "", comicIds: [] })}
             >
               <UserPlus className="mr-2 h-4 w-4" />
               Share comics
@@ -237,10 +236,15 @@ export default function Sharing() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setInviteTarget({ id: group.comicId, title: group.title })}
+                      onClick={() => setShareDialog({
+                        email: "",
+                        username: "",
+                        userCode: "",
+                        comicIds: [group.comicId],
+                      })}
                     >
                       <UserPlus className="mr-2 h-4 w-4" />
-                      Invite someone
+                      Share this comic
                     </Button>
                     {counts.accepted + counts.pending > 0 && (
                       <Button
@@ -268,13 +272,21 @@ export default function Sharing() {
                           sender never learned the address. */}
                       <div className="min-w-0">
                         <span className="block truncate text-sm">{recipientLabel(recipient)}</span>
-                        {recipient.recipientSharingCode && (
-                          <span className="text-xs text-muted-foreground">
-                            Sharing code {recipient.recipientSharingCode}
+                        {recipient.recipientUserCode && (
+                          <span className="block text-xs text-muted-foreground">
+                            User code {recipient.recipientUserCode}
                           </span>
                         )}
                         {recipient.status === SHARE_STATUS.PENDING && recipient.isExpired && (
-                          <span className="text-xs text-muted-foreground">Invitation expired</span>
+                          <span className="block text-xs text-muted-foreground">Invitation expired</span>
+                        )}
+                        {/* The share is real whatever this says; it is here so
+                            an owner whose mail server was having a bad
+                            afternoon knows why nobody has answered. */}
+                        {describeNotification(recipient) && (
+                          <span className="block text-xs text-destructive">
+                            {describeNotification(recipient)}
+                          </span>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -287,6 +299,16 @@ export default function Sharing() {
                           aria-label={`Share another comic with ${recipientLabel(recipient)}`}
                           onClick={() => setShareDialog({
                             ...recipientTarget(recipient),
+                            // Already confirmed: this button names them, and
+                            // the name came from a share this owner already
+                            // has. Nothing for a Check to find out.
+                            resolved: recipient.recipientUsername
+                              ? {
+                                username: recipient.recipientUsername,
+                                name: recipient.recipientName || "",
+                                label: recipientLabel(recipient),
+                              }
+                              : null,
                             comicIds: [],
                           })}
                         >
@@ -301,7 +323,7 @@ export default function Sharing() {
                             onClick={() => runAction(
                               recipient.id,
                               () => api.post(`/api/shares/${recipient.id}/resend`, {}),
-                              `Invitation resent to ${recipient.recipientEmail}.`
+                              `Invitation resent to ${recipientLabel(recipient)}.`
                             )}
                           >
                             {busyShareId === recipient.id
@@ -315,11 +337,11 @@ export default function Sharing() {
                             size="sm"
                             variant="ghost"
                             disabled={busyShareId === recipient.id}
-                            aria-label={`Revoke access for ${recipient.recipientEmail}`}
+                            aria-label={`Revoke access for ${recipientLabel(recipient)}`}
                             onClick={() => runAction(
                               recipient.id,
                               () => api.post(`/api/shares/${recipient.id}/revoke`, {}),
-                              `Access revoked for ${recipient.recipientEmail}.`
+                              `Access revoked for ${recipientLabel(recipient)}.`
                             )}
                           >
                             <XCircle className="h-4 w-4" />
@@ -363,7 +385,7 @@ export default function Sharing() {
                 <div className="min-w-0 flex-1">
                   <h3 className="truncate font-bold">{shareDisplayTitle(share)}</h3>
                   <p className="truncate text-sm text-muted-foreground">
-                    Shared by {share.ownerName}
+                    Shared by {share.ownerLabel || share.ownerName}
                     {share.comicAuthor ? ` · ${share.comicAuthor}` : ""}
                   </p>
                   {gated && (
@@ -478,7 +500,7 @@ export default function Sharing() {
                         <div className="min-w-0 flex-1">
                           <h3 className="truncate font-bold">{shareDisplayTitle(share)}</h3>
                           <p className="truncate text-sm text-muted-foreground">
-                            {share.ownerName} wants to share this with you.
+                            {share.ownerLabel || share.ownerName} wants to share this with you.
                           </p>
                           {gated && (
                             <p className="mt-1 flex items-center gap-1 text-sm font-medium text-destructive">
@@ -569,7 +591,7 @@ export default function Sharing() {
           <Share2Icon className="h-6 w-6 text-comic-purple" />
           <h1 className="font-comic text-3xl">Sharing</h1>
         </div>
-        <Button onClick={() => setShareDialog({ email: "", sharingCode: "", comicIds: [] })}>
+        <Button onClick={() => setShareDialog({ email: "", username: "", userCode: "", comicIds: [] })}>
           <UserPlus className="mr-2 h-4 w-4" />
           Share comics
         </Button>
@@ -618,28 +640,15 @@ export default function Sharing() {
           selection or a stale "already shared" marking. */}
       {shareDialog && (
         <ShareComicsDialog
-          key={`${shareDialog.email}:${shareDialog.sharingCode}:${shareDialog.comicIds.join(",")}`}
+          key={`${shareDialog.email}:${shareDialog.username}:${shareDialog.userCode}:${shareDialog.comicIds.join(",")}`}
           isOpen
           onClose={() => setShareDialog(null)}
           sharedByMe={sharedByMe}
           initialRecipient={shareDialog.email}
-          initialSharingCode={shareDialog.sharingCode}
+          initialUsername={shareDialog.username}
+          initialUserCode={shareDialog.userCode}
+          initialResolved={shareDialog.resolved ?? null}
           initialComicIds={shareDialog.comicIds}
-          onShared={refreshAfterShare}
-        />
-      )}
-
-      {/* Kept alongside the multi-comic flow rather than replaced by it: this
-          is the one-comic shortcut, and it is the only path that hands the
-          owner the copyable invitation link for when the email does not
-          arrive. */}
-      {inviteTarget && (
-        <ShareComicModal
-          key={inviteTarget.id}
-          isOpen
-          onClose={() => setInviteTarget(null)}
-          comicId={inviteTarget.id}
-          comicTitle={inviteTarget.title}
           onShared={refreshAfterShare}
         />
       )}

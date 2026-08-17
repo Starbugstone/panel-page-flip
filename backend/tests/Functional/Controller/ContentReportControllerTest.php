@@ -134,7 +134,10 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         $this->getJson('/api/comics/'.$comic->getId());
         self::assertResponseIsSuccessful();
 
-        $this->postJson('/api/shares/comics/'.$comic->getId().'/invitations', [
+        // A restricted comic is not shareable, so the bulk endpoint refuses the
+        // whole request and creates nothing.
+        $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
             'email' => 'another@example.com',
             'senderResponsibilityAccepted' => true,
         ]);

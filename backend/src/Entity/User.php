@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Entity;
 
 use App\Repository\UserRepository;
+use App\Service\UsernamePolicy;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
@@ -18,6 +19,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 #[ORM\Table(name: '`user`')]
 #[ORM\HasLifecycleCallbacks]
 #[UniqueEntity(fields: ['email'], message: 'There is already an account with this email')]
+#[UniqueEntity(fields: ['usernameCanonical'], message: 'That username is already taken')]
 class User implements UserInterface, PasswordAuthenticatedUserInterface
 {
     #[ORM\Column(type: Types::TEXT, nullable: true)]
@@ -43,13 +45,39 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     private ?string $name = null;
 
     /**
-     * The address other people share with this account by.
+     * The public handle this account is known by, as its owner writes it.
+     *
+     * Every account has one, and it is the identity sharing speaks in: the
+     * address is private, and the display name is not unique, so neither can
+     * answer "am I about to hand this comic to the right person?". A username
+     * can.
+     *
+     * @see UsernamePolicy for what one may be
+     */
+    #[ORM\Column(length: 32, unique: true)]
+    private string $username = '';
+
+    /**
+     * The same username, lowercased, which is what uniqueness is judged on.
+     *
+     * Two columns rather than a case-insensitive collation because the
+     * collation is a property of the schema that a later migration can quietly
+     * change; this is a property of the data, and the unique index on it means
+     * `@SilverOtter` and `@silverotter` cannot both exist regardless.
+     *
+     * @see UsernamePolicy::canonicalise()
+     */
+    #[ORM\Column(length: 32, unique: true)]
+    private string $usernameCanonical = '';
+
+    /**
+     * The `U-` code other people share with this account by.
      *
      * Not a credential and not a secret: it authenticates nobody, exposes
-     * nothing about the account beyond the display name somebody who already
-     * holds it is shown, and grants no access on its own. That is why it is
-     * stored in the clear where an invitation token is stored hashed — its
-     * owner has to be able to read it back and hand it out again.
+     * nothing about the account beyond the username somebody who already holds
+     * it is shown, and grants no access on its own. That is why it is stored in
+     * the clear where an invitation token is stored hashed — its owner has to
+     * be able to read it back and hand it out again.
      *
      * Stable, but not permanent. It is meant to be pasted into chats, forums
      * and group threads, which is exactly the kind of place a thing escapes
@@ -58,12 +86,11 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      * their behalf; nothing rotates it on its own, because everybody who was
      * given the old one has to be told the new one.
      *
-     * Nullable only so accounts that predate the column can be filled in on
-     * first use rather than in a migration that would have to invent one for
-     * every row at once.
+     * Stored as the bare twelve-character token. The `U-` that a person sees is
+     * added on the way out, so the prefix cannot drift row by row.
      */
-    #[ORM\Column(length: 16, unique: true, nullable: true)]
-    private ?string $sharingCode = null;
+    #[ORM\Column(length: 16, unique: true)]
+    private string $userCode = '';
 
     /**
      * @var list<string> The user roles
@@ -229,9 +256,35 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->name;
     }
     
-    public function getSharingCode(): ?string
+    public function getUsername(): string
     {
-        return $this->sharingCode;
+        return $this->username;
+    }
+
+    public function getUsernameCanonical(): string
+    {
+        return $this->usernameCanonical;
+    }
+
+    /**
+     * Take a username, keeping the canonical form in step.
+     *
+     * The pair is set together and only here, so nothing can leave a row whose
+     * unique index no longer describes the name it holds. Validation belongs to
+     * {@see UsernameService}, which is also the thing that knows whether the
+     * name is free.
+     */
+    public function setUsername(string $username): static
+    {
+        $this->username = trim($username);
+        $this->usernameCanonical = UsernamePolicy::canonicalise($username);
+
+        return $this;
+    }
+
+    public function getUserCode(): string
+    {
+        return $this->userCode;
     }
 
     /**
@@ -241,10 +294,10 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      * acts, and only one of them is allowed to retire an identifier other
      * people are holding.
      */
-    public function assignSharingCode(string $sharingCode): static
+    public function assignUserCode(string $userCode): static
     {
-        if ($this->sharingCode === null) {
-            $this->sharingCode = $sharingCode;
+        if ($this->userCode === '') {
+            $this->userCode = $userCode;
         }
 
         return $this;
@@ -261,9 +314,9 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      *
      * @see \App\Service\SharingCodeService::rotateCode()
      */
-    public function replaceSharingCode(string $sharingCode): static
+    public function replaceUserCode(string $userCode): static
     {
-        $this->sharingCode = $sharingCode;
+        $this->userCode = $userCode;
 
         return $this;
     }

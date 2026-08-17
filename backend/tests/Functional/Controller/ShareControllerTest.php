@@ -11,6 +11,7 @@ use App\Service\ComicShareService;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use App\Tests\Functional\InvitationLinkAssertions;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
@@ -23,6 +24,8 @@ use Doctrine\ORM\EntityManagerInterface;
  */
 final class ShareControllerTest extends AbstractApiTestCase
 {
+    use InvitationLinkAssertions;
+
     public function testAcceptingAShareCreatesNoSecondComicOrFile(): void
     {
         $owner = UserFactory::createOne()->object();
@@ -122,6 +125,9 @@ final class ShareControllerTest extends AbstractApiTestCase
         $this->browser()->request('DELETE', '/api/comics/' . $comic->getId(), [], [], $this->csrfHeader());
         self::assertResponseStatusCodeSame(403);
 
+        // The whole request is refused, and one message covers a comic that is
+        // not yours and one that does not exist alike — so it cannot be used to
+        // find out which ids are real.
         $this->postInvitation((int) $comic->getId(), 'third@test.local');
         self::assertResponseStatusCodeSame(403);
 
@@ -535,8 +541,9 @@ final class ShareControllerTest extends AbstractApiTestCase
 
         // The same address in a different spelling is the same recipient, so it
         // cannot open a second invitation.
-        $this->postInvitation((int) $comic->getId(), 'MIXED.CASE@example.com');
-        self::assertResponseStatusCodeSame(409);
+        $repeat = $this->postInvitation((int) $comic->getId(), 'MIXED.CASE@example.com');
+        self::assertSame(0, $repeat['created']);
+        self::assertStringContainsString('already pending', $repeat['results'][0]['message']);
     }
 
     public function testAComicCannotBeSharedWithItsOwner(): void
@@ -595,16 +602,21 @@ final class ShareControllerTest extends AbstractApiTestCase
         );
     }
 
-    public function testTheInvitationLinkIsHandedBackOnceAndNeverStoredInPlaintext(): void
+    /**
+     * The link exists in one place: the email. It is minted as that message is
+     * written, so nothing is stored that could reproduce it and no response
+     * ever carried it.
+     */
+    public function testTheInvitationLinkOnlyEverExistsInTheEmail(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'linker@test.local']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
         $payload = $this->postInvitation((int) $comic->getId(), 'guest@example.com');
         self::assertResponseStatusCodeSame(201);
-        self::assertArrayHasKey('invitationUrl', $payload);
+        self::assertArrayNotHasKey('invitationUrl', $payload);
 
-        $plaintext = substr((string) strrchr($payload['invitationUrl'], '/'), 1);
+        $plaintext = $this->invitationTokenFromEmail();
         self::assertNotSame('', $plaintext);
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
@@ -621,11 +633,12 @@ final class ShareControllerTest extends AbstractApiTestCase
 
         $payload = $this->postInvitation((int) $comic->getId(), 'claimant@test.local');
         self::assertResponseStatusCodeSame(201);
-        $plaintext = substr((string) strrchr($payload['invitationUrl'], '/'), 1);
+        $plaintext = $this->invitationTokenFromEmail();
 
         // The window is two months, and the link and the relationship share it,
         // so neither can outlive the other.
-        $expiresAt = new \DateTimeImmutable($payload['share']['expiresAt']);
+        $share = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $expiresAt = new \DateTimeImmutable($share['expiresAt']);
         self::assertGreaterThan(new \DateTimeImmutable('+59 days'), $expiresAt);
         self::assertLessThan(new \DateTimeImmutable('+62 days'), $expiresAt);
 
@@ -673,13 +686,22 @@ final class ShareControllerTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'resender@test.local']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
-        $first = $this->postInvitation((int) $comic->getId(), 'guest@example.com');
-        $shareId = $first['share']['id'];
-        $firstToken = substr((string) strrchr($first['invitationUrl'], '/'), 1);
+        $this->postInvitation((int) $comic->getId(), 'guest@example.com');
+        // Read before the next request: the mailer collector holds what the
+        // most recent one sent, so a lookup in between would clear it.
+        $firstToken = $this->invitationTokenFromEmail();
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
 
+        // Resending is the manual counterpart to the queued notice and is
+        // synchronous, so the replacement email is on the collector as soon as
+        // the request returns. The link is read from there and not from the
+        // response: it belongs in one place, and resend is not an exception to
+        // that.
         $second = $this->postJson('/api/shares/' . $shareId . '/resend');
         self::assertResponseIsSuccessful();
-        $secondToken = substr((string) strrchr($second['invitationUrl'], '/'), 1);
+        self::assertArrayNotHasKey('invitationUrl', $second);
+
+        $secondToken = $this->invitationTokenFromEmail();
         self::assertNotSame($firstToken, $secondToken);
 
         $this->getJson('/api/shares/invitations/' . $firstToken);
@@ -716,8 +738,8 @@ final class ShareControllerTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(201);
 
         for ($i = 0; $i < 5; ++$i) {
-            $this->postInvitation((int) $comic->getId(), 'guest@example.com');
-            self::assertResponseStatusCodeSame(409);
+            $duplicate = $this->postInvitation((int) $comic->getId(), 'guest@example.com');
+            self::assertSame(0, $duplicate['created']);
             $this->postInvitation((int) $comic->getId(), 'careful-sharer@test.local');
             self::assertResponseStatusCodeSame(400);
         }
@@ -770,8 +792,8 @@ final class ShareControllerTest extends AbstractApiTestCase
     private function postInvitation(int $comicId, string $email, array $extra = []): array
     {
         return $this->postJson(
-            '/api/shares/comics/' . $comicId . '/invitations',
-            array_merge(['email' => $email, 'senderResponsibilityAccepted' => true], $extra)
+            '/api/shares/invitations/bulk',
+            array_merge(['comicIds' => [$comicId], 'email' => $email, 'senderResponsibilityAccepted' => true], $extra)
         );
     }
 

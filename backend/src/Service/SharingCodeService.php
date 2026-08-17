@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use App\Entity\User;
+use App\Enum\ShareCodeType;
 use App\Repository\ShareClaimCodeRepository;
 use App\Repository\UserRepository;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
@@ -10,19 +11,18 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 
 /**
- * The permanent code somebody hands out so that others can share with them.
+ * The permanent `U-` code somebody hands out so that others can share with them.
  *
  * This is the one place that turns a code back into a person, and it is
  * deliberately narrow about what that means. Resolving a code answers exactly
- * one question — "who should this invitation be addressed to?" — and hands back
- * only the display name that person publishes along with the code itself. It is
- * not a login, not a lookup by email, and not a way to ask whether an address
- * has an account behind it.
+ * one question — "who should this share be addressed to?" — and hands back only
+ * the public identity that person already publishes: their username, and the
+ * display name beside it. It is not a login, not a lookup by email, and not a
+ * way to ask whether an address has an account behind it.
  *
- * It is also the only enumeration surface the sharing feature has, so it is
- * built to be a bad one: sixty bits of entropy, a single generic answer for
- * every code that does not resolve, and an hourly ceiling on how many a caller
- * may try.
+ * It is also one of the two enumeration surfaces sharing has, so it is built to
+ * be a bad one: sixty bits of entropy, a single generic answer for every code
+ * that does not resolve, and an hourly ceiling on how many a caller may try.
  */
 final class SharingCodeService
 {
@@ -38,33 +38,36 @@ final class SharingCodeService
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly UserRepository $userRepository,
-        private readonly ShareClaimCodeRepository $claimCodeRepository,
+        private readonly ShareClaimCodeRepository $contentCodeRepository,
         private readonly SecurityAuditLogger $auditLogger,
+        private readonly IdentifierLookupGuard $lookupGuard,
         private readonly RateLimiterFactory $sharingCodeLookupLimiter,
         private readonly RateLimiterFactory $sharingCodeRotationLimiter,
     ) {
     }
 
     /**
-     * This account's code, issuing one the first time it is asked for.
+     * This account's code, issuing one if it somehow has none.
      *
-     * Lazy rather than backfilled by the migration: filling in every existing
-     * account at once means generating a unique value per row inside a
-     * migration that runs against a live installation, and there is no need —
-     * a code that nobody has asked for is a code nobody is holding.
+     * Every account is given one when it is created and every account that
+     * predates them was given one by the backfill, so the issuing path here is
+     * a safety net rather than the normal route — a `U-` code is something
+     * other people are expected to be able to ask for, and an account that
+     * only acquires one on its owner's first visit cannot be shared with until
+     * then.
      *
      * Whatever it returns is permanent from that moment. Nothing here, and
      * nothing anywhere else, replaces an existing one.
      */
     public function codeFor(User $user): string
     {
-        $existing = $user->getSharingCode();
-        if ($existing !== null) {
+        $existing = $user->getUserCode();
+        if ($existing !== '') {
             return $existing;
         }
 
         $candidate = $this->allocateUniqueCode();
-        $user->assignSharingCode($candidate);
+        $user->assignUserCode($candidate);
 
         return $this->persistCode($user, $candidate);
     }
@@ -72,7 +75,7 @@ final class SharingCodeService
     /**
      * Retire this account's code and issue a new one.
      *
-     * The reason receiver codes are safe to hand out at all is that they grant
+     * The reason user codes are safe to hand out at all is that they grant
      * nothing — but a code lives in chats, forums and group threads, which is
      * exactly where things escape from, and an identifier its owner cannot
      * retire is one they are stuck with. This is that escape hatch.
@@ -91,9 +94,9 @@ final class SharingCodeService
     {
         $this->reserveRotationAllowance($actor ?? $user);
 
-        $hadCode = $user->getSharingCode() !== null;
+        $hadCode = $user->getUserCode() !== '';
         $candidate = $this->allocateUniqueCode();
-        $user->replaceSharingCode($candidate);
+        $user->replaceUserCode($candidate);
 
         $code = $this->persistCode($user, $candidate);
 
@@ -105,6 +108,7 @@ final class SharingCodeService
             'actor_user_id' => ($actor ?? $user)->getId(),
             'target_type' => 'user',
             'target_id' => $user->getId(),
+            'code_type' => ShareCodeType::USER->value,
             'by_admin' => $actor !== null && $actor->getId() !== $user->getId(),
             'replaced_existing' => $hadCode,
         ]);
@@ -113,14 +117,12 @@ final class SharingCodeService
     }
 
     /**
-     * A code no other code of either kind is using.
+     * A token no user code and no content code is using.
      *
-     * The single place either kind of sharing code is generated. Two unique
-     * indexes cannot enforce uniqueness *across* two tables, so the invariant
-     * the feature promises — one visible code means one thing — is upheld here,
-     * by checking both stores before a candidate is kept. Centralised rather
-     * than repeated because rotation makes generation something that happens
-     * often rather than once per account.
+     * The single place any sharing token is generated. The prefix already tells
+     * the three kinds apart, so this is not what makes them unambiguous — it is
+     * what keeps one visible token from meaning two things at once, which is
+     * the property that makes a code safe to read aloud.
      *
      * At sixty bits a first candidate is essentially always free; the loop is
      * for the case that cannot be reasoned away rather than one worth planning
@@ -133,10 +135,8 @@ final class SharingCodeService
         for ($attempt = 0; $attempt < 5; ++$attempt) {
             $candidate = SharingCodeFormat::generate();
 
-            $taken = $this->userRepository->findOneBy(['sharingCode' => $candidate]) !== null
-                || $this->claimCodeRepository->findOneBy([
-                    'codeHash' => SharingCodeFormat::hash($candidate),
-                ]) !== null;
+            $taken = $this->userRepository->findOneBy(['userCode' => $candidate]) !== null
+                || $this->contentCodeRepository->existsForToken($candidate);
 
             if (!$taken) {
                 return $candidate;
@@ -169,21 +169,37 @@ final class SharingCodeService
     }
 
     /**
-     * Who a code belongs to, or null.
+     * Who a `U-` code belongs to, or null.
      *
-     * The caller is charged for a lookup that finds nothing and not for one that
-     * succeeds, so ordinary use never runs into the limit and grinding through
-     * candidates does.
+     * A code of the wrong class never reaches the repository: it is not a
+     * failed guess at a user code, it is a comic or group code in the wrong
+     * box, and the caller is told so rather than charged for it.
      *
-     * @throws ShareException when the caller has spent their allowance
+     * The caller is charged for a lookup that finds nothing and not for one
+     * that succeeds, so ordinary use never runs into the limit and grinding
+     * through candidates does.
+     *
+     * @throws ShareException when the input is a code of the wrong kind, or the
+     *                        caller has spent their allowance
      */
     public function resolve(string $input, User $caller): ?User
     {
-        $normalised = SharingCodeFormat::normalise($input);
+        // First, before parsing decides anything. Charged whether the code
+        // resolves, is the wrong type, or is not a code at all: the miss-only
+        // allowance below is the second layer, not the first, and a rejection
+        // that costs nothing is a free high-frequency endpoint however cheap it
+        // is to serve. See {@see IdentifierLookupGuard}.
+        $this->lookupGuard->charge($caller, 'user_code');
 
-        $recipient = $normalised === ''
+        $parsed = SharingCodeFormat::parse($input);
+
+        if ($parsed !== null && !$parsed->is(ShareCodeType::USER)) {
+            throw new ShareException($parsed->type->misuseGuidance(), 400, ShareException::CODE_WRONG_CODE_TYPE);
+        }
+
+        $recipient = $parsed === null
             ? null
-            : $this->userRepository->findOneBy(['sharingCode' => $normalised]);
+            : $this->userRepository->findOneBy(['userCode' => $parsed->token]);
 
         if ($recipient !== null) {
             return $recipient;
@@ -195,21 +211,30 @@ final class SharingCodeService
     }
 
     /**
-     * What a sender is shown once a code resolves.
+     * The public identity of an account, for whoever is about to share with it.
      *
-     * The display name and the code they already typed, and nothing else — not
-     * the address, not the id, not whether the account is verified, active or
-     * an administrator. Somebody holding a code is entitled to know they have
-     * reached the right person, which is what a name answers; everything past
-     * that is the account's business.
+     * Username, display name and the `U-` code they published — and nothing
+     * else. Not the address, not the id, not whether the account is verified,
+     * active or an administrator. Somebody about to hand over a comic is
+     * entitled to know they have reached the right person, which is what a
+     * unique username answers; everything past that is the account's business.
      *
-     * @return array{name: string, sharingCode: string}
+     * @return array{username: string, name: string, label: string, userCode: string}
      */
     public function describe(User $recipient): array
     {
+        $username = $recipient->getUsername();
+        $name = $recipient->getName() ?: '';
+
         return [
-            'name' => $recipient->getName() ?: 'A Panel Page Flip reader',
-            'sharingCode' => SharingCodeFormat::forDisplay((string) $recipient->getSharingCode()),
+            'username' => $username,
+            'name' => $name,
+            // What to print when there is room for one string. A display name
+            // is not unique, so it never appears without the username beside
+            // it — the whole reason usernames exist is that "Matthew" is not an
+            // answer to "am I sharing with the right person?".
+            'label' => UsernamePolicy::describe($username, $name),
+            'userCode' => SharingCodeFormat::forDisplay(ShareCodeType::USER, $recipient->getUserCode()),
         ];
     }
 
@@ -230,21 +255,13 @@ final class SharingCodeService
             return;
         }
 
-        $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
-
-        throw new ShareException(
-            sprintf(
-                'You have changed your sharing code too many times recently. Please try again in %d minute(s).',
-                (int) ceil($retryAfter / 60)
-            ),
-            429
-        );
+        throw ShareException::rateLimited('You have changed your sharing code too many times recently.', $limit);
     }
 
     /**
      * @throws ShareException
      */
-    private function chargeFailedLookup(User $caller): void
+    public function chargeFailedLookup(User $caller): void
     {
         $limit = $this->sharingCodeLookupLimiter->create((string) $caller->getId())->consume();
 
@@ -266,14 +283,6 @@ final class SharingCodeService
             1
         );
 
-        $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - time());
-
-        throw new ShareException(
-            sprintf(
-                'Too many sharing codes have been tried. Please try again in %d minute(s).',
-                (int) ceil($retryAfter / 60)
-            ),
-            429
-        );
+        throw ShareException::rateLimited('Too many sharing codes have been tried.', $limit);
     }
 }

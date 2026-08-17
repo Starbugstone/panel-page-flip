@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Loader2, Search, Share2, UserCheck } from "lucide-react";
+import { AlertTriangle, Check, Copy, Loader2, Search, Share2, UserCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,22 +18,28 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import {
   EXPLICIT_FLAG_LABEL,
+  SHARE_CODE_TYPES,
   SHARE_RESPONSIBILITY_ACK_LABEL,
   SHARE_RESPONSIBILITY_NOTICE,
   SHARE_STATUS,
   SHARING_CODE_COPY,
-  buildInvitationRequest,
-  formatSharingCode,
+  formatShareCode,
   isValidShareEmail,
-  isValidSharingCode,
-  normaliseSharingCode,
+  isValidShareCode,
+  isValidUsername,
+  parseShareCode,
+  shareCodeMisuse,
+  stripUsernamePrefix,
+  usernameHandle,
 } from "@/lib/sharing";
 import { useToast } from "@/hooks/use-toast";
 
-// Mirrors SharingWorkflowService::MAX_BULK_COMICS. The backend remains the
-// authority; this only stops the UI inviting somebody to select work that the
-// request will reject.
+// Mirrors SharingWorkflowService::MAX_BULK_COMICS and ShareClaimCode's group
+// ceiling, which are the same number. The backend remains the authority; this
+// only stops the UI inviting somebody to select work the request will reject.
 const MAX_BULK_COMICS = 20;
+const MIN_GROUP_COMICS = 2;
+const MAX_CODE_USES = 10;
 
 const normaliseEmail = (value) => (typeof value === "string" ? value.trim().toLowerCase() : "");
 
@@ -56,48 +62,84 @@ function liveComicIdsForRecipient(sharedByMe, email) {
 }
 
 /**
- * The three ways to name who a share is for.
+ * The two things a share can be.
  *
- * They differ only in how the recipient is identified; the comics, the review
- * step and the responsibility acknowledgement are the same for all three,
- * because the share they produce is the same share.
+ * **Direct** names a person — by username, by `U-` code, by address, or by
+ * picking somebody the owner has shared with before. **Code** names nobody and
+ * produces a `C-` or a `G-` depending on how many comics are selected, because
+ * that is the whole difference between the two prefixes.
  */
 const MODES = {
-  EMAIL: "email",
+  DIRECT: "direct",
   CODE: "code",
-  CLAIM: "claim",
 };
 
-const MAX_CLAIM_USES = 10;
+/** How the recipient of a direct share is being named. */
+const TARGETS = {
+  USERNAME: "username",
+  CODE: "code",
+  EMAIL: "email",
+};
 
+/**
+ * The one share workflow, wherever it is opened from.
+ *
+ * A grid card, a table selection and the Sharing page all arrive here, because
+ * three dialogs that each grew their own idea of what a share is are three
+ * places for the rules to drift apart. What differs between the entry points is
+ * only what is already chosen when it opens.
+ */
 export function ShareComicsDialog({
   isOpen,
   onClose,
   sharedByMe = [],
   initialRecipient = "",
-  initialSharingCode = "",
+  initialUsername = "",
+  initialUserCode = "",
+  /**
+   * The identity behind `initialUsername`/`initialUserCode`, when the caller
+   * already has it.
+   *
+   * Sharing again with an existing recipient opens from a button that names
+   * them, and the server produced that name from a relationship this owner
+   * already holds — so there is nothing for a Check to establish. Without this
+   * the confirmation gate would make somebody re-confirm a person they are
+   * already sharing with, which is friction with no question behind it.
+   */
+  initialResolved = null,
   initialComicIds = [],
+  /** Hide the picker: the caller has already chosen, and re-picking is a step. */
+  lockSelection = false,
+  initialMode = MODES.DIRECT,
   onShared,
 }) {
   const [comics, setComics] = useState([]);
   const [recentRecipients, setRecentRecipients] = useState([]);
   const [search, setSearch] = useState("");
-  const [mode, setMode] = useState(initialSharingCode ? MODES.CODE : MODES.EMAIL);
+  const [mode, setMode] = useState(initialMode);
+  const [target, setTarget] = useState(() => {
+    if (initialUserCode) return TARGETS.CODE;
+    if (initialRecipient) return TARGETS.EMAIL;
+    return TARGETS.USERNAME;
+  });
+  const [username, setUsername] = useState(initialUsername);
   const [recipientEmail, setRecipientEmail] = useState(initialRecipient);
-  const [sharingCode, setSharingCode] = useState(initialSharingCode);
-  // The name behind a resolved code. Held separately from the code itself so a
-  // typed character invalidates the confirmation rather than leaving a stale
-  // name sitting next to a different code.
-  const [codeRecipient, setCodeRecipient] = useState(null);
-  const [isResolvingCode, setIsResolvingCode] = useState(false);
+  const [userCode, setUserCode] = useState(initialUserCode);
+  // Who the typed identifier resolves to. Held separately so a typed character
+  // invalidates the confirmation rather than leaving a stale name sitting next
+  // to a different handle.
+  const [resolved, setResolved] = useState(initialResolved);
+  const [isResolving, setIsResolving] = useState(false);
   // Held as text, so the field can be emptied and retyped. Clamping every
   // keystroke turns clearing "1" and typing "4" into 14.
-  const [claimUses, setClaimUses] = useState("1");
-  const [issuedClaimCode, setIssuedClaimCode] = useState(null);
-  const [claimCodeCopied, setClaimCodeCopied] = useState(false);
+  const [maxUses, setMaxUses] = useState("1");
+  const [issuedCode, setIssuedCode] = useState(null);
+  const [issuedExpiry, setIssuedExpiry] = useState(null);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [selectedIds, setSelectedIds] = useState(
     () => new Set((initialComicIds || []).map((id) => String(id)))
   );
+  const [markExplicit, setMarkExplicit] = useState(false);
   const [responsibilityAccepted, setResponsibilityAccepted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
@@ -133,12 +175,15 @@ export function ShareComicsDialog({
     return () => { ignore = true; };
   }, [isOpen]);
 
-  // Only meaningful for an email recipient. A code names somebody the sender
-  // cannot match against their own list, and a claim code names nobody at all,
-  // so neither can mark a comic as already shared.
+  // Only meaningful for an email recipient. A username or code names somebody
+  // the sender cannot match against their own list, and a content code names
+  // nobody at all, so neither can mark a comic as already shared.
   const alreadySharedIds = useMemo(
-    () => liveComicIdsForRecipient(sharedByMe, mode === MODES.EMAIL ? recipientEmail : ""),
-    [sharedByMe, mode, recipientEmail]
+    () => liveComicIdsForRecipient(
+      sharedByMe,
+      mode === MODES.DIRECT && target === TARGETS.EMAIL ? recipientEmail : ""
+    ),
+    [sharedByMe, mode, target, recipientEmail]
   );
 
   const filteredComics = useMemo(() => {
@@ -161,6 +206,13 @@ export function ShareComicsDialog({
     const selected = new Set(selectedComicIds);
     return comics.filter((comic) => selected.has(String(comic.id)));
   }, [comics, selectedComicIds]);
+
+  // What a code made from this selection would be. One comic is a C-, two or
+  // more a G-; that is the entire difference, and it is decided here rather
+  // than asked of the user.
+  const codeType = selectedComicIds.length >= MIN_GROUP_COMICS
+    ? SHARE_CODE_TYPES.GROUP
+    : SHARE_CODE_TYPES.COMIC;
 
   const visibleSelectable = filteredComics.filter(
     (comic) => !alreadySharedIds.has(String(comic.id))
@@ -204,30 +256,31 @@ export function ShareComicsDialog({
     });
   };
 
-  /** Check a code names somebody, before anything is offered to them. */
-  const resolveSharingCode = async () => {
-    setIsResolvingCode(true);
+  /** Check the identifier names somebody, before anything is offered to them. */
+  const resolveRecipient = async () => {
+    setIsResolving(true);
     setError(null);
-    setCodeRecipient(null);
+    setResolved(null);
 
     try {
-      const data = await api.post("/api/shares/resolve-code", {
-        sharingCode: normaliseSharingCode(sharingCode),
-      });
-      setCodeRecipient(data.recipient);
+      const data = target === TARGETS.CODE
+        ? await api.post("/api/shares/user-code/resolve", { userCode: parseShareCode(userCode)?.code })
+        : await api.post("/api/users/resolve-username", { username: stripUsernamePrefix(username) });
+
+      setResolved(data.recipient);
     } catch (err) {
-      logger.error("Resolving a sharing code failed:", err);
-      setError(err.message || "That sharing code is not valid.");
+      logger.error("Resolving a recipient failed:", err);
+      setError(err.message || "That recipient could not be found.");
     } finally {
-      setIsResolvingCode(false);
+      setIsResolving(false);
     }
   };
 
-  const copyClaimCode = async () => {
+  const copyIssuedCode = async () => {
     try {
-      await navigator.clipboard.writeText(issuedClaimCode);
-      setClaimCodeCopied(true);
-      setTimeout(() => setClaimCodeCopied(false), 2000);
+      await navigator.clipboard.writeText(issuedCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
     } catch (err) {
       logger.error("Could not copy the sharing code:", err);
       toast({
@@ -238,6 +291,16 @@ export function ShareComicsDialog({
     }
   };
 
+  /** The typed uses, made legal. The server enforces the same range. */
+  const usesValue = Math.min(MAX_CODE_USES, Math.max(1, Number(maxUses) || 1));
+
+  // A real code of the wrong kind, pasted where a recipient goes. Worth saying
+  // out loud rather than answering with "not found": the code is genuine and
+  // its holder simply has it in the wrong box.
+  const targetMisuse = target === TARGETS.CODE
+    ? shareCodeMisuse(userCode, SHARE_CODE_TYPES.USER)
+    : null;
+
   const handleSubmit = async () => {
     if (selectedComicIds.length === 0) {
       setError("Select at least one comic to share.");
@@ -247,35 +310,33 @@ export function ShareComicsDialog({
       setError("Please confirm that you understand you are responsible for what you share.");
       return;
     }
-    if (mode === MODES.EMAIL && !isValidShareEmail(recipientEmail)) {
-      setError("Please enter a valid recipient email address.");
-      return;
-    }
-    if (mode === MODES.CODE && !isValidSharingCode(sharingCode)) {
-      setError("Please enter a valid sharing code.");
-      return;
-    }
-
-    const recipient = recipientEmail.trim();
 
     setIsSending(true);
     setError(null);
 
     try {
-      if (mode === MODES.CLAIM) {
-        const data = await api.post("/api/shares/claim-codes", {
+      if (mode === MODES.CODE) {
+        const route = codeType === SHARE_CODE_TYPES.GROUP
+          ? "/api/shares/group-codes"
+          : "/api/shares/comic-codes";
+
+        const data = await api.post(route, {
           comicIds: selectedComicIds.map(Number),
-          maxUses: claimUsesValue,
+          maxUses: usesValue,
           senderResponsibilityAccepted: true,
+          markExplicit,
         });
 
         // Shown rather than auto-closing: this is the only moment the code
         // exists in a readable form, because the server keeps only its hash.
-        setIssuedClaimCode(data.code);
+        setIssuedCode(data.code);
+        // The server's own expiry, never seven-days-from-now arithmetic of our
+        // own — the lifetime is an operator setting and this must follow it.
+        setIssuedExpiry(data.contentCode?.expiresAt || null);
         toast({
-          title: "Sharing code created",
+          title: codeType === SHARE_CODE_TYPES.GROUP ? "Group code created" : "Comic code created",
           description: `Anyone you give it to can claim ${selectedComicIds.length === 1 ? "this comic" : "these comics"}, `
-            + `${claimUsesValue === 1 ? "once" : `up to ${claimUsesValue} times`}, within 24 hours.`,
+            + `${usesValue === 1 ? "once" : `up to ${usesValue} times`}.`,
         });
 
         try {
@@ -287,19 +348,19 @@ export function ShareComicsDialog({
         return;
       }
 
-      // Exactly one of the two ways to name a recipient goes on the wire. The
-      // server picks the code when it is present, so sending both would make
-      // the typed address silently irrelevant.
-      const data = await api.post("/api/shares/invitations/bulk", mode === MODES.CODE
-        ? {
-          comicIds: selectedComicIds.map(Number),
-          sharingCode: normaliseSharingCode(sharingCode),
-          senderResponsibilityAccepted: true,
-        }
-        : {
-          ...buildInvitationRequest({ email: recipient, responsibilityAccepted: true }),
-          comicIds: selectedComicIds.map(Number),
-        });
+      // Exactly one of the three ways to name a recipient goes on the wire.
+      const recipient = target === TARGETS.USERNAME
+        ? { username: stripUsernamePrefix(username) }
+        : target === TARGETS.CODE
+          ? { userCode: parseShareCode(userCode)?.code }
+          : { email: recipientEmail.trim() };
+
+      const data = await api.post("/api/shares/invitations/bulk", {
+        ...recipient,
+        comicIds: selectedComicIds.map(Number),
+        senderResponsibilityAccepted: true,
+        markExplicit,
+      });
 
       const results = Array.isArray(data.results) ? data.results : [];
       const created = Number(data.created) || results.filter((r) => r.status === "created").length;
@@ -314,21 +375,30 @@ export function ShareComicsDialog({
         return;
       }
 
-      // The recipient as the sender knows them. Reached by code, that is a
-      // name — the address is exactly what they were never given.
-      const sentTo = mode === MODES.CODE
-        ? (codeRecipient?.name || "them")
-        : recipient;
+      // The recipient as the sender knows them.
+      const sentTo = target === TARGETS.EMAIL
+        ? recipientEmail.trim()
+        : (resolved?.label || usernameHandle(stripUsernamePrefix(username)) || "them");
+
+      // The shares exist; the email is queued behind them and a worker sends
+      // it. Saying "sent" would claim something this response cannot know, and
+      // the notification state on the Sharing page is where delivery is
+      // actually reported.
+      const notificationFailed = results.some(
+        (result) => result.notificationState === "failed"
+      );
 
       toast({
         title: created === 1 ? "Comic shared" : `${created} comics shared`,
-        // One email, however many comics went into it — so this says what the
-        // recipient actually receives rather than implying a message each.
-        description: refused.length > 0
-          ? `One invitation email was sent to ${sentTo}. `
-            + `${refused.length} ${refused.length === 1 ? "comic was" : "comics were"} left out`
-            + `${reason ? `: ${reason}` : "."}`
-          : `One invitation email was sent to ${sentTo}.`,
+        // One invitation, however many comics went into it — so this says what
+        // the recipient receives rather than implying a message each.
+        description: notificationFailed
+          ? `${sentTo} could not be notified. The share exists — resend the invitation from the Sharing page.`
+          : refused.length > 0
+            ? `One invitation to ${sentTo} is on its way. `
+              + `${refused.length} ${refused.length === 1 ? "comic was" : "comics were"} left out`
+              + `${reason ? `: ${reason}` : "."}`
+            : `One invitation to ${sentTo} is on its way.`,
       });
 
       try {
@@ -336,8 +406,8 @@ export function ShareComicsDialog({
       } catch (refreshError) {
         logger.error("Sharing data refresh failed:", refreshError);
         toast({
-          title: "Invitation sent",
-          description: "The invitation was sent, but the Sharing list could not refresh. Reload the page to see the latest state.",
+          title: "Comics shared",
+          description: "The share was created, but the Sharing list could not refresh. Reload the page to see the latest state.",
           variant: "destructive",
         });
       }
@@ -346,7 +416,7 @@ export function ShareComicsDialog({
       // failure cannot encourage the sender to submit the same share again.
       onClose();
     } catch (err) {
-      logger.error("Bulk sharing failed:", err);
+      logger.error("Sharing failed:", err);
       setError(err.message || "The comics could not be shared.");
     } finally {
       setIsSending(false);
@@ -355,37 +425,65 @@ export function ShareComicsDialog({
 
   const selectionLimitReached = selectedComicIds.length >= MAX_BULK_COMICS;
 
-  /** The typed uses, made legal. The server enforces the same range. */
-  const claimUsesValue = Math.min(MAX_CLAIM_USES, Math.max(1, Number(claimUses) || 1));
+  const alreadyExplicitCount = selectedComics.filter((comic) => comic.explicitContent).length;
 
-  // Who this share is for, in the sender's own terms. A code recipient is a
-  // name once it has been checked, and the code itself before that — never an
-  // address, which is the whole reason a code was used.
-  const recipientDescription = mode === MODES.CLAIM
+  // Counted from the ids that will be sent, not from the ones the library
+  // happened to return. A locked selection can name a comic the picker never
+  // fetched — it filters to `canShare` — and a review line reading "2 comics"
+  // in front of a request carrying 3 describes somebody else's share.
+  const comicCountLabel = `${selectedComicIds.length} ${selectedComicIds.length === 1 ? "comic" : "comics"}`;
+
+  const recipientDescription = mode === MODES.CODE
     ? "whoever you give the code to"
-    : mode === MODES.CODE
-      ? (codeRecipient?.name || (isValidSharingCode(sharingCode) ? sharingCode : "the recipient"))
-      : (recipientEmail.trim() || "the recipient");
+    : target === TARGETS.EMAIL
+      ? (recipientEmail.trim() || "the recipient")
+      : (resolved?.label || usernameHandle(stripUsernamePrefix(username)) || userCode || "the recipient");
 
-  const comicCountLabel = `${selectedComics.length} ${selectedComics.length === 1 ? "comic" : "comics"}`;
-
-  const reviewSummary = selectedComics.length === 0
+  // Gated on the ids being sent, not on the ones the library returned. A locked
+  // selection can name a comic the picker never fetched, and "Select at least
+  // one comic above" printed over a request carrying three is the review step
+  // describing a different share from the one about to happen.
+  const reviewSummary = selectedComicIds.length === 0
     ? "Select at least one comic above."
-    : mode === MODES.CLAIM
-      ? `${comicCountLabel} will be put behind a code that ${claimUsesValue === 1 ? "one person" : `up to ${claimUsesValue} people`} `
-        + "can claim within 24 hours. You can withdraw the code, or any share it created, at any time."
-      : `${comicCountLabel} will be offered to ${recipientDescription} in one invitation email. `
+    : mode === MODES.CODE
+      ? `${comicCountLabel} will be put behind ${codeType === SHARE_CODE_TYPES.GROUP ? "one group code" : "a comic code"} `
+        + `that ${usesValue === 1 ? "one person" : `up to ${usesValue} people`} can claim. `
+        + "You can withdraw the code, or any share it created, at any time."
+      : `${comicCountLabel} will be offered to ${recipientDescription} in one invitation. `
         + "They must accept each one before they can read it, and you can withdraw any of them later.";
 
-  const recipientChosen = mode === MODES.CLAIM
-    || (mode === MODES.EMAIL && isValidShareEmail(recipientEmail))
-    || (mode === MODES.CODE && isValidSharingCode(sharingCode));
+  // An address is its own confirmation: the sender typed the thing the comic is
+  // going to, and there is no second identity behind it to check against.
+  //
+  // A username or a `U-` code is not. Both name an account the sender cannot
+  // see, and a code names one they cannot even read — so a typo reaches a real
+  // stranger rather than failing. `resolved` is cleared the moment either field
+  // changes, so requiring it here means the identity on screen is the identity
+  // being shared with, and the sender has seen whose it is.
+  const recipientConfirmed = resolved !== null;
+
+  const recipientChosen = mode === MODES.CODE
+    || (target === TARGETS.EMAIL && isValidShareEmail(recipientEmail))
+    || (target === TARGETS.USERNAME && isValidUsername(username) && recipientConfirmed)
+    || (target === TARGETS.CODE && isValidShareCode(userCode, SHARE_CODE_TYPES.USER) && recipientConfirmed);
 
   const canSubmit = selectedComicIds.length > 0 && responsibilityAccepted && recipientChosen;
 
-  const submitLabel = mode === MODES.CLAIM
-    ? "Create sharing code"
-    : `Send ${selectedComicIds.length > 1 ? `${selectedComicIds.length} invitations` : "invitation"}`;
+  // Said out loud, because an inert Send button with no reason beside it reads
+  // as a broken dialog rather than as a step not yet taken.
+  const confirmationPending = mode === MODES.DIRECT
+    && target !== TARGETS.EMAIL
+    && !recipientConfirmed
+    && (target === TARGETS.USERNAME
+      ? isValidUsername(username)
+      : isValidShareCode(userCode, SHARE_CODE_TYPES.USER));
+
+  // One invitation however many comics go into it, which is what the recipient
+  // actually receives — the count belongs in the review summary above, where it
+  // describes the comics rather than the messages.
+  const submitLabel = mode === MODES.CODE
+    ? `Create ${codeType === SHARE_CODE_TYPES.GROUP ? "group" : "comic"} code`
+    : "Send invitation";
 
   return (
     <Dialog
@@ -401,8 +499,9 @@ export function ShareComicsDialog({
             Share comics
           </DialogTitle>
           <DialogDescription>
-            Choose comics you own, then send a private invitation to an exact email address or
-            somebody you have shared with before. Registered users are never searched or listed.
+            Choose comics you own, then share them with somebody by username, by their U- code or
+            by email — or put them behind a code anyone you give it to can redeem. Registered
+            users are never searched or listed.
           </DialogDescription>
         </DialogHeader>
 
@@ -421,82 +520,96 @@ export function ShareComicsDialog({
                     {selectedComicIds.length}/{MAX_BULK_COMICS} selected
                   </p>
                 </div>
-                {visibleSelectable.length > 0 && (
+                {!lockSelection && visibleSelectable.length > 0 && (
                   <Button type="button" variant="outline" size="sm" onClick={toggleVisible}>
                     {allVisibleSelected ? "Clear shown" : "Select shown"}
                   </Button>
                 )}
               </div>
 
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search your library…"
-                  className="pl-9"
-                />
-              </div>
-
-              <div className="max-h-64 divide-y overflow-y-auto rounded-md border">
-                {filteredComics.length === 0 ? (
-                  <p className="p-4 text-sm text-muted-foreground">No owned comics match this search.</p>
-                ) : filteredComics.map((comic) => {
-                  const id = String(comic.id);
-                  const alreadyShared = alreadySharedIds.has(id);
-                  const checked = selectedIds.has(id) && !alreadyShared;
-                  const disabled = alreadyShared || (selectionLimitReached && !checked);
-
-                  return (
-                    <label
-                      key={comic.id}
-                      className={`flex items-center gap-3 p-3 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
-                    >
-                      <Checkbox
-                        checked={checked}
-                        disabled={disabled}
-                        onCheckedChange={() => toggleComic(comic.id)}
-                        aria-label={`Select ${comic.title}`}
-                      />
-                      {comic.coverImagePath ? (
-                        <img
-                          src={comic.coverImagePath}
-                          alt=""
-                          loading="lazy"
-                          className="h-14 w-10 flex-none rounded object-cover"
-                        />
-                      ) : (
-                        <div className="h-14 w-10 flex-none rounded bg-muted" />
+              {/* A caller that has already chosen does not ask again. Reselecting
+                  a table selection in a second list is a step that can only go
+                  wrong. */}
+              {lockSelection ? (
+                <ul className="max-h-40 divide-y overflow-y-auto rounded-md border text-sm">
+                  {selectedComics.map((comic) => (
+                    <li key={comic.id} className="flex items-center gap-2 p-3">
+                      <span className="truncate">{comic.title}</span>
+                      {comic.explicitContent && (
+                        <Badge variant="outline">{EXPLICIT_FLAG_LABEL}</Badge>
                       )}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{comic.title}</p>
-                        {comic.author && (
-                          <p className="truncate text-xs text-muted-foreground">{comic.author}</p>
-                        )}
-                        {comic.explicitContent && (
-                          <Badge variant="outline" className="mt-1">{EXPLICIT_FLAG_LABEL}</Badge>
-                        )}
-                      </div>
-                      {alreadyShared && (
-                        <Badge variant="secondary">Already shared</Badge>
-                      )}
-                    </label>
-                  );
-                })}
-              </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search your library…"
+                      className="pl-9"
+                    />
+                  </div>
+
+                  <div className="max-h-64 divide-y overflow-y-auto rounded-md border">
+                    {filteredComics.length === 0 ? (
+                      <p className="p-4 text-sm text-muted-foreground">No owned comics match this search.</p>
+                    ) : filteredComics.map((comic) => {
+                      const id = String(comic.id);
+                      const alreadyShared = alreadySharedIds.has(id);
+                      const checked = selectedIds.has(id) && !alreadyShared;
+                      const disabled = alreadyShared || (selectionLimitReached && !checked);
+
+                      return (
+                        <label
+                          key={comic.id}
+                          className={`flex items-center gap-3 p-3 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            disabled={disabled}
+                            onCheckedChange={() => toggleComic(comic.id)}
+                            aria-label={`Select ${comic.title}`}
+                          />
+                          {comic.coverImagePath ? (
+                            <img
+                              src={comic.coverImagePath}
+                              alt=""
+                              loading="lazy"
+                              className="h-14 w-10 flex-none rounded object-cover"
+                            />
+                          ) : (
+                            <div className="h-14 w-10 flex-none rounded bg-muted" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{comic.title}</p>
+                            {comic.author && (
+                              <p className="truncate text-xs text-muted-foreground">{comic.author}</p>
+                            )}
+                            {comic.explicitContent && (
+                              <Badge variant="outline" className="mt-1">{EXPLICIT_FLAG_LABEL}</Badge>
+                            )}
+                          </div>
+                          {alreadyShared && (
+                            <Badge variant="secondary">Already shared</Badge>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </section>
 
             <section className="space-y-3">
               <h3 className="font-semibold">2. Share with</h3>
 
-              {/* One line of explanation per mode, swapped with the mode, so the
-                  dialog says what the chosen option does without stacking three
-                  paragraphs of guidance on top of each other. */}
               <div className="flex flex-wrap gap-1 rounded-md border p-1" role="tablist">
                 {[
-                  [MODES.EMAIL, "Email address"],
-                  [MODES.CODE, "Sharing code"],
-                  [MODES.CLAIM, "Create a code"],
+                  [MODES.DIRECT, "Someone I know"],
+                  [MODES.CODE, "Create a code"],
                 ].map(([value, label]) => (
                   <Button
                     key={value}
@@ -505,7 +618,7 @@ export function ShareComicsDialog({
                     size="sm"
                     variant={mode === value ? "default" : "ghost"}
                     aria-selected={mode === value}
-                    disabled={isSending || issuedClaimCode !== null}
+                    disabled={isSending || issuedCode !== null}
                     onClick={() => { setMode(value); setError(null); }}
                   >
                     {label}
@@ -513,118 +626,170 @@ export function ShareComicsDialog({
                 ))}
               </div>
 
-              {mode === MODES.EMAIL && (
+              {mode === MODES.DIRECT && (
                 <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">
-                    Recent recipients are only people you have shared with before. Registered users
-                    are never searched or listed.
-                  </p>
+                  <p className="text-xs text-muted-foreground">{SHARING_CODE_COPY.recipient}</p>
+
+                  <div className="flex flex-wrap gap-1" role="tablist" aria-label="How to name the recipient">
+                    {[
+                      [TARGETS.USERNAME, "Username"],
+                      [TARGETS.CODE, "U- code"],
+                      [TARGETS.EMAIL, "Email address"],
+                    ].map(([value, label]) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        role="tab"
+                        size="sm"
+                        variant={target === value ? "secondary" : "ghost"}
+                        aria-selected={target === value}
+                        disabled={isSending}
+                        onClick={() => { setTarget(value); setResolved(null); setError(null); }}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
 
                   {recentRecipients.length > 0 && (
-                    <div className="flex flex-wrap gap-2" aria-label="Recent recipients">
-                      {recentRecipients.filter((recipient) => recipient.email).map((recipient) => (
-                        <Button
-                          key={recipient.email}
-                          type="button"
-                          size="sm"
-                          variant={normaliseEmail(recipientEmail) === normaliseEmail(recipient.email) ? "default" : "outline"}
-                          aria-pressed={normaliseEmail(recipientEmail) === normaliseEmail(recipient.email)}
-                          disabled={isSending}
-                          onClick={() => setRecipientEmail(recipient.email)}
-                        >
-                          {recipient.label || recipient.email}
-                        </Button>
-                      ))}
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">
+                        Recent recipients are only people you have shared with before.
+                      </p>
+                      <div className="flex flex-wrap gap-2" aria-label="Recent recipients">
+                        {recentRecipients.map((recipient) => (
+                          <Button
+                            key={recipient.username || recipient.email}
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={isSending}
+                            onClick={() => {
+                              if (recipient.username) {
+                                setTarget(TARGETS.USERNAME);
+                                setUsername(recipient.username);
+                                // Already confirmed, and by the server: this
+                                // list is people the owner has shared with
+                                // before, and the label beside the button is
+                                // the identity a Check would go and fetch.
+                                setResolved({
+                                  username: recipient.username,
+                                  name: recipient.name || "",
+                                  label: recipient.label,
+                                });
+                              } else {
+                                setResolved(null);
+                                setTarget(TARGETS.EMAIL);
+                                setRecipientEmail(recipient.email);
+                              }
+                            }}
+                          >
+                            {recipient.label}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
                   )}
 
-                  <div className="grid gap-2">
-                    <Label htmlFor="bulk-share-email">Recipient email</Label>
-                    <Input
-                      id="bulk-share-email"
-                      type="email"
-                      autoComplete="off"
-                      value={recipientEmail}
-                      onChange={(event) => setRecipientEmail(event.target.value)}
-                      placeholder="recipient@example.com"
-                      disabled={isSending}
-                    />
-                  </div>
+                  {target === TARGETS.USERNAME && (
+                    <div className="grid gap-2">
+                      <Label htmlFor="share-username">Their username</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="share-username"
+                          autoComplete="off"
+                          value={username}
+                          onChange={(event) => { setUsername(event.target.value); setResolved(null); }}
+                          placeholder="@SilverOtter4821"
+                          disabled={isSending}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={resolveRecipient}
+                          disabled={isSending || isResolving || !isValidUsername(username)}
+                        >
+                          {isResolving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Check
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {target === TARGETS.CODE && (
+                    <div className="grid gap-2">
+                      <Label htmlFor="share-user-code">Their U- code</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="share-user-code"
+                          autoComplete="off"
+                          value={userCode}
+                          onChange={(event) => {
+                            setUserCode(formatShareCode(event.target.value));
+                            // A changed code is a different person until checked.
+                            setResolved(null);
+                          }}
+                          placeholder="U-XXXX-XXXX-XXXX"
+                          className="font-mono tracking-widest"
+                          disabled={isSending}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={resolveRecipient}
+                          disabled={
+                            isSending || isResolving || !isValidShareCode(userCode, SHARE_CODE_TYPES.USER)
+                          }
+                        >
+                          {isResolving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Check
+                        </Button>
+                      </div>
+                      {targetMisuse && (
+                        <p className="flex items-center gap-1 text-sm text-destructive">
+                          <AlertTriangle className="h-4 w-4" />
+                          {targetMisuse}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {target === TARGETS.EMAIL && (
+                    <div className="grid gap-2">
+                      <Label htmlFor="share-email">Recipient email</Label>
+                      <Input
+                        id="share-email"
+                        type="email"
+                        autoComplete="off"
+                        value={recipientEmail}
+                        onChange={(event) => setRecipientEmail(event.target.value)}
+                        placeholder="recipient@example.com"
+                        disabled={isSending}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Use an address for somebody who has no account here yet.
+                      </p>
+                    </div>
+                  )}
+
+                  {resolved && (
+                    <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <UserCheck className="h-4 w-4" />
+                      Sharing with <span className="font-medium">{resolved.label}</span>
+                    </p>
+                  )}
                 </div>
               )}
 
               {mode === MODES.CODE && (
                 <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">{SHARING_CODE_COPY.recipient}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {codeType === SHARE_CODE_TYPES.GROUP
+                      ? SHARING_CODE_COPY.groupCode
+                      : SHARING_CODE_COPY.comicCode}
+                  </p>
 
-                  {recentRecipients.some((recipient) => recipient.sharingCode) && (
-                    <div className="flex flex-wrap gap-2" aria-label="Recent code recipients">
-                      {recentRecipients.filter((recipient) => recipient.sharingCode).map((recipient) => (
-                        <Button
-                          key={recipient.sharingCode}
-                          type="button"
-                          size="sm"
-                          // Compared normalised: the input rewrites what it
-                          // holds through formatSharingCode, so a grouping
-                          // difference must not break the pressed state.
-                          variant={normaliseSharingCode(sharingCode) === normaliseSharingCode(recipient.sharingCode) ? "default" : "outline"}
-                          aria-pressed={normaliseSharingCode(sharingCode) === normaliseSharingCode(recipient.sharingCode)}
-                          disabled={isSending}
-                          onClick={() => {
-                            setSharingCode(formatSharingCode(recipient.sharingCode));
-                            // The server sends no name for a recipient who had
-                            // none to snapshot, and falls back to the code in
-                            // the label — so that is what to show them as.
-                            setCodeRecipient({ name: recipient.name || recipient.label });
-                          }}
-                        >
-                          {recipient.label}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="bulk-share-code">Their sharing code</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="bulk-share-code"
-                        autoComplete="off"
-                        value={sharingCode}
-                        onChange={(event) => {
-                          setSharingCode(formatSharingCode(event.target.value));
-                          // A changed code is a different person until checked.
-                          setCodeRecipient(null);
-                        }}
-                        placeholder="XXXX-XXXX-XXXX"
-                        className="font-mono tracking-widest"
-                        disabled={isSending}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={resolveSharingCode}
-                        disabled={isSending || isResolvingCode || !isValidSharingCode(sharingCode)}
-                      >
-                        {isResolvingCode && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Check
-                      </Button>
-                    </div>
-                    {codeRecipient && (
-                      <p className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <UserCheck className="h-4 w-4" />
-                        Sharing with <span className="font-medium">{codeRecipient.name}</span>
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {mode === MODES.CLAIM && (
-                <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">{SHARING_CODE_COPY.claim}</p>
-
-                  {issuedClaimCode ? (
+                  {issuedCode ? (
                     <div className="space-y-2 rounded-md border p-3">
                       <p className="text-sm font-medium">Your code — copy it now</p>
                       <div className="flex items-center gap-2">
@@ -632,39 +797,45 @@ export function ShareComicsDialog({
                           className="flex-1 rounded bg-muted px-3 py-2 font-mono text-sm tracking-widest"
                           aria-label="Your new sharing code"
                         >
-                          {issuedClaimCode}
+                          {issuedCode}
                         </code>
-                        <Button variant="outline" size="sm" onClick={copyClaimCode} aria-label="Copy the sharing code">
-                          {claimCodeCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        <Button variant="outline" size="sm" onClick={copyIssuedCode} aria-label="Copy the sharing code">
+                          {codeCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground">
                         It is not stored and cannot be shown again. Create another if you lose it.
+                        {issuedExpiry && ` It expires ${new Date(issuedExpiry).toLocaleString()}.`}
                       </p>
                     </div>
                   ) : (
                     <div className="grid gap-2">
-                      <Label htmlFor="bulk-share-uses">How many people may use it</Label>
+                      <Label htmlFor="share-code-uses">How many people may use it</Label>
                       <div className="flex items-center gap-3">
                         <Input
-                          id="bulk-share-uses"
+                          id="share-code-uses"
                           type="number"
                           min={1}
-                          max={MAX_CLAIM_USES}
-                          value={claimUses}
-                          onChange={(event) => setClaimUses(
+                          max={MAX_CODE_USES}
+                          value={maxUses}
+                          onChange={(event) => setMaxUses(
                             event.target.value.replace(/[^0-9]/g, "").slice(0, 2)
                           )}
                           // Corrected when the field is left rather than as it
                           // is typed, so what is sent is always what is shown.
-                          onBlur={() => setClaimUses(String(claimUsesValue))}
+                          onBlur={() => setMaxUses(String(usesValue))}
                           className="w-24"
                           disabled={isSending}
                         />
                         <span className="text-xs text-muted-foreground">
-                          1–{MAX_CLAIM_USES} uses · expires after 24 hours
+                          1–{MAX_CODE_USES} different people
                         </span>
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        {codeType === SHARE_CODE_TYPES.GROUP
+                          ? `A ${SHARE_CODE_TYPES.GROUP}- code for ${selectedComicIds.length} comics. Redeeming it costs one use.`
+                          : `A ${SHARE_CODE_TYPES.COMIC}- code for exactly one comic.`}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -677,22 +848,58 @@ export function ShareComicsDialog({
                 <p className="text-sm text-muted-foreground">{reviewSummary}</p>
               </div>
 
-              {selectedComics.length > 0 && (
+              {confirmationPending && (
+                <p className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-500">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  Check who this is before sending, so you can see whose library it goes to.
+                </p>
+              )}
+
+              {selectedComics.length > 0 && !lockSelection && (
                 <ul className="max-h-28 list-disc overflow-y-auto pl-5 text-sm">
                   {selectedComics.map((comic) => <li key={comic.id}>{comic.title}</li>)}
                 </ul>
               )}
 
+              {/* Reachable from here because the moment somebody decides a comic
+                  is adult is the moment they are about to hand it over. It only
+                  ever promotes: unticking it does not clear a classification
+                  somebody made deliberately. */}
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center gap-2">
+                  {/* Disabled on the ids being sent, not on the ones the picker
+                      fetched. Otherwise the entry point this control exists for
+                      — a table selection somebody is about to hand over — is the
+                      one that cannot reach it. */}
+                  <Checkbox
+                    id="share-mark-explicit"
+                    checked={markExplicit}
+                    onCheckedChange={(checked) => setMarkExplicit(checked === true)}
+                    disabled={isSending || selectedComicIds.length === 0}
+                  />
+                  <Label htmlFor="share-mark-explicit" className="cursor-pointer text-sm font-medium">
+                    These comic(s) contain 18+ / explicit content
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {alreadyExplicitCount > 0
+                    ? `${alreadyExplicitCount} of these ${alreadyExplicitCount === 1 ? "is" : "are"} already marked 18+. `
+                      + "Leaving this unticked never clears an existing mark."
+                    : "Ticking this marks the selected comics 18+ on your own library, and recipients "
+                      + "must confirm their age before they can read them."}
+                </p>
+              </div>
+
               <div className="space-y-3 rounded-md border p-3">
                 <p className="text-sm text-muted-foreground">{SHARE_RESPONSIBILITY_NOTICE}</p>
                 <div className="flex items-center gap-2">
                   <Checkbox
-                    id="bulk-share-responsibility"
+                    id="share-responsibility"
                     checked={responsibilityAccepted}
                     onCheckedChange={(checked) => setResponsibilityAccepted(checked === true)}
                     disabled={isSending}
                   />
-                  <Label htmlFor="bulk-share-responsibility" className="cursor-pointer text-sm font-medium">
+                  <Label htmlFor="share-responsibility" className="cursor-pointer text-sm font-medium">
                     {SHARE_RESPONSIBILITY_ACK_LABEL}
                   </Label>
                 </div>
@@ -705,9 +912,9 @@ export function ShareComicsDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={isSending}>
-            {issuedClaimCode ? "Done" : "Cancel"}
+            {issuedCode ? "Done" : "Cancel"}
           </Button>
-          {!issuedClaimCode && (
+          {!issuedCode && (
             <Button onClick={handleSubmit} disabled={isLoading || isSending || !canSubmit}>
               {isSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {submitLabel}

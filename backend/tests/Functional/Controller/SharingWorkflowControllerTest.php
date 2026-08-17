@@ -105,21 +105,17 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
             'senderResponsibilityAccepted' => true,
         ]);
 
-        self::assertResponseStatusCodeSame(207);
-        self::assertSame(1, $payload['created']);
-        self::assertSame(2, $payload['total']);
-
-        $byId = [];
-        foreach ($payload['results'] as $result) {
-            $byId[(int) $result['comicId']] = $result;
-        }
-
-        self::assertSame('not_available', $byId[(int) $receivedComic->getId()]['status']);
-        self::assertSame('created', $byId[(int) $ownComic->getId()]['status']);
+        // The batch is refused whole. Sharing the one comic that *is* theirs
+        // and reporting the other in a per-comic list tells a sender who asked
+        // for two that they got one, in a line they have to go looking for.
+        self::assertResponseStatusCodeSame(403);
         self::assertSame(
-            'This comic is not available to share.',
-            $byId[(int) $receivedComic->getId()]['message']
+            'One or more of those comics is not available to share, so nothing was shared.',
+            $payload['message']
         );
+
+        // And nothing was created for either of them.
+        self::assertSame([], $this->getJson('/api/shares/shared-by-me')['sharedByMe']);
     }
 
     public function testBulkShareStillRequiresTheSenderResponsibilityAcknowledgement(): void
@@ -381,5 +377,127 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         $entityManager->flush();
 
         return $share;
+    }
+
+    /**
+     * Exactly one way of naming a recipient, enforced by the endpoint.
+     *
+     * A precedence order silently answers a contradictory request, and answers
+     * it by sharing somebody's comics with somebody. Which somebody is then
+     * decided by the order the server happens to check in rather than by the
+     * person who pressed the button, and the sender is told it worked.
+     *
+     * @dataProvider conflictingRecipients
+     */
+    public function testNamingARecipientTwoWaysIsRefused(array $recipient): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'ambiguous@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $payload = $this->postJson('/api/shares/invitations/bulk', $recipient + [
+            'comicIds' => [$comic->getId()],
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertStringContainsString('one way only', $payload['message']);
+        self::assertSame([], $this->getJson('/api/shares/shared-by-me')['sharedByMe']);
+    }
+
+    public static function conflictingRecipients(): iterable
+    {
+        yield 'username and email' => [[
+            'username' => 'SomeoneElse1234',
+            'email' => 'typed@example.com',
+        ]];
+
+        yield 'user code and email' => [[
+            'userCode' => 'U-7K3M-H91P-R2AX',
+            'email' => 'typed@example.com',
+        ]];
+
+        yield 'username and user code' => [[
+            'username' => 'SomeoneElse1234',
+            'userCode' => 'U-7K3M-H91P-R2AX',
+        ]];
+
+        yield 'all three' => [[
+            'username' => 'SomeoneElse1234',
+            'userCode' => 'U-7K3M-H91P-R2AX',
+            'email' => 'typed@example.com',
+        ]];
+    }
+
+    public function testNamingNoRecipientAtAllIsRefused(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'nameless@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $payload = $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertStringContainsString('recipient is required', $payload['message']);
+    }
+
+    /**
+     * A comic the caller cannot share takes the whole batch with it.
+     *
+     * The alternative is a sender who selected six comics being told five went
+     * out, in a per-comic list they have to go and read. The one that did not
+     * go is the one they will not notice, and they will not go back for it.
+     */
+    public function testAMixedSelectionCreatesNothingAtAll(): void
+    {
+        $stranger = UserFactory::createOne(['email' => 'somebody-else@example.com'])->object();
+        $theirs = ComicFactory::new()->ownedBy($stranger)->create()->object();
+
+        $owner = $this->createAndLoginUser(['email' => 'mixed@example.com']);
+        $mine = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $alsoMine = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$mine->getId(), $theirs->getId(), $alsoMine->getId()],
+            'email' => 'reader@example.com',
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(403);
+        // Not even the two that were perfectly shareable.
+        self::assertSame([], $this->getJson('/api/shares/shared-by-me')['sharedByMe']);
+    }
+
+    /**
+     * A comic that does not exist reads exactly like one that is not yours.
+     *
+     * Refusing the batch must not turn the endpoint into a comic-id oracle: the
+     * two cases have to be one answer, or a caller can walk the id space and
+     * learn which rows are real from the wording.
+     */
+    public function testAMissingComicAndAForeignComicGiveTheSameAnswer(): void
+    {
+        $stranger = UserFactory::createOne(['email' => 'not-mine@example.com'])->object();
+        $theirs = ComicFactory::new()->ownedBy($stranger)->create()->object();
+
+        $owner = $this->createAndLoginUser(['email' => 'prober@example.com']);
+        $mine = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $foreign = $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$mine->getId(), $theirs->getId()],
+            'email' => 'reader@example.com',
+            'senderResponsibilityAccepted' => true,
+        ]);
+        $foreignStatus = $this->browser()->getResponse()->getStatusCode();
+
+        $missing = $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$mine->getId(), 999_999],
+            'email' => 'reader@example.com',
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertSame($foreignStatus, $this->browser()->getResponse()->getStatusCode());
+        self::assertSame($foreign['message'], $missing['message']);
     }
 }
