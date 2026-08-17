@@ -16,7 +16,7 @@ import { AdminContentReports } from "@/components/AdminContentReports";
 const TABS = ["overview", "pending", "users", "comics", "formats", "metadata", "tags", "sharing-codes", "content-reports", "dropbox", "audit"];
 
 export default function AdminDashboard() {
-  const { user, loading } = useAuth(); // Destructure loading state
+  const { isAdmin, loading } = useAuth(); // Destructure loading state
   const [searchParams, setSearchParams] = useSearchParams();
 
   // The tab lives in the URL alongside each list's page and search, so coming
@@ -42,7 +42,7 @@ export default function AdminDashboard() {
   }
   
   // If loading is complete and user is not admin, redirect to dashboard
-  if (!user || !user.roles || !user.roles.includes("ROLE_ADMIN")) {
+  if (!isAdmin) {
     return <Navigate to="/dashboard" replace />;
   }
   

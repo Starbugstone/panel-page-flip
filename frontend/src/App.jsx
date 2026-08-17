@@ -55,7 +55,7 @@ const ProtectedRoute = ({ children }) => {
 
 // Admin route component
 const AdminRoute = ({ children }) => {
-  const { isAuthenticated, loading, user } = useAuth();
+  const { isAuthenticated, loading, isAdmin } = useAuth();
   
   if (loading) {
     return <PageLoading />;
@@ -65,7 +65,7 @@ const AdminRoute = ({ children }) => {
     return <Navigate to="/login" />;
   }
   
-  if (!user.roles || !user.roles.includes("ROLE_ADMIN")) {
+  if (!isAdmin) {
     return <Navigate to="/dashboard" />;
   }
   
@@ -73,7 +73,7 @@ const AdminRoute = ({ children }) => {
 };
 
 const AppRoutes = () => {
-  const { isAuthenticated, logout, user } = useAuth();
+  const { isAuthenticated, logout, isAdmin } = useAuth();
 
   return (
     <BrowserRouter>
@@ -81,7 +81,7 @@ const AppRoutes = () => {
         <Header 
           isLoggedIn={isAuthenticated} 
           onLogout={logout} 
-          isAdmin={user?.roles?.includes("ROLE_ADMIN")} 
+          isAdmin={isAdmin} 
         />
         <main className="flex-1">
           <Suspense fallback={<PageLoading />}>
