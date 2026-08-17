@@ -83,7 +83,7 @@ final class ComicAccess
         // standing at all is either probing or a misconfiguration, and the 404
         // gives the access-denied subscriber nothing to count.
         $user = $this->security->getUser();
-        $this->logger->warning('Refused access to a comic the caller has no claim on.', [
+        $this->logger->warning('Refused access to a comic the caller has no standing on.', [
             'comic_id' => $comic->getId(),
             'attribute' => $attribute,
             'actor_user_id' => $user instanceof User ? $user->getId() : null,
