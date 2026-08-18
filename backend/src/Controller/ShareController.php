@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
-use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\User;
 use App\Repository\ComicShareRepository;
+use App\Security\ComicAccess;
 use App\Security\Voter\ComicVoter;
 use App\Service\ComicSerializer;
 use App\Service\ComicShareSerializer;
 use App\Service\ComicShareService;
 use App\Service\ShareException;
-use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -38,7 +37,7 @@ class ShareController extends AbstractController
         private readonly ComicShareService $shareService,
         private readonly ComicShareSerializer $shareSerializer,
         private readonly ComicSerializer $comicSerializer,
-        private readonly EntityManagerInterface $entityManager,
+        private readonly ComicAccess $comicAccess,
     ) {
     }
 
@@ -142,16 +141,15 @@ class ShareController extends AbstractController
     #[Route('/comics/{comicId}', name: 'app_shares_stop_all', methods: ['DELETE'], requirements: ['comicId' => '\d+'])]
     public function stopSharing(int $comicId): JsonResponse
     {
-        $user = $this->requireUser();
+        $this->requireUser();
 
-        $comic = $this->entityManager->getRepository(Comic::class)->find($comicId);
-        if (!$comic) {
-            return $this->json(['message' => 'Comic not found.'], Response::HTTP_NOT_FOUND);
-        }
-
-        if (!$this->isGranted(ComicVoter::SHARE, $comic)) {
-            return $this->json(['message' => 'You can only manage comics you own.'], Response::HTTP_FORBIDDEN);
-        }
+        // The last route that still found a comic and judged it by hand, and it
+        // had the split the rest of the API has stopped making: 404 for missing,
+        // 403 for somebody else's. Between them that is an existence oracle, so
+        // it goes through the same guard as everywhere else — a stranger is told
+        // only that there is no such comic, and an owner who may not share this
+        // one is still refused in as many words.
+        $comic = $this->comicAccess->requireComic($comicId, ComicVoter::SHARE);
 
         $revoked = $this->shareService->stopSharing($comic);
 

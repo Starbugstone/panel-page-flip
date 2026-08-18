@@ -231,6 +231,32 @@ final class ShareControllerTest extends AbstractApiTestCase
         }
     }
 
+    /**
+     * Stopping sharing is addressed by comic id, so it can be asked about any
+     * comic at all. A stranger gets the answer an unused id gets; a recipient,
+     * who can already name the comic, gets the refusal.
+     */
+    public function testStoppingSharingTellsAStrangerNothingAboutTheComic(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $this->createAndLoginUser(['email' => 'passer-by@test.local']);
+        $this->deleteJson('/api/shares/comics/' . $comic->getId());
+        self::assertResponseStatusCodeSame(404);
+        self::assertSame('Comic not found', $this->json()['message']);
+
+        // Byte for byte what an id nobody has ever used answers.
+        $this->deleteJson('/api/shares/comics/999666');
+        self::assertResponseStatusCodeSame(404);
+        self::assertSame('Comic not found', $this->json()['message']);
+
+        $recipient = $this->createAndLoginUser(['email' => 'reader-only@test.local']);
+        $this->createAcceptedShare($comic, $owner, $recipient);
+        $this->deleteJson('/api/shares/comics/' . $comic->getId());
+        self::assertResponseStatusCodeSame(403);
+    }
+
     public function testDeletingTheOriginalLeavesRecipientsATombstone(): void
     {
         $owner = UserFactory::createOne()->object();

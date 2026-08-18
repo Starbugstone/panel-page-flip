@@ -25,17 +25,28 @@ final class AdminSurfaceIsClosedTest extends AbstractApiTestCase
 {
     /**
      * `/api/users` contains a small number of deliberately non-administrative
-     * routes. Keep the exceptions explicit here rather than deriving them from
-     * `security.yaml`: this test must remain capable of catching an accidental
-     * relaxation of that configuration.
+     * routes: picking a username needs answering before an account exists, and
+     * changing your own is nobody's business but yours.
      *
-     * @var array<string, true>
+     * Kept explicit here rather than derived from `security.yaml`, because a
+     * test that reads the configuration it exists to check can only ever agree
+     * with it — including when somebody relaxes it by accident.
+     *
+     * Each one carries what it is instead of merely being skipped. An exception
+     * to "this must refuse everybody" is the last place to stop asserting
+     * anything: `resolve-username` turns a guessed handle into a person, and it
+     * being open to the whole internet is exactly the regression this file
+     * should catch.
      */
+    private const PUBLIC_ROUTE = 'public';
+    private const SIGNED_IN_ROUTE = 'signed-in';
+
+    /** @var array<string, self::PUBLIC_ROUTE|self::SIGNED_IN_ROUTE> */
     private const NON_ADMIN_USER_ROUTES = [
-        'GET /api/users/username-suggestion' => true,
-        'GET /api/users/username-available' => true,
-        'POST /api/users/resolve-username' => true,
-        'PUT /api/users/username' => true,
+        'GET /api/users/username-suggestion' => self::PUBLIC_ROUTE,
+        'GET /api/users/username-available' => self::PUBLIC_ROUTE,
+        'POST /api/users/resolve-username' => self::SIGNED_IN_ROUTE,
+        'PUT /api/users/username' => self::SIGNED_IN_ROUTE,
     ];
 
     /**
@@ -121,6 +132,59 @@ final class AdminSurfaceIsClosedTest extends AbstractApiTestCase
 
         self::assertNotSame(403, $this->statusOf('GET', '/api/admin/stats'));
         self::assertNotSame(403, $this->statusOf('GET', '/api/users'));
+    }
+
+    /**
+     * The routes excepted above, held to what they actually claim to be.
+     *
+     * Registration needs the first two before anybody has an account, so they
+     * answer an anonymous caller — which is the whole reason they had to be
+     * excepted, and the whole reason it is worth writing down that this is
+     * deliberate. The other two are an account holder's own, and being excepted
+     * from the administrative sweep does not make them public.
+     */
+    public function testTheExceptedRoutesAreOnlyAsOpenAsTheyClaim(): void
+    {
+        foreach (self::NON_ADMIN_USER_ROUTES as $route => $openness) {
+            [$method, $url] = explode(' ', $route, 2);
+            $status = $this->statusOf($method, $url);
+
+            if ($openness === self::SIGNED_IN_ROUTE) {
+                self::assertSame(
+                    401,
+                    $status,
+                    sprintf('%s is not administrative, but it still needs an account; it answered %d.', $route, $status)
+                );
+
+                continue;
+            }
+
+            self::assertNotSame(
+                401,
+                $status,
+                sprintf('%s is excepted because registration needs it before an account exists.', $route)
+            );
+        }
+    }
+
+    /**
+     * None of them is refused to an ordinary signed-in account either, which is
+     * what "not administrative" is supposed to mean.
+     */
+    public function testTheExceptedRoutesAreNotAdministrativeAfterAll(): void
+    {
+        $this->createAndLoginUser(['email' => 'account-holder@test.local']);
+
+        foreach (array_keys(self::NON_ADMIN_USER_ROUTES) as $route) {
+            [$method, $url] = explode(' ', $route, 2);
+            $status = $this->statusOf($method, $url);
+
+            self::assertNotSame(
+                403,
+                $status,
+                sprintf('%s is listed as non-administrative but refused an ordinary account.', $route)
+            );
+        }
     }
 
     private function statusOf(string $method, string $url): int
