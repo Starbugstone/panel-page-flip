@@ -18,7 +18,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 /**
  * Operational tooling for the sharing codes an instance has issued.
  *
- * Claim codes are capabilities that leave the building — pasted into chats,
+ * Content codes are capabilities that leave the building — pasted into chats,
  * forwarded, posted by mistake — so somebody has to be able to see what is
  * outstanding and stop one without going to the database. This is that surface,
  * and it is the whole of it: everything here reads metadata or calls a lifecycle
@@ -31,16 +31,16 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
  * a different screen. And it cannot delete a live record, because the cleanup
  * it runs is the retention sweep and nothing else.
  *
- * Receiver codes are not managed here. Their lifecycle is rotation, which
- * belongs on the admin user page beside the account it identifies.
+ * User codes are not managed here. Their lifecycle is rotation, which belongs
+ * on the admin user page beside the account it identifies.
  */
 #[Route('/api/admin/sharing-codes')]
 #[IsGranted('ROLE_ADMIN')]
 final class AdminShareCodeController extends AbstractController
 {
     public function __construct(
-        private readonly ShareClaimCodeRepository $claimCodes,
-        private readonly ShareClaimCodeService $claimCodeService,
+        private readonly ShareClaimCodeRepository $contentCodes,
+        private readonly ShareClaimCodeService $contentCodeService,
         private readonly ExpiredShareCleanupService $cleanup,
     ) {
     }
@@ -55,11 +55,11 @@ final class AdminShareCodeController extends AbstractController
         );
 
         $status = $request->query->get('status');
-        if (!in_array($status, ['active', 'expired', 'withdrawn', 'exhausted'], true)) {
+        if (!in_array($status, ['active', 'expired', 'withdrawn', 'exhausted', 'comics_removed'], true)) {
             $status = null;
         }
 
-        $page = $this->claimCodes->findAdminPage($pagination, [
+        $page = $this->contentCodes->findAdminPage($pagination, [
             'status' => $status,
             'ownerId' => $request->query->has('ownerId') ? $request->query->getInt('ownerId') : null,
             'createdFrom' => $this->date($request->query->get('createdFrom')),
@@ -84,11 +84,11 @@ final class AdminShareCodeController extends AbstractController
         /** @var User $admin */
         $admin = $this->getUser();
 
-        $code = $this->claimCodeService->revokeAsAdministrator($id, $admin);
+        $code = $this->contentCodeService->revokeAsAdministrator($id, $admin);
 
         return $this->json([
             'message' => 'Sharing code withdrawn. Comics already claimed through it are unaffected.',
-            'claimCode' => $code->toAdminPayload(),
+            'contentCode' => $code->toAdminPayload(),
         ]);
     }
 
@@ -114,7 +114,7 @@ final class AdminShareCodeController extends AbstractController
                 $removed['claimCodes']
             ),
             'invitationsRemoved' => $removed['invitations'],
-            'claimCodesRemoved' => $removed['claimCodes'],
+            'contentCodesRemoved' => $removed['claimCodes'],
         ]);
     }
 

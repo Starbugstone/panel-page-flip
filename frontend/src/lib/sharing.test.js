@@ -1,12 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
   EXPLICIT_FLAG_LABEL,
+  NOTIFICATION_STATE,
+  SHARE_CODE_TYPES,
   SHARE_RESPONSIBILITY_ACK_LABEL,
   SHARE_RESPONSIBILITY_NOTICE,
   SHARE_STATUS,
   SHARING_PAGE_RESPONSIBILITY_REMINDER,
   buildInvitationRequest,
   canSendInvitation,
+  describeNotification,
+  formatShareCode,
+  isValidShareCode,
+  isValidUsername,
+  parseShareCode,
+  recipientLabel,
+  recipientTarget,
+  shareCodeMisuse,
+  stripUsernamePrefix,
+  usernameHandle,
+  validateUsername,
   describeBulkShareImpactOfDeletion,
   describeDeadShareCleanup,
   describeReceivedShare,
@@ -372,5 +385,137 @@ describe("explicit shares that have ended", () => {
     // as them having done so.
     expect(shareDisplayTitle({ requiresAdultConfirmation: true, isDead: true }))
       .toBe("Hidden — explicit content (18+)");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Usernames                                                                   */
+/* -------------------------------------------------------------------------- */
+
+describe("usernames", () => {
+  it("is written with an at sign wherever it stands for a person", () => {
+    expect(usernameHandle("SilverOtter4821")).toBe("@SilverOtter4821");
+    expect(usernameHandle("")).toBe("");
+    expect(usernameHandle(undefined)).toBe("");
+  });
+
+  it("treats a pasted at sign as punctuation rather than part of the name", () => {
+    expect(stripUsernamePrefix("@SilverOtter4821")).toBe("SilverOtter4821");
+    expect(stripUsernamePrefix("  @SilverOtter4821  ")).toBe("SilverOtter4821");
+    expect(stripUsernamePrefix("SilverOtter4821")).toBe("SilverOtter4821");
+  });
+
+  it("accepts the names the server would", () => {
+    ["SilverOtter4821", "abc", "quiet_falcon", "copper-mantis", "2000AD"]
+      .forEach((username) => expect(validateUsername(username)).toBeNull());
+  });
+
+  it("says why an unusable name cannot be used", () => {
+    expect(validateUsername("")).toMatch(/Choose a username/);
+    expect(validateUsername("ab")).toMatch(/between 3 and 32/);
+    expect(validateUsername("a".repeat(33))).toMatch(/between 3 and 32/);
+    expect(validateUsername("silver otter")).toMatch(/letters, numbers/);
+    expect(validateUsername("-silverotter")).toMatch(/must start with/);
+    expect(isValidUsername("silver.otter")).toBe(false);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Sharing codes                                                               */
+/* -------------------------------------------------------------------------- */
+
+describe("share codes", () => {
+  it("splits a code into the type it claims and its token", () => {
+    expect(parseShareCode("U-7RFX-KP3M-Q82D")).toEqual({
+      type: SHARE_CODE_TYPES.USER,
+      token: "7RFXKP3MQ82D",
+      code: "U-7RFX-KP3M-Q82D",
+    });
+    expect(parseShareCode("C-7RFX-KP3M-Q82D").type).toBe(SHARE_CODE_TYPES.COMIC);
+    expect(parseShareCode("G-7RFX-KP3M-Q82D").type).toBe(SHARE_CODE_TYPES.GROUP);
+  });
+
+  it("corrects transcription rather than refusing it", () => {
+    // Lowercase, missing dashes, stray spaces and the letters the alphabet
+    // leaves out are all somebody writing a code down by hand.
+    ["u7rfxkp3mq82d", "U 7RFX KP3M Q82D", "u-7rfx-kp3m-q82d"]
+      .forEach((typed) => expect(parseShareCode(typed)?.code).toBe("U-7RFX-KP3M-Q82D"));
+
+    expect(parseShareCode("U-ILOU-1234-5678")?.token).toBe("110V12345678");
+  });
+
+  it("does not recognise the old unprefixed form", () => {
+    // Accepting it would be the compatibility layer this release avoided.
+    expect(parseShareCode("7RFX-KP3M-Q82D")).toBeNull();
+    expect(parseShareCode("X-7RFX-KP3M-Q82D")).toBeNull();
+    expect(parseShareCode("U-7RFX-KP3M-Q82")).toBeNull();
+    expect(parseShareCode("")).toBeNull();
+    expect(parseShareCode(undefined)).toBeNull();
+  });
+
+  it("formats as it is typed, left to right", () => {
+    expect(formatShareCode("u7rf")).toBe("U-7RF");
+    expect(formatShareCode("u7rfxkp3mq82d")).toBe("U-7RFX-KP3M-Q82D");
+    expect(formatShareCode("")).toBe("");
+  });
+
+  it("checks a code against the kind a field is asking for", () => {
+    expect(isValidShareCode("U-7RFX-KP3M-Q82D", SHARE_CODE_TYPES.USER)).toBe(true);
+    expect(isValidShareCode("C-7RFX-KP3M-Q82D", SHARE_CODE_TYPES.USER)).toBe(false);
+    expect(isValidShareCode("C-7RFX-KP3M-Q82D")).toBe(true);
+    expect(isValidShareCode("G-7RFX-KP3M-Q82D", [SHARE_CODE_TYPES.COMIC, SHARE_CODE_TYPES.GROUP]))
+      .toBe(true);
+  });
+
+  it("says where a code of the wrong kind actually belongs", () => {
+    expect(shareCodeMisuse("C-7RFX-KP3M-Q82D", SHARE_CODE_TYPES.USER))
+      .toMatch(/comic code. Redeem it under Shared with me/);
+    expect(shareCodeMisuse("U-7RFX-KP3M-Q82D", [SHARE_CODE_TYPES.COMIC, SHARE_CODE_TYPES.GROUP]))
+      .toMatch(/user code. Use it when sharing directly/);
+
+    // The right kind, and a half-typed one, are both silence: interrupting
+    // somebody mid-keystroke is not guidance.
+    expect(shareCodeMisuse("U-7RFX-KP3M-Q82D", SHARE_CODE_TYPES.USER)).toBeNull();
+    expect(shareCodeMisuse("U-7RF", SHARE_CODE_TYPES.USER)).toBeNull();
+  });
+});
+
+describe("naming a recipient", () => {
+  it("prefers the public identity of a registered account", () => {
+    expect(recipientLabel({
+      recipientLabel: "Jane Reader (@SilverOtter4821)",
+      recipientEmail: null,
+    })).toBe("Jane Reader (@SilverOtter4821)");
+
+    expect(recipientLabel({ recipientUsername: "SilverOtter4821" })).toBe("@SilverOtter4821");
+  });
+
+  it("falls back to an address only for somebody with no account", () => {
+    expect(recipientLabel({ recipientEmail: "newcomer@example.com" })).toBe("newcomer@example.com");
+    expect(recipientLabel({})).toBe("Shared by code");
+  });
+
+  it("reaches somebody again the way they were reached before", () => {
+    expect(recipientTarget({ recipientUsername: "SilverOtter4821" }))
+      .toEqual({ username: "SilverOtter4821", userCode: "", email: "" });
+    expect(recipientTarget({ recipientUserCode: "U-7RFX-KP3M-Q82D" }))
+      .toEqual({ username: "", userCode: "U-7RFX-KP3M-Q82D", email: "" });
+    expect(recipientTarget({ recipientEmail: "newcomer@example.com" }))
+      .toEqual({ username: "", userCode: "", email: "newcomer@example.com" });
+  });
+});
+
+describe("describeNotification", () => {
+  it("says nothing when the notice went out", () => {
+    expect(describeNotification({ notificationState: NOTIFICATION_STATE.SENT })).toBeNull();
+    expect(describeNotification({})).toBeNull();
+  });
+
+  it("distinguishes a notice still queued from one that failed", () => {
+    // The share is real in both. What differs is whether anybody has been told.
+    expect(describeNotification({ notificationState: NOTIFICATION_STATE.PENDING }))
+      .toMatch(/has not gone out yet/);
+    expect(describeNotification({ notificationState: NOTIFICATION_STATE.FAILED }))
+      .toMatch(/could not be delivered/);
   });
 });

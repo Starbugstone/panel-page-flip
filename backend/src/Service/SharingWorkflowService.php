@@ -5,6 +5,7 @@ namespace App\Service;
 use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\User;
+use App\Enum\ShareCodeType;
 use App\Security\Voter\ComicVoter;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
@@ -32,21 +33,26 @@ final class SharingWorkflowService
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly ComicShareService $shareService,
+        private readonly ExplicitContentPromoter $explicitContent,
         private readonly AuthorizationCheckerInterface $authorizationChecker,
     ) {
     }
 
     /**
-     * Addresses this owner has already shared with, newest relationship first.
+     * People this owner has already shared with, newest relationship first.
      *
-     * No User join is allowed here: the caller learns only information they
-     * previously entered, never whether an address belongs to a registered
-     * account or anything about that account.
+     * No directory and no search: the rows are restricted to people this owner
+     * already has a sharing relationship with, so nothing is learned that
+     * sharing with them did not already establish. It is an address book of
+     * known correspondents, not a lookup of who exists.
      *
-     * Recipients reached by receiver code are listed too, but by their code and
-     * name — never by the address the sender was deliberately not given.
+     * Registered recipients are offered by username, because that is their
+     * public identity and it is the one that survives them changing anything
+     * else. Recipients the owner reached without seeing their address are never
+     * listed by address — that is the one thing being withheld.
      *
-     * @return list<array{email: string|null, sharingCode: string|null, name: string|null, label: string}>
+     * @return list<array{email: string|null, username: string|null, userCode: string|null,
+     *                    name: string|null, label: string}>
      */
     public function recentRecipients(User $owner, int $limit = self::RECENT_RECIPIENT_LIMIT): array
     {
@@ -54,18 +60,13 @@ final class SharingWorkflowService
 
         $rows = $this->entityManager->createQueryBuilder()
             ->select('s.recipientEmailNormalized AS email')
-            // Whether this relationship was made by code, not which code. The
-            // stored one is a note about how it began and goes stale the moment
-            // the recipient rotates; offering it back would put a retired code
-            // straight into the picker and defeat the rotation.
-            ->addSelect('s.recipientSharingCode AS historicalCode')
-            // The recipient's handle as it is now. Joining User is forbidden
-            // everywhere else in this service, and allowed here for one reason:
-            // the rows are already restricted to people this owner has an
-            // existing sharing relationship with, so nothing is learned that
-            // sharing with them did not already establish. It is a lookup of a
-            // known correspondent, not a search of the directory.
-            ->addSelect('ru.sharingCode AS currentCode')
+            // Whether the owner was kept from this address, not which code did
+            // it. The stored one is a note about how the relationship began and
+            // goes stale the moment the recipient rotates; offering it back
+            // would put a retired code straight into the picker.
+            ->addSelect('s.recipientUserCode AS historicalCode')
+            ->addSelect('ru.username AS username')
+            ->addSelect('ru.userCode AS currentCode')
             ->addSelect('ru.name AS currentName')
             ->addSelect('MAX(s.id) AS HIDDEN lastShareId')
             ->from(ComicShare::class, 's')
@@ -78,8 +79,9 @@ final class SharingWorkflowService
             // per way of reaching them, rather than one entry silently carrying
             // the other's label.
             ->groupBy('s.recipientEmailNormalized')
-            ->addGroupBy('s.recipientSharingCode')
-            ->addGroupBy('ru.sharingCode')
+            ->addGroupBy('s.recipientUserCode')
+            ->addGroupBy('ru.username')
+            ->addGroupBy('ru.userCode')
             ->addGroupBy('ru.name')
             ->orderBy('lastShareId', 'DESC')
             ->setMaxResults($safeLimit)
@@ -88,34 +90,43 @@ final class SharingWorkflowService
 
         $recipients = [];
         foreach ($rows as $row) {
-            $byCode = $row['historicalCode'] !== null;
-            $currentCode = $row['currentCode'] === null ? null : (string) $row['currentCode'];
+            $hidden = $row['historicalCode'] !== null;
+            $username = ($row['username'] ?? null) === null ? null : (string) $row['username'];
+            $currentCode = ($row['currentCode'] ?? null) === null ? null : (string) $row['currentCode'];
             $name = $row['currentName'] === null ? null : (string) $row['currentName'];
 
-            if (!$byCode) {
+            if ($username !== null) {
                 $recipients[] = [
-                    'email' => (string) $row['email'],
-                    'sharingCode' => null,
-                    'name' => null,
-                    'label' => (string) $row['email'],
+                    // Withheld for a recipient the owner was never shown, and
+                    // kept for one whose address they typed themselves — where
+                    // hiding it now would withhold something they already have.
+                    'email' => $hidden ? null : (string) $row['email'],
+                    'username' => $username,
+                    'userCode' => $currentCode === null
+                        ? null
+                        : SharingCodeFormat::forDisplay(ShareCodeType::USER, $currentCode),
+                    'name' => $name,
+                    // The same rule the shared-by-me list uses, so the label a
+                    // sender picks from and the label they read afterwards
+                    // cannot describe one person two ways.
+                    'label' => UsernamePolicy::describe($username, $name),
                 ];
                 continue;
             }
 
-            // A code recipient whose account can no longer be resolved, or who
-            // has no code right now, is simply not offered. The alternative —
-            // falling back to the address — would hand over the one thing the
-            // code existed to withhold.
-            if ($currentCode === null) {
+            // No account behind this row. A hidden recipient whose account has
+            // gone is simply not offered: the alternative — falling back to the
+            // address — would hand over the one thing that was being withheld.
+            if ($hidden) {
                 continue;
             }
 
-            $display = SharingCodeFormat::forDisplay($currentCode);
             $recipients[] = [
-                'email' => null,
-                'sharingCode' => $display,
-                'name' => $name,
-                'label' => $name ?: $display,
+                'email' => (string) $row['email'],
+                'username' => null,
+                'userCode' => null,
+                'name' => null,
+                'label' => (string) $row['email'],
             ];
         }
 
@@ -142,7 +153,8 @@ final class SharingWorkflowService
         User $owner,
         string $recipientEmail,
         bool $senderResponsibilityAccepted,
-        ?SharingCodeRecipient $viaSharingCode = null
+        ?SharingCodeRecipient $viaSharingCode = null,
+        bool $markExplicit = false
     ): array {
         $ids = array_values(array_unique(array_map('intval', $comicIds)));
         $shareable = [];
@@ -155,24 +167,48 @@ final class SharingWorkflowService
             // The picker only sends owned ids, but a hand-written request must
             // not turn this endpoint into a comic-id discovery oracle.
             if (!$comic instanceof Comic || !$this->authorizationChecker->isGranted(ComicVoter::SHARE, $comic)) {
-                $results[$comicId] = [
-                    'status' => 'not_available',
-                    'message' => 'This comic is not available to share.',
-                ];
-                continue;
+                // The whole batch fails, and nothing is created. Sharing five
+                // of six comics and reporting the sixth in a per-comic list is
+                // a sender told "5 shared" while they meant 6, and the one that
+                // did not go is the one they will not notice. Refused before
+                // any mutation, so there is nothing to undo.
+                throw new ShareException(
+                    'One or more of those comics is not available to share, so nothing was shared.',
+                    403
+                );
             }
 
             $shareable[$comicId] = $comic;
         }
 
-        if ($shareable !== []) {
-            $results += $this->shareService->inviteMany(
-                array_values($shareable),
-                $owner,
-                $recipientEmail,
-                $senderResponsibilityAccepted,
-                $viaSharingCode
-            );
+        if ($shareable === []) {
+            throw new ShareException('Select at least one comic to share.', 400);
+        }
+
+        // Before the shares, and inside the same unit of work, so an ordinary
+        // share can never be created because the reclassification failed. A
+        // throw here leaves nothing behind. The audit records wait for the
+        // commit below.
+        $promotions = $markExplicit
+            ? $this->explicitContent->promote(array_values($shareable), $owner)
+            : [];
+
+        $results += $this->shareService->inviteMany(
+            array_values($shareable),
+            $owner,
+            $recipientEmail,
+            $senderResponsibilityAccepted,
+            $viaSharingCode
+        );
+
+        // A reclassification is a change to the owner's own library and does
+        // not depend on a share being created from it. `inviteMany` returns
+        // without committing when every relationship it was asked for already
+        // exists, so this cannot ride on that flush — an all-duplicate batch
+        // would otherwise leave the promotion in memory and drop it.
+        if ($promotions !== []) {
+            $this->entityManager->flush();
+            $this->explicitContent->recordPromotions($promotions);
         }
 
         // Reported in the order the caller asked, so the response lines up with

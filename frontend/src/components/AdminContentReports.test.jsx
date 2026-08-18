@@ -38,7 +38,10 @@ describe("AdminContentReports", () => {
     });
   });
 
-  it("shows the queue and applies a targeted restriction", async () => {
+  // Slower than the 5s default: the review form is a dozen fields and this types
+  // its way through every one of them. It is one user journey rather than a
+  // dozen assertions, so the extra room is cheaper than splitting it up.
+  it("shows the queue and applies a targeted restriction", { timeout: 20000 }, async () => {
     const user = userEvent.setup();
     render(<AdminContentReports />);
 

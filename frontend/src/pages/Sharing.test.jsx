@@ -19,10 +19,10 @@ vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), delete: vi.fn(
 const stubGets = (overrides = {}) => {
   vi.mocked(api.get).mockImplementation((url) => {
     if (url in overrides) return Promise.resolve(overrides[url]);
-    if (url === "/api/shares/my-code") {
-      return Promise.resolve({ name: "Test Reader", sharingCode: "AAAA-BBBB-CCCC" });
+    if (url === "/api/shares/user-code") {
+      return Promise.resolve({ name: "Test Reader", username: "TestReader1234", label: "Test Reader (@TestReader1234)", userCode: "U-AAAA-BBBB-CCCC" });
     }
-    if (url === "/api/shares/claim-codes") return Promise.resolve({ codes: [] });
+    if (url === "/api/shares/content-codes") return Promise.resolve({ codes: [] });
     if (url === "/api/comics?ownership=mine") return Promise.resolve({ comics: [] });
     if (url === "/api/shares/recent-recipients") return Promise.resolve({ recipients: [] });
     return Promise.reject(new Error(`Unexpected GET ${url}`));
@@ -221,7 +221,7 @@ describe("Sharing page", () => {
         // because withholding it was the whole point.
         recipientEmail: null,
         recipientLabel: "Jane Reader",
-        recipientSharingCode: "7RFX-KP3M-Q82D",
+        recipientUserCode: "U-7RFX-KP3M-Q82D",
         status: "accepted",
       }],
     }];
@@ -230,11 +230,11 @@ describe("Sharing page", () => {
     await openSharedByMe(user);
 
     expect(screen.getByText("Jane Reader")).toBeInTheDocument();
-    expect(screen.getByText("Sharing code 7RFX-KP3M-Q82D")).toBeInTheDocument();
+    expect(screen.getByText("User code U-7RFX-KP3M-Q82D")).toBeInTheDocument();
 
     // Sharing again reaches them the same way, by code rather than by address.
     await user.click(screen.getByRole("button", { name: /share another comic with jane reader/i }));
-    expect(await screen.findByLabelText(/their sharing code/i)).toHaveValue("7RFX-KP3M-Q82D");
+    expect(await screen.findByLabelText(/their u- code/i)).toHaveValue("U-7RFX-KP3M-Q82D");
     expect(screen.queryByLabelText(/recipient email/i)).not.toBeInTheDocument();
   });
 

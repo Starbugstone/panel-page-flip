@@ -92,7 +92,7 @@ class UserController extends AbstractController
         ];
     }
 
-    #[Route('/{id}', name: 'get', methods: ['GET'])]
+    #[Route('/{id}', name: 'get', methods: ['GET'], requirements: ['id' => '\\d+'])]
     public function get(int $id, EntityManagerInterface $entityManager, UserMetadataCredentialRepository $credentialRepository): JsonResponse
     {
         $user = $this->requireUser();
@@ -231,7 +231,7 @@ class UserController extends AbstractController
         ], Response::HTTP_CREATED);
     }
 
-    #[Route('/{id}', name: 'update', methods: ['PUT', 'PATCH'])]
+    #[Route('/{id}', name: 'update', methods: ['PUT', 'PATCH'], requirements: ['id' => '\\d+'])]
     public function update(
         int $id,
         Request $request,
@@ -414,7 +414,7 @@ class UserController extends AbstractController
         ]);
     }
 
-    #[Route('/{id}', name: 'delete', methods: ['DELETE'])]
+    #[Route('/{id}', name: 'delete', methods: ['DELETE'], requirements: ['id' => '\\d+'])]
     public function delete(
         int $id,
         EntityManagerInterface $entityManager,
@@ -477,7 +477,7 @@ class UserController extends AbstractController
     }
 
     /**
-     * Replace a user's receiver sharing code on their behalf.
+     * Replace a user's `U-` code on their behalf.
      *
      * Support's version of the button the user has on their own Sharing page,
      * for when they report that the code has been posted somewhere they cannot
@@ -489,7 +489,7 @@ class UserController extends AbstractController
      * Sharing page the moment they look — which is also the only place it can
      * reach them without passing through a support channel on the way.
      */
-    #[Route('/{id}/sharing-code/rotate', name: 'rotate_sharing_code', methods: ['POST'])]
+    #[Route('/{id}/user-code/rotate', name: 'rotate_user_code', methods: ['POST'], requirements: ['id' => '\\d+'])]
     public function rotateSharingCode(
         int $id,
         EntityManagerInterface $entityManager,
@@ -512,14 +512,14 @@ class UserController extends AbstractController
 
         // Ids only in the administrative trail as well — neither the old code
         // nor the new one is written down anywhere.
-        $auditService->log($admin, 'user_sharing_code_rotate', 'user', $targetUser->getId());
+        $auditService->log($admin, 'user_code_rotate', 'user', $targetUser->getId());
 
         return $this->json([
-            'message' => 'Sharing code replaced. The user can see the new one on their Sharing page.',
+            'message' => 'User code replaced. The user can see the new one on their Sharing page.',
         ]);
     }
 
-    #[Route('/{id}/verify', name: 'verify', methods: ['POST'])]
+    #[Route('/{id}/verify', name: 'verify', methods: ['POST'], requirements: ['id' => '\\d+'])]
     public function verify(
         int $id,
         EntityManagerInterface $entityManager,

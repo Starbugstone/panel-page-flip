@@ -37,6 +37,11 @@ class MeController extends AbstractController
                 'id' => $user->getId(),
                 'email' => $user->getEmail(),
                 'name' => $user->getName(),
+                // The account's own public identity, so the UI can show it back
+                // without a second request. Everywhere a *registered other
+                // person* is named, this is the field the client prefers over
+                // the address.
+                'username' => $user->getUsername(),
                 'roles' => $user->getRoles(),
                 'isAdmin' => $user->isAdmin(),
             ],

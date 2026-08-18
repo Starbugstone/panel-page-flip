@@ -7,7 +7,7 @@ import { SearchBar } from "@/components/SearchBar.jsx";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ComicEditDialog } from "@/components/ComicEditDialog.jsx";
-import { ShareComicModal } from "@/components/ShareComicModal.jsx";
+import { ShareComicsDialog } from "@/components/ShareComicsDialog.jsx";
 import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
 import { LibrarySidebar } from "@/components/library/LibrarySidebar";
 import { LibraryBreadcrumbs } from "@/components/library/LibraryBreadcrumbs";
@@ -40,9 +40,10 @@ export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [movingComic, setMovingComic] = useState(null);
   const [movingFolder, setMovingFolder] = useState(false);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [shareModalComicId, setShareModalComicId] = useState(null);
-  const [shareModalComicTitle, setShareModalComicTitle] = useState(null);
+  // The comics the share workflow should open with, or null when it is closed.
+  // One dialog for the card menu and for the table selection, so the two cannot
+  // grow different ideas of what a share is.
+  const [sharingComicIds, setSharingComicIds] = useState(null);
   const lastComicsUrl = useRef("/api/comics");
   const lastSearchQuery = useRef("");
   const searchRequestId = useRef(0);
@@ -327,19 +328,30 @@ export default function Dashboard() {
           ) : viewMode === "table" ? (
             <div className="overflow-x-auto">
               {childFolders.length > 0 && <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{childFolders.map((folder) => <LibraryFolderCard key={folder.id} folder={folder} onOpen={navigateFolder} />)}</div>}
-              <ComicTableView comics={filteredComics} folders={folders} onEditComic={(comic) => { setEditingComic(comic); setIsEditDialogOpen(true); }} onBulkAddTag={addTagToSelectedComics} onBulkDelete={deleteSelectedComics} onBulkMove={moveSelectedComics} />
+              <ComicTableView comics={filteredComics} folders={folders} onEditComic={(comic) => { setEditingComic(comic); setIsEditDialogOpen(true); }} onBulkAddTag={addTagToSelectedComics} onBulkDelete={deleteSelectedComics} onBulkMove={moveSelectedComics} onShareSelected={setSharingComicIds} />
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
               {childFolders.map((folder) => <LibraryFolderCard key={folder.id} folder={folder} onOpen={navigateFolder} />)}
-              {filteredComics.map((comic, index) => <ComicCard key={comic.id} comic={comic} coverPriority={index < EAGER_COVER_COUNT} onResetProgress={resetReadingProgress} onEditComic={(item) => { setEditingComic(item); setIsEditDialogOpen(true); }} onDeleteComic={deleteComic} onShareClick={(id, title) => { setShareModalComicId(id); setShareModalComicTitle(title); setIsShareModalOpen(true); }} onRemoveSharedComic={removeSharedComic} onMoveComic={setMovingComic} locationName={isSearchActive || !isFolderView ? (comic.libraryFolderId == null ? "My Library" : folderNames.get(Number(comic.libraryFolderId))) : null} />)}
+              {filteredComics.map((comic, index) => <ComicCard key={comic.id} comic={comic} coverPriority={index < EAGER_COVER_COUNT} onResetProgress={resetReadingProgress} onEditComic={(item) => { setEditingComic(item); setIsEditDialogOpen(true); }} onDeleteComic={deleteComic} onShareClick={(id) => setSharingComicIds([id])} onRemoveSharedComic={removeSharedComic} onMoveComic={setMovingComic} locationName={isSearchActive || !isFolderView ? (comic.libraryFolderId == null ? "My Library" : folderNames.get(Number(comic.libraryFolderId))) : null} />)}
             </div>
           )}
         </main>
       </div>
 
       {editingComic && <ComicEditDialog comic={editingComic} isOpen={isEditDialogOpen} onClose={() => { setIsEditDialogOpen(false); setEditingComic(null); }} onSave={handleSaveComic} />}
-      <ShareComicModal isOpen={isShareModalOpen} onClose={() => { setIsShareModalOpen(false); setShareModalComicId(null); setShareModalComicTitle(null); }} comicId={shareModalComicId} comicTitle={shareModalComicTitle} />
+      {/* Mounted only while open and keyed on the selection, so a dialog opened
+          from a different comic never inherits the previous one. */}
+      {sharingComicIds && (
+        <ShareComicsDialog
+          key={sharingComicIds.join(",")}
+          isOpen
+          onClose={() => setSharingComicIds(null)}
+          initialComicIds={sharingComicIds}
+          lockSelection
+          onShared={() => loadLibrary()}
+        />
+      )}
       <MoveToFolderDialog key={movingComic?.id ?? "no-comic"} open={Boolean(movingComic)} onOpenChange={(open) => { if (!open) setMovingComic(null); }} folders={folders} currentFolderId={movingComic?.libraryFolderId ?? null} itemCount={1} onMove={(folderId) => moveSelectedComics([movingComic.id], folderId)} />
       <MoveToFolderDialog key={`folder-${activeFolderId}`} open={movingFolder} onOpenChange={setMovingFolder} folders={folders} currentFolderId={folders.find((folder) => Number(folder.id) === activeFolderId)?.parentId ?? null} movingFolderId={activeFolderId} itemCount={1} itemLabel="folder" onMove={async (parentId) => {
         try {

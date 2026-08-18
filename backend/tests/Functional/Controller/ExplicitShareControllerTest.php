@@ -121,8 +121,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
         foreach ([[], ['senderResponsibilityAccepted' => false], ['senderResponsibilityAccepted' => 'true']] as $body) {
             $payload = $this->postJson(
-                '/api/shares/comics/' . $comic->getId() . '/invitations',
-                array_merge(['email' => 'guest@example.com'], $body)
+                '/api/shares/invitations/bulk',
+                array_merge(['comicIds' => [$comic->getId()], 'email' => 'guest@example.com'], $body)
             );
 
             self::assertResponseStatusCodeSame(400);
@@ -169,11 +169,12 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'discreet@test.local']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
-        $payload = $this->postInvitation((int) $comic->getId(), 'guest@example.com');
+        $this->postInvitation((int) $comic->getId(), 'guest@example.com');
+        $share = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
 
         // The record is kept server-side; the client is told state, not history.
-        self::assertArrayNotHasKey('senderResponsibilityAcceptedAt', $payload['share']);
-        self::assertArrayNotHasKey('adultConfirmedAt', $payload['share']);
+        self::assertArrayNotHasKey('senderResponsibilityAcceptedAt', $share);
+        self::assertArrayNotHasKey('adultConfirmedAt', $share);
     }
 
     public function testResendingKeepsTheOriginalSenderAcknowledgement(): void
@@ -181,8 +182,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'resender@test.local']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
-        $payload = $this->postInvitation((int) $comic->getId(), 'guest@example.com');
-        $shareId = $payload['share']['id'];
+        $this->postInvitation((int) $comic->getId(), 'guest@example.com');
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
         // Read back from storage on both sides. The in-memory object still
         // carries microseconds the DATETIME column does not, and comparing one
         // against the other would fail on precision rather than on the value.
@@ -774,8 +775,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     private function postInvitation(int $comicId, string $email, array $extra = []): array
     {
         return $this->postJson(
-            '/api/shares/comics/' . $comicId . '/invitations',
-            array_merge(['email' => $email, 'senderResponsibilityAccepted' => true], $extra)
+            '/api/shares/invitations/bulk',
+            array_merge(['comicIds' => [$comicId], 'email' => $email, 'senderResponsibilityAccepted' => true], $extra)
         );
     }
 

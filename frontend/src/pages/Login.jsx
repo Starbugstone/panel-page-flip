@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
@@ -9,6 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.j
 import { useToast } from "@/hooks/use-toast.js";
 import { useAuth } from "@/hooks/use-auth.jsx";
 import { validatePassword } from "@/lib/password-policy";
+import { stripUsernamePrefix, validateUsername } from "@/lib/sharing";
+import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
 
 export default function Login() {
   // Login form state
@@ -20,6 +23,11 @@ export default function Login() {
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerName, setRegisterName] = useState("");
+  // Suggested rather than demanded. A public handle is the one field nobody
+  // arrives at a signup form having decided on, and an empty box next to
+  // "required" is where registrations stall.
+  const [registerUsername, setRegisterUsername] = useState("");
+  const [isSuggestingUsername, setIsSuggestingUsername] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
   
@@ -33,6 +41,44 @@ export default function Login() {
   const { toast } = useToast();
   const { login, register } = useAuth();
   const registerPasswordErrors = validatePassword(registerPassword);
+  const registerUsernameError = registerUsername === "" ? null : validateUsername(registerUsername);
+
+  const fetchSuggestion = useCallback(
+    () => api.get("/api/users/username-suggestion")
+      .then((data) => data.username || "")
+      .catch((error) => {
+        // Not fatal: the field is editable, and registration fills one in
+        // server-side for anybody who leaves it blank.
+        logger.warn("Could not suggest a username:", error.message);
+
+        return null;
+      }),
+    []
+  );
+
+  // One suggestion when the page opens, so the field is never an empty box next
+  // to the word "username" — which is where a signup stalls.
+  useEffect(() => {
+    let ignore = false;
+
+    fetchSuggestion().then((username) => {
+      // Only into an empty field. Somebody who started typing before this
+      // request came back has chosen a name, and overwriting it as they type is
+      // the field fighting them.
+      if (!ignore && username) {
+        setRegisterUsername((current) => current || username);
+      }
+    });
+
+    return () => { ignore = true; };
+  }, [fetchSuggestion]);
+
+  const suggestUsername = async () => {
+    setIsSuggestingUsername(true);
+    const username = await fetchSuggestion();
+    if (username) setRegisterUsername(username);
+    setIsSuggestingUsername(false);
+  };
 
   const handleLoginSubmit = async (event) => {
     event.preventDefault();
@@ -77,7 +123,11 @@ export default function Login() {
         throw new Error("You must agree to the Terms of Service and acknowledge the Privacy Policy.");
       }
 
-      await register(registerEmail, registerPassword, registerName, agreeTerms);
+      if (registerUsernameError) {
+        throw new Error(registerUsernameError);
+      }
+
+      await register(registerEmail, registerPassword, registerName, agreeTerms, registerUsername);
       
       toast({
         title: "Success",
@@ -171,6 +221,33 @@ export default function Login() {
                     <p className="text-xs text-muted-foreground">
                       Password must include: {registerPasswordErrors.join(", ")}.
                     </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-username">Username</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="signup-username"
+                      type="text"
+                      placeholder="SilverOtter4821"
+                      value={registerUsername}
+                      onChange={(e) => setRegisterUsername(stripUsernamePrefix(e.target.value))}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={suggestUsername}
+                      disabled={isSuggestingUsername}
+                    >
+                      Generate another
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    This is how other people find you when they want to share a comic. Your email
+                    address is never shown to them.
+                  </p>
+                  {registerUsernameError && (
+                    <p className="text-xs text-destructive">{registerUsernameError}</p>
                   )}
                 </div>
                 <div className="space-y-2">

@@ -25,6 +25,9 @@ abstract class AbstractApiTestCase extends WebTestCase
 
     protected ?KernelBrowser $client = null;
 
+    /** Whoever {@see loginAs()} last signed in, for helpers that need their id. */
+    protected ?User $currentUser = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -39,6 +42,12 @@ abstract class AbstractApiTestCase extends WebTestCase
         // happened to create. Clearing the pool makes every limiter test see the
         // full allowance, whichever order they run in.
         static::getContainer()->get('cache.rate_limiter')->clear();
+
+        // A test that made the mail server fail must not leave it failing for
+        // the next one; the switch is static, because the service it stands in
+        // for cannot be replaced once the container has built it.
+        \App\Tests\Support\SwitchableMailer::reset();
+        \App\Tests\Support\SwitchableMessageBus::reset();
     }
 
     protected function browser(): KernelBrowser
@@ -46,8 +55,34 @@ abstract class AbstractApiTestCase extends WebTestCase
         return $this->client;
     }
 
+    /**
+     * Spend the signed-in account's whole identifier-lookup allowance.
+     *
+     * In process rather than over HTTP. The allowance is deliberately loose —
+     * it is the ceiling that keeps an exhausted caller away from the database,
+     * not the control that makes guessing hopeless — so spending it through the
+     * API would mean hundreds of requests to set up a single assertion.
+     * Consuming the same limiter the guard consumes leaves the state under test
+     * identical.
+     */
+    protected function exhaustIdentifierLookups(?User $caller = null): void
+    {
+        $user = $caller ?? $this->currentUser;
+        self::assertNotNull($user, 'Sign somebody in before spending their allowance.');
+
+        $limiter = static::getContainer()
+            ->get('test.limiter.identifier_lookup')
+            ->create((string) $user->getId());
+
+        // One past the limit, so the next real request is refused rather than
+        // being the one that happens to exhaust it.
+        while ($limiter->consume()->isAccepted()) {
+        }
+    }
+
     protected function loginAs(User $user): void
     {
+        $this->currentUser = $user;
         $this->client->loginUser($user);
         // Trigger a /api/me GET to seed the XSRF-TOKEN cookie used by the CSRF subscriber.
         $this->client->request('GET', '/api/me');

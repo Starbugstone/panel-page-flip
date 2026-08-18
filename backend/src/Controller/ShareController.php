@@ -102,46 +102,6 @@ class ShareController extends AbstractController
         ]);
     }
 
-    #[Route('/comics/{comicId}/invitations', name: 'app_shares_invite', methods: ['POST'], requirements: ['comicId' => '\d+'])]
-    public function invite(int $comicId, Request $request): JsonResponse
-    {
-        $user = $this->requireUser();
-
-        $comic = $this->entityManager->getRepository(Comic::class)->find($comicId);
-        if (!$comic) {
-            return $this->json(['message' => 'Comic not found.'], Response::HTTP_NOT_FOUND);
-        }
-
-        if (!$this->isGranted(ComicVoter::SHARE, $comic)) {
-            return $this->json(['message' => 'You can only share comics you own.'], Response::HTTP_FORBIDDEN);
-        }
-
-        $data = \App\Http\JsonRequestDecoder::decode($request);
-        $email = is_array($data) ? ($data['email'] ?? null) : null;
-        if (!is_string($email)) {
-            return $this->json(['message' => 'A recipient email address is required.'], Response::HTTP_BAD_REQUEST);
-        }
-
-        $invitation = $this->shareService->invite(
-            $comic,
-            $user,
-            $email,
-            // Strictly true: a missing key, a string "true" or anything else
-            // truthy is not somebody having read the notice and ticked the
-            // box, and this timestamp is meant to record that they did.
-            (is_array($data) ? ($data['senderResponsibilityAccepted'] ?? null) : null) === true
-        );
-
-        return $this->json([
-            'message' => 'Invitation sent.',
-            'share' => $this->shareSerializer->forOwner($invitation->share),
-            // Returned once and never again — only the hash is stored. It lets
-            // the owner pass the link on themselves when the email does not
-            // arrive, without the server being able to reproduce it later.
-            'invitationUrl' => $invitation->invitationUrl,
-        ], Response::HTTP_CREATED);
-    }
-
     #[Route('/{id}/resend', name: 'app_shares_resend', methods: ['POST'], requirements: ['id' => '\d+'])]
     public function resend(int $id, #[CurrentUser] ?User $user): JsonResponse
     {
@@ -150,12 +110,16 @@ class ShareController extends AbstractController
             return $share;
         }
 
-        $invitation = $this->shareService->resend($share);
+        $this->shareService->resend($share);
 
+        // The link is not handed back. It is a bearer capability belonging to
+        // the recipient, and the rest of sharing now mints it as the email is
+        // written precisely so that it exists in one place — returning it here
+        // would put it in a response body, a browser history and any proxy log
+        // on the way, for the one path that used to be the exception.
         return $this->json([
             'message' => 'Invitation resent.',
             'share' => $this->shareSerializer->forOwner($share),
-            'invitationUrl' => $invitation->invitationUrl,
         ]);
     }
 
@@ -319,9 +283,7 @@ class ShareController extends AbstractController
      */
     private function isAdultConfirmed(Request $request): bool
     {
-        $data = \App\Http\JsonRequestDecoder::decode($request);
-
-        return is_array($data) && ($data['adultConfirmed'] ?? null) === true;
+        return (\App\Http\JsonRequestDecoder::decode($request)['adultConfirmed'] ?? null) === true;
     }
 
     #[Route('/invitations/{token}/accept', name: 'app_shares_invitation_accept', methods: ['POST'])]
@@ -433,7 +395,7 @@ class ShareController extends AbstractController
         $data = \App\Http\JsonRequestDecoder::decode($request);
         $shareIds = null;
 
-        if (is_array($data) && array_key_exists('shareIds', $data)) {
+        if (array_key_exists('shareIds', $data)) {
             $shareIds = $this->normaliseShareIds($data['shareIds']);
             if ($shareIds === null) {
                 return $this->json(['message' => 'Invalid shareIds.'], Response::HTTP_BAD_REQUEST);

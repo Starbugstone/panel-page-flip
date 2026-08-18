@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, KeyRound, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { AlertTriangle, Check, Copy, KeyRound, Loader2, RefreshCw, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,10 +18,12 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { useToast } from "@/hooks/use-toast";
 import {
+  SHARE_CODE_TYPES,
   SHARING_CODE_COPY,
-  formatSharingCode,
-  isValidSharingCode,
-  normaliseSharingCode,
+  formatShareCode,
+  isValidShareCode,
+  parseShareCode,
+  shareCodeMisuse,
 } from "@/lib/sharing";
 
 /** Why a code has stopped working, in the words the owner needs. */
@@ -32,17 +34,26 @@ const DEAD_REASON_LABELS = {
   comics_removed: "Comics removed",
 };
 
+/** What each kind of content code is called in the owner's own list. */
+const CODE_TYPE_LABELS = {
+  [SHARE_CODE_TYPES.COMIC]: "C- comic code",
+  [SHARE_CODE_TYPES.GROUP]: "G- group code",
+};
+
 /**
- * Everything to do with codes on your own account: the permanent one that
- * identifies you, redeeming one you were given, and withdrawing one you handed
- * out before it would have died on its own.
+ * Who you are, and every code on your own account.
  *
- * *Creating* a code that gives comics away is not here. That belongs to the
- * sharing flow, because it starts by choosing comics — but the codes it creates
- * come back here to be watched and withdrawn, so there is one place to look.
+ * Three things that all answer "how do people reach me, and what have I handed
+ * out?": the username and `U-` code that identify you, the field for redeeming
+ * a `C-` or `G-` somebody sent, and the list of codes you issued.
+ *
+ * *Creating* a content code is not here. That belongs to the share workflow,
+ * because it starts by choosing comics — but the codes it creates come back
+ * here to be watched and withdrawn, so there is one place to look.
  */
 export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
-  const [myCode, setMyCode] = useState(null);
+  const [identity, setIdentity] = useState(null);
+  const [identityError, setIdentityError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [redeemValue, setRedeemValue] = useState("");
   const [isRedeeming, setIsRedeeming] = useState(false);
@@ -56,7 +67,7 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
   // Fetches without touching state, so both the effect below and the withdraw
   // handler can decide for themselves whether their result is still wanted.
   const fetchHandedOut = useCallback(
-    () => api.get("/api/shares/claim-codes")
+    () => api.get("/api/shares/content-codes")
       .then((data) => data.codes || [])
       .catch((err) => {
         // Not worth an error banner: the rest of the page works, and this list
@@ -71,11 +82,16 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
   useEffect(() => {
     let ignore = false;
 
-    api.get("/api/shares/my-code")
-      .then((data) => { if (!ignore) setMyCode(data); })
+    api.get("/api/shares/user-code")
+      .then((data) => { if (!ignore) setIdentity(data); })
       .catch((err) => {
         if (ignore) return;
-        logger.error("Could not load the sharing code:", err);
+        logger.error("Could not load your sharing identity:", err);
+        // Said on the page, not only in the log. Without this the panel sits on
+        // its placeholder code with both buttons disabled, which is
+        // indistinguishable from a slow load and gives somebody nothing to do
+        // about it.
+        setIdentityError(true);
       });
 
     return () => { ignore = true; };
@@ -97,15 +113,15 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
     setIsRotating(true);
 
     try {
-      const data = await api.post("/api/shares/my-code/rotate", {});
-      setMyCode(data);
+      const data = await api.post("/api/shares/user-code/rotate", {});
+      setIdentity(data);
       setConfirmingRotation(false);
       toast({
-        title: "Sharing code replaced",
+        title: "User code replaced",
         description: "The old code no longer works. Send the new one to anyone who needs it.",
       });
     } catch (err) {
-      logger.error("Rotating the sharing code failed:", err);
+      logger.error("Rotating the user code failed:", err);
       toast({
         title: "Could not replace the code",
         description: err.message || "Please try again.",
@@ -120,7 +136,7 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
     setWithdrawingId(code.id);
 
     try {
-      await api.delete(`/api/shares/claim-codes/${code.id}`);
+      await api.delete(`/api/shares/content-codes/${code.id}`);
       toast({
         title: "Sharing code withdrawn",
         description: "Nobody else can use it. Anyone who already claimed a comic keeps it — "
@@ -142,13 +158,13 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
 
   const copyCode = async () => {
     try {
-      await navigator.clipboard.writeText(myCode.sharingCode);
+      await navigator.clipboard.writeText(identity.userCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       // Clipboard access can be refused; the code is on screen and selectable,
       // so say so rather than pretending the copy worked.
-      logger.error("Could not copy the sharing code:", err);
+      logger.error("Could not copy the user code:", err);
       toast({
         title: "Could not copy the code",
         description: "Select the code and copy it manually.",
@@ -162,8 +178,8 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
     setRedeemError(null);
 
     try {
-      const data = await api.post("/api/shares/claim-codes/redeem", {
-        code: normaliseSharingCode(redeemValue),
+      const data = await api.post("/api/shares/content-codes/redeem", {
+        code: parseShareCode(redeemValue)?.code,
       });
 
       const claimed = Number(data.claimed) || 0;
@@ -183,8 +199,8 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
       toast({
         title: claimed === 1 ? "Comic added" : `${claimed} comics added`,
         description: gated > 0
-          ? `From ${data.ownerName}. ${gated === 1 ? "One comic needs" : `${gated} comics need`} your age confirmed below.`
-          : `${data.ownerName} shared ${claimed === 1 ? "a comic" : "these"} with you.`,
+          ? `From ${data.ownerLabel}. ${gated === 1 ? "One comic needs" : `${gated} comics need`} your age confirmed below.`
+          : `${data.ownerLabel} shared ${claimed === 1 ? "a comic" : "these"} with you.`,
       });
 
       setRedeemValue("");
@@ -207,43 +223,63 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
     }
   };
 
+  // A `U-` code pasted into the redeem field is not a failure — it is a real
+  // code in the wrong box, and its holder can be told so immediately rather
+  // than after a round trip that answers "not valid".
+  const redeemMisuse = shareCodeMisuse(redeemValue, [SHARE_CODE_TYPES.COMIC, SHARE_CODE_TYPES.GROUP]);
+
+  const describeCode = (code) => (
+    code.issuedComicCount === 1 ? code.comicTitles[0] : `${code.issuedComicCount} comics`
+  );
+
   return (
     <Card className="mb-6">
       <CardContent className="grid gap-6 p-4 md:grid-cols-2">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-comic-purple" />
-            <h2 className="font-semibold">Your sharing code</h2>
+            <h2 className="font-semibold">Your identity</h2>
           </div>
           <p className="text-xs text-muted-foreground">{SHARING_CODE_COPY.mine}</p>
+          <p className="text-sm">
+            Username{" "}
+            <span className="font-mono font-medium" aria-label="Your username">
+              {identity ? `@${identity.username}` : "…"}
+            </span>
+          </p>
           <div className="flex items-center gap-2">
             <code
               className="flex-1 rounded border bg-muted px-3 py-2 font-mono text-sm tracking-widest"
-              aria-label="Your sharing code"
+              aria-label="Your user code"
             >
-              {myCode?.sharingCode || "····-····-····"}
+              {identity?.userCode || "U-····-····-····"}
             </code>
             <Button
               variant="outline"
               size="sm"
-              disabled={!myCode}
+              disabled={!identity}
               onClick={copyCode}
-              aria-label="Copy your sharing code"
+              aria-label="Copy your user code"
             >
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              disabled={!myCode || isRotating}
+              disabled={!identity || isRotating}
               onClick={() => setConfirmingRotation(true)}
-              aria-label="Replace your sharing code"
+              aria-label="Replace your user code"
             >
               {isRotating
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : <RefreshCw className="h-4 w-4" />}
             </Button>
           </div>
+          {identityError && (
+            <p className="text-sm text-destructive" role="status">
+              Your username and user code could not be loaded. Reload the page to try again.
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -255,20 +291,32 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
               <Input
                 id="redeem-sharing-code"
                 value={redeemValue}
-                onChange={(event) => setRedeemValue(formatSharingCode(event.target.value))}
-                placeholder="XXXX-XXXX-XXXX"
+                onChange={(event) => {
+                  setRedeemValue(formatShareCode(event.target.value));
+                  setRedeemError(null);
+                }}
+                placeholder="C-XXXX-XXXX-XXXX or G-XXXX-XXXX-XXXX"
                 className="font-mono tracking-widest"
                 disabled={isRedeeming}
               />
             </div>
             <Button
               onClick={redeem}
-              disabled={isRedeeming || !isValidSharingCode(redeemValue)}
+              disabled={
+                isRedeeming
+                || !isValidShareCode(redeemValue, [SHARE_CODE_TYPES.COMIC, SHARE_CODE_TYPES.GROUP])
+              }
             >
               {isRedeeming && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Redeem
             </Button>
           </div>
+          {redeemMisuse && (
+            <p className="flex items-center gap-1 text-sm text-destructive">
+              <AlertTriangle className="h-4 w-4" />
+              {redeemMisuse}
+            </p>
+          )}
           {redeemError && <p className="text-sm text-destructive">{redeemError}</p>}
         </div>
 
@@ -281,11 +329,17 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
                 <li key={code.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm">
-                      {code.comicCount === 1 ? code.comicTitles[0] : `${code.comicCount} comics`}
+                      <span className="mr-2 font-mono text-xs text-muted-foreground">
+                        {CODE_TYPE_LABELS[code.type] || code.type}
+                      </span>
+                      {describeCode(code)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {`Claimed ${code.timesUsed} of ${code.maxUses} ${code.maxUses === 1 ? "use" : "uses"}`
                         + (code.isRedeemable
+                          // The server's own expiry, rendered as it came. The
+                          // lifetime is an operator setting, so anything worked
+                          // out here would be a guess that goes stale.
                           ? ` · expires ${new Date(code.expiresAt).toLocaleString()}`
                           : "")}
                     </p>
@@ -299,7 +353,7 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
                         size="sm"
                         variant="ghost"
                         disabled={withdrawingId === code.id}
-                        aria-label={`Withdraw the code for ${code.comicCount === 1 ? code.comicTitles[0] : `${code.comicCount} comics`}`}
+                        aria-label={`Withdraw the code for ${describeCode(code)}`}
                         onClick={() => withdraw(code)}
                       >
                         {withdrawingId === code.id
@@ -323,7 +377,7 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
       <Dialog open={confirmingRotation} onOpenChange={setConfirmingRotation}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Replace your sharing code?</DialogTitle>
+            <DialogTitle>Replace your user code?</DialogTitle>
             <DialogDescription>{SHARING_CODE_COPY.rotate}</DialogDescription>
           </DialogHeader>
           <DialogFooter>

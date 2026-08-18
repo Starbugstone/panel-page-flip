@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Edit, Eye, FolderInput, Tags, Trash2 } from "lucide-react";
+import { Edit, Eye, FolderInput, Share2, Tags, Trash2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,10 @@ import { MoveToFolderDialog } from "@/components/library/MoveToFolderDialog";
  */
 const isOwnerActionEligible = (comic) => comic.canEdit !== false && comic.canDelete !== false;
 
-export function ComicTableView({ comics, folders = [], onEditComic, onBulkAddTag, onBulkDelete, onBulkMove }) {
+/** Mirrors SharingWorkflowService::MAX_BULK_COMICS; the server decides. */
+const MAX_SHAREABLE_SELECTION = 20;
+
+export function ComicTableView({ comics, folders = [], onEditComic, onBulkAddTag, onBulkDelete, onBulkMove, onShareSelected }) {
   const { tags: availableTags } = useTags();
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [tagName, setTagName] = useState("");
@@ -50,6 +53,17 @@ export function ComicTableView({ comics, folders = [], onEditComic, onBulkAddTag
     [selectedComics]
   );
   const ownerActionsAllowed = selectedComics.length > 0 && selectedComics.every(isOwnerActionEligible);
+  // Sharing has its own eligibility: a comic somebody shared with *you* cannot
+  // be passed on. A mixed selection is blocked and explained rather than
+  // silently filtered — a sender who is told "12 shared" while meaning 15 has
+  // been told the wrong thing.
+  const shareableSelection = selectedComics.filter((comic) => comic.canShare !== false);
+  const shareBlocked = selectedComics.length > 0 && shareableSelection.length !== selectedComics.length;
+  const shareOverLimit = selectedComics.length > MAX_SHAREABLE_SELECTION;
+  const canShareSelection = Boolean(onShareSelected)
+    && selectedComics.length > 0
+    && !shareBlocked
+    && !shareOverLimit;
   const isChecked = (comic) => selectedIds.has(comic.id);
 
   const toggleAll = (checked) => {
@@ -122,8 +136,28 @@ export function ComicTableView({ comics, folders = [], onEditComic, onBulkAddTag
               (Move is available; tagging and deletion require owned comics only)
             </span>
           )}
+          {shareBlocked && (
+            <span className="ml-1 block font-normal text-destructive">
+              Comics shared with you cannot be shared on. Clear them from the selection to share the rest.
+            </span>
+          )}
+          {shareOverLimit && (
+            <span className="ml-1 block font-normal text-destructive">
+              You can share at most {MAX_SHAREABLE_SELECTION} comics at once.
+            </span>
+          )}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
+          {/* The selection goes straight through, so nobody is asked to pick
+              the same comics a second time in the share dialog's own list. */}
+          <Button
+            variant="outline"
+            onClick={() => onShareSelected(selectedComicIds)}
+            disabled={!canShareSelection || isUpdating}
+          >
+            <Share2 className="mr-2 h-4 w-4" />
+            Share selected
+          </Button>
           <Button
             variant="outline"
             onClick={() => setIsMoveDialogOpen(true)}

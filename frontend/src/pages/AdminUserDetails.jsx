@@ -147,13 +147,13 @@ function AdminUserDetailsPage({ userId }) {
     }
   };
 
-  const rotateSharingCode = async () => {
+  const rotateUserCode = async () => {
     setIsRotatingCode(true);
 
     try {
-      await api.post(`/api/users/${userId}/sharing-code/rotate`, {});
+      await api.post(`/api/users/${userId}/user-code/rotate`, {});
       toast({
-        title: "Sharing code replaced",
+        title: "User code replaced",
         description: "The old code no longer works. The user can see the new one on their Sharing page.",
       });
     } catch (error) {
@@ -350,11 +350,11 @@ function AdminUserDetailsPage({ userId }) {
               handle, and the user reads it off their own page. */}
           <Card>
             <CardHeader>
-              <CardTitle>Sharing code</CardTitle>
+              <CardTitle>User code</CardTitle>
               <CardDescription>
-                Replace this user&apos;s sharing code if it has been posted somewhere they did not
-                intend. The old code stops working immediately. Comics already shared with them,
-                and people they have shared with, are not affected.
+                Replace this user&apos;s <code>U-</code> code if it has been posted somewhere they
+                did not intend. The old code stops working immediately. Comics already shared with
+                them, and people they have shared with, are not affected.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -363,7 +363,7 @@ function AdminUserDetailsPage({ userId }) {
                 onClick={() => setIsRotateOpen(true)}
                 disabled={isRotatingCode}
               >
-                {isRotatingCode ? "Replacing…" : "Replace sharing code"}
+                {isRotatingCode ? "Replacing…" : "Replace user code"}
               </Button>
             </CardContent>
           </Card>
@@ -414,7 +414,7 @@ function AdminUserDetailsPage({ userId }) {
       <AlertDialog open={isRotateOpen} onOpenChange={setIsRotateOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Replace this user&apos;s sharing code?</AlertDialogTitle>
+            <AlertDialogTitle>Replace this user&apos;s user code?</AlertDialogTitle>
             <AlertDialogDescription>
               The old code stops working immediately, and anyone who still has it will need the new
               one. Existing shares are not affected. The user can see the new code on their own
@@ -423,10 +423,15 @@ function AdminUserDetailsPage({ userId }) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
+            {/* Guarded in flight: the dialog stays open until the request
+                settles, and every accepted request mints another code. An
+                administrator pressing twice would leave the user reading a
+                code that was replaced while they looked at it. */}
             <AlertDialogAction
-              onClick={(event) => { event.preventDefault(); rotateSharingCode(); }}
+              disabled={isRotatingCode}
+              onClick={(event) => { event.preventDefault(); rotateUserCode(); }}
             >
-              Replace sharing code
+              {isRotatingCode ? "Replacing…" : "Replace their code"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

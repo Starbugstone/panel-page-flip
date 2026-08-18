@@ -62,6 +62,42 @@ framework:
             policy: sliding_window
             limit: 5
             interval: '1 hour'
+        # The other end of the same problem, and the harder one. A username is
+        # short, memorable and chosen, so unlike a sixty-bit code it is a name
+        # somebody could plausibly guess — which makes this limit the control
+        # that actually does the work rather than a backstop behind entropy.
+        # Charged per miss, so sharing with the people you know is free.
+        username_lookup:
+            policy: sliding_window
+            limit: 30
+            interval: '1 hour'
+        # Changing a handle other people have written down is an identity
+        # change, and one that can be done freely is one that can be done
+        # *into*: taking a name somebody has just vacated is the cheapest
+        # impersonation there is. Generous enough that somebody settling on a
+        # name they like never notices it.
+        username_change:
+            policy: sliding_window
+            limit: 3
+            interval: '24 hours'
+        # Charged for *every* attempt to turn an identifier into a person —
+        # username, `U-` code, `C-`/`G-` redemption — and charged before the
+        # repository is asked anything.
+        #
+        # The miss-only allowances above cannot do this job alone. Once one of
+        # them is exhausted a known identifier still resolves and an unknown one
+        # is refused, which is precisely the existence oracle they exist to
+        # prevent: the difference between the two answers is the answer. So this
+        # runs first and does not care whether the lookup would have succeeded.
+        #
+        # Deliberately loose. It is the ceiling that keeps an exhausted caller
+        # away from the database, not the control that makes guessing hopeless —
+        # that is entropy for a code, and the tighter miss-only allowance for a
+        # username. Somebody sharing all afternoon must never meet it.
+        identifier_lookup:
+            policy: sliding_window
+            limit: 240
+            interval: '1 hour'
 
         # Outbound lookups against the external metadata providers. Their own
         # documented limits are what this protects: Comic Vine refuses a client
@@ -104,6 +140,13 @@ when@test:
             # at a key somebody else already used.
             share_claim_code:
                 limit: 1000
+            # Deliberately not raised. Both are small enough to exercise from a
+            # functional test, and both are the control that actually does the
+            # work for their surface rather than a backstop behind entropy — so
+            # a test that proves the allowance runs out is worth more than the
+            # convenience of an unlimited one. The base class clears the
+            # limiter cache per test, so a recurring user id starts fresh.
+            #
             # Provider lookups are cache-backed like the others, so raise it
             # rather than have an unrelated test spend the allowance.
             metadata_provider:

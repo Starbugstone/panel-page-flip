@@ -29,6 +29,16 @@ use Zenstruck\Foundry\RepositoryProxy;
  */
 final class UserFactory extends ModelFactory
 {
+    /**
+     * The password every factory-made account has.
+     *
+     * Named rather than repeated, so a test that has to send the plaintext to
+     * an endpoint — registering, or an administrator creating an account — says
+     * which password it means instead of restating one that has to stay in
+     * step with this file.
+     */
+    public const PASSWORD = 'P@ssw0rd!Strong';
+
     public function __construct(private readonly UserPasswordHasherInterface $passwordHasher)
     {
         parent::__construct();
@@ -45,7 +55,7 @@ final class UserFactory extends ModelFactory
             'email' => self::faker()->unique()->safeEmail(),
             'name' => self::faker()->name(),
             'roles' => ['ROLE_USER'],
-            'password' => 'P@ssw0rd!Strong',
+            'password' => self::PASSWORD,
             'isEmailVerified' => true,
         ];
     }

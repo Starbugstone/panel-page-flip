@@ -29,7 +29,7 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'ordinary@example.com']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $created = $this->postJson('/api/shares/claim-codes', [
+        $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
             'senderResponsibilityAccepted' => true,
@@ -38,14 +38,14 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $this->getJson('/api/admin/sharing-codes');
         self::assertResponseStatusCodeSame(403);
 
-        $this->postJson(sprintf('/api/admin/sharing-codes/%d/revoke', $created['claimCode']['id']), []);
+        $this->postJson(sprintf('/api/admin/sharing-codes/%d/revoke', $created['contentCode']['id']), []);
         self::assertResponseStatusCodeSame(403);
 
         $this->postJson('/api/admin/sharing-codes/cleanup', []);
         self::assertResponseStatusCodeSame(403);
 
         // And the code they could not revoke is still live.
-        self::assertTrue($this->getJson('/api/shares/claim-codes')['codes'][0]['isRedeemable']);
+        self::assertTrue($this->getJson('/api/shares/content-codes')['codes'][0]['isRedeemable']);
     }
 
     public function testAnAdministratorSeesIssuedCodesWithoutEverSeeingACode(): void
@@ -53,7 +53,7 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $owner = UserFactory::createOne(['email' => 'issuer@example.com', 'name' => 'Issuer'])->object();
         $this->loginAs($owner);
         $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Handed Out'])->object();
-        $plaintext = $this->postJson('/api/shares/claim-codes', [
+        $plaintext = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 4,
             'senderResponsibilityAccepted' => true,
@@ -91,16 +91,16 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $ids = [];
         for ($i = 0; $i < 3; ++$i) {
             $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-            $ids[] = $this->postJson('/api/shares/claim-codes', [
+            $ids[] = $this->postJson('/api/shares/comic-codes', [
                 'comicIds' => [$comic->getId()],
                 'maxUses' => 1,
                 'senderResponsibilityAccepted' => true,
-            ])['claimCode']['id'];
+            ])['contentCode']['id'];
         }
 
         $this->loginAs($other);
         $othersComic = ComicFactory::new()->ownedBy($other)->create()->object();
-        $this->postJson('/api/shares/claim-codes', [
+        $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$othersComic->getId()],
             'maxUses' => 1,
             'senderResponsibilityAccepted' => true,
@@ -139,26 +139,26 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $owner = UserFactory::createOne(['email' => 'reported@example.com'])->object();
         $this->loginAs($owner);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $created = $this->postJson('/api/shares/claim-codes', [
+        $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 5,
             'senderResponsibilityAccepted' => true,
         ]);
 
         $claimer = $this->createAndLoginUser(['email' => 'got-there-first@example.com']);
-        $this->postJson('/api/shares/claim-codes/redeem', ['code' => $created['code']]);
+        $this->postJson('/api/shares/content-codes/redeem', ['code' => $created['code']]);
         self::assertResponseIsSuccessful();
 
         $this->createAndLoginAdmin(['email' => 'responder@example.com']);
-        $payload = $this->postJson(sprintf('/api/admin/sharing-codes/%d/revoke', $created['claimCode']['id']), []);
+        $payload = $this->postJson(sprintf('/api/admin/sharing-codes/%d/revoke', $created['contentCode']['id']), []);
 
         self::assertResponseIsSuccessful();
-        self::assertTrue($payload['claimCode']['isRevoked']);
-        self::assertFalse($payload['claimCode']['isRedeemable']);
+        self::assertTrue($payload['contentCode']['isRevoked']);
+        self::assertFalse($payload['contentCode']['isRedeemable']);
 
         // Nobody else gets in.
         $this->createAndLoginUser(['email' => 'too-slow@example.com']);
-        $this->postJson('/api/shares/claim-codes/redeem', ['code' => $created['code']]);
+        $this->postJson('/api/shares/content-codes/redeem', ['code' => $created['code']]);
         self::assertResponseStatusCodeSame(404);
 
         // But withdrawing a code stops the way in, never the access already
@@ -175,20 +175,20 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $owner = UserFactory::createOne(['email' => 'audited-owner@example.com'])->object();
         $this->loginAs($owner);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $created = $this->postJson('/api/shares/claim-codes', [
+        $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 2,
             'senderResponsibilityAccepted' => true,
         ]);
 
         $admin = $this->createAndLoginAdmin(['email' => 'accountable@example.com']);
-        $this->postJson(sprintf('/api/admin/sharing-codes/%d/revoke', $created['claimCode']['id']), []);
+        $this->postJson(sprintf('/api/admin/sharing-codes/%d/revoke', $created['contentCode']['id']), []);
         self::assertResponseIsSuccessful();
 
         $record = $this->assertLoggedAuditEvent(SecurityAuditLogger::SHARE_CLAIM_CODE_REVOKED);
         self::assertSame($admin->getId(), $record->context['actor_user_id']);
         self::assertSame((int) $owner->getId(), $record->context['owner_user_id']);
-        self::assertSame($created['claimCode']['id'], $record->context['target_id']);
+        self::assertSame($created['contentCode']['id'], $record->context['target_id']);
         self::assertTrue($record->context['by_admin']);
 
         // The code itself is never recoverable and never written down.
@@ -206,11 +206,11 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $codeIds = [];
         for ($i = 0; $i < 3; ++$i) {
             $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-            $codeIds[] = $this->postJson('/api/shares/claim-codes', [
+            $codeIds[] = $this->postJson('/api/shares/comic-codes', [
                 'comicIds' => [$comic->getId()],
                 'maxUses' => 1,
                 'senderResponsibilityAccepted' => true,
-            ])['claimCode']['id'];
+            ])['contentCode']['id'];
         }
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
@@ -230,7 +230,7 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $payload = $this->postJson('/api/admin/sharing-codes/cleanup', []);
 
         self::assertResponseIsSuccessful();
-        self::assertSame(1, $payload['claimCodesRemoved']);
+        self::assertSame(1, $payload['contentCodesRemoved']);
 
         $remaining = array_column($this->getJson('/api/admin/sharing-codes')['items'], 'id');
         // The live one and the recently expired one both survive: pressing the
@@ -243,14 +243,14 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $owner = UserFactory::createOne(['email' => 'gave-away@example.com'])->object();
         $this->loginAs($owner);
         $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Claimed Long Ago'])->object();
-        $created = $this->postJson('/api/shares/claim-codes', [
+        $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
             'senderResponsibilityAccepted' => true,
         ]);
 
         $claimer = $this->createAndLoginUser(['email' => 'keeps-it@example.com']);
-        $this->postJson('/api/shares/claim-codes/redeem', ['code' => $created['code']]);
+        $this->postJson('/api/shares/content-codes/redeem', ['code' => $created['code']]);
         self::assertResponseIsSuccessful();
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
@@ -258,7 +258,7 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
             'UPDATE share_claim_code SET expires_at = :when WHERE id = :id',
             [
                 'when' => (new \DateTimeImmutable('-40 days'))->format('Y-m-d H:i:s'),
-                'id' => $created['claimCode']['id'],
+                'id' => $created['contentCode']['id'],
             ]
         );
         $entityManager->clear();
@@ -282,11 +282,11 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $owner = UserFactory::createOne(['email' => 'old-codes@example.com'])->object();
         $this->loginAs($owner);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $codeId = $this->postJson('/api/shares/claim-codes', [
+        $codeId = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
             'senderResponsibilityAccepted' => true,
-        ])['claimCode']['id'];
+        ])['contentCode']['id'];
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $entityManager->getConnection()->executeStatement(
@@ -318,11 +318,11 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $ids = [];
         for ($i = 0; $i < 2; ++$i) {
             $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-            $ids[] = $this->postJson('/api/shares/claim-codes', [
+            $ids[] = $this->postJson('/api/shares/comic-codes', [
                 'comicIds' => [$comic->getId()],
                 'maxUses' => 1,
                 'senderResponsibilityAccepted' => true,
-            ])['claimCode']['id'];
+            ])['contentCode']['id'];
         }
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
@@ -340,9 +340,48 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
 
         $this->createAndLoginAdmin(['email' => 'nothing-left@example.com']);
         // Nothing for the button to do, because the cron job already did it.
-        self::assertSame(0, $this->postJson('/api/admin/sharing-codes/cleanup', [])['claimCodesRemoved']);
+        self::assertSame(0, $this->postJson('/api/admin/sharing-codes/cleanup', [])['contentCodesRemoved']);
         self::assertSame([$ids[1]], array_column($this->getJson('/api/admin/sharing-codes')['items'], 'id'));
 
         self::assertNotNull(ShareClaimCode::RETENTION_AFTER_EXPIRY);
+    }
+    /**
+     * A group whose package has lost a comic is not active.
+     *
+     * It is live in every other respect — unrevoked, unexpired, uses left — and
+     * it cannot be redeemed, because a group is handed over whole or not at
+     * all. Listing it as active tells an operator it works, and there was no
+     * filter that would find it so they could withdraw it and ask the owner to
+     * reissue.
+     */
+    public function testACodeWithAMissingComicIsNotListedAsActive(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'broken-package@example.com']);
+        $first = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $second = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $this->postJson('/api/shares/group-codes', [
+            'comicIds' => [$first->getId(), $second->getId()],
+            'maxUses' => 3,
+            'senderResponsibilityAccepted' => true,
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $this->createAndLoginAdmin(['email' => 'package-watcher@example.com']);
+        self::assertSame(1, $this->getJson('/api/admin/sharing-codes?status=active')['pagination']['totalItems']);
+        self::assertSame(0, $this->getJson('/api/admin/sharing-codes?status=comics_removed')['pagination']['totalItems']);
+
+        // One issue of the arc goes away, so the arc can no longer be handed
+        // over as the arc it was advertised as.
+        $this->loginAs($owner);
+        $this->browser()->request('DELETE', '/api/comics/' . $second->getId(), [], [], $this->csrfHeader());
+        self::assertResponseIsSuccessful();
+
+        $this->createAndLoginAdmin(['email' => 'package-watcher-2@example.com']);
+        self::assertSame(0, $this->getJson('/api/admin/sharing-codes?status=active')['pagination']['totalItems']);
+
+        $broken = $this->getJson('/api/admin/sharing-codes?status=comics_removed');
+        self::assertSame(1, $broken['pagination']['totalItems']);
+        self::assertSame('comics_removed', $broken['items'][0]['deadReason']);
     }
 }
