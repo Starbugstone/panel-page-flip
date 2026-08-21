@@ -1,4 +1,5 @@
 
+import { useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { Navigate, useSearchParams } from "react-router-dom";
@@ -23,8 +24,19 @@ export default function AdminDashboard() {
   // back from a user's detail page lands on the view that was left.
   const requestedTab = searchParams.get("tab");
   const activeTab = TABS.includes(requestedTab) ? requestedTab : "overview";
+  const lastRequestedTab = useRef(activeTab);
+
+  useEffect(() => {
+    lastRequestedTab.current = activeTab;
+  }, [activeTab]);
 
   const setActiveTab = (tab) => {
+    // Radix can report the same pointer selection from mousedown and focus
+    // before this controlled value has re-rendered. Treat it as one navigation
+    // so Back does not have to cross two identical history entries.
+    if (lastRequestedTab.current === tab) return;
+    lastRequestedTab.current = tab;
+
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       tab === "overview" ? next.delete("tab") : next.set("tab", tab);
