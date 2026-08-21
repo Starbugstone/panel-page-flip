@@ -55,15 +55,17 @@ export function useReaderChrome({ enabled = true, pinned = false, idleMs = IDLE_
   useEffect(() => {
     if (!enabled) return undefined;
 
-    const wake = () => setVisible(true);
-    window.addEventListener("keydown", wake);
-    window.addEventListener("focusin", wake);
+    // reveal(), not a bare setVisible: somebody paging through a comic on the
+    // keyboard is using the reader, and controls that hid under them on the
+    // schedule set before the first keypress would be worse than never showing.
+    window.addEventListener("keydown", reveal);
+    window.addEventListener("focusin", reveal);
 
     return () => {
-      window.removeEventListener("keydown", wake);
-      window.removeEventListener("focusin", wake);
+      window.removeEventListener("keydown", reveal);
+      window.removeEventListener("focusin", reveal);
     };
-  }, [enabled]);
+  }, [enabled, reveal]);
 
   // Turning auto-hide off is an instruction, not just a future policy, and
   // turning it back on should not start from controls that are already gone.

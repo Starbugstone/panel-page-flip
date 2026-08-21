@@ -17,6 +17,17 @@ const VIEWPORT_CLASSES = {
 // the page underneath that and every pan would be off by the difference.
 const ZOOMED_CLASSES = "items-center justify-center overflow-hidden";
 
+// What the browser may keep for itself while the page is at natural scale.
+// A page at original size overflows in both directions and the browser is the
+// one scrolling it, so taking the horizontal axis for page turns here would
+// make the right-hand side of a wide page unreachable.
+const TOUCH_ACTION = {
+  contain: "pan-y",
+  width: "pan-y",
+  height: "pan-y",
+  original: "pan-x pan-y",
+};
+
 const IMAGE_CLASSES = {
   contain: "max-h-full max-w-full h-auto w-auto object-contain",
   width: "h-auto w-full max-h-none max-w-none object-contain",
@@ -59,10 +70,9 @@ export function SinglePageReader({
       className={`relative max-h-full h-full w-full flex ${zoomed ? ZOOMED_CLASSES : VIEWPORT_CLASSES[safeFit]} ${isFullscreen ? "fullscreen-container" : ""}`}
       data-page-fit={safeFit}
       data-page-zoomed={zoomed ? "true" : "false"}
-      // What the browser may keep for itself. A fitted page still scrolls
-      // vertically the way every other page on the web does; a zoomed one is
-      // moved entirely by the gestures above.
-      style={{ touchAction: zoomed ? "none" : "pan-y" }}
+      // A zoomed page is moved entirely by the gestures above; a fitted one
+      // still scrolls the way every other page on the web does.
+      style={{ touchAction: zoomed ? "none" : TOUCH_ACTION[safeFit] }}
       onPointerDownCapture={(event) => { lastPointerTypeRef.current = event.pointerType; }}
     >
       {image && (

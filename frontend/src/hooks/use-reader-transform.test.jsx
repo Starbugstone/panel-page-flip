@@ -46,6 +46,19 @@ describe("zoom that knows where the reader was", () => {
     expect(elements.containerRef.current.scrollTop).toBe(300);
   });
 
+  it("follows two fingers that drag while they pinch", () => {
+    const elements = refs({ content: { width: 400, height: 800 } });
+    const { result } = renderHook(() => useReaderTransform(elements));
+
+    act(() => result.current.pinch({ scale: 2, focal: { x: 200, y: 400 } }));
+    const held = result.current.transform;
+    act(() => result.current.pinch({ scale: 1, focal: { x: 170, y: 380 }, dx: -30, dy: -20 }));
+
+    expect(result.current.transform.scale).toBe(held.scale);
+    expect(result.current.transform.x).toBe(held.x - 30);
+    expect(result.current.transform.y).toBe(held.y - 20);
+  });
+
   it("pans only what is off screen", () => {
     const elements = refs({ content: { width: 400, height: 800 } });
     const { result } = renderHook(() => useReaderTransform(elements));

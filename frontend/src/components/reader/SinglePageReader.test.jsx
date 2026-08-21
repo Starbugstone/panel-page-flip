@@ -32,6 +32,12 @@ describe("the page surface", () => {
     expect(surface()).toHaveStyle({ touchAction: "pan-y" });
   });
 
+  it("leaves both axes to the browser at original size, which overflows in both", () => {
+    renderPage({ fit: "original" });
+
+    expect(surface()).toHaveStyle({ touchAction: "pan-x pan-y" });
+  });
+
   it("takes both axes once the page is zoomed, because it is panning them", () => {
     renderPage({ transform: { scale: 2, x: 10, y: 20 } });
 

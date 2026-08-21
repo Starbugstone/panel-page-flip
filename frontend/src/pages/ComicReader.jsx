@@ -814,11 +814,18 @@ export default function ComicReader() {
 
   const handleContextOverrideChange = useCallback((enabled) => {
     if (enabled) {
+      // Starting from what this screen is already showing, so turning the
+      // switch on changes nothing until a page size is actually chosen.
       changeOverride(viewportContext, { fit: settings.fit });
       return;
     }
+
+    // Dropping the override hands this screen back to the account default,
+    // which is a fit change like any other and must not leave a zoom behind
+    // that was measured against the old one.
+    if (preferences.settings.fit !== settings.fit) resetTransform();
     clearOverride(viewportContext);
-  }, [changeOverride, clearOverride, settings.fit, viewportContext]);
+  }, [changeOverride, clearOverride, preferences.settings.fit, resetTransform, settings.fit, viewportContext]);
 
   const handleResetReaderSettings = useCallback(() => {
     resetTransform();
@@ -881,7 +888,7 @@ export default function ComicReader() {
       setSwipeOffset(0);
     },
     onPan: ({ dx, dy }) => pan({ dx, dy }),
-    onPinch: ({ scale, focal }) => pinch({ scale, focal }),
+    onPinch: ({ scale, focal, dx, dy }) => pinch({ scale, focal, dx, dy }),
   }), [doubleTapAt, handleNextPage, handlePreviousPage, pan, pinch, toggleChrome]);
 
   if (isLoading) {

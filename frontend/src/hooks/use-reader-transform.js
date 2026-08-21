@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import {
   IDENTITY_TRANSFORM,
@@ -76,7 +76,10 @@ export function useReaderTransform({ containerRef, imageRef }) {
     apply({ ...IDENTITY_TRANSFORM });
   }, [apply, containerRef]);
 
-  useEffect(() => {
+  // Layout, not passive: the container only becomes scrollable in this render,
+  // and a passive effect would let the browser paint the page at the top before
+  // the scroll it is supposed to come back to.
+  useLayoutEffect(() => {
     const pending = pendingScrollRef.current;
     if (!pending) return;
 
@@ -88,9 +91,13 @@ export function useReaderTransform({ containerRef, imageRef }) {
     container.scrollTop = pending.scrollTop;
   }, [transform, containerRef]);
 
-  const pinch = useCallback(({ scale, focal }) => {
+  const pinch = useCallback(({ scale, focal, dx = 0, dy = 0 }) => {
     const geometry = measure();
-    settle(zoomAbout(startingPoint(geometry), focal, scale, geometry.viewport), geometry);
+    // Zooming holds the point between the fingers still, which is right for the
+    // scale and wrong for the fingers: two of them dragging across the glass is
+    // a pan, and how far they went is what dx and dy say.
+    const zoomed = zoomAbout(startingPoint(geometry), focal, scale, geometry.viewport);
+    settle(panBy(zoomed, dx, dy), geometry);
   }, [measure, settle, startingPoint]);
 
   const pan = useCallback(({ dx, dy }) => {

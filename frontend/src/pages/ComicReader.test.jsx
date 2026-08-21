@@ -666,6 +666,27 @@ describe("ComicReader", () => {
     });
   });
 
+  describe("handing a screen back to the account default", () => {
+    it("does not leave a zoom behind that was measured against the old fit", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+
+      await user.click(await screen.findByRole("button", { name: /use it here/i }));
+      await waitFor(() => expect(surface()).toHaveAttribute("data-page-fit", "width"));
+
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      expect(surface()).toHaveAttribute("data-page-zoomed", "true");
+
+      await user.click(screen.getByRole("button", { name: /reader settings/i }));
+      await user.click(await screen.findByRole("switch", { name: /different page size here/i }));
+
+      await waitFor(() => expect(surface()).toHaveAttribute("data-page-fit", "contain"));
+      expect(surface()).toHaveAttribute("data-page-zoomed", "false");
+    });
+  });
+
   describe("how much it holds in memory", () => {
     const cachedPages = () => new Set(FakeImage.instances
       .map(({ src }) => src.match(/\/pages\/(\d+)/)?.[1])

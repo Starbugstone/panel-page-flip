@@ -2,6 +2,13 @@ import { useEffect, useRef } from "react";
 
 import { createGestureState, reduceGesture } from "@/lib/reader-gestures";
 
+// The reader's controls live over the page, inside the element these listeners
+// are on. A tap on one of them is a press of that control and nothing else —
+// the top-right cluster sits in the same place as the next-page tap zone, so
+// without this every settings tap would also turn a page.
+const CONTROL_SELECTOR = 'button, a, input, select, textarea, label, [role="button"],'
+  + ' [role="switch"], [role="slider"], [role="dialog"], [contenteditable="true"]';
+
 /**
  * Pointer Events into one gesture machine, and its decisions out to the reader.
  *
@@ -27,6 +34,11 @@ export function useReaderGestures(elementRef, { zoomed = false, paged = true, en
   useEffect(() => {
     const element = elementRef.current;
     if (!element || !enabled) return undefined;
+
+    // A gesture that began on a control is that control's, for as long as the
+    // finger is down: the moves and the lift have to be ignored too, or half a
+    // swipe arrives with no beginning.
+    const ignored = new Set();
 
     const dispatch = (event) => {
       const { state, actions } = reduceGesture(stateRef.current, event, contextRef.current);
@@ -61,6 +73,10 @@ export function useReaderGestures(elementRef, { zoomed = false, paged = true, en
 
     const onPointerDown = (event) => {
       if (!isGesturePointer(event)) return;
+      if (event.target?.closest?.(CONTROL_SELECTOR)) {
+        ignored.add(event.pointerId);
+        return;
+      }
       try {
         // Capture, so a finger that leaves the page still finishes its gesture
         // here rather than silently stopping halfway. A pointer the browser has
@@ -74,12 +90,13 @@ export function useReaderGestures(elementRef, { zoomed = false, paged = true, en
     };
 
     const onPointerMove = (event) => {
-      if (!isGesturePointer(event)) return;
+      if (!isGesturePointer(event) || ignored.has(event.pointerId)) return;
       dispatch(toEvent("pointermove", event));
     };
 
     const onPointerUp = (event) => {
       if (!isGesturePointer(event)) return;
+      if (ignored.delete(event.pointerId)) return;
       try {
         element.releasePointerCapture?.(event.pointerId);
       } catch {
@@ -90,6 +107,7 @@ export function useReaderGestures(elementRef, { zoomed = false, paged = true, en
 
     const onPointerCancel = (event) => {
       if (!isGesturePointer(event)) return;
+      if (ignored.delete(event.pointerId)) return;
       dispatch(toEvent("pointercancel", event));
     };
 
