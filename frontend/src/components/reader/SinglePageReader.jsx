@@ -1,5 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useReaderGestures } from "@/hooks/use-reader-gestures";
+import { IDENTITY_TRANSFORM, isZoomed } from "@/lib/reader-zoom";
 
 const VIEWPORT_CLASSES = {
   contain: "items-center justify-center overflow-hidden",
@@ -7,6 +9,11 @@ const VIEWPORT_CLASSES = {
   height: "items-center justify-center overflow-hidden",
   original: "items-start justify-start overflow-auto",
 };
+
+// A zoomed page is positioned entirely by its transform, which is measured from
+// the centre of the viewport. The fit's own alignment and scrolling would move
+// the page underneath that and every pan would be off by the difference.
+const ZOOMED_CLASSES = "items-center justify-center overflow-hidden";
 
 const IMAGE_CLASSES = {
   contain: "max-h-full max-w-full h-auto w-auto object-contain",
@@ -17,6 +24,7 @@ const IMAGE_CLASSES = {
 
 export function SinglePageReader({
   containerRef,
+  imageRef,
   image,
   isLoading,
   hasFailed,
@@ -24,31 +32,43 @@ export function SinglePageReader({
   title,
   fit,
   isFullscreen,
-  isZoomed,
-  zoomLevel,
-  mousePosition,
-  onMouseMove,
+  transform = IDENTITY_TRANSFORM,
+  swipeOffset = 0,
+  isSwiping = false,
+  paged = true,
+  gestures,
   onImageClick,
   onRetry,
   children,
 }) {
   const safeFit = Object.hasOwn(VIEWPORT_CLASSES, fit) ? fit : "contain";
+  const zoomed = isZoomed(transform);
+
+  useReaderGestures(containerRef, { zoomed, paged, ...gestures });
 
   return (
     <div
       ref={containerRef}
-      className={`relative max-h-full h-full w-full flex ${VIEWPORT_CLASSES[safeFit]} ${isFullscreen ? "fullscreen-container" : ""}`}
+      className={`relative max-h-full h-full w-full flex ${zoomed ? ZOOMED_CLASSES : VIEWPORT_CLASSES[safeFit]} ${isFullscreen ? "fullscreen-container" : ""}`}
       data-page-fit={safeFit}
-      onMouseMove={onMouseMove}
+      data-page-zoomed={zoomed ? "true" : "false"}
+      // What the browser may keep for itself. A fitted page still scrolls
+      // vertically the way every other page on the web does; a zoomed one is
+      // moved entirely by the gestures above.
+      style={{ touchAction: zoomed ? "none" : "pan-y" }}
     >
       {image && (
         <img
+          ref={imageRef}
           src={image.src}
           alt={`Page ${pageNumber} of ${title || "Comic"}`}
-          className={`${IMAGE_CLASSES[safeFit]} mx-auto block shadow-lg transition-transform ${isZoomed ? "zoomed-image" : ""}`}
+          // A dragged image is the browser offering to copy a file, which under
+          // a finger or a mouse is never what a page turn meant.
+          draggable={false}
+          className={`${IMAGE_CLASSES[safeFit]} mx-auto block shadow-lg ${zoomed ? "zoomed-image" : ""} ${isSwiping || zoomed ? "" : "transition-transform duration-200 motion-reduce:transition-none"}`}
           style={{
-            transform: isZoomed ? `scale(${zoomLevel})` : "none",
-            transformOrigin: isZoomed ? `${mousePosition.x * 100}% ${mousePosition.y * 100}%` : "center center",
+            transform: `translate3d(${transform.x + swipeOffset}px, ${transform.y}px, 0) scale(${transform.scale})`,
+            transformOrigin: "center center",
           }}
           onClick={onImageClick}
         />

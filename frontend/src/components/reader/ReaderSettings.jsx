@@ -20,9 +20,19 @@ function SettingSwitch({ id, label, description, checked, onCheckedChange, disab
   );
 }
 
-export function ReaderSettings({ settings, isLoaded, isSaving, onChange, onReset }) {
+export function ReaderSettings({
+  settings,
+  isLoaded,
+  isSaving,
+  contextLabel,
+  hasOverride,
+  onChange,
+  onOverrideChange,
+  onOpenChange,
+  onReset,
+}) {
   return (
-    <Popover>
+    <Popover onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -57,7 +67,24 @@ export function ReaderSettings({ settings, isLoaded, isSaving, onChange, onReset
           <p className="text-xs text-muted-foreground">
             Fit width can scroll vertically. Original size can scroll in either direction.
           </p>
+          <p className="text-xs text-muted-foreground">
+            {hasOverride
+              ? `Applies to ${contextLabel} only.`
+              : "Applies everywhere you read."}
+          </p>
         </div>
+
+        {/* A phone held upright and a tablet turned sideways want different page
+            sizes. Saying so here is deliberate: rotating the device must never
+            rewrite a choice on its own. */}
+        <SettingSwitch
+          id="reader-context-override"
+          label="Different page size here"
+          description={`Keep a separate page size for ${contextLabel}.`}
+          checked={Boolean(hasOverride)}
+          onCheckedChange={onOverrideChange}
+          disabled={!isLoaded}
+        />
 
         <Separator />
 

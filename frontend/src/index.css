@@ -83,42 +83,80 @@
     @apply relative overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md hover:-translate-y-1;
   }
 
+  /* Dynamic viewport units with the static ones as a fallback. Mobile browser
+     chrome grows and shrinks while you read, and 100vh describes only one of
+     those states — the one where the bottom controls are behind the URL bar. */
+  .reader-root {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .reader-stage {
+    height: calc(100vh - 10rem);
+    height: calc(100dvh - 10rem);
+  }
+
+  .reader-stage-fullscreen {
+    height: calc(100vh - 8rem);
+    height: calc(100dvh - 8rem);
+  }
+
   /* A column, so the progress bar can sit above the buttons rather than beside
      them. The inner row keeps the original horizontal arrangement. */
   .reader-controls {
-    @apply fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background/90 to-transparent p-4 opacity-100 flex flex-col gap-3;
+    @apply fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background/90 to-transparent p-4 opacity-100 flex flex-col gap-3 transition-opacity duration-300 motion-reduce:transition-none;
+    /* Clear of the home indicator and any rounded corner, so the last row of
+       controls is not something you have to fight the gesture bar to press. */
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: calc(1rem + env(safe-area-inset-right));
   }
 
   /* Sits above .fullscreen-container (z-50), which otherwise paints its opaque
      background over these controls and swallows their clicks. */
   .reader-controls-fullscreen {
-    @apply fixed bottom-0 left-0 right-0 z-[60] bg-gradient-to-t from-background/90 to-transparent p-4 opacity-0 transition-opacity duration-300 hover:opacity-100 focus-within:opacity-100 flex flex-col gap-3;
+    @apply z-[60];
   }
 
-  .reader-controls-fullscreen.reader-controls-pinned {
-    @apply opacity-100;
+  /* Chrome that has taken itself off screen. Not just transparent: a control
+     faded out must not still be the thing under a tap on the artwork. */
+  .reader-chrome-hidden {
+    @apply pointer-events-none opacity-0;
   }
 
   .page-navigation {
     @apply fixed top-0 bottom-0 w-1/5 bg-transparent cursor-pointer opacity-0 hover:opacity-10 transition-opacity z-0;
   }
-  
+
   .fullscreen-container {
     @apply fixed inset-0 bg-background z-50 flex items-center justify-center pt-16;
   }
-  
+
   .zoomed-image {
     @apply cursor-zoom-out max-h-none max-w-none;
   }
-  
+
   .fullscreen-controls {
-    @apply fixed top-20 right-4 z-[60] flex gap-2 bg-card/80 p-2 rounded-md shadow-md transition-opacity duration-300;
+    @apply fixed z-[60] flex gap-2 bg-card/80 p-2 rounded-md shadow-md transition-opacity duration-300 motion-reduce:transition-none;
+    top: calc(5rem + env(safe-area-inset-top));
+    right: calc(1rem + env(safe-area-inset-right));
   }
 
-  .fullscreen-controls.fullscreen-controls-auto-hide {
-    @apply opacity-0 hover:opacity-100 focus-within:opacity-100;
+  .reader-suggestion {
+    @apply fixed left-1/2 z-[70] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-card/95 py-2 pl-4 pr-2 shadow-lg;
+    bottom: calc(7rem + env(safe-area-inset-bottom));
   }
-  
+
+  /* A finger is not a cursor. Where the pointer is coarse, every reader control
+     is at least a comfortable target regardless of the icon inside it. */
+  @media (pointer: coarse) {
+    .reader-controls button,
+    .fullscreen-controls button,
+    .reader-suggestion button {
+      @apply min-h-11 min-w-11;
+    }
+  }
+
   .fullscreen-reader-controls {
     @apply fixed bottom-4 left-0 right-0 z-[60] opacity-100 flex justify-between items-center mx-auto max-w-xl bg-card/80 p-2 rounded-md shadow-md;
   }

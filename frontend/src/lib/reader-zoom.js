@@ -15,7 +15,10 @@ export const IDENTITY_TRANSFORM = Object.freeze({ scale: 1, x: 0, y: 0 });
 export const MIN_SCALE = 1;
 export const MAX_SCALE = 5;
 
-const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+// The trailing + 0 turns -0 into 0. Clamping to a zero-width range keeps the
+// sign of the input, and a page reset to "-0px" is not equal to one reset to
+// "0px" — which is the difference between settling and settling twice.
+const clamp = (value, low, high) => Math.min(high, Math.max(low, value)) + 0;
 
 export function isZoomed({ scale } = IDENTITY_TRANSFORM) {
   return scale > MIN_SCALE + 0.001;
@@ -77,14 +80,46 @@ export function readableWidthScale({ viewport, content, fallback = 2 }) {
 
 /**
  * Double tap zooms to readable width around the tapped point; a second double
- * tap puts the page back. Reset is unconditional, so there is always one
- * gesture that returns a lost reader to a whole page.
+ * tap puts the page back. Zooming back out happens about the middle of the
+ * screen rather than the tapped point, so a reader who has panned to a corner
+ * comes back to the part of the page they were reading.
  */
 export function doubleTapTransform(transform, focal, geometry) {
-  if (isZoomed(transform)) return { ...IDENTITY_TRANSFORM };
+  if (isZoomed(transform)) return zoomOut(transform, geometry);
 
   const target = readableWidthScale(geometry);
-  return clampTransform(zoomAbout(IDENTITY_TRANSFORM, focal, target, geometry.viewport), geometry);
+  return clampTransform(
+    zoomAbout(transform, focal, target / transform.scale, geometry.viewport),
+    geometry
+  );
+}
+
+/** Back to the fitted page, holding whatever part of it is in the middle of the screen. */
+export function zoomOut(transform, geometry) {
+  return stepZoom(transform, 1 / transform.scale, geometry);
+}
+
+/**
+ * A scrolled page and a panned page are the same picture described two ways.
+ *
+ * A page fitted to the width scrolls natively until somebody zooms it, at which
+ * point the transform takes over both axes. Converting between the two on the
+ * way in and out is what stops the page jumping when a pinch begins partway
+ * down a tall page.
+ */
+export function transformFromScroll({ viewport, content, scrollLeft = 0, scrollTop = 0 }) {
+  return {
+    scale: 1,
+    x: (content.width - viewport.width) / 2 - scrollLeft,
+    y: (content.height - viewport.height) / 2 - scrollTop,
+  };
+}
+
+export function scrollFromTransform(transform, { viewport, content }) {
+  return {
+    scrollLeft: Math.max(0, (content.width - viewport.width) / 2 - transform.x),
+    scrollTop: Math.max(0, (content.height - viewport.height) / 2 - transform.y),
+  };
 }
 
 /** The zoom buttons: a step about the middle of the page, which is where a keyboard user is looking. */

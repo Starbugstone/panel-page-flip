@@ -67,6 +67,43 @@ final class ReaderPreferencesControllerTest extends AbstractApiTestCase
         self::assertSame($preferences, $this->getJson('/api/reader/preferences')['preferences']);
     }
 
+    public function testPersistsAPageSizeChosenForOneDeviceAndOrientation(): void
+    {
+        $this->createAndLoginUser();
+        $preferences = static::getContainer()->get(ReaderPreferences::class)->defaults();
+        $preferences['overrides'] = [
+            ['context' => ['device' => 'phone', 'orientation' => 'portrait'], 'settings' => ['fit' => 'width']],
+        ];
+
+        $payload = $this->putJson('/api/reader/preferences', ['preferences' => $preferences]);
+
+        self::assertResponseIsSuccessful();
+        self::assertSame($preferences['overrides'], $payload['preferences']['overrides']);
+        // The account default is what every screen without an override reads with.
+        self::assertSame('contain', $payload['preferences']['settings']['fit']);
+        self::assertSame($preferences, $this->getJson('/api/reader/preferences')['preferences']);
+    }
+
+    public function testRejectsAnOverrideForAContextThatDoesNotExist(): void
+    {
+        $user = UserFactory::createOne()->object();
+        $defaults = static::getContainer()->get(ReaderPreferences::class)->defaults();
+        $user->setReaderPreferences($defaults);
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
+        $this->loginAs($user);
+
+        $invalid = $defaults;
+        $invalid['overrides'] = [
+            ['context' => ['device' => 'watch', 'orientation' => 'portrait'], 'settings' => ['fit' => 'width']],
+        ];
+
+        $this->putJson('/api/reader/preferences', ['preferences' => $invalid]);
+
+        self::assertResponseStatusCodeSame(422);
+        $storedUser = static::getContainer()->get(EntityManagerInterface::class)->find(User::class, $user->getId());
+        self::assertEquals($defaults, $storedUser?->getReaderPreferences());
+    }
+
     public function testRejectsUnsupportedAndUnknownValuesWithoutChangingStoredData(): void
     {
         $user = UserFactory::createOne()->object();

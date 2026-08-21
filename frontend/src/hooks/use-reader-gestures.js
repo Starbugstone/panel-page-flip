@@ -17,8 +17,12 @@ export function useReaderGestures(elementRef, { zoomed = false, paged = true, en
   const handlersRef = useRef(handlers);
   const contextRef = useRef({ zoomed, paged });
 
-  handlersRef.current = handlers;
-  contextRef.current = { zoomed, paged };
+  // After every render, not during it: the listeners below are bound once and
+  // read whatever the newest render left here when a gesture actually happens.
+  useEffect(() => {
+    handlersRef.current = handlers;
+    contextRef.current = { zoomed, paged };
+  });
 
   useEffect(() => {
     const element = elementRef.current;

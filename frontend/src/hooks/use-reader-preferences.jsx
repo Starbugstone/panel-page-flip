@@ -4,7 +4,9 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import {
   DEFAULT_READER_PREFERENCES,
+  clearReaderOverride,
   normalizeReaderPreferences,
+  setReaderOverride,
   updateReaderSettings,
 } from "@/lib/reader-preferences";
 
@@ -92,13 +94,25 @@ export function useReaderPreferences(toast) {
     };
   }, [applyPreferences, toast]);
 
-  const changeSettings = useCallback((patch) => {
+  const save = useCallback((next) => {
     changedLocallyRef.current = true;
-    const next = updateReaderSettings(preferencesRef.current, patch);
     applyPreferences(next);
     pendingOperationRef.current = { kind: "save", preferences: next };
     void pump();
   }, [applyPreferences, pump]);
+
+  const changeSettings = useCallback((patch) => {
+    save(updateReaderSettings(preferencesRef.current, patch));
+  }, [save]);
+
+  /** Record a fit for one device and orientation, leaving every other screen alone. */
+  const changeOverride = useCallback((context, patch) => {
+    save(setReaderOverride(preferencesRef.current, context, patch));
+  }, [save]);
+
+  const clearOverride = useCallback((context) => {
+    save(clearReaderOverride(preferencesRef.current, context));
+  }, [save]);
 
   const resetPreferences = useCallback(() => {
     changedLocallyRef.current = true;
@@ -113,6 +127,8 @@ export function useReaderPreferences(toast) {
     isLoaded,
     isSaving,
     changeSettings,
+    changeOverride,
+    clearOverride,
     resetPreferences,
   };
 }

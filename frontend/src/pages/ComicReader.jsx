@@ -14,12 +14,30 @@ import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 import { useReaderNavigation } from "@/hooks/use-reader-navigation";
 import { useReaderPreferences } from "@/hooks/use-reader-preferences.jsx";
 import { useReaderWakeLock } from "@/hooks/use-reader-wake-lock";
+import { useReaderChrome } from "@/hooks/use-reader-chrome";
+import { useReaderTransform } from "@/hooks/use-reader-transform";
+import { useViewportProfile } from "@/hooks/use-viewport-profile";
 import { usePageVariant } from "@/hooks/use-page-variant";
 import { usePageGeometry } from "@/hooks/use-page-geometry";
 import { createComicPageUrls, withForcedReload } from "@/lib/reader-pages";
+import { tapZone } from "@/lib/reader-gestures";
+import { preloadWindowFor, readNetworkHints } from "@/lib/reader-preload";
+import {
+  OVERRIDABLE_SETTINGS,
+  READER_FITS,
+  effectiveReaderSettings,
+  hasReaderOverride,
+} from "@/lib/reader-preferences";
+import { describeViewportContext, suggestedFitFor, viewportContextKey } from "@/lib/reader-viewport";
+import { ReaderFitSuggestion } from "@/components/reader/ReaderFitSuggestion";
 import { ReaderSettings } from "@/components/reader/ReaderSettings";
 import { ReaderThumbnailStrip } from "@/components/reader/ReaderThumbnailStrip";
 import { SinglePageReader } from "@/components/reader/SinglePageReader";
+
+// How far the page follows a finger that is mid-swipe. Not one-to-one: there is
+// no next page rendered behind it to slide in, so a full-width drag would pull
+// the artwork off a blank screen.
+const SWIPE_FOLLOW = 0.35;
 
 export default function ComicReader() {
   const { comicId } = useParams();
@@ -31,17 +49,38 @@ export default function ComicReader() {
   const [showDebug, setShowDebug] = useState(false); // For debug panel
   const [showThumbnails, setShowThumbnails] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isZoomed, setIsZoomed] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isControlFocused, setIsControlFocused] = useState(false);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState({});
   const imageContainerRef = useRef(null);
+  const imageRef = useRef(null);
   const pageInputRef = useRef(null);
   const navigate = useNavigate();
   const { toast } = useToast();
   const { updateComicProgress } = useComicLibrary();
+  // What kind of screen this is being read on. Everything device-shaped below —
+  // how far to preload, which fit suits, whether taps have to stand in for
+  // hover — comes from here rather than from a user-agent string.
+  const profile = useViewportProfile();
+  const viewportContext = useMemo(
+    () => ({ device: profile.device, orientation: profile.orientation }),
+    [profile.device, profile.orientation]
+  );
+  const {
+    transform,
+    isZoomed,
+    pinch,
+    pan,
+    doubleTapAt,
+    stepZoomBy,
+    zoomToFit,
+    resetTransform,
+  } = useReaderTransform({ containerRef: imageContainerRef, imageRef });
   // Which size of page this screen is worth asking for. Zoom raises it a rung;
   // nothing here ever reaches for the source scan.
-  const pageVariant = usePageVariant(imageContainerRef, { zoomLevel: isZoomed ? zoomLevel : 1 });
+  const pageVariant = usePageVariant(imageContainerRef, { zoomLevel: transform.scale });
   const comicPages = useMemo(
     () => createComicPageUrls(comicId, pageCount, pageVariant),
     [comicId, pageCount, pageVariant]
@@ -57,12 +96,21 @@ export default function ComicReader() {
     canGoNext,
   } = useReaderNavigation(comicPages.length);
   const {
-    settings,
+    preferences,
     isLoaded: arePreferencesLoaded,
     isSaving: arePreferencesSaving,
     changeSettings,
+    changeOverride,
+    clearOverride,
     resetPreferences,
   } = useReaderPreferences(toast);
+  // The account's settings, with anything this device and orientation has been
+  // told for itself laid over them.
+  const settings = useMemo(
+    () => effectiveReaderSettings(preferences, viewportContext),
+    [preferences, viewportContext]
+  );
+  const hasContextOverride = hasReaderOverride(preferences, viewportContext);
   useReaderWakeLock(settings.wakeLock);
   const { geometry: pageGeometry } = usePageGeometry(comicId, pageCount, currentPage);
 
@@ -77,8 +125,10 @@ export default function ComicReader() {
   // image stays on screen and is replaced when the larger one arrives.
   const loadedVariantsRef = useRef({});
 
-  const CACHE_SIZE_FORWARD = 5;
-  const CACHE_SIZE_BACKWARD = 5;
+  // How many pages either side of this one are worth holding decoded, decided
+  // once from what this device can afford rather than from a constant that has
+  // to suit both a desktop and a phone on a train.
+  const preloadWindow = useMemo(() => preloadWindowFor(profile, readNetworkHints()), [profile]);
 
   // The cache entry for the current page already says everything these used to
   // be told: a value means it is ready, 'failed' means it is not coming, and
@@ -262,9 +312,9 @@ export default function ComicReader() {
 
   // Function to check if a page index is within the cache window
   const isInCacheWindow = useCallback((pageIndex) => {
-    return pageIndex >= Math.max(0, currentPageRef.current - CACHE_SIZE_BACKWARD) && 
-           pageIndex <= Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
-  }, [comicPages.length, currentPageRef]);
+    return pageIndex >= Math.max(0, currentPageRef.current - preloadWindow.backward) &&
+           pageIndex <= Math.min(comicPages.length - 1, currentPageRef.current + preloadWindow.forward);
+  }, [comicPages.length, currentPageRef, preloadWindow]);
 
   // Object to track in-progress loads to prevent duplicate requests
   const loadingPagesRef = useRef({});
@@ -402,8 +452,8 @@ export default function ComicReader() {
     const currentPageIndex = currentPageRef.current;
     
     // Calculate range of pages to cache
-    const startPage = Math.max(0, currentPageIndex - CACHE_SIZE_BACKWARD);
-    const endPage = Math.min(comicPages.length - 1, currentPageIndex + CACHE_SIZE_FORWARD);
+    const startPage = Math.max(0, currentPageIndex - preloadWindow.backward);
+    const endPage = Math.min(comicPages.length - 1, currentPageIndex + preloadWindow.forward);
 
     // A page already in flight is left alone; anything else that is not ready
     // at the current size is worth queueing, including one cached at a smaller
@@ -438,12 +488,12 @@ export default function ComicReader() {
     if (loadQueueRef.current.length > 0) {
       processLoadQueue();
     }
-  }, [processLoadQueue, imageCache, isPageReady, comicPages.length, currentPageRef]);
+  }, [processLoadQueue, imageCache, isPageReady, comicPages.length, currentPageRef, preloadWindow]);
 
   // Function to clean up the cache (remove pages outside the window)
   const cleanupCache = useCallback(() => {
-    const startPage = Math.max(0, currentPageRef.current - CACHE_SIZE_BACKWARD);
-    const endPage = Math.min(comicPages.length - 1, currentPageRef.current + CACHE_SIZE_FORWARD);
+    const startPage = Math.max(0, currentPageRef.current - preloadWindow.backward);
+    const endPage = Math.min(comicPages.length - 1, currentPageRef.current + preloadWindow.forward);
     const isOutsideWindow = (pageIndex) => pageIndex < startPage || pageIndex > endPage;
 
     setImageCache(prev => {
@@ -464,7 +514,7 @@ export default function ComicReader() {
     Object.keys(loadedVariantsRef.current).forEach(key => {
       if (isOutsideWindow(parseInt(key, 10))) delete loadedVariantsRef.current[key];
     });
-  }, [comicPages.length, currentPageRef]);
+  }, [comicPages.length, currentPageRef, preloadWindow]);
   
   // Effect to handle page changes and update UI state - only runs when page actually changes
   useEffect(() => {
@@ -691,32 +741,46 @@ export default function ComicReader() {
       const isNowFullscreen = !!document.fullscreenElement;
       setIsFullscreen(isNowFullscreen);
       
-      // If exiting fullscreen and currently zoomed, also exit zoom mode
-      if (!isNowFullscreen && isZoomed) {
-        setIsZoomed(false);
-        setZoomLevel(1);
-      }
+      // The page is about to be laid out in a different amount of room, and a
+      // pan measured against the old one would point somewhere else.
+      if (!isNowFullscreen && isZoomed) resetTransform();
     };
-    
+
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [isZoomed]);
-  
-  // Handle zoom wheel events
-  const handleWheel = useCallback((e) => {
-    if (isZoomed) {
-      // Prevent default to stop page scrolling
-      e.preventDefault();
-      
-      // Adjust zoom level with mouse wheel
-      const delta = e.deltaY * -0.01;
-      const newZoomLevel = Math.max(1, Math.min(5, zoomLevel + delta));
-      
-      setZoomLevel(newZoomLevel);
-    }
-  }, [isZoomed, zoomLevel]);
+  }, [isZoomed, resetTransform]);
+
+  // Rotating the device keeps the page — that is the reading position, and
+  // losing it is unforgivable — but not the zoom, which was framed against a
+  // viewport that no longer exists.
+  useEffect(() => {
+    resetTransform();
+  }, [profile.orientation, resetTransform]);
+
+  // A turned page starts at natural scale and at the top, rather than inheriting
+  // wherever the last page happened to be panned to.
+  useEffect(() => {
+    resetTransform();
+  }, [currentPage, resetTransform]);
+
+  // Wheel zoom, around the pointer. Deliberately only once already zoomed: a
+  // wheel over an unzoomed page is somebody scrolling the page, not zooming it.
+  const handleWheel = useCallback((event) => {
+    if (!isZoomed) return;
+
+    event.preventDefault();
+    const rect = imageContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    pinch({
+      // Exponential, so a wheel notch is the same proportional step at every
+      // scale rather than a large one at 1x and an imperceptible one at 4x.
+      scale: Math.exp(event.deltaY * -0.002),
+      focal: { x: event.clientX - rect.left, y: event.clientY - rect.top },
+    });
+  }, [isZoomed, pinch]);
   
   // Add wheel event listener when zoomed
   useEffect(() => {
@@ -735,18 +799,90 @@ export default function ComicReader() {
   const handleReaderSettingsChange = useCallback((patch) => {
     // A fit choice describes the untransformed page. Leaving an old zoom
     // active makes that choice look broken, so return to natural scale first.
-    if (patch.fit && patch.fit !== settings.fit) {
-      setIsZoomed(false);
-      setZoomLevel(1);
+    if (patch.fit && patch.fit !== settings.fit) resetTransform();
+
+    // Once this screen has a page size of its own, the settings edit that and
+    // not the account default — otherwise changing the fit here would appear to
+    // do nothing while quietly changing how every other device reads.
+    if (hasContextOverride && Object.keys(patch).every((key) => OVERRIDABLE_SETTINGS.includes(key))) {
+      changeOverride(viewportContext, patch);
+      return;
     }
+
     changeSettings(patch);
-  }, [changeSettings, settings.fit]);
+  }, [changeOverride, changeSettings, hasContextOverride, resetTransform, settings.fit, viewportContext]);
+
+  const handleContextOverrideChange = useCallback((enabled) => {
+    if (enabled) {
+      changeOverride(viewportContext, { fit: settings.fit });
+      return;
+    }
+    clearOverride(viewportContext);
+  }, [changeOverride, clearOverride, settings.fit, viewportContext]);
 
   const handleResetReaderSettings = useCallback(() => {
-    setIsZoomed(false);
-    setZoomLevel(1);
+    resetTransform();
     resetPreferences();
-  }, [resetPreferences]);
+  }, [resetPreferences, resetTransform]);
+
+  const suggestedFit = suggestedFitFor(profile);
+  const suggestedFitLabel = READER_FITS.find(({ value }) => value === suggestedFit)?.label;
+  // Offered once per context per session, and never while this screen already
+  // has a page size somebody chose for it.
+  const isSuggestingFit = arePreferencesLoaded
+    && !hasContextOverride
+    && suggestedFit !== settings.fit
+    && !dismissedSuggestions[viewportContextKey(viewportContext)];
+
+  const dismissFitSuggestion = useCallback(() => {
+    setDismissedSuggestions((dismissed) => ({ ...dismissed, [viewportContextKey(viewportContext)]: true }));
+  }, [viewportContext]);
+
+  const acceptFitSuggestion = useCallback(() => {
+    resetTransform();
+    changeOverride(viewportContext, { fit: suggestedFit });
+    dismissFitSuggestion();
+  }, [changeOverride, dismissFitSuggestion, resetTransform, suggestedFit, viewportContext]);
+
+  // Controls fade out on their own where there is no pointer to bring them
+  // back on hover, and in fullscreen as they always have.
+  const autoHideChrome = settings.autoHideControls && (isFullscreen || profile.coarsePointer);
+  const { chromeVisible, revealChrome, toggleChrome } = useReaderChrome({
+    enabled: autoHideChrome,
+    pinned: isSettingsOpen || isControlFocused,
+  });
+  const isChromeHidden = autoHideChrome && !chromeVisible;
+
+  const gestures = useMemo(() => ({
+    onTap: ({ x }) => {
+      const zone = tapZone(x, imageContainerRef.current?.clientWidth ?? 0);
+      if (zone === "center") {
+        toggleChrome();
+        return;
+      }
+      // Direction of travel, not page order: the day a comic reads
+      // right-to-left, this is the one place that has to know.
+      if (zone === "left") handlePreviousPage();
+      else handleNextPage();
+    },
+    onDoubleTap: ({ x, y }) => doubleTapAt({ x, y }),
+    onSwipeMove: ({ dx }) => {
+      setIsSwiping(true);
+      setSwipeOffset(dx * SWIPE_FOLLOW);
+    },
+    onSwipe: ({ direction }) => {
+      setIsSwiping(false);
+      setSwipeOffset(0);
+      if (direction === "right") handlePreviousPage();
+      else handleNextPage();
+    },
+    onSwipeCancel: () => {
+      setIsSwiping(false);
+      setSwipeOffset(0);
+    },
+    onPan: ({ dx, dy }) => pan({ dx, dy }),
+    onPinch: ({ scale, focal }) => pinch({ scale, focal }),
+  }), [doubleTapAt, handleNextPage, handlePreviousPage, pan, pinch, toggleChrome]);
 
   if (isLoading) {
     return (
@@ -772,26 +908,46 @@ export default function ComicReader() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-background overflow-hidden">
-      {/* Navigation areas for clicking left/right sides of screen */}
-      <div
-        className={`page-navigation left-0 ${isFullscreen ? 'z-[55]' : ''}`}
-        style={{ bottom: '88px' }} // Leave space for controls to prevent overlap
-        onClick={() => handleScreenNavClick('left')}
-        aria-hidden="true"
-      ></div>
-      
-      <div 
-        className={`page-navigation right-0 ${isFullscreen ? 'z-[55]' : ''}`}
-        style={{ bottom: '88px' }} // Leave space for controls to prevent overlap
-        onClick={() => handleScreenNavClick('right')}
-        aria-hidden="true"
-      ></div>
-      
+    <div
+      className="reader-root flex flex-col items-center bg-background overflow-hidden"
+      // Focus anywhere in the reader pins the controls open: fading out the
+      // button somebody has just tabbed to would strand them on it.
+      onFocus={() => setIsControlFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setIsControlFocused(false);
+      }}
+      // A moving mouse is a reader who is still there. Touch has no equivalent,
+      // which is why a tap in the middle of the page toggles instead.
+      onPointerMove={(event) => {
+        if (event.pointerType === "mouse") revealChrome();
+      }}
+    >
+      {/* Click zones, for a pointer that has no gestures. Touch reaches the same
+          two actions through the gesture machine's tap zones, and rendering
+          these as well would give every tap two chances to turn the page. */}
+      {!profile.coarsePointer && (
+        <>
+          <div
+            className={`page-navigation left-0 ${isFullscreen ? 'z-[55]' : ''}`}
+            style={{ bottom: 'calc(88px + env(safe-area-inset-bottom))' }} // Leave space for controls to prevent overlap
+            onClick={() => handleScreenNavClick('left')}
+            aria-hidden="true"
+          ></div>
+
+          <div
+            className={`page-navigation right-0 ${isFullscreen ? 'z-[55]' : ''}`}
+            style={{ bottom: 'calc(88px + env(safe-area-inset-bottom))' }} // Leave space for controls to prevent overlap
+            onClick={() => handleScreenNavClick('right')}
+            aria-hidden="true"
+          ></div>
+        </>
+      )}
+
       {/* Main content area - adjusted height to account for the header in normal mode */}
-      <div className={`${settings.fit === "contain" || settings.fit === "height" ? "max-w-4xl" : "max-w-none"} w-full ${isFullscreen ? 'h-[calc(100vh-8rem)]' : 'h-[calc(100vh-10rem)]'} flex items-center justify-center py-4`}>
+      <div className={`${settings.fit === "contain" || settings.fit === "height" ? "max-w-4xl" : "max-w-none"} w-full ${isFullscreen ? 'reader-stage-fullscreen' : 'reader-stage'} flex items-center justify-center py-4`}>
         <SinglePageReader
           containerRef={imageContainerRef}
+          imageRef={imageRef}
           image={imageLoadedSuccessfully ? currentPageImage : null}
           isLoading={isPageImageLoading}
           hasFailed={!isPageImageLoading && !imageLoadedSuccessfully && comicPages.length > 0 && Boolean(comicPages[currentPage])}
@@ -799,22 +955,12 @@ export default function ComicReader() {
           title={comic?.title}
           fit={settings.fit}
           isFullscreen={isFullscreen}
-          isZoomed={isZoomed}
-          zoomLevel={zoomLevel}
-          mousePosition={mousePosition}
-          onMouseMove={(e) => {
-            if (isZoomed) {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const x = (e.clientX - rect.left) / rect.width;
-              const y = (e.clientY - rect.top) / rect.height;
-              setMousePosition({ x, y });
-            }
-          }}
+          transform={transform}
+          swipeOffset={swipeOffset}
+          isSwiping={isSwiping}
+          gestures={gestures}
           onImageClick={() => {
-            if (isZoomed) {
-              setIsZoomed(false);
-              setZoomLevel(1);
-            }
+            if (isZoomed) zoomToFit();
           }}
           onRetry={() => {
             setImageCache((previousCache) => {
@@ -832,15 +978,17 @@ export default function ComicReader() {
           <div
             role="group"
             aria-label="Reader view controls"
-            className={isFullscreen
-              ? `fullscreen-controls ${settings.autoHideControls ? "fullscreen-controls-auto-hide" : ""}`
-              : "absolute top-2 right-2 z-10 flex gap-2"}
+            className={`${isFullscreen ? "fullscreen-controls" : "absolute top-2 right-2 z-10 flex gap-2 transition-opacity duration-300 motion-reduce:transition-none"} ${isChromeHidden ? "reader-chrome-hidden" : ""}`}
           >
             <ReaderSettings
               settings={settings}
               isLoaded={arePreferencesLoaded}
               isSaving={arePreferencesSaving}
+              contextLabel={describeViewportContext(profile)}
+              hasOverride={hasContextOverride}
               onChange={handleReaderSettingsChange}
+              onOverrideChange={handleContextOverrideChange}
+              onOpenChange={setIsSettingsOpen}
               onReset={handleResetReaderSettings}
             />
 
@@ -856,30 +1004,24 @@ export default function ComicReader() {
             </Button>
             
             {isZoomed ? (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="icon"
                 className="opacity-80 hover:opacity-100 bg-card/80"
                 disabled={!arePreferencesLoaded}
-                onClick={() => {
-                  setIsZoomed(false);
-                  setZoomLevel(1);
-                }}
+                onClick={zoomToFit}
                 aria-label="Zoom out"
                 title="Zoom out"
               >
                 <ZoomOut className="h-4 w-4" />
               </Button>
             ) : (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="icon"
                 className="opacity-80 hover:opacity-100 bg-card/80"
                 disabled={!arePreferencesLoaded}
-                onClick={() => {
-                  setIsZoomed(true);
-                  setZoomLevel(2);
-                }}
+                onClick={() => stepZoomBy(2)}
                 aria-label="Zoom in"
                 title="Zoom in"
               >
@@ -956,9 +1098,10 @@ export default function ComicReader() {
               </p>
               <p>Loading: {isPageImageLoading ? 'Yes' : 'No'}</p>
               <p>Cached pages: {Object.keys(imageCache).length}</p>
-              <p>Cache window: {Math.max(0, currentPage - CACHE_SIZE_BACKWARD) + 1} - {Math.min(comicPages.length - 1, currentPage + CACHE_SIZE_FORWARD) + 1}</p>
+              <p>Cache window: {Math.max(0, currentPage - preloadWindow.backward) + 1} - {Math.min(comicPages.length - 1, currentPage + preloadWindow.forward) + 1}</p>
+              <p>Screen: {profile.device} {profile.orientation} ({profile.coarsePointer ? 'touch' : 'pointer'}, {profile.memory} memory)</p>
               {isZoomed && (
-                <p>Zoom level: {Math.round(zoomLevel * 100)}%</p>
+                <p>Zoom level: {Math.round(transform.scale * 100)}%</p>
               )}
               <div className="mt-2">
                 <p className="font-semibold">Cache status:</p>
@@ -1008,13 +1151,20 @@ export default function ComicReader() {
         />
       )}
 
+      {isSuggestingFit && (
+        <ReaderFitSuggestion
+          fitLabel={suggestedFitLabel}
+          contextLabel={describeViewportContext(profile)}
+          onAccept={acceptFitSuggestion}
+          onDismiss={dismissFitSuggestion}
+        />
+      )}
+
       {/* Reader controls - different styling in fullscreen mode */}
       <div
         role="group"
         aria-label="Reader page controls"
-        className={isFullscreen
-          ? `reader-controls-fullscreen ${settings.autoHideControls ? "" : "reader-controls-pinned"}`
-          : "reader-controls"}
+        className={`reader-controls ${isFullscreen ? "reader-controls-fullscreen" : ""} ${isChromeHidden ? "reader-chrome-hidden" : ""}`}
       >
         {/* How far through the comic this page is, at a glance */}
         {settings.showProgress && comicPages.length > 0 && (
@@ -1079,7 +1229,7 @@ export default function ComicReader() {
             </form>
             {isZoomed && (
               <div className="text-xs bg-primary/20 px-2 py-1 rounded">
-                {Math.round(zoomLevel * 100)}% zoom
+                {Math.round(transform.scale * 100)}% zoom
               </div>
             )}
           </div>

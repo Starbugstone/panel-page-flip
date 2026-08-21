@@ -13,20 +13,41 @@ const IDLE_MS = 3000;
  */
 export function useReaderChrome({ enabled = true, pinned = false, idleMs = IDLE_MS } = {}) {
   const [visible, setVisible] = useState(true);
-  const timerRef = useRef(null);
+  // A mouse moving across the page is a reader who is still there, and there
+  // are hundreds of those events a second. Keeping the last of them in a ref
+  // means staying is free; only appearing and disappearing costs a render.
+  const lastActivityRef = useRef(0);
 
-  const reveal = useCallback(() => setVisible(true), []);
-  const toggle = useCallback(() => setVisible((shown) => !shown), []);
+  const reveal = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    setVisible(true);
+  }, []);
+
+  const toggle = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    setVisible((shown) => !shown);
+  }, []);
 
   useEffect(() => {
-    clearTimeout(timerRef.current);
     // Pinned covers both the preference to keep controls up and the moment a
     // control has focus or a popover open. Hiding then would take the thing
     // under the user's finger away mid-use.
     if (!visible || !enabled || pinned) return undefined;
 
-    timerRef.current = setTimeout(() => setVisible(false), idleMs);
-    return () => clearTimeout(timerRef.current);
+    let timer = null;
+    const check = () => {
+      const idleFor = Date.now() - lastActivityRef.current;
+      if (idleFor >= idleMs) {
+        setVisible(false);
+        return;
+      }
+      // Something happened while this was waiting; give it the rest of its time
+      // rather than hiding on the schedule the last render set.
+      timer = setTimeout(check, idleMs - idleFor);
+    };
+
+    timer = setTimeout(check, idleMs);
+    return () => clearTimeout(timer);
   }, [visible, enabled, pinned, idleMs]);
 
   // Focus arriving from the keyboard has to bring the controls back with it,
@@ -44,11 +65,13 @@ export function useReaderChrome({ enabled = true, pinned = false, idleMs = IDLE_
     };
   }, [enabled]);
 
-  // Turning auto-hide off is an instruction, not just a future policy: the
-  // controls that are currently faded out have to come back.
-  useEffect(() => {
-    if (!enabled) setVisible(true);
-  }, [enabled]);
+  // Turning auto-hide off is an instruction, not just a future policy, and
+  // turning it back on should not start from controls that are already gone.
+  const [wasEnabled, setWasEnabled] = useState(enabled);
+  if (wasEnabled !== enabled) {
+    setWasEnabled(enabled);
+    setVisible(true);
+  }
 
   return { chromeVisible: visible || !enabled, revealChrome: reveal, toggleChrome: toggle };
 }

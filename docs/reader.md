@@ -21,6 +21,59 @@ Changing page size does not reload the comic or reset reading progress. Changing
 it while zoomed returns the page to its natural scale so the selected fit is
 immediately clear.
 
+## Reading with a finger
+
+Touch reading is not the desktop reader with the mouse taken away. One gesture
+model covers the whole page surface:
+
+| Gesture | Action |
+| --- | --- |
+| Tap the left or right edge | Previous or next page |
+| Tap the middle | Show or hide the reader controls |
+| Swipe left or right | Next or previous page |
+| Double tap | Zoom to readable width around what was tapped; again to come back |
+| Pinch | Zoom around the middle of the two fingers |
+| Drag while zoomed | Pan the page, never turn it |
+| Drag a page taller than the screen | The browser's own scrolling, untouched |
+
+The rules between them matter as much as the gestures themselves. A pinch never
+becomes a page turn, however far the first finger travelled. A finger left over
+from a pinch does nothing on its way off the glass. The first tap of a double
+tap does not flash the controls before the zoom it was really asking for, and a
+drag that wanders off axis is a scroll rather than a page turn.
+
+A mouse keeps its click zones, its wheel and its hover. It has a cursor and does
+not need any of this disambiguating, so it does not go through it.
+
+## Page size on this screen
+
+**Different page size here** in reader settings gives the device and orientation
+you are reading on its own page size, leaving every other screen with the
+account default. A phone held upright and a tablet turned sideways are separate
+contexts, as are portrait and landscape on the same device.
+
+The reader will suggest a fit that suits the screen — fit width on a phone in
+portrait, best fit on a tablet — as a small prompt above the controls. It is a
+suggestion: accepting it records a page size for that context, and dismissing it
+means nothing changes. Rotating a device never rewrites a choice on its own.
+
+Contexts are recognised from what the browser reports about the viewport and the
+pointer, never from the user-agent string, so a narrow desktop window gets a
+narrow layout without being mistaken for a phone.
+
+## Controls that get out of the way
+
+Where there is no mouse to hover, and in fullscreen, the controls fade out after
+a few seconds of reading and come back on a tap in the middle of the page. They
+never fade while one of them has focus or a settings popover is open, any
+keyboard interaction brings them straight back, and faded controls stop
+accepting taps rather than sitting invisibly over the artwork. **Fade fullscreen
+controls** turns the whole behaviour off.
+
+Reader controls stay clear of browser chrome, notches and the home indicator,
+and the reading area follows the browser's chrome as it grows and shrinks rather
+than assuming one fixed height.
+
 ## Page navigator
 
 The grid button at the top-right opens a strip of page thumbnails along the
@@ -30,6 +83,15 @@ tab-reachable and activate with Enter or Space.
 
 Thumbnails load around wherever you are rather than all at once, so opening the
 navigator on a long book does not fetch hundreds of images.
+
+## How far ahead it reads
+
+The pages held ready around the current one are chosen from what the device can
+afford, not from a fixed number: roughly five pages ahead on a desktop, three on
+a tablet, two on a phone, halved again where the browser reports little memory,
+and cut to the next page alone when the connection is slow or the user has asked
+to save data. There is no setting; the same window decides both what is fetched
+early and what is released.
 
 ## Page quality
 
@@ -43,8 +105,11 @@ behind them.
 ## Other settings
 
 - **Show progress bar** displays the slim indicator above the page controls.
-- **Fade fullscreen controls** hides the bottom controls until pointer hover or
-  keyboard focus. Turning it off keeps the controls visible.
+- **Fade fullscreen controls** lets the controls take themselves off screen while
+  you read — in fullscreen, and on a touchscreen, where there is no hover to
+  bring them back. Turning it off keeps them visible.
+- **Different page size here** keeps a separate page size for the device and
+  orientation you are reading on. See [Page size on this screen](#page-size-on-this-screen).
 - **Keep screen awake** requests the browser's screen wake lock while the reader
   is open. Unsupported or denied wake locks do not interrupt reading.
 
@@ -79,8 +144,14 @@ Page width, height and aspect ratio are available from
 `/api/comics/{id}/pages` before the images themselves are fetched, so a spread or
 continuous renderer can lay pages out without downloading them first.
 
-The persisted preference envelope is versioned and already reserves an
-`overrides` section for validated device/orientation contexts. Unsupported modes,
-directions, and override data are rejected until their renderer or context logic
-is present; later reader work can extend the allowed values centrally without
-replacing existing user settings.
+The persisted preference envelope is versioned. Its `overrides` section holds
+one entry per device/orientation context, each carrying only settings a context
+is allowed to have — today that is the page size, because choosing a renderer
+stays global. Unsupported modes, directions and contexts are rejected on write
+and dropped on read, so one entry from a newer client can never cost a user the
+settings they made everywhere else.
+
+Gesture recognition, the zoom transform, the viewport classification and the
+preload window are each a pure module with its own tests, and the reader
+component only receives their verdicts. A spread or continuous renderer changes
+what a "next page" means without reopening any of them.

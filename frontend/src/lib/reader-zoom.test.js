@@ -8,7 +8,9 @@ import {
   isZoomed,
   panBy,
   readableWidthScale,
+  scrollFromTransform,
   stepZoom,
+  transformFromScroll,
   zoomAbout,
 } from "./reader-zoom";
 
@@ -133,5 +135,31 @@ describe("readable width", () => {
   it("falls back rather than dividing by a page it has not measured", () => {
     expect(readableWidthScale({ viewport, content: { width: 0, height: 0 } })).toBe(2);
     expect(readableWidthScale({})).toBe(2);
+  });
+});
+
+describe("a scrolled page and a panned page", () => {
+  // A page fitted to the width of a phone: twice as tall as the screen.
+  const tall = { viewport: { width: 400, height: 800 }, content: { width: 400, height: 1600 } };
+
+  it("describes the same picture either way", () => {
+    const scrolled = { scrollLeft: 0, scrollTop: 300 };
+    const transform = transformFromScroll({ ...tall, ...scrolled });
+
+    expect(scrollFromTransform(transform, tall)).toEqual(scrolled);
+  });
+
+  it("puts the top of a page at the top, not the middle", () => {
+    const transform = transformFromScroll({ ...tall, scrollTop: 0 });
+
+    // 1600 tall in an 800 viewport: the untransformed centre sits 400 too low.
+    expect(transform.y).toBe(400);
+    expect(clampTransform(transform, tall)).toEqual(transform);
+  });
+
+  it("never asks a container to scroll to a negative offset", () => {
+    const wide = { viewport: { width: 400, height: 800 }, content: { width: 300, height: 800 } };
+
+    expect(scrollFromTransform({ scale: 1, x: 0, y: 0 }, wide)).toEqual({ scrollLeft: 0, scrollTop: 0 });
   });
 });
