@@ -18,10 +18,10 @@ final class ReaderPreferences
     public const SCHEMA_VERSION = 1;
 
     /** @var list<string> */
-    private const MODES = ['single'];
+    private const MODES = ['single', 'double', 'continuous'];
 
     /** @var list<string> */
-    private const DIRECTIONS = ['ltr'];
+    private const DIRECTIONS = ['ltr', 'rtl'];
 
     /** @var list<string> */
     private const FITS = ['contain', 'width', 'height', 'original'];
@@ -50,9 +50,11 @@ final class ReaderPreferences
      *         fit: string,
      *         autoHideControls: bool,
      *         showProgress: bool,
-     *         wakeLock: bool
+     *         wakeLock: bool,
+     *         coverAlone: bool
      *     },
-     *     overrides: list<array{context: array{device: string, orientation: string}, settings: array{fit: string}}>
+     *     overrides: list<array{context: array{device: string, orientation: string}, settings: array{fit: string}}>,
+     *     dismissedSuggestions: list<string>
      * }
      */
     public function defaults(): array
@@ -66,10 +68,12 @@ final class ReaderPreferences
                 'autoHideControls' => true,
                 'showProgress' => true,
                 'wakeLock' => true,
+                'coverAlone' => true,
             ],
             // One entry per device/orientation the reader has been told about;
             // an account that has never said anything has none.
             'overrides' => [],
+            'dismissedSuggestions' => [],
         ];
     }
 
@@ -106,9 +110,25 @@ final class ReaderPreferences
                 'wakeLock' => is_bool($settings['wakeLock'] ?? null)
                     ? $settings['wakeLock']
                     : $defaults['settings']['wakeLock'],
+                'coverAlone' => is_bool($settings['coverAlone'] ?? null)
+                    ? $settings['coverAlone']
+                    : $defaults['settings']['coverAlone'],
             ],
             'overrides' => $this->normalizeOverrides($stored['overrides'] ?? null),
+            'dismissedSuggestions' => $this->normalizeDismissedSuggestions($stored['dismissedSuggestions'] ?? null),
         ];
+    }
+
+    /** @return list<string> */
+    private function normalizeDismissedSuggestions(mixed $stored): array
+    {
+        if (!is_array($stored)) {
+            return [];
+        }
+
+        $valid = array_filter($stored, static fn (mixed $value): bool => is_string($value) && $value !== '' && strlen($value) <= 80);
+
+        return array_slice(array_values(array_unique($valid)), 0, 24);
     }
 
     /**
@@ -163,7 +183,7 @@ final class ReaderPreferences
             throw new \InvalidArgumentException('preferences must be an object.');
         }
 
-        $this->assertExactKeys($candidate, ['schemaVersion', 'settings', 'overrides'], 'preferences');
+        $this->assertExactKeys($candidate, ['schemaVersion', 'settings', 'overrides', 'dismissedSuggestions'], 'preferences');
 
         if (($candidate['schemaVersion'] ?? null) !== self::SCHEMA_VERSION) {
             throw new \InvalidArgumentException('schemaVersion is not supported.');
@@ -175,8 +195,19 @@ final class ReaderPreferences
         }
 
         $this->assertValidOverrides($candidate['overrides'] ?? null);
+        $dismissedSuggestions = $candidate['dismissedSuggestions'] ?? null;
+        if (!is_array($dismissedSuggestions) || !array_is_list($dismissedSuggestions)
+            || count($dismissedSuggestions) > 24
+            || count(array_unique($dismissedSuggestions, SORT_REGULAR)) !== count($dismissedSuggestions)) {
+            throw new \InvalidArgumentException('dismissedSuggestions must be a unique bounded list.');
+        }
+        foreach ($dismissedSuggestions as $suggestion) {
+            if (!is_string($suggestion) || $suggestion === '' || strlen($suggestion) > 80) {
+                throw new \InvalidArgumentException('dismissed suggestion is invalid.');
+            }
+        }
 
-        $required = ['mode', 'direction', 'fit', 'autoHideControls', 'showProgress', 'wakeLock'];
+        $required = ['mode', 'direction', 'fit', 'autoHideControls', 'showProgress', 'wakeLock', 'coverAlone'];
         $this->assertExactKeys($settings, $required, 'settings');
 
         if (!in_array($settings['mode'], self::MODES, true)) {
@@ -189,7 +220,7 @@ final class ReaderPreferences
             throw new \InvalidArgumentException('fit is not supported.');
         }
 
-        foreach (['autoHideControls', 'showProgress', 'wakeLock'] as $field) {
+        foreach (['autoHideControls', 'showProgress', 'wakeLock', 'coverAlone'] as $field) {
             if (!is_bool($settings[$field])) {
                 throw new \InvalidArgumentException(sprintf('%s must be a boolean.', $field));
             }

@@ -38,6 +38,7 @@ export function classifyViewport({
   width = 0,
   height = 0,
   coarsePointer = false,
+  touchCapable = coarsePointer,
   hasHover = true,
   deviceMemory,
 } = {}) {
@@ -52,6 +53,7 @@ export function classifyViewport({
     device,
     orientation: height >= width ? "portrait" : "landscape",
     coarsePointer,
+    touchCapable,
     hasHover,
     memory: memoryTier(deviceMemory),
   };

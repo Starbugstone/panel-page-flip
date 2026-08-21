@@ -7,11 +7,24 @@ export const READER_FITS = Object.freeze([
   { value: "original", label: "Original size" },
 ]);
 
+export const READER_MODES = Object.freeze([
+  { value: "single", label: "Single page" },
+  { value: "double", label: "Two pages" },
+  { value: "continuous", label: "Continuous scroll" },
+]);
+
+export const READER_DIRECTIONS = Object.freeze([
+  { value: "ltr", label: "Left to right" },
+  { value: "rtl", label: "Right to left" },
+]);
+
 const FIT_VALUES = new Set(READER_FITS.map(({ value }) => value));
+const MODE_VALUES = new Set(READER_MODES.map(({ value }) => value));
+const DIRECTION_VALUES = new Set(READER_DIRECTIONS.map(({ value }) => value));
 
 // What a device/orientation context may say for itself. A context chooses how a
-// page is sized on this shape of screen; it does not get to select a renderer,
-// so mode and direction stay global until their own work lands.
+// page is sized on this shape of screen; mode and direction remain deliberate
+// account-wide reading choices rather than changing when a device rotates.
 export const OVERRIDABLE_SETTINGS = Object.freeze(["fit"]);
 
 // One per context and no more: the set of contexts is closed, so a longer list
@@ -27,8 +40,10 @@ export const DEFAULT_READER_PREFERENCES = Object.freeze({
     autoHideControls: true,
     showProgress: true,
     wakeLock: true,
+    coverAlone: true,
   }),
   overrides: Object.freeze([]),
+  dismissedSuggestions: Object.freeze([]),
 });
 
 function normalizeOverride(candidate) {
@@ -68,14 +83,18 @@ export function normalizeReaderPreferences(candidate) {
   return {
     schemaVersion: 1,
     settings: {
-      mode: settings.mode === "single" ? settings.mode : "single",
-      direction: settings.direction === "ltr" ? settings.direction : "ltr",
+      mode: MODE_VALUES.has(settings.mode) ? settings.mode : "single",
+      direction: DIRECTION_VALUES.has(settings.direction) ? settings.direction : "ltr",
       fit: FIT_VALUES.has(settings.fit) ? settings.fit : "contain",
       autoHideControls: typeof settings.autoHideControls === "boolean" ? settings.autoHideControls : true,
       showProgress: typeof settings.showProgress === "boolean" ? settings.showProgress : true,
       wakeLock: typeof settings.wakeLock === "boolean" ? settings.wakeLock : true,
+      coverAlone: typeof settings.coverAlone === "boolean" ? settings.coverAlone : true,
     },
     overrides: isCurrentSchema ? normalizeOverrides(candidate.overrides) : [],
+    dismissedSuggestions: isCurrentSchema && Array.isArray(candidate.dismissedSuggestions)
+      ? [...new Set(candidate.dismissedSuggestions.filter((value) => typeof value === "string" && value.length > 0 && value.length <= 80))].slice(0, 24)
+      : [],
   };
 }
 
@@ -127,4 +146,13 @@ export function clearReaderOverride(preferences, context) {
 
 export function hasReaderOverride(preferences, context) {
   return Boolean(preferences?.overrides?.some((entry) => contextsMatch(entry.context, context)));
+}
+
+export function dismissReaderSuggestion(preferences, suggestionId) {
+  if (typeof suggestionId !== "string" || suggestionId.length === 0 || suggestionId.length > 80) return normalizeReaderPreferences(preferences);
+
+  return normalizeReaderPreferences({
+    ...preferences,
+    dismissedSuggestions: [...(preferences.dismissedSuggestions ?? []), suggestionId],
+  });
 }

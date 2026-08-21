@@ -24,23 +24,19 @@ describe("how much page to ask the server for", () => {
     expect(result.current).toBe("reader-large");
   });
 
-  it("moves up a rung when the page is zoomed, and never back down", () => {
+  it("requests the smallest sufficient rung as the rendered size changes", () => {
     const ref = container(700);
     const { result, rerender } = renderHook(
       ({ zoomLevel }) => usePageVariant(ref, { zoomLevel }),
       { initialProps: { zoomLevel: 1 } }
     );
-    // A narrow container does not ask for less than the reader already opened
-    // with: the ladder only ever goes up.
-    expect(result.current).toBe("reader-medium");
+    expect(result.current).toBe("reader-small");
 
     rerender({ zoomLevel: 2.5 });
     expect(result.current).toBe("reader-large");
 
-    // The bytes for the larger image are already paid for; going back down
-    // would spend a fresh download to show less than what is on screen.
     rerender({ zoomLevel: 1 });
-    expect(result.current).toBe("reader-large");
+    expect(result.current).toBe("reader-small");
   });
 
   /**

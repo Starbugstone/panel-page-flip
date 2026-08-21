@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_READER_PREFERENCES,
   clearReaderOverride,
+  dismissReaderSuggestion,
   effectiveReaderSettings,
   hasReaderOverride,
   normalizeReaderPreferences,
@@ -34,6 +35,22 @@ describe("reader preferences", () => {
     expect(updated.settings.fit).toBe("width");
     expect(updated.settings.showProgress).toBe(false);
     expect(updated.settings).not.toHaveProperty("arbitrary");
+  });
+
+  it("accepts every implemented mode and direction", () => {
+    const normalized = normalizeReaderPreferences({
+      ...DEFAULT_READER_PREFERENCES,
+      settings: { ...DEFAULT_READER_PREFERENCES.settings, mode: "continuous", direction: "rtl" },
+    });
+
+    expect(normalized.settings).toMatchObject({ mode: "continuous", direction: "rtl" });
+  });
+
+  it("persists a dismissed suggestion once", () => {
+    const once = dismissReaderSuggestion(DEFAULT_READER_PREFERENCES, "fit:phone:portrait");
+    const twice = dismissReaderSuggestion(once, "fit:phone:portrait");
+
+    expect(twice.dismissedSuggestions).toEqual(["fit:phone:portrait"]);
   });
 });
 

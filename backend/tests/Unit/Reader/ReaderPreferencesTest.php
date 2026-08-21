@@ -32,7 +32,7 @@ final class ReaderPreferencesTest extends TestCase
         ]);
 
         self::assertSame('single', $normalized['settings']['mode']);
-        self::assertSame('ltr', $normalized['settings']['direction']);
+        self::assertSame('rtl', $normalized['settings']['direction']);
         self::assertSame('width', $normalized['settings']['fit']);
         self::assertFalse($normalized['settings']['autoHideControls']);
         self::assertTrue($normalized['settings']['showProgress']);
@@ -84,8 +84,11 @@ final class ReaderPreferencesTest extends TestCase
     public function testValidReplacementIsAccepted(): void
     {
         $candidate = $this->preferences->defaults();
+        $candidate['settings']['mode'] = 'continuous';
+        $candidate['settings']['direction'] = 'rtl';
         $candidate['settings']['fit'] = 'original';
         $candidate['settings']['showProgress'] = false;
+        $candidate['dismissedSuggestions'] = ['fit:phone:portrait', 'mode:tablet:landscape'];
 
         self::assertSame($candidate, $this->preferences->validate($candidate));
     }
@@ -136,11 +139,16 @@ final class ReaderPreferencesTest extends TestCase
             'untrusted' => ['anything'],
         ]];
         yield 'unsupported mode' => [[
-            'schemaVersion' => 1,
-            'settings' => [
-                ...$defaults['settings'],
-                'mode' => 'double',
-            ],
+            ...$defaults,
+            'settings' => [...$defaults['settings'], 'mode' => 'holographic'],
+        ]];
+        yield 'duplicate dismissed suggestion' => [[
+            ...$defaults,
+            'dismissedSuggestions' => ['fit:phone:portrait', 'fit:phone:portrait'],
+        ]];
+        yield 'invalid dismissed suggestion' => [[
+            ...$defaults,
+            'dismissedSuggestions' => [''],
         ]];
         yield 'wrong boolean type' => [[
             'schemaVersion' => 1,

@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger";
 import {
   DEFAULT_READER_PREFERENCES,
   clearReaderOverride,
+  dismissReaderSuggestion,
   normalizeReaderPreferences,
   setReaderOverride,
   updateReaderSettings,
@@ -114,6 +115,10 @@ export function useReaderPreferences(toast) {
     save(clearReaderOverride(preferencesRef.current, context));
   }, [save]);
 
+  const dismissSuggestion = useCallback((suggestionId) => {
+    save(dismissReaderSuggestion(preferencesRef.current, suggestionId));
+  }, [save]);
+
   const resetPreferences = useCallback(() => {
     changedLocallyRef.current = true;
     applyPreferences(DEFAULT_READER_PREFERENCES);
@@ -129,6 +134,7 @@ export function useReaderPreferences(toast) {
     changeSettings,
     changeOverride,
     clearOverride,
+    dismissSuggestion,
     resetPreferences,
   };
 }

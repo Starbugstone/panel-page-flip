@@ -1,27 +1,45 @@
-﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, ArrowRight, LayoutGrid, Maximize, Minimize, RefreshCw, ZoomIn, ZoomOut } from "lucide-react";
+
+import { ContinuousPageReader } from "@/components/reader/ContinuousPageReader";
+import { ReaderFitSuggestion } from "@/components/reader/ReaderFitSuggestion";
+import { ReaderSettings } from "@/components/reader/ReaderSettings";
+import { ReaderThumbnailStrip } from "@/components/reader/ReaderThumbnailStrip";
+import { SinglePageReader } from "@/components/reader/SinglePageReader";
+import { SpreadPageReader } from "@/components/reader/SpreadPageReader";
 import { Button } from "@/components/ui/button.jsx";
-import { ArrowLeft, ArrowRight, Info, LayoutGrid, Maximize, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
-import { useToast } from "@/hooks/use-toast.js";
-import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { Progress } from "@/components/ui/progress.jsx";
-import { api } from "@/lib/api";
-import { logger } from "@/lib/logger";
-import { isTypingTarget } from "@/lib/keyboard";
-import { parsePageNumber } from "@/lib/comic-progress";
-import { toggleFullscreen } from "@/lib/fullscreen";
+import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
+import { usePageGeometry } from "@/hooks/use-page-geometry";
+import { usePageVariant } from "@/hooks/use-page-variant";
+import { usePreloadWindow } from "@/hooks/use-preload-window";
+import { useReaderChrome } from "@/hooks/use-reader-chrome";
 import { useReaderNavigation } from "@/hooks/use-reader-navigation";
 import { useReaderPreferences } from "@/hooks/use-reader-preferences.jsx";
-import { useReaderWakeLock } from "@/hooks/use-reader-wake-lock";
-import { useReaderChrome } from "@/hooks/use-reader-chrome";
 import { useReaderTransform } from "@/hooks/use-reader-transform";
+import { useReaderWakeLock } from "@/hooks/use-reader-wake-lock";
+import { useToast } from "@/hooks/use-toast.js";
 import { useViewportProfile } from "@/hooks/use-viewport-profile";
-import { usePageVariant } from "@/hooks/use-page-variant";
-import { usePageGeometry } from "@/hooks/use-page-geometry";
-import { createComicPageUrls, withForcedReload } from "@/lib/reader-pages";
+import { api } from "@/lib/api";
+import { parsePageNumber } from "@/lib/comic-progress";
+import { toggleFullscreen } from "@/lib/fullscreen";
+import { isTypingTarget } from "@/lib/keyboard";
+import { logger } from "@/lib/logger";
 import { tapZone } from "@/lib/reader-gestures";
-import { usePreloadWindow } from "@/hooks/use-preload-window";
+import {
+  adjacentReadingPage,
+  buildReadingUnits,
+  displayOrderFor,
+  pageRangeLabel,
+  readingUnitForPage,
+} from "@/lib/reader-layout";
+import {
+  createReaderPageUrl,
+  isPageVariantAtLeast,
+  withForcedReload,
+} from "@/lib/reader-pages";
 import {
   DEFAULT_READER_PREFERENCES,
   OVERRIDABLE_SETTINGS,
@@ -30,45 +48,94 @@ import {
   hasReaderOverride,
 } from "@/lib/reader-preferences";
 import { describeViewportContext, suggestedFitFor, viewportContextKey } from "@/lib/reader-viewport";
-import { ReaderFitSuggestion } from "@/components/reader/ReaderFitSuggestion";
-import { ReaderSettings } from "@/components/reader/ReaderSettings";
-import { ReaderThumbnailStrip } from "@/components/reader/ReaderThumbnailStrip";
-import { SinglePageReader } from "@/components/reader/SinglePageReader";
 
-// How far the page follows a finger that is mid-swipe. Not one-to-one: there is
-// no next page rendered behind it to slide in, so a full-width drag would pull
-// the artwork off a blank screen.
 const SWIPE_FOLLOW = 0.35;
+const MODE_SUGGESTION_ID = "mode:tablet:landscape";
+const isUsableImage = (value) => Boolean(value) && value !== "loading" && value !== "failed";
 
 export default function ComicReader() {
   const { comicId } = useParams();
-  const [comic, setComic] = useState(null);
-  const [loadError, setLoadError] = useState(null);
-  const [pageCount, setPageCount] = useState(0);
-  const [isFetchingComic, setIsFetchingComic] = useState(true); // For overall comic data
-  const [imageCache, setImageCache] = useState({});
-  const [showDebug, setShowDebug] = useState(false); // For debug panel
-  const [showThumbnails, setShowThumbnails] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [swipeOffset, setSwipeOffset] = useState(0);
-  const [isSwiping, setIsSwiping] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isControlFocused, setIsControlFocused] = useState(false);
-  const [dismissedSuggestions, setDismissedSuggestions] = useState({});
-  const imageContainerRef = useRef(null);
-  const imageRef = useRef(null);
-  const pageInputRef = useRef(null);
   const navigate = useNavigate();
   const { toast } = useToast();
   const { updateComicProgress } = useComicLibrary();
-  // What kind of screen this is being read on. Everything device-shaped below —
-  // how far to preload, which fit suits, whether taps have to stand in for
-  // hover — comes from here rather than from a user-agent string.
+  const [comic, setComic] = useState(null);
+  const [pageCount, setPageCount] = useState(0);
+  const [loadError, setLoadError] = useState(null);
+  const [isFetchingComic, setIsFetchingComic] = useState(true);
+  const [imageCache, setImageCache] = useState({});
+  const [loadedVariants, setLoadedVariants] = useState({});
+  const [showThumbnails, setShowThumbnails] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isControlFocused, setIsControlFocused] = useState(false);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const [fallbackImages, setFallbackImages] = useState([]);
+
+  const imageContainerRef = useRef(null);
+  const imageRef = useRef(null);
+  const imageCacheRef = useRef({});
+  const pageInputRef = useRef(null);
+  const progressAbortController = useRef(null);
+  const progressRevisionRef = useRef(0);
+  const lastSavedPage = useRef(null);
+  const isMountedRef = useRef(true);
+  const loadedVariantsRef = useRef({});
+  const loadingPagesRef = useRef({});
+  const loadQueueRef = useRef([]);
+  const isLoadingBackgroundRef = useRef(false);
+  const updateImageCache = useCallback((update) => {
+    setImageCache((previous) => {
+      const next = typeof update === "function" ? update(previous) : update;
+      imageCacheRef.current = next;
+      return next;
+    });
+  }, []);
+  const updateLoadedVariants = useCallback((update) => {
+    setLoadedVariants((previous) => typeof update === "function" ? update(previous) : update);
+  }, []);
+
   const profile = useViewportProfile();
   const viewportContext = useMemo(
     () => ({ device: profile.device, orientation: profile.orientation }),
     [profile.device, profile.orientation]
   );
+  const {
+    preferences,
+    isLoaded: arePreferencesLoaded,
+    isSaving: arePreferencesSaving,
+    changeSettings,
+    changeOverride,
+    clearOverride,
+    dismissSuggestion,
+    resetPreferences,
+  } = useReaderPreferences(toast);
+  const settings = useMemo(
+    () => effectiveReaderSettings(preferences, viewportContext),
+    [preferences, viewportContext]
+  );
+  const hasContextOverride = hasReaderOverride(preferences, viewportContext);
+  const { currentPage, currentPageRef, goToPage: goToLogicalPage, resetPage } = useReaderNavigation(pageCount);
+  const { geometry: pageGeometry } = usePageGeometry(comicId, pageCount, currentPage);
+
+  const effectiveMode = settings.mode === "continuous"
+    ? "continuous"
+    : settings.mode === "double" && profile.orientation === "landscape" && profile.device !== "phone"
+      ? "double"
+      : "single";
+  const readingUnits = useMemo(
+    () => buildReadingUnits(pageCount, pageGeometry, { coverAlone: settings.coverAlone }),
+    [pageCount, pageGeometry, settings.coverAlone]
+  );
+  const currentUnit = useMemo(
+    () => effectiveMode === "double" ? readingUnitForPage(readingUnits, currentPage) : [currentPage],
+    [currentPage, effectiveMode, readingUnits]
+  );
+  const visiblePages = useMemo(
+    () => displayOrderFor(currentUnit, settings.direction),
+    [currentUnit, settings.direction]
+  );
+
   const {
     transform,
     isZoomed,
@@ -79,755 +146,371 @@ export default function ComicReader() {
     zoomToFit,
     resetTransform,
   } = useReaderTransform({ containerRef: imageContainerRef, imageRef });
-  // Which size of page this screen is worth asking for. Zoom raises it a rung;
-  // nothing here ever reaches for the source scan.
-  const pageVariant = usePageVariant(imageContainerRef, { zoomLevel: transform.scale });
-  const comicPages = useMemo(
-    () => createComicPageUrls(comicId, pageCount, pageVariant),
-    [comicId, pageCount, pageVariant]
-  );
-  const {
-    currentPage,
-    currentPageRef,
-    goToPage,
-    goPrevious: handlePreviousPage,
-    goNext: handleNextPage,
-    resetPage,
-    canGoPrevious,
-    canGoNext,
-  } = useReaderNavigation(comicPages.length);
-  const {
-    preferences,
-    isLoaded: arePreferencesLoaded,
-    isSaving: arePreferencesSaving,
-    changeSettings,
-    changeOverride,
-    clearOverride,
-    resetPreferences,
-  } = useReaderPreferences(toast);
-  // The account's settings, with anything this device and orientation has been
-  // told for itself laid over them.
-  const settings = useMemo(
-    () => effectiveReaderSettings(preferences, viewportContext),
-    [preferences, viewportContext]
-  );
-  const hasContextOverride = hasReaderOverride(preferences, viewportContext);
-  useReaderWakeLock(settings.wakeLock);
-  const { geometry: pageGeometry } = usePageGeometry(comicId, pageCount, currentPage);
-
-  // Refs for async operations
-  const progressAbortController = useRef(null);
-  const loadQueueRef = useRef([]); // Queue of pages to load
-  const isLoadingRef = useRef(false); // Flag to track if we're currently loading a page
-  const isMountedRef = useRef(true); // Progress saves outlive the component; used to suppress late toasts
-  const progressRevisionRef = useRef(0); // Orders progress saves that may reach the server out of order
-  // Which variant each cached page was fetched at. A page is only "there" if it
-  // is there at the size currently being asked for; after an upgrade the old
-  // image stays on screen and is replaced when the larger one arrives.
-  const loadedVariantsRef = useRef({});
-
-  // How many pages either side of this one are worth holding decoded, from what
-  // this device and this connection can afford rather than from a constant that
-  // has to suit both a desktop and a phone on a train.
+  const basePageVariant = usePageVariant(imageContainerRef, { zoomLevel: 1 });
+  const zoomPageVariant = usePageVariant(imageContainerRef, { zoomLevel: transform.scale });
   const preloadWindow = usePreloadWindow(profile);
+  useReaderWakeLock(settings.wakeLock);
 
-  // The cache entry for the current page already says everything these used to
-  // be told: a value means it is ready, 'failed' means it is not coming, and
-  // anything else means it is still on its way. Keeping them as separate state
-  // meant every path that touched the cache had to remember to set them too,
-  // and a missed one left a spinner over a page that had already arrived.
-  const currentPageImage = imageCache[currentPage];
-  const isPageImageLoading = comicPages.length > 0
-    && (!currentPageImage || currentPageImage === 'loading');
-  const imageLoadedSuccessfully = Boolean(currentPageImage)
-    && currentPageImage !== 'loading'
-    && currentPageImage !== 'failed';
-  // Without a comic id the reader redirects instead of loading anything, so it
-  // is not waiting for a request that was never made.
-  const isLoading = Boolean(comicId) && isFetchingComic;
+  const desiredVariantFor = useCallback(
+    (pageIndex) => isZoomed && currentUnit.includes(pageIndex) ? zoomPageVariant : basePageVariant,
+    [basePageVariant, currentUnit, isZoomed, zoomPageVariant]
+  );
+  const isPageReady = useCallback((pageIndex, variant = desiredVariantFor(pageIndex)) => (
+    isUsableImage(imageCacheRef.current[pageIndex])
+      && isPageVariantAtLeast(loadedVariantsRef.current[pageIndex], variant)
+  ), [desiredVariantFor]);
 
   const updateReadingProgress = useCallback(async (pageToSave) => {
     if (!comicId || !comic) return;
-
-    // Supersede the previous save: only the latest page matters, so a rapid run
-    // of page turns collapses to one request rather than a queue of them.
-    if (progressAbortController.current) {
-      progressAbortController.current.abort();
-    }
-
-    // Create a new AbortController for this request
+    progressAbortController.current?.abort();
     const controller = new AbortController();
     progressAbortController.current = controller;
-
-    // Aborting only stops the browser waiting for the reply; a superseded save
-    // may already be on its way to the server. The revision tells the server
-    // which save is newer, and page numbers cannot: reading backwards is normal.
     const revision = ++progressRevisionRef.current;
-
     try {
-      // keepalive lets the browser finish this request even if the reader is
-      // being torn down (closing the tab, navigating away). Without it the
-      // final page of a reading session is silently lost.
       const response = await api.post(
         `/api/comics/${comicId}/progress`,
         { currentPage: pageToSave, revision },
         { signal: controller.signal, keepalive: true }
       );
-
-      const storedRevision = response?.progress?.revision;
-      if (typeof storedRevision === 'number' && storedRevision > progressRevisionRef.current) {
-        progressRevisionRef.current = storedRevision;
+      if (typeof response?.progress?.revision === "number" && response.progress.revision > progressRevisionRef.current) {
+        progressRevisionRef.current = response.progress.revision;
       }
-
-      // Keep the library card in step with what was just stored, so going back
-      // shows the new page straight away instead of after another /api/comics.
-      if (response?.progress) {
-        updateComicProgress(comicId, response.progress);
-      }
+      if (response?.progress) updateComicProgress(comicId, response.progress);
     } catch (error) {
-      // A superseded save is expected, not a failure
-      if (error.name === 'AbortError' || controller.signal.aborted) return;
-
-      // Handle network errors more gracefully
-      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+      if (error.name === "AbortError" || controller.signal.aborted) return;
+      if (error.name === "TypeError" && error.message.includes("Failed to fetch")) {
         logger.warn("Network error when saving reading progress - will retry on next page change");
-        return; // Don't show toast for network errors, as they're often transient
+        return;
       }
-
       logger.error("Failed to save reading progress:", error);
-
-      // The reader may already be gone by the time a save fails; a toast about
-      // it would surface on whatever page the user moved on to.
-      if (!isMountedRef.current) return;
-
-      toast({
-        title: "Error Saving Progress",
-        description: error.message || "Could not save your reading progress. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      // Only clear the ref if this controller is still the current one
-      if (progressAbortController.current === controller) {
-        progressAbortController.current = null;
+      if (isMountedRef.current) {
+        toast({ title: "Error saving progress", description: error.message || "Could not save your reading progress. Please try again.", variant: "destructive" });
       }
+    } finally {
+      if (progressAbortController.current === controller) progressAbortController.current = null;
     }
-  }, [comicId, comic, toast, updateComicProgress]);
+  }, [comic, comicId, toast, updateComicProgress]);
 
-  // The debug panel wants to show the load queue, which lives in a ref because
-  // the loader mutates it constantly and none of that should cause a render.
-  // Sampling it on a timer while the panel is open keeps it out of the render
-  // path entirely, and costs nothing when the panel is closed.
-  const [queueSnapshot, setQueueSnapshot] = useState([]);
-  useEffect(() => {
-    if (!showDebug) return undefined;
-    const id = setInterval(() => setQueueSnapshot([...loadQueueRef.current]), 250);
-    return () => clearInterval(id);
-  }, [showDebug]);
-
-  // Track mount state so an in-flight progress save that resolves after the
-  // reader closes does not try to toast onto the next screen.
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      loadQueueRef.current = [];
+      Object.values(loadingPagesRef.current).forEach((entry) => entry.cancel?.());
     };
   }, []);
 
   useEffect(() => {
-    // The route param can change without remounting, so the previous comic has
-    // to be cleared and its in-flight request disowned. Otherwise a reader that
-    // moves from a comic that loaded to one that 404s keeps rendering the first
-    // one's pages under the second one's id — and saves progress against it.
     let active = true;
-
     const loadComic = async () => {
       setIsFetchingComic(true);
       setLoadError(null);
       setComic(null);
       setPageCount(0);
+      lastSavedPage.current = null;
       resetPage(0, 0);
-      setImageCache({});
+      updateImageCache({});
       loadedVariantsRef.current = {};
+      updateLoadedVariants({});
+      Object.values(loadingPagesRef.current).forEach((entry) => entry.cancel?.());
+      loadingPagesRef.current = {};
+      loadQueueRef.current = [];
       try {
         const data = await api.get(`/api/comics/${comicId}`);
         if (!active) return;
         setComic(data.comic);
-
-        if (data.comic && data.comic.pageCount > 0) {
-          setPageCount(data.comic.pageCount);
-          // Continue the server's revision sequence, otherwise a reopened
-          // reader would start below the stored value and every save would
-          // look stale.
-          progressRevisionRef.current = data.comic.readingProgress?.revision || 0;
-
-          if (data.comic.readingProgress && data.comic.readingProgress.currentPage) {
-            resetPage(data.comic.readingProgress.currentPage - 1, data.comic.pageCount);
-          } else {
-            resetPage(0, data.comic.pageCount);
-          }
-        } else {
-          toast({
-            title: "Comic has no pages", // Or "Comic data loaded, but no pages found"
-            description: "This comic cannot be displayed as it has no pages.",
-            variant: "destructive",
-          });
-          setPageCount(0);
-          // Potentially navigate away or show a different message
+        const count = data.comic?.pageCount ?? 0;
+        setPageCount(count);
+        progressRevisionRef.current = data.comic?.readingProgress?.revision || 0;
+        resetPage(data.comic?.readingProgress?.currentPage ? data.comic.readingProgress.currentPage - 1 : 0, count);
+        if (count <= 0) {
+          toast({ title: "Comic has no pages", description: "This comic cannot be displayed as it has no pages.", variant: "destructive" });
         }
-
       } catch (error) {
         if (!active) return;
         logger.error("Failed to load comic:", error);
         setLoadError(error);
-        // A 404 is not retryable and the inline panel below already spells it
-        // out, so it gets no toast at all — telling the user to "try again"
-        // sends them back for a comic that will never be there.
         if (error.status !== 404) {
           toast({
             title: "Error loading comic",
-            description: error.status >= 500
-              ? "The server had a problem loading this comic. Please try again in a moment."
-              : "There was a problem loading the comic. Please try again.",
+            description: error.status >= 500 ? "The server had a problem loading this comic. Please try again in a moment." : "There was a problem loading the comic. Please try again.",
             variant: "destructive",
           });
         }
-        // navigate("/dashboard"); // Optional: navigate away on general error
       } finally {
         if (active) setIsFetchingComic(false);
       }
     };
-
-    if (comicId) {
-      loadComic();
-    } else {
-      toast({
-        title: "Error",
-        description: "Comic ID is missing.",
-        variant: "destructive",
-      });
-      navigate("/dashboard");
-    }
-
+    if (comicId) void loadComic();
+    else navigate("/dashboard");
     return () => { active = false; };
-  }, [comicId, navigate, resetPage, toast]);
+  }, [comicId, navigate, resetPage, toast, updateImageCache, updateLoadedVariants]);
 
-  // Function to check if a page index is within the cache window
-  const isInCacheWindow = useCallback((pageIndex) => {
-    return pageIndex >= Math.max(0, currentPageRef.current - preloadWindow.backward) &&
-           pageIndex <= Math.min(comicPages.length - 1, currentPageRef.current + preloadWindow.forward);
-  }, [comicPages.length, currentPageRef, preloadWindow]);
-
-  // Object to track in-progress loads to prevent duplicate requests
-  const loadingPagesRef = useRef({});
-
-  // A page counts as ready only at the size currently being asked for. After a
-  // resize or a zoom, the image on screen is still shown — it is simply no
-  // longer the one this reader wants, so it is fetched again in the background.
-  const isPageReady = useCallback((pageIndex) => {
-    const cached = imageCache[pageIndex];
-
-    return Boolean(cached)
-      && cached !== 'loading'
-      && cached !== 'failed'
-      && loadedVariantsRef.current[pageIndex] === pageVariant;
-  }, [imageCache, pageVariant]);
-
-  // Function to load a single page and add it to the cache
-  const loadPageIntoCache = useCallback((pageIndex) => {
-    if (pageIndex < 0 || pageIndex >= comicPages.length) return Promise.resolve(); // Out of bounds
-
-    if (isPageReady(pageIndex)) return Promise.resolve();
-
-    // A load already running for this exact size is the one to wait on. One
-    // running for a smaller size is not: settling on it would hand back the
-    // image the upgrade exists to replace.
-    const inFlight = loadingPagesRef.current[pageIndex];
-    if (inFlight && inFlight.variant === pageVariant) return inFlight.promise;
-
-    const entry = { variant: pageVariant, promise: null };
-    // Only the newest load for a page may write to the cache. A slow small
-    // image landing after a fast large one would otherwise put the small one
-    // back and the reader would never settle on the size it asked for.
-    const isCurrentLoad = () => loadingPagesRef.current[pageIndex] === entry;
-
-    // The request goes out now; saying so is a render, and one render inside
-    // another's commit is what the loading effect would otherwise cause on
-    // every page turn. Nothing waits on the flag - the image is already on its
-    // way, and the tracker above is what stops a second request for it.
-    queueMicrotask(() => {
-      if (!isCurrentLoad()) return;
-
-      setImageCache(prev => {
-        const showing = prev[pageIndex];
-        // Upgrading in place leaves the smaller page up: blanking the reader to
-        // a skeleton because the window grew would be a worse picture, not a
-        // better one.
-        return showing && showing !== 'loading' && showing !== 'failed'
-          ? prev
-          : { ...prev, [pageIndex]: 'loading' };
-      });
+  const cancelLoadsExcept = useCallback((keepPages) => {
+    const keep = new Set(keepPages);
+    Object.entries(loadingPagesRef.current).forEach(([key, entry]) => {
+      if (!keep.has(Number(key))) entry.cancel?.();
     });
+  }, []);
 
-    entry.promise = new Promise((resolve, reject) => {
-      // The plain page URL, deliberately: the endpoint is cacheable, so asking
-      // for it again is answered by the browser without touching the network.
-      // A cache-busting parameter here would make every page a fresh download.
-      const img = new Image();
-      const url = comicPages[pageIndex];
+  const loadPageIntoCache = useCallback((pageIndex, variant = desiredVariantFor(pageIndex), { force = false } = {}) => {
+    if (pageIndex < 0 || pageIndex >= pageCount) return Promise.resolve(null);
+    if (!force && isPageReady(pageIndex, variant)) return Promise.resolve(imageCacheRef.current[pageIndex]);
+    const existing = loadingPagesRef.current[pageIndex];
+    if (existing?.variant === variant && !force) return existing.promise;
+    existing?.cancel?.();
 
-      img.onload = () => {
-        // Only update cache if this page is still in the cache window
-        if (isCurrentLoad()) {
-          if (isInCacheWindow(pageIndex)) {
-            loadedVariantsRef.current[pageIndex] = entry.variant;
-            setImageCache(prev => ({ ...prev, [pageIndex]: img }));
-          }
-          delete loadingPagesRef.current[pageIndex];
-        }
-        resolve(img);
-      };
-
-      img.onerror = () => {
-        if (isCurrentLoad()) {
-          // A failed upgrade keeps whatever is already on screen: the reader
-          // can still read the page, just not at the larger size.
-          setImageCache(prev => (
-            prev[pageIndex] && prev[pageIndex] !== 'loading'
-              ? prev
-              : { ...prev, [pageIndex]: 'failed' }
-          ));
-          delete loadingPagesRef.current[pageIndex];
-        }
-        reject();
-      };
-
-      img.src = url;
-    });
-
-    // Store the promise in the loading tracker
-    loadingPagesRef.current[pageIndex] = entry;
-
-    return entry.promise;
-  }, [comicPages, isInCacheWindow, isPageReady, pageVariant]);
-
-  // Function to process the load queue
-  //
-  // The drain step is a local function rather than the callback calling itself.
-  // Recursing through the useCallback binding means each step reaches for the
-  // identity the closure was created with, which is not necessarily the one a
-  // later render is using.
-  const processLoadQueue = useCallback(() => {
-    const drain = () => {
-      if (isLoadingRef.current || loadQueueRef.current.length === 0) return;
-
-      isLoadingRef.current = true;
-      const pageToLoad = loadQueueRef.current.shift();
-
-      // Skip current page - it's handled separately
-      if (pageToLoad === currentPageRef.current) {
-        isLoadingRef.current = false;
-        drain();
-        return;
-      }
-
-      loadPageIntoCache(pageToLoad)
-        .catch(() => {/* Error handled in loadPageIntoCache */})
-        .finally(() => {
-          isLoadingRef.current = false;
-          // Continue processing the queue
-          drain();
-        });
+    let settle = () => {};
+    const img = new Image();
+    const entry = {
+      variant,
+      img,
+      promise: null,
+      cancel: () => {
+        if (loadingPagesRef.current[pageIndex] !== entry) return;
+        img.onload = null;
+        img.onerror = null;
+        try { img.src = ""; } catch { /* Some image shims expose a read-only src. */ }
+        delete loadingPagesRef.current[pageIndex];
+        settle(null);
+      },
     };
+    const isCurrent = () => loadingPagesRef.current[pageIndex] === entry;
+    entry.promise = new Promise((resolve) => { settle = resolve; });
+    loadingPagesRef.current[pageIndex] = entry;
+    updateImageCache((previous) => isUsableImage(previous[pageIndex]) ? previous : { ...previous, [pageIndex]: "loading" });
+    img.onload = () => {
+      if (!isCurrent()) return settle(null);
+      loadedVariantsRef.current[pageIndex] = variant;
+      updateLoadedVariants((previous) => ({ ...previous, [pageIndex]: variant }));
+      updateImageCache((previous) => ({ ...previous, [pageIndex]: img }));
+      delete loadingPagesRef.current[pageIndex];
+      settle(img);
+    };
+    img.onerror = () => {
+      if (!isCurrent()) return settle(null);
+      updateImageCache((previous) => isUsableImage(previous[pageIndex]) ? previous : { ...previous, [pageIndex]: "failed" });
+      delete loadingPagesRef.current[pageIndex];
+      settle(null);
+    };
+    const stableUrl = createReaderPageUrl(comicId, pageIndex + 1, variant);
+    img.src = force ? withForcedReload(stableUrl) : stableUrl;
+    return entry.promise;
+  }, [comicId, desiredVariantFor, isPageReady, pageCount, updateImageCache, updateLoadedVariants]);
 
+  const processBackgroundQueue = useCallback(() => {
+    const drain = () => {
+      if (isLoadingBackgroundRef.current || loadQueueRef.current.length === 0) return;
+      isLoadingBackgroundRef.current = true;
+      const pageIndex = loadQueueRef.current.shift();
+      loadPageIntoCache(pageIndex, basePageVariant).finally(() => {
+        isLoadingBackgroundRef.current = false;
+        drain();
+      });
+    };
     drain();
-  }, [currentPageRef, loadPageIntoCache]);
-  
-  // Function to queue pages for loading in priority order
-  const queuePagesToLoad = useCallback(() => {
-    if (comicPages.length === 0) return;
-    
-    // Clear the current queue
-    loadQueueRef.current = [];
-    
-    // Get the current page
-    const currentPageIndex = currentPageRef.current;
-    
-    // Calculate range of pages to cache
-    const startPage = Math.max(0, currentPageIndex - preloadWindow.backward);
-    const endPage = Math.min(comicPages.length - 1, currentPageIndex + preloadWindow.forward);
+  }, [basePageVariant, loadPageIntoCache]);
 
-    // A page already in flight is left alone; anything else that is not ready
-    // at the current size is worth queueing, including one cached at a smaller
-    // size that a resize has since outgrown.
-    const shouldQueue = (pageIndex) => !isPageReady(pageIndex) && imageCache[pageIndex] !== 'loading';
-
-    // Priority 1: Next page
-    if (currentPageIndex + 1 <= endPage && shouldQueue(currentPageIndex + 1)) {
-      loadQueueRef.current.push(currentPageIndex + 1);
+  const queueBackgroundPages = useCallback(() => {
+    const anchor = currentPageRef.current;
+    const start = Math.max(0, anchor - preloadWindow.backward);
+    const end = Math.min(pageCount - 1, anchor + preloadWindow.forward);
+    const visible = new Set(currentUnit);
+    const ordered = [];
+    if (effectiveMode === "double") {
+      const unitIndex = readingUnits.findIndex((unit) => unit.includes(anchor));
+      ordered.push(...(readingUnits[unitIndex + 1] ?? []), ...(readingUnits[unitIndex - 1] ?? []));
     }
-
-    // Priority 2: Previous page
-    if (currentPageIndex - 1 >= startPage && shouldQueue(currentPageIndex - 1)) {
-      loadQueueRef.current.push(currentPageIndex - 1);
+    for (let distance = 1; distance <= Math.max(preloadWindow.forward, preloadWindow.backward); distance += 1) {
+      if (anchor + distance <= end && !ordered.includes(anchor + distance)) ordered.push(anchor + distance);
+      if (anchor - distance >= start && !ordered.includes(anchor - distance)) ordered.push(anchor - distance);
     }
+    loadQueueRef.current = ordered.filter((pageIndex) => !visible.has(pageIndex)
+      && !isPageReady(pageIndex, basePageVariant)
+      && !loadingPagesRef.current[pageIndex]);
+    processBackgroundQueue();
+  }, [basePageVariant, currentPageRef, currentUnit, effectiveMode, isPageReady, pageCount, preloadWindow, processBackgroundQueue, readingUnits]);
 
-    // Priority 3: Pages ahead of current
-    for (let i = currentPageIndex + 2; i <= endPage; i++) {
-      if (shouldQueue(i)) {
-        loadQueueRef.current.push(i);
-      }
-    }
-
-    // Priority 4: Pages before current
-    for (let i = currentPageIndex - 2; i >= startPage; i--) {
-      if (shouldQueue(i)) {
-        loadQueueRef.current.push(i);
-      }
-    }
-
-    // Start processing the queue if there are pages to load
-    if (loadQueueRef.current.length > 0) {
-      processLoadQueue();
-    }
-  }, [processLoadQueue, imageCache, isPageReady, comicPages.length, currentPageRef, preloadWindow]);
-
-  // Function to clean up the cache (remove pages outside the window)
-  const cleanupCache = useCallback(() => {
-    const startPage = Math.max(0, currentPageRef.current - preloadWindow.backward);
-    const endPage = Math.min(comicPages.length - 1, currentPageRef.current + preloadWindow.forward);
-    const isOutsideWindow = (pageIndex) => pageIndex < startPage || pageIndex > endPage;
-
-    setImageCache(prev => {
-      const stale = Object.keys(prev).filter(key => isOutsideWindow(parseInt(key, 10)));
-
-      // Returning a new object when nothing was evicted would change the cache
-      // identity, re-run the effect that schedules this cleanup, and spin the
-      // component in a permanent 2-second loop. Keep the same reference instead.
-      if (stale.length === 0) return prev;
-
-      const newCache = { ...prev };
-      stale.forEach(key => delete newCache[key]);
-      return newCache;
-    });
-
-    // An evicted page has to forget what size it was, or coming back to it
-    // would count as ready with nothing in the cache to show.
-    Object.keys(loadedVariantsRef.current).forEach(key => {
-      if (isOutsideWindow(parseInt(key, 10))) delete loadedVariantsRef.current[key];
-    });
-  }, [comicPages.length, currentPageRef, preloadWindow]);
-  
-  // Effect to handle page changes and update UI state - only runs when page actually changes
   useEffect(() => {
-    if (comicPages.length === 0) return;
-    
-    // Check if current page is available in cache
-    const cachedImage = imageCache[currentPage];
-    
-    let queueTimer;
-    // The promise below can resolve after this effect has been cleaned up, and
-    // the cleanup can only clear a timer that already exists. Without this flag
-    // every page turn during a load leaves a timer behind that fires against a
-    // page the reader has moved on from.
+    if (effectiveMode === "continuous" || pageCount <= 0) return undefined;
+    cancelLoadsExcept(currentUnit);
     let cancelled = false;
-    if (isPageReady(currentPage)) {
-      // Already cached at the size being asked for, so the render above is
-      // showing it. Fill in the pages around it once this one has settled.
-      queueTimer = setTimeout(() => { queuePagesToLoad(); }, 100);
-    } else if (cachedImage !== 'failed') {
-      // Not cached yet, or cached at a size this reader has outgrown. The cache
-      // entry is what the view reads, so putting the page in it is the whole
-      // job - there is no separate flag to raise.
-      //
-      loadPageIntoCache(currentPage)
-        .then(() => {
-          if (cancelled || currentPageRef.current !== currentPage) return;
-          queueTimer = setTimeout(() => { queuePagesToLoad(); }, 100);
-        })
-        .catch(() => {/* the cache records the failure; see above */});
-    }
-
-    // Schedule cache cleanup after a delay
+    Promise.all(currentUnit.map((pageIndex) => loadPageIntoCache(pageIndex, desiredVariantFor(pageIndex))))
+      .then(() => { if (!cancelled) queueBackgroundPages(); });
     const cleanupTimer = setTimeout(() => {
-      cleanupCache();
-    }, 2000); // Delay cleanup to avoid unnecessary operations
-
+      const start = Math.max(0, currentPageRef.current - preloadWindow.backward);
+      const end = Math.min(pageCount - 1, currentPageRef.current + preloadWindow.forward);
+      updateImageCache((previous) => {
+        const next = { ...previous };
+        let changed = false;
+        Object.keys(next).forEach((key) => {
+          const pageIndex = Number(key);
+          if (pageIndex < start || pageIndex > end) {
+            delete next[key];
+            delete loadedVariantsRef.current[key];
+            changed = true;
+          }
+        });
+        return changed ? next : previous;
+      });
+      updateLoadedVariants((previous) => {
+        const next = { ...previous };
+        let changed = false;
+        Object.keys(next).forEach((key) => {
+          const pageIndex = Number(key);
+          if (pageIndex < start || pageIndex > end) {
+            delete next[key];
+            changed = true;
+          }
+        });
+        return changed ? next : previous;
+      });
+    }, 1500);
     return () => {
       cancelled = true;
       clearTimeout(cleanupTimer);
-      clearTimeout(queueTimer);
     };
-  }, [currentPage, comicPages, imageCache, isPageReady, queuePagesToLoad, cleanupCache, loadPageIntoCache, currentPageRef]);
-
-
-
-  // Effect to save reading progress when currentPage changes
-  // We don't need to run this on every render, only when the page changes
-  const lastSavedPage = useRef(null);
+  }, [cancelLoadsExcept, currentPage, currentPageRef, currentUnit, desiredVariantFor, effectiveMode, loadPageIntoCache, pageCount, preloadWindow, queueBackgroundPages, updateImageCache, updateLoadedVariants]);
 
   useEffect(() => {
-    // Only update if the page has actually changed and we have all the required data
-    if (comic && comicId && typeof currentPage === 'number' && currentPage >= 0 &&
-        comicPages.length > 0 && lastSavedPage.current !== currentPage) {
-      // We add 1 because currentPage is 0-indexed, but backend expects 1-indexed.
-      lastSavedPage.current = currentPage;
-      updateReadingProgress(currentPage + 1);
+    if (effectiveMode === "continuous") {
+      cancelLoadsExcept([]);
+      loadQueueRef.current = [];
+      updateImageCache({});
+      loadedVariantsRef.current = {};
     }
+  }, [cancelLoadsExcept, effectiveMode, updateImageCache, updateLoadedVariants]);
 
-    // Deliberately no cleanup here. Aborting on unmount would cancel the save
-    // for the page the user just finished on, losing it; and aborting when
-    // currentPage changes is unnecessary because updateReadingProgress already
-    // supersedes its own previous request.
-  }, [currentPage, comic, comicId, comicPages.length, updateReadingProgress]);
+  useEffect(() => {
+    if (comic && comicId && pageCount > 0 && lastSavedPage.current !== currentPage) {
+      lastSavedPage.current = currentPage;
+      void updateReadingProgress(currentPage + 1);
+    }
+  }, [comic, comicId, currentPage, pageCount, updateReadingProgress]);
+  const goToReaderPage = useCallback((pageIndex) => {
+    if (effectiveMode !== "continuous") {
+      const images = currentUnit.map((index) => imageCacheRef.current[index]);
+      if (images.length > 0 && images.every(isUsableImage)) setFallbackImages(images);
+      resetTransform();
+    }
+    return goToLogicalPage(pageIndex);
+  }, [currentUnit, effectiveMode, goToLogicalPage, resetTransform]);
+  const previousTarget = effectiveMode === "double"
+    ? adjacentReadingPage(readingUnits, currentPage, "previous")
+    : currentPage > 0 ? currentPage - 1 : null;
+  const nextTarget = effectiveMode === "double"
+    ? adjacentReadingPage(readingUnits, currentPage, "next")
+    : currentPage < pageCount - 1 ? currentPage + 1 : null;
+  const canGoPrevious = previousTarget !== null;
+  const canGoNext = nextTarget !== null;
+  const handlePreviousPage = useCallback(() => {
+    if (previousTarget !== null) goToReaderPage(previousTarget);
+  }, [goToReaderPage, previousTarget]);
+  const handleNextPage = useCallback(() => {
+    if (nextTarget !== null) goToReaderPage(nextTarget);
+  }, [goToReaderPage, nextTarget]);
 
-  // The jump-to-page box holds raw text, not a page number: it has to survive
-  // the empty and half-typed states an input passes through. It is reconciled
-  // with the reader whenever the page changes by any other means.
-  // The draft is tagged with the page it was typed against, so turning the page
-  // by any other means simply makes it stale and the box falls back to showing
-  // the real page. Copying the page in from an effect meant a render went out
-  // with the previous page's number still in the box.
   const [pageDraft, setPageDraft] = useState({ forPage: 0, text: "1" });
-  const pageInput = pageDraft.forPage === currentPage
-    ? pageDraft.text
-    : String(currentPage + 1);
-  const setPageInput = useCallback(
-    (text) => setPageDraft({ forPage: currentPageRef.current, text }),
-    [currentPageRef]
-  );
-
-
+  const pageInput = pageDraft.forPage === currentPage ? pageDraft.text : String(currentPage + 1);
+  const setPageInput = useCallback((text) => setPageDraft({ forPage: currentPageRef.current, text }), [currentPageRef]);
   const commitPageInput = useCallback(() => {
-    const requestedPage = parsePageNumber(pageInput, comicPages.length);
-
+    const requestedPage = parsePageNumber(pageInput, pageCount);
     if (requestedPage === null) {
       setPageInput(String(currentPageRef.current + 1));
       return;
     }
-
-    // Echo the clamped value back, so typing 500 in a 40-page comic settles on
-    // 40 rather than leaving a number that does not match the page shown.
     setPageInput(String(requestedPage + 1));
-    if (requestedPage !== currentPageRef.current) {
-      goToPage(requestedPage);
-    }
-  }, [pageInput, comicPages.length, currentPageRef, goToPage, setPageInput]);
+    if (requestedPage !== currentPageRef.current) goToReaderPage(requestedPage);
+  }, [currentPageRef, goToReaderPage, pageCount, pageInput, setPageInput]);
 
-  // Force a page to come from the server again, bypassing the browser cache.
-  // A unique URL is what does the bypassing: the page endpoint is cacheable, so
-  // re-requesting the plain URL would simply be answered locally.
+  const retryPage = useCallback((pageIndex) => {
+    loadingPagesRef.current[pageIndex]?.cancel?.();
+    delete loadedVariantsRef.current[pageIndex];
+    updateLoadedVariants((previous) => {
+      const next = { ...previous };
+      delete next[pageIndex];
+      return next;
+    });
+    updateImageCache((previous) => {
+      const next = { ...previous };
+      delete next[pageIndex];
+      return next;
+    });
+    void loadPageIntoCache(pageIndex, desiredVariantFor(pageIndex), { force: true });
+  }, [desiredVariantFor, loadPageIntoCache, updateImageCache, updateLoadedVariants]);
   const handleForceReload = useCallback(() => {
-    if (comicPages.length === 0 || currentPage < 0 || currentPage >= comicPages.length) {
-      return;
-    }
-
+    if (currentPage < 0 || currentPage >= pageCount) return;
     const pageToReload = currentPage;
-
-    toast({
-      title: "Reloading page",
-      description: `Forcing reload of page ${pageToReload + 1}`,
+    loadingPagesRef.current[pageToReload]?.cancel?.();
+    updateImageCache((previous) => {
+      const next = { ...previous };
+      delete next[pageToReload];
+      return next;
     });
-
-    setImageCache(prevCache => {
-      const newCache = { ...prevCache };
-      delete newCache[pageToReload];
-      return newCache;
-    });
-
-    const img = new Image();
-    let settleForcedLoad = () => {};
-    let failForcedLoad = () => {};
-
-    img.onload = () => {
-      delete loadingPagesRef.current[pageToReload];
-      loadedVariantsRef.current[pageToReload] = pageVariant;
-      setImageCache(prev => ({ ...prev, [pageToReload]: img }));
-      settleForcedLoad(img);
-
-      // The reader may have moved on while this was loading; the cache above is
-      // still worth keeping, but the loading state belongs to another page now.
+    toast({ title: "Reloading page", description: `Forcing reload of page ${pageToReload + 1}` });
+    loadPageIntoCache(pageToReload, desiredVariantFor(pageToReload), { force: true }).then((image) => {
       if (currentPageRef.current !== pageToReload) return;
-
-      toast({
-        title: "Page reloaded",
-        description: `Successfully reloaded page ${pageToReload + 1}`,
-        variant: "success",
-      });
-    };
-
-    img.onerror = () => {
-      logger.error("Failed to reload image");
-      delete loadingPagesRef.current[pageToReload];
-      failForcedLoad();
-      // Record the failure, because the reload deleted the cache entry and what
-      // the view shows is read from it: without this the page is indistinguish-
-      // able from one still on its way and the spinner never comes down. Only
-      // when nothing better has arrived in the meantime, though — the plain URL
-      // may have been fetched successfully while this busted one failed.
-      setImageCache(prev => (
-        prev[pageToReload] && prev[pageToReload] !== 'loading'
-          ? prev
-          : { ...prev, [pageToReload]: 'failed' }
-      ));
-      if (currentPageRef.current !== pageToReload) return;
-
-      toast({
-        title: "Reload failed",
-        description: "Could not reload the page. Please try again later.",
-        variant: "destructive",
-      });
-    };
-
-    // Dropping the page from the cache above leaves the loading effect wanting
-    // it back, and it would ask for the plain URL - the browser-cached copy
-    // this reload exists to get past. Publishing the forced load through the
-    // tracker every other loader already consults hands that effect this
-    // request instead: no second download, and no stale image that can land
-    // last and take the cache entry back.
-    const forcedLoad = new Promise((resolve, reject) => {
-      settleForcedLoad = resolve;
-      failForcedLoad = reject;
+      toast(image
+        ? { title: "Page reloaded", description: `Successfully reloaded page ${pageToReload + 1}`, variant: "success" }
+        : { title: "Reload failed", description: "Could not reload the page. Please try again later.", variant: "destructive" });
     });
-    // A caller is not guaranteed; without this a failed reload would surface as
-    // an unhandled rejection on top of the toast that already reports it.
-    forcedLoad.catch(() => {});
-    loadingPagesRef.current[pageToReload] = { variant: pageVariant, promise: forcedLoad };
+  }, [currentPage, currentPageRef, desiredVariantFor, loadPageIntoCache, pageCount, toast, updateImageCache]);
 
-    img.src = withForcedReload(comicPages[pageToReload]);
-  }, [comicPages, currentPage, currentPageRef, pageVariant, toast]);
-
-  const handleScreenNavClick = (direction) => {
-    if (direction === 'left') {
-      handlePreviousPage();
-    } else {
-      handleNextPage();
-    }
-  };
-
-  // One listener on window covers both normal and fullscreen mode, since the
-  // reader keeps focus in the document either way.
   useEffect(() => {
     const handleKeyPress = (event) => {
-      // Arrow keys belong to the jump-to-page box while it has focus; turning
-      // the page under someone editing a page number would be maddening.
       if (isTypingTarget(event.target)) return;
-
-      switch (event.key) {
-        case "ArrowLeft":
-          handlePreviousPage();
-          break;
-        case "ArrowRight":
-          handleNextPage();
-          break;
-        case "Home":
-          event.preventDefault();
-          goToPage(0);
-          break;
-        case "End":
-          event.preventDefault();
-          goToPage(comicPages.length - 1);
-          break;
-        default:
-          break;
-      }
+      if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) event.preventDefault();
+      if (event.key === "ArrowLeft") handlePreviousPage();
+      if (event.key === "ArrowRight") handleNextPage();
+      if (event.key === "Home") goToReaderPage(0);
+      if (event.key === "End") goToReaderPage(pageCount - 1);
     };
-
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [handlePreviousPage, handleNextPage, goToPage, comicPages.length]);
-
-  // Handle fullscreen change events
+  }, [goToReaderPage, handleNextPage, handlePreviousPage, pageCount]);
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isNowFullscreen = !!document.fullscreenElement;
-      setIsFullscreen(isNowFullscreen);
-      
-      // The page is about to be laid out in a different amount of room, and a
-      // pan measured against the old one would point somewhere else.
-      if (!isNowFullscreen && isZoomed) resetTransform();
+      const next = Boolean(document.fullscreenElement);
+      setIsFullscreen(next);
+      if (!next) resetTransform();
     };
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, [isZoomed, resetTransform]);
-
-  // Rotating the device keeps the page — that is the reading position, and
-  // losing it is unforgivable — but not the zoom, which was framed against a
-  // viewport that no longer exists.
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [resetTransform]);
   useEffect(() => {
     resetTransform();
   }, [profile.orientation, resetTransform]);
+  useEffect(() => resetTransform(), [effectiveMode, resetTransform]);
 
-  // A turned page starts at natural scale and at the top, rather than inheriting
-  // wherever the last page happened to be panned to.
-  useEffect(() => {
-    resetTransform();
-  }, [currentPage, resetTransform]);
-
-  // Wheel zoom, around the pointer. Deliberately only once already zoomed: a
-  // wheel over an unzoomed page is somebody scrolling the page, not zooming it.
   const handleWheel = useCallback((event) => {
-    if (!isZoomed) return;
-
+    if (!isZoomed || effectiveMode === "continuous") return;
     event.preventDefault();
     const rect = imageContainerRef.current?.getBoundingClientRect();
     if (!rect) return;
-
-    pinch({
-      // Exponential, so a wheel notch is the same proportional step at every
-      // scale rather than a large one at 1x and an imperceptible one at 4x.
-      scale: Math.exp(event.deltaY * -0.002),
-      focal: { x: event.clientX - rect.left, y: event.clientY - rect.top },
-    });
-  }, [isZoomed, pinch]);
-  
-  // Add wheel event listener when zoomed
+    pinch({ scale: Math.exp(event.deltaY * -0.002), focal: { x: event.clientX - rect.left, y: event.clientY - rect.top } });
+  }, [effectiveMode, isZoomed, pinch]);
   useEffect(() => {
     const container = imageContainerRef.current;
-    if (container && isZoomed) {
-      container.addEventListener('wheel', handleWheel, { passive: false });
-    }
-    
-    return () => {
-      if (container) {
-        container.removeEventListener('wheel', handleWheel);
-      }
-    };
-  }, [isZoomed, handleWheel]);
+    if (!container || !isZoomed || effectiveMode === "continuous") return undefined;
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [effectiveMode, handleWheel, isZoomed]);
 
   const handleReaderSettingsChange = useCallback((patch) => {
-    // A fit choice describes the untransformed page. Leaving an old zoom
-    // active makes that choice look broken, so return to natural scale first.
-    if (patch.fit && patch.fit !== settings.fit) resetTransform();
-
-    // Once this screen has a page size of its own, the settings edit that and
-    // not the account default — otherwise changing the fit here would appear to
-    // do nothing while quietly changing how every other device reads.
+    if ((patch.fit && patch.fit !== settings.fit) || patch.mode || patch.direction) resetTransform();
     if (hasContextOverride && Object.keys(patch).every((key) => OVERRIDABLE_SETTINGS.includes(key))) {
       changeOverride(viewportContext, patch);
       return;
     }
-
     changeSettings(patch);
   }, [changeOverride, changeSettings, hasContextOverride, resetTransform, settings.fit, viewportContext]);
-
   const handleContextOverrideChange = useCallback((enabled) => {
-    if (enabled) {
-      // Starting from what this screen is already showing, so turning the
-      // switch on changes nothing until a page size is actually chosen.
-      changeOverride(viewportContext, { fit: settings.fit });
-      return;
+    if (enabled) changeOverride(viewportContext, { fit: settings.fit });
+    else {
+      resetTransform();
+      clearOverride(viewportContext);
     }
-
-    // Dropping the override hands this screen back to the account default,
-    // which is a fit change like any other and must not leave a zoom behind
-    // that was measured against the old one.
-    if (preferences.settings.fit !== settings.fit) resetTransform();
-    clearOverride(viewportContext);
-  }, [changeOverride, clearOverride, preferences.settings.fit, resetTransform, settings.fit, viewportContext]);
-
+  }, [changeOverride, clearOverride, resetTransform, settings.fit, viewportContext]);
   const handleResetReaderSettings = useCallback(() => {
     resetTransform();
     resetPreferences();
@@ -835,46 +518,42 @@ export default function ComicReader() {
 
   const suggestedFit = suggestedFitFor(profile);
   const suggestedFitLabel = READER_FITS.find(({ value }) => value === suggestedFit)?.label;
-  // Offered once per context per session, and only to a reader who has never
-  // said how they want pages sized. Somebody who chose a fit for themselves has
-  // answered this question already, and asking again on every phone they read
-  // on is nagging them to undo their own setting.
-  const isSuggestingFit = arePreferencesLoaded
+  const fitSuggestionId = `fit:${viewportContextKey(viewportContext)}`;
+  const suggestionWasDismissed = (id) => preferences.dismissedSuggestions.includes(id);
+  const isSuggestingMode = arePreferencesLoaded
+    && profile.device === "tablet"
+    && profile.orientation === "landscape"
+    && settings.mode === "single"
+    && !suggestionWasDismissed(MODE_SUGGESTION_ID);
+  const isSuggestingFit = !isSuggestingMode
+    && !isZoomed
+    && arePreferencesLoaded
     && !hasContextOverride
     && preferences.settings.fit === DEFAULT_READER_PREFERENCES.settings.fit
     && suggestedFit !== settings.fit
-    && !dismissedSuggestions[viewportContextKey(viewportContext)];
-
-  const dismissFitSuggestion = useCallback(() => {
-    setDismissedSuggestions((dismissed) => ({ ...dismissed, [viewportContextKey(viewportContext)]: true }));
-  }, [viewportContext]);
-
+    && !suggestionWasDismissed(fitSuggestionId);
   const acceptFitSuggestion = useCallback(() => {
     resetTransform();
     changeOverride(viewportContext, { fit: suggestedFit });
-    dismissFitSuggestion();
-  }, [changeOverride, dismissFitSuggestion, resetTransform, suggestedFit, viewportContext]);
+    dismissSuggestion(fitSuggestionId);
+  }, [changeOverride, dismissSuggestion, fitSuggestionId, resetTransform, suggestedFit, viewportContext]);
+  const acceptModeSuggestion = useCallback(() => {
+    changeSettings({ mode: "double" });
+    dismissSuggestion(MODE_SUGGESTION_ID);
+  }, [changeSettings, dismissSuggestion]);
 
-  // Controls fade out on their own where there is no pointer to bring them
-  // back on hover, and in fullscreen as they always have.
-  const autoHideChrome = settings.autoHideControls && (isFullscreen || profile.coarsePointer);
-  const { chromeVisible, revealChrome, toggleChrome } = useReaderChrome({
-    enabled: autoHideChrome,
-    pinned: isSettingsOpen || isControlFocused,
-  });
+  const autoHideChrome = settings.autoHideControls && (isFullscreen || profile.touchCapable);
+  const { chromeVisible, revealChrome, toggleChrome } = useReaderChrome({ enabled: autoHideChrome, pinned: isSettingsOpen || isControlFocused });
+  useEffect(() => revealChrome(), [profile.orientation, revealChrome]);
   const isChromeHidden = autoHideChrome && !chromeVisible;
-
+  const physicalLeft = settings.direction === "rtl" ? handleNextPage : handlePreviousPage;
+  const physicalRight = settings.direction === "rtl" ? handlePreviousPage : handleNextPage;
   const gestures = useMemo(() => ({
     onTap: ({ x }) => {
       const zone = tapZone(x, imageContainerRef.current?.clientWidth ?? 0);
-      if (zone === "center") {
-        toggleChrome();
-        return;
-      }
-      // Direction of travel, not page order: the day a comic reads
-      // right-to-left, this is the one place that has to know.
-      if (zone === "left") handlePreviousPage();
-      else handleNextPage();
+      if (isZoomed || zone === "center") return toggleChrome();
+      if (zone === "left") physicalLeft();
+      else physicalRight();
     },
     onDoubleTap: ({ x, y }) => doubleTapAt({ x, y }),
     onSwipeMove: ({ dx }) => {
@@ -884,8 +563,8 @@ export default function ComicReader() {
     onSwipe: ({ direction }) => {
       setIsSwiping(false);
       setSwipeOffset(0);
-      if (direction === "right") handlePreviousPage();
-      else handleNextPage();
+      if (direction === "right") physicalLeft();
+      else physicalRight();
     },
     onSwipeCancel: () => {
       setIsSwiping(false);
@@ -893,334 +572,170 @@ export default function ComicReader() {
     },
     onPan: ({ dx, dy }) => pan({ dx, dy }),
     onPinch: ({ scale, focal, dx, dy }) => pinch({ scale, focal, dx, dy }),
-  }), [doubleTapAt, handleNextPage, handlePreviousPage, pan, pinch, toggleChrome]);
+  }), [doubleTapAt, isZoomed, pan, physicalLeft, physicalRight, pinch, toggleChrome]);
+  const handleMousePageClick = useCallback((event) => {
+    if (isZoomed) return zoomToFit();
+    const rect = imageContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const zone = tapZone(event.clientX - rect.left, rect.width);
+    if (zone === "center") toggleChrome();
+    else if (zone === "left") physicalLeft();
+    else physicalRight();
+  }, [isZoomed, physicalLeft, physicalRight, toggleChrome, zoomToFit]);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex justify-center items-center bg-background">
-        <Skeleton className="w-full max-w-md h-[60vh] mx-auto" />
-      </div>
-    );
+  if (Boolean(comicId) && isFetchingComic) {
+    return <div className="flex min-h-[60vh] items-center justify-center bg-background"><Skeleton className="h-[60vh] w-full max-w-md" /></div>;
   }
-
   if (!comic) {
     const isMissing = loadError?.status === 404;
     return (
-      <div className="min-h-screen flex flex-col justify-center items-center bg-background px-4 text-center">
-        <p className="text-xl mb-2">{isMissing ? "Comic not found" : "Could not load this comic"}</p>
-        <p className="text-sm text-muted-foreground mb-4">
-          {isMissing
-            ? "This comic may have been deleted, or the link is wrong."
-            : "Something went wrong on the way to this comic. Please try again in a moment."}
+      <div className="flex min-h-[60vh] flex-col items-center justify-center bg-background px-4 text-center">
+        <p className="mb-2 text-xl">{isMissing ? "Comic not found" : "Could not load this comic"}</p>
+        <p className="mb-4 text-sm text-muted-foreground">
+          {isMissing ? "This comic may have been deleted, or the link is wrong." : "Something went wrong on the way to this comic. Please try again in a moment."}
         </p>
         <Button onClick={() => navigate("/dashboard")}>Return to Library</Button>
       </div>
     );
   }
 
+  const requestedImages = currentUnit.map((pageIndex, slot) => {
+    const exact = imageCache[pageIndex];
+    const fallback = fallbackImages[slot];
+    const image = isUsableImage(exact) ? exact : isUsableImage(fallback) ? fallback : null;
+    return {
+      pageIndex,
+      image,
+      isStale: !isUsableImage(exact) && Boolean(image),
+      isLoading: exact !== "failed" && !(isUsableImage(exact)
+        && isPageVariantAtLeast(loadedVariants[pageIndex], desiredVariantFor(pageIndex))),
+      hasFailed: exact === "failed",
+      onRetry: () => retryPage(pageIndex),
+    };
+  });
+  const pageStatesByIndex = new Map(requestedImages.map((state) => [state.pageIndex, state]));
+  const orderedPageStates = visiblePages.map((pageIndex) => pageStatesByIndex.get(pageIndex));
+  const unitLabel = pageRangeLabel(currentUnit);
+  const progressLabel = currentUnit.length > 1 ? `Pages ${unitLabel} of ${pageCount}` : `Page ${currentPage + 1} of ${pageCount}`;
+
   return (
     <div
-      className="reader-root flex flex-col items-center bg-background overflow-hidden"
-      // Focus anywhere in the reader pins the controls open: fading out the
-      // button somebody has just tabbed to would strand them on it.
+      className="reader-root relative flex flex-col items-center overflow-hidden bg-background"
+      data-touch-capable={profile.touchCapable ? "true" : "false"}
+      data-effective-reader-mode={effectiveMode}
+      data-fullscreen={isFullscreen ? "true" : "false"}
+      data-reader-chrome={isChromeHidden ? "hidden" : "visible"}
       onFocus={() => setIsControlFocused(true)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setIsControlFocused(false);
-      }}
-      // A moving mouse is a reader who is still there. Touch has no equivalent,
-      // which is why a tap in the middle of the page toggles instead.
-      onPointerMove={(event) => {
-        if (event.pointerType === "mouse") revealChrome();
-      }}
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsControlFocused(false); }}
+      onPointerMove={(event) => { if (event.pointerType === "mouse") revealChrome(); }}
     >
-      {/* Click zones, for a pointer that has no gestures. Touch reaches the same
-          two actions through the gesture machine's tap zones, and rendering
-          these as well would give every tap two chances to turn the page. */}
-      {!profile.coarsePointer && (
-        <>
-          <div
-            className={`page-navigation left-0 ${isFullscreen ? 'z-[55]' : ''}`}
-            style={{ bottom: 'calc(88px + env(safe-area-inset-bottom))' }} // Leave space for controls to prevent overlap
-            onClick={() => handleScreenNavClick('left')}
-            aria-hidden="true"
-          ></div>
-
-          <div
-            className={`page-navigation right-0 ${isFullscreen ? 'z-[55]' : ''}`}
-            style={{ bottom: 'calc(88px + env(safe-area-inset-bottom))' }} // Leave space for controls to prevent overlap
-            onClick={() => handleScreenNavClick('right')}
-            aria-hidden="true"
-          ></div>
-        </>
-      )}
-
-      {/* Main content area - adjusted height to account for the header in normal mode */}
-      <div className={`${settings.fit === "contain" || settings.fit === "height" ? "max-w-4xl" : "max-w-none"} w-full ${isFullscreen ? 'reader-stage-fullscreen' : 'reader-stage'} flex items-center justify-center py-4`}>
-        <SinglePageReader
-          containerRef={imageContainerRef}
-          imageRef={imageRef}
-          image={imageLoadedSuccessfully ? currentPageImage : null}
-          isLoading={isPageImageLoading}
-          hasFailed={!isPageImageLoading && !imageLoadedSuccessfully && comicPages.length > 0 && Boolean(comicPages[currentPage])}
-          pageNumber={currentPage + 1}
-          title={comic?.title}
-          fit={settings.fit}
-          isFullscreen={isFullscreen}
-          transform={transform}
-          swipeOffset={swipeOffset}
-          isSwiping={isSwiping}
-          gestures={gestures}
-          onImageClick={() => {
-            if (isZoomed) zoomToFit();
-          }}
-          onRetry={() => {
-            setImageCache((previousCache) => {
-              const nextCache = { ...previousCache };
-              delete nextCache[currentPage];
-              return nextCache;
-            });
-          }}
-        >
-          {/* Control buttons - positioned differently in fullscreen mode */}
-          {/* In fullscreen this cluster duplicates Previous/Next from the bar
-              below, so both groups are named: without that, a screen reader
-              reads two identical "Next page" buttons with nothing to tell them
-              apart. */}
-          <div
-            role="group"
-            aria-label="Reader view controls"
-            className={`${isFullscreen ? "fullscreen-controls" : "absolute top-2 right-2 z-10 flex gap-2 transition-opacity duration-300 motion-reduce:transition-none"} ${isChromeHidden ? "reader-chrome-hidden" : ""}`}
-          >
-            <ReaderSettings
-              settings={settings}
-              isLoaded={arePreferencesLoaded}
-              isSaving={arePreferencesSaving}
-              contextLabel={describeViewportContext(profile)}
-              hasOverride={hasContextOverride}
-              onChange={handleReaderSettingsChange}
-              onOverrideChange={handleContextOverrideChange}
-              onOpenChange={setIsSettingsOpen}
-              onReset={handleResetReaderSettings}
-            />
-
-            <Button
-              variant="outline" 
-              size="icon"
-              className="opacity-80 hover:opacity-100 bg-card/80"
-              onClick={() => toggleFullscreen(document)}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-            >
-              <Maximize className="h-4 w-4" />
-            </Button>
-            
-            {isZoomed ? (
-              <Button
-                variant="outline"
-                size="icon"
-                className="opacity-80 hover:opacity-100 bg-card/80"
-                disabled={!arePreferencesLoaded}
-                onClick={zoomToFit}
-                aria-label="Zoom out"
-                title="Zoom out"
-              >
-                <ZoomOut className="h-4 w-4" />
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="icon"
-                className="opacity-80 hover:opacity-100 bg-card/80"
-                disabled={!arePreferencesLoaded}
-                onClick={() => stepZoomBy(2)}
-                aria-label="Zoom in"
-                title="Zoom in"
-              >
-                <ZoomIn className="h-4 w-4" />
-              </Button>
-            )}
-            
-            {/* Page navigation buttons in fullscreen mode */}
-            {isFullscreen && (
-              <>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="opacity-80 hover:opacity-100 bg-card/80"
-                  onClick={handlePreviousPage}
-                  disabled={!canGoPrevious}
-                  aria-label="Previous page"
-                  title="Previous page"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-                
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="opacity-80 hover:opacity-100 bg-card/80"
-                  onClick={handleNextPage}
-                  disabled={!canGoNext}
-                  aria-label="Next page"
-                  title="Next page"
-                >
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-            
-            <Button
-              variant="outline"
-              size="icon"
-              className="opacity-80 hover:opacity-100 bg-card/80"
-              onClick={() => setShowThumbnails((shown) => !shown)}
-              aria-label={showThumbnails ? "Hide page thumbnails" : "Show page thumbnails"}
-              aria-expanded={showThumbnails}
-              aria-controls="reader-thumbnail-strip"
-              title="Page thumbnails"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
-
-            {/* Debug button */}
-            <Button
-              variant="outline"
-              size="icon"
-              className="opacity-80 hover:opacity-100 bg-card/80"
-              onClick={() => setShowDebug(!showDebug)}
-              aria-label="Debug info"
-              aria-expanded={showDebug}
-              title="Debug info"
-            >
-              <Info className="h-4 w-4" />
-            </Button>
-          </div>
-          {/* Debug panel */}
-          {showDebug && (
-            <div className="absolute bottom-2 right-2 z-10 bg-card p-4 rounded-md shadow-lg max-w-xs max-h-60 overflow-auto text-xs">
-              <h3 className="font-bold mb-2">Debug Info</h3>
-              <p>Current page: {currentPage + 1}</p>
-              <p>Total pages: {comicPages.length}</p>
-              <p>Variant: {pageVariant}</p>
-              <p>
-                Page size: {pageGeometry[currentPage + 1]
-                  ? `${pageGeometry[currentPage + 1].width}×${pageGeometry[currentPage + 1].height}`
-                  : 'unknown'}
-              </p>
-              <p>Loading: {isPageImageLoading ? 'Yes' : 'No'}</p>
-              <p>Cached pages: {Object.keys(imageCache).length}</p>
-              <p>Cache window: {Math.max(0, currentPage - preloadWindow.backward) + 1} - {Math.min(comicPages.length - 1, currentPage + preloadWindow.forward) + 1}</p>
-              <p>Screen: {profile.device} {profile.orientation} ({profile.coarsePointer ? 'touch' : 'pointer'}, {profile.memory} memory)</p>
-              {isZoomed && (
-                <p>Zoom level: {Math.round(transform.scale * 100)}%</p>
-              )}
-              <div className="mt-2">
-                <p className="font-semibold">Cache status:</p>
-                <ul className="mt-1">
-                  {Object.keys(imageCache)
-                    .map(Number)
-                    .sort((a, b) => a - b)
-                    .map(pageNum => (
-                      <li key={pageNum} className={pageNum === currentPage ? 'font-bold' : ''}>
-                        Page {pageNum + 1}: {' '}
-                        {/* Escape sequences, not literals: these icons went through a bad
-                            re-encoding once and came back as mojibake. */}
-                        {imageCache[pageNum] === 'loading' ? '\u{1F504} Loading' :
-                         imageCache[pageNum] === 'failed' ? '\u274C Failed' : '\u2705 Loaded'}
-                        {pageNum === currentPage ? ' (current)' : ''}
-                      </li>
-                    ))
-                  }
-                </ul>
-              </div>
-              <div className="mt-2">
-                <p className="font-semibold">Queue status:</p>
-                <p>Pages to load: {queueSnapshot.length}</p>
-                {queueSnapshot.length > 0 && (
-                  <p>Next in queue: {queueSnapshot[0] + 1}</p>
-                )}
-              </div>
-            </div>
-          )}
-          {/* Case where there are no pages for the comic */}
-          {comicPages.length === 0 && !isLoading && (
-             <div className="text-xl">This comic has no pages to display.</div>
-          )}
-        </SinglePageReader>
-      </div>
-
-      {/* Page navigator. Same derivative pipeline as the page itself, one rung
-          down: a thumbnail is a page, so it is behind the same authorization. */}
-      {showThumbnails && comicPages.length > 0 && (
-        <ReaderThumbnailStrip
-          key={`${comicId}-${comicPages.length}`}
-          comicId={comicId}
-          pageCount={comicPages.length}
-          currentPage={currentPage}
-          geometry={pageGeometry}
-          onSelect={goToPage}
-        />
-      )}
-
-      {isSuggestingFit && (
-        <ReaderFitSuggestion
-          fitLabel={suggestedFitLabel}
-          contextLabel={describeViewportContext(profile)}
-          onAccept={acceptFitSuggestion}
-          onDismiss={dismissFitSuggestion}
-        />
-      )}
-
-      {/* Reader controls - different styling in fullscreen mode */}
-      <div
-        role="group"
-        aria-label="Reader page controls"
-        className={`reader-controls ${isFullscreen ? "reader-controls-fullscreen" : ""} ${isChromeHidden ? "reader-chrome-hidden" : ""}`}
-      >
-        {/* How far through the comic this page is, at a glance */}
-        {settings.showProgress && comicPages.length > 0 && (
-          <Progress
-            value={((currentPage + 1) / comicPages.length) * 100}
-            aria-label={`Page ${currentPage + 1} of ${comicPages.length}`}
-            className="h-1 w-full rounded-none bg-muted/60"
+      <div className={`${effectiveMode === "continuous" || settings.fit === "width" || settings.fit === "original" ? "max-w-none" : "max-w-4xl"} ${isFullscreen ? "reader-stage-fullscreen" : "reader-stage"} ${effectiveMode !== "continuous" && !isChromeHidden ? "reader-stage-controls-visible" : ""} flex w-full items-center justify-center pt-4`}>
+        {pageCount === 0 ? (
+          <div className="text-xl">This comic has no pages to display.</div>
+        ) : effectiveMode === "continuous" ? (
+          <ContinuousPageReader
+            containerRef={imageContainerRef}
+            comicId={comicId}
+            pageCount={pageCount}
+            currentPage={currentPage}
+            title={comic.title}
+            geometry={pageGeometry}
+            resetToken={`${profile.orientation}:${effectiveMode}`}
+            onCurrentPageChange={goToLogicalPage}
+            onActivity={toggleChrome}
+          />
+        ) : effectiveMode === "double" ? (
+          <SpreadPageReader
+            containerRef={imageContainerRef}
+            contentRef={imageRef}
+            pages={orderedPageStates}
+            title={comic.title}
+            fit={settings.fit}
+            transform={transform}
+            swipeOffset={swipeOffset}
+            isSwiping={isSwiping}
+            gestures={gestures}
+            onImageClick={handleMousePageClick}
+          />
+        ) : (
+          <SinglePageReader
+            containerRef={imageContainerRef}
+            imageRef={imageRef}
+            image={requestedImages[0]?.image}
+            isStale={requestedImages[0]?.isStale}
+            isLoading={requestedImages[0]?.isLoading}
+            hasFailed={requestedImages[0]?.hasFailed}
+            pageNumber={currentPage + 1}
+            title={comic.title}
+            fit={settings.fit}
+            isFullscreen={isFullscreen}
+            transform={transform}
+            swipeOffset={swipeOffset}
+            isSwiping={isSwiping}
+            gestures={gestures}
+            onImageClick={handleMousePageClick}
+            onRetry={() => retryPage(currentPage)}
           />
         )}
+      </div>
 
+      <div
+        role="group"
+        aria-label="Reader view controls"
+        className={`${isFullscreen ? "fullscreen-controls" : "reader-view-controls absolute z-20 flex gap-2 transition-opacity duration-300 motion-reduce:transition-none"} ${isChromeHidden ? "reader-chrome-hidden" : ""}`}
+      >
+        <ReaderSettings
+          settings={settings}
+          isLoaded={arePreferencesLoaded}
+          isSaving={arePreferencesSaving}
+          contextLabel={describeViewportContext(profile)}
+          hasOverride={hasContextOverride}
+          modeNotice={settings.mode === "double" && effectiveMode !== "double"
+            ? "Two-page mode uses one page on narrow or portrait screens."
+            : null}
+          onChange={handleReaderSettingsChange}
+          onOverrideChange={handleContextOverrideChange}
+          onOpenChange={setIsSettingsOpen}
+          onReset={handleResetReaderSettings}
+        />
+        <Button variant="outline" size="icon" className="bg-card/80 opacity-80 hover:opacity-100" onClick={() => toggleFullscreen(document)} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
+          {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+        </Button>
+        {effectiveMode !== "continuous" && (isZoomed ? (
+          <Button variant="outline" size="icon" className="bg-card/80 opacity-80 hover:opacity-100" onClick={zoomToFit} aria-label="Zoom out" title="Zoom out"><ZoomOut className="h-4 w-4" /></Button>
+        ) : (
+          <Button variant="outline" size="icon" className="bg-card/80 opacity-80 hover:opacity-100" onClick={() => stepZoomBy(2)} aria-label="Zoom in" title="Zoom in"><ZoomIn className="h-4 w-4" /></Button>
+        ))}
+        <Button variant="outline" size="icon" className="bg-card/80 opacity-80 hover:opacity-100" onClick={() => setShowThumbnails((shown) => !shown)} aria-label={showThumbnails ? "Hide page thumbnails" : "Show page thumbnails"} aria-expanded={showThumbnails} aria-controls="reader-thumbnail-strip" title="Page thumbnails">
+          <LayoutGrid className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {showThumbnails && pageCount > 0 && (
+        <ReaderThumbnailStrip key={`${comicId}-${pageCount}`} comicId={comicId} pageCount={pageCount} currentPage={currentPage} geometry={pageGeometry} onSelect={goToReaderPage} />
+      )}
+      {isSuggestingMode && (
+        <ReaderFitSuggestion message={<><span className="font-medium">Two pages</span> can make better use of this wide screen.</>} acceptLabel="Use two pages" onAccept={acceptModeSuggestion} onDismiss={() => dismissSuggestion(MODE_SUGGESTION_ID)} />
+      )}
+      {isSuggestingFit && (
+        <ReaderFitSuggestion fitLabel={suggestedFitLabel} contextLabel={describeViewportContext(profile)} onAccept={acceptFitSuggestion} onDismiss={() => dismissSuggestion(fitSuggestionId)} />
+      )}
+
+      <div role="group" aria-label="Reader page controls" className={`reader-controls ${isFullscreen ? "reader-controls-fullscreen" : ""} ${isChromeHidden ? "reader-chrome-hidden" : ""}`}>
+        {settings.showProgress && pageCount > 0 && (
+          <Progress value={((Math.max(...currentUnit) + 1) / pageCount) * 100} aria-label={progressLabel} className="h-1 w-full rounded-none bg-muted/60" />
+        )}
         <div className="flex w-full items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={handlePreviousPage}
-              disabled={!canGoPrevious}
-              aria-label="Previous page"
-              className={isFullscreen ? "" : "bg-card"}
-            >
-              <ArrowLeft className="h-4 w-4 min-[360px]:mr-2" />
-              <span className="hidden min-[360px]:inline">Previous</span>
+            <Button variant="outline" onClick={handlePreviousPage} disabled={!canGoPrevious} aria-label="Previous page" className={isFullscreen ? "" : "bg-card"}>
+              <ArrowLeft className="h-4 w-4 min-[360px]:mr-2" /><span className="hidden min-[360px]:inline">Previous</span>
             </Button>
-
-            {/* Force reload button */}
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleForceReload}
-              aria-label="Force reload current page"
-              title="Force reload current page"
-              className={isFullscreen ? "" : "bg-card"}
-            >
-              <RefreshCw className="h-4 w-4" />
-            </Button>
+            {effectiveMode !== "continuous" && (
+              <Button variant="outline" size="icon" onClick={handleForceReload} aria-label="Force reload current page" title="Force reload current page" className={isFullscreen ? "" : "bg-card"}><RefreshCw className="h-4 w-4" /></Button>
+            )}
           </div>
-
-          <div className="flex items-center gap-2">
-            <form
-              className="flex items-center gap-1.5 text-sm"
-              onSubmit={(event) => {
-                event.preventDefault();
-                commitPageInput();
-                pageInputRef.current?.blur();
-              }}
-            >
+          <div className="flex min-w-0 flex-col items-center gap-1">
+            <form className="flex items-center gap-1.5 text-sm" onSubmit={(event) => { event.preventDefault(); commitPageInput(); pageInputRef.current?.blur(); }}>
               <label htmlFor="reader-page-input" className="sr-only">Go to page</label>
               <input
                 id="reader-page-input"
@@ -1228,32 +743,21 @@ export default function ComicReader() {
                 type="number"
                 inputMode="numeric"
                 min={1}
-                max={comicPages.length || 1}
+                max={pageCount || 1}
                 value={pageInput}
                 onChange={(event) => setPageInput(event.target.value)}
                 onBlur={commitPageInput}
-                disabled={comicPages.length === 0}
+                disabled={pageCount === 0}
                 title="Go to page"
-                className="h-8 w-16 rounded-md border border-input bg-background px-2 text-center text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+                className="h-8 w-14 rounded-md border border-input bg-background px-2 text-center text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
               />
-              <span className="whitespace-nowrap">of {comicPages.length}</span>
+              <span className="whitespace-nowrap">of {pageCount}</span>
             </form>
-            {isZoomed && (
-              <div className="text-xs bg-primary/20 px-2 py-1 rounded">
-                {Math.round(transform.scale * 100)}% zoom
-              </div>
-            )}
+            {currentUnit.length > 1 && <span className="text-xs text-muted-foreground">Showing pages {unitLabel}</span>}
+            {isZoomed && <span className="rounded bg-primary/20 px-2 py-0.5 text-xs">{Math.round(transform.scale * 100)}% zoom</span>}
           </div>
-
-          <Button
-            variant="outline"
-            onClick={handleNextPage}
-            disabled={!canGoNext}
-            aria-label="Next page"
-            className={isFullscreen ? "" : "bg-card"}
-          >
-            <span className="hidden min-[360px]:inline">Next</span>
-            <ArrowRight className="h-4 w-4 min-[360px]:ml-2" />
+          <Button variant="outline" onClick={handleNextPage} disabled={!canGoNext} aria-label="Next page" className={isFullscreen ? "" : "bg-card"}>
+            <span className="hidden min-[360px]:inline">Next</span><ArrowRight className="h-4 w-4 min-[360px]:ml-2" />
           </Button>
         </div>
       </div>

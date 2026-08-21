@@ -87,18 +87,31 @@
      chrome grows and shrinks while you read, and 100vh describes only one of
      those states — the one where the bottom controls are behind the URL bar. */
   .reader-root {
-    min-height: 100vh;
-    min-height: 100dvh;
+    height: calc(100vh - 3rem - env(safe-area-inset-top));
+    height: calc(100dvh - 3rem - env(safe-area-inset-top));
+    min-height: 0;
+  }
+
+  .reader-root[data-fullscreen="true"] {
+    @apply fixed inset-0 z-50;
+    height: 100vh;
+    height: 100dvh;
   }
 
   .reader-stage {
-    height: calc(100vh - 10rem);
-    height: calc(100dvh - 10rem);
+    height: 100%;
+    padding-bottom: 1rem;
   }
 
   .reader-stage-fullscreen {
-    height: calc(100vh - 8rem);
-    height: calc(100dvh - 8rem);
+    height: 100%;
+    padding-bottom: 1rem;
+  }
+
+  /* Keep fit-to-page artwork wholly visible while the bottom controls are on
+     screen. Touch readers regain the space as soon as auto-hide fades them. */
+  .reader-stage-controls-visible {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
   }
 
   /* A column, so the progress bar can sit above the buttons rather than beside
@@ -118,14 +131,38 @@
     @apply z-[60];
   }
 
+  .reader-header {
+    height: calc(3rem + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: calc(1rem + env(safe-area-inset-right));
+  }
+
+  .reader-header-fullscreen {
+    padding-top: calc(0.5rem + env(safe-area-inset-top));
+    padding-left: calc(0.5rem + env(safe-area-inset-left));
+    padding-right: calc(0.5rem + env(safe-area-inset-right));
+  }
+
+  .reader-view-controls {
+    top: 0.5rem;
+    right: calc(0.5rem + env(safe-area-inset-right));
+  }
+
+  .reader-continuous {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    scroll-padding-top: 1rem;
+  }
+
+  .reader-continuous > div {
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+  }
+
   /* Chrome that has taken itself off screen. Not just transparent: a control
      faded out must not still be the thing under a tap on the artwork. */
   .reader-chrome-hidden {
     @apply pointer-events-none opacity-0;
-  }
-
-  .page-navigation {
-    @apply fixed top-0 bottom-0 w-1/5 bg-transparent cursor-pointer opacity-0 hover:opacity-10 transition-opacity z-0;
   }
 
   .fullscreen-container {
@@ -147,14 +184,24 @@
     bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 
+  /* Consent remains the first decision on a first visit. Its compact reader
+     placement stays clear of navigation, and suggestions wait until it is
+     dismissed instead of stacking two unrelated cards over the artwork. */
+  .reader-cookie-notice {
+    bottom: calc(7rem + env(safe-area-inset-bottom)) !important;
+  }
+
+  body:has(.reader-cookie-notice) .reader-suggestion {
+    display: none;
+  }
+
   /* A finger is not a cursor. Where the pointer is coarse, every reader control
      is at least a comfortable target regardless of the icon inside it. */
-  @media (pointer: coarse) {
-    .reader-controls button,
-    .fullscreen-controls button,
-    .reader-suggestion button {
-      @apply min-h-11 min-w-11;
-    }
+  [data-touch-capable="true"] .reader-controls button,
+  [data-touch-capable="true"] .fullscreen-controls button,
+  [data-touch-capable="true"] .reader-view-controls button,
+  [data-touch-capable="true"] .reader-suggestion button {
+    @apply min-h-11 min-w-11;
   }
 
   .fullscreen-reader-controls {

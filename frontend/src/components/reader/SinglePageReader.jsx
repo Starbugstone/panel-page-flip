@@ -52,6 +52,7 @@ export function SinglePageReader({
   gestures,
   onImageClick,
   onRetry,
+  isStale = false,
   children,
 }) {
   const safeFit = Object.hasOwn(VIEWPORT_CLASSES, fit) ? fit : "contain";
@@ -79,7 +80,8 @@ export function SinglePageReader({
         <img
           ref={imageRef}
           src={image.src}
-          alt={`Page ${pageNumber} of ${title || "Comic"}`}
+          alt={isStale ? "" : `Page ${pageNumber} of ${title || "Comic"}`}
+          aria-hidden={isStale ? "true" : undefined}
           // A dragged image is the browser offering to copy a file, which under
           // a finger or a mouse is never what a page turn meant.
           draggable={false}
@@ -88,8 +90,8 @@ export function SinglePageReader({
             transform: `translate3d(${transform.x + swipeOffset}px, ${transform.y}px, 0) scale(${transform.scale})`,
             transformOrigin: "center center",
           }}
-          onClick={() => {
-            if (lastPointerTypeRef.current === "mouse") onImageClick?.();
+          onClick={(event) => {
+            if (lastPointerTypeRef.current === "mouse") onImageClick?.(event);
           }}
         />
       )}
@@ -101,9 +103,15 @@ export function SinglePageReader({
         </div>
       )}
 
-      {isLoading && (
+      {isLoading && !image && (
         <div className="absolute inset-0 flex items-center justify-center">
           <Skeleton className="mx-auto h-full w-full max-w-full object-contain" />
+        </div>
+      )}
+
+      {isLoading && image && (
+        <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-background/90 px-3 py-1 text-xs shadow">
+          Loading page {pageNumber}…
         </div>
       )}
 

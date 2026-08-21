@@ -41,6 +41,12 @@ describe("classifying what the reader has to work with", () => {
     expect(profile.hasHover).toBe(true);
   });
 
+  it("keeps hybrid touch capability even when the primary pointer is fine", () => {
+    const profile = classifyViewport({ width: 1280, height: 800, coarsePointer: false, touchCapable: true, hasHover: true });
+
+    expect(profile).toMatchObject({ device: "desktop", coarsePointer: false, touchCapable: true, hasHover: true });
+  });
+
   it("reads device memory as a coarse tier and tolerates its absence", () => {
     expect(classifyViewport({ ...phonePortrait, deviceMemory: 1 }).memory).toBe("low");
     expect(classifyViewport({ ...phonePortrait, deviceMemory: 4 }).memory).toBe("standard");

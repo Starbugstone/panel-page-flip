@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { DEFAULT_READER_VARIANT, largerPageVariant, selectPageVariant } from "@/lib/reader-pages";
+import { DEFAULT_READER_VARIANT, selectPageVariant } from "@/lib/reader-pages";
 
 /**
  * Which bounded page size this reader should be asking for, from how much room
@@ -24,7 +24,7 @@ export function usePageVariant(containerRef, { zoomLevel = 1 } = {}) {
       zoomLevel: zoomRef.current,
     });
 
-    setVariant((current) => largerPageVariant(current, next));
+    setVariant(next);
   }, [containerRef]);
 
   // A pinch moves the zoom on every frame it lasts. Measuring again is cheap;
