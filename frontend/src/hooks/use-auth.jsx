@@ -109,6 +109,8 @@ export function AuthProvider({ children }) {
     logout,
     checkAuth,
     isAuthenticated: Boolean(user),
+    // UI convenience only; the API remains the authorization boundary.
+    isAdmin: Boolean(user?.roles?.includes("ROLE_ADMIN")),
     sessionExpired,
     refreshSession,
   }), [checkAuth, loading, login, logout, refreshSession, register, sessionExpired, user]);

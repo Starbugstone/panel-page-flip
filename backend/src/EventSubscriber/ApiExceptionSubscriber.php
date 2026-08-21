@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\EventSubscriber;
 
+use App\Security\ComicForbiddenException;
+use App\Security\ComicNotAccessibleException;
 use App\Security\UnauthenticatedException;
 use App\Service\ShareException;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -40,6 +42,30 @@ final class ApiExceptionSubscriber implements EventSubscriberInterface
             $event->setResponse(new JsonResponse(
                 ['message' => $exception->getMessage()],
                 Response::HTTP_UNAUTHORIZED
+            ));
+
+            return;
+        }
+
+        // The single answer for a comic the caller may not have. Rendering it
+        // here is what keeps "missing" and "not yours" indistinguishable: no
+        // action gets the chance to be more forthcoming than its neighbours.
+        if ($exception instanceof ComicNotAccessibleException) {
+            $event->setResponse(new JsonResponse(
+                ['message' => $exception->getMessage()],
+                Response::HTTP_NOT_FOUND
+            ));
+
+            return;
+        }
+
+        // Its counterpart, for somebody who can already see the comic. Kept
+        // beside it so the choice between the two stays one decision in one
+        // place — see App\Security\ComicAccess.
+        if ($exception instanceof ComicForbiddenException) {
+            $event->setResponse(new JsonResponse(
+                ['message' => $exception->getMessage()],
+                Response::HTTP_FORBIDDEN
             ));
 
             return;

@@ -41,47 +41,47 @@ const PageLoading = () => <div className="flex h-screen items-center justify-cen
 // Protected route component
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
-  
+
   if (loading) {
     return <PageLoading />;
   }
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" />;
   }
-  
+
   return children;
 };
 
 // Admin route component
 const AdminRoute = ({ children }) => {
-  const { isAuthenticated, loading, user } = useAuth();
-  
+  const { isAuthenticated, loading, isAdmin } = useAuth();
+
   if (loading) {
     return <PageLoading />;
   }
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" />;
   }
-  
-  if (!user.roles || !user.roles.includes("ROLE_ADMIN")) {
+
+  if (!isAdmin) {
     return <Navigate to="/dashboard" />;
   }
-  
+
   return children;
 };
 
 const AppRoutes = () => {
-  const { isAuthenticated, logout, user } = useAuth();
+  const { isAuthenticated, logout, isAdmin } = useAuth();
 
   return (
     <BrowserRouter>
       <div className="min-h-screen flex flex-col">
-        <Header 
-          isLoggedIn={isAuthenticated} 
-          onLogout={logout} 
-          isAdmin={user?.roles?.includes("ROLE_ADMIN")} 
+        <Header
+          isLoggedIn={isAuthenticated}
+          onLogout={logout}
+          isAdmin={isAdmin}
         />
         <main className="flex-1">
           <Suspense fallback={<PageLoading />}>

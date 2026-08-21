@@ -107,19 +107,19 @@ final class AccessDeniedLogSubscriber implements EventSubscriberInterface
      * that exist today: a pattern listing them would quietly demote each new
      * sub-route to the ordinary threshold until somebody remembered to add it.
      *
-     * `/api/users` cannot be a prefix, because it is three surfaces wearing one
-     * path. The collection is administrators-only — listing accounts and
-     * creating one both refuse anybody else. So is every sub-route of an
-     * account, such as marking one verified. The account itself is not: every
-     * user may read and update their own record.
+     * `/api/users` cannot be a prefix, and the reason is about noise rather
+     * than about access: the firewall holds the whole prefix to ROLE_ADMIN, so
+     * everything under it is closed either way.
      *
-     * That middle case is why the whole prefix cannot take the tighter count. A
-     * 403 on `/api/users/{someoneElse}` means an ordinary user aimed at another
-     * account, which a stale link or a bookmark kept after a demotion explains
-     * just as well as probing does. On the admin threshold of three, that would
-     * raise a high-severity "administrator probing" alert naming them. It is
-     * still recorded and still counted — on the ordinary authorization
-     * threshold, where one-off refusals belong.
+     * What differs is how a refusal there reads. A 403 on `/api/users/{id}` is
+     * the one an ordinary user reaches by accident — a bookmark kept after a
+     * demotion, a link out of an old email — and on the admin threshold of
+     * three that would raise a high-severity "administrator probing" alert
+     * naming somebody who clicked a dead link. The collection and the
+     * sub-routes have no such innocent explanation: nothing but an
+     * administrator's own screens ever asks for them. So those take the tighter
+     * count, and the single-account path is still recorded and still counted —
+     * on the ordinary authorization threshold, where one-off refusals belong.
      */
     private function isAdminSurface(Request $request): bool
     {

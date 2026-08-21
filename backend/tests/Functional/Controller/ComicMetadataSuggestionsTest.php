@@ -57,7 +57,8 @@ final class ComicMetadataSuggestionsTest extends AbstractApiTestCase
         $this->loginAs(UserFactory::createOne()->object());
         $this->browser()->request('GET', sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));
 
-        self::assertResponseStatusCodeSame(403);
+        // Same answer a comic id that was never issued gets.
+        self::assertResponseStatusCodeSame(404);
     }
 
     public function testAnonymousIsRefused(): void

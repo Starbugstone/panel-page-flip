@@ -359,6 +359,15 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
+    /**
+     * Use for accounts outside the current security token. When a token is
+     * available, prefer isGranted() so the role hierarchy is honoured.
+     */
+    public function isAdmin(): bool
+    {
+        return in_array('ROLE_ADMIN', $this->getRoles(), true);
+    }
+
     public function isSharingRestricted(): bool
     {
         return $this->sharingRestrictedAt !== null;

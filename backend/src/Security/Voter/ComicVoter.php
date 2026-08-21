@@ -29,6 +29,20 @@ final class ComicVoter extends Voter
     /** Invite somebody else, or manage who currently has access. */
     public const SHARE = 'COMIC_SHARE';
 
+    /**
+     * Be told this comic exists at all.
+     *
+     * The weakest right here, and the only one that is not about doing
+     * something: it decides whether a refusal may say "you may not" rather than
+     * "there is no such comic". Everyone with any standing has it — the owner
+     * even while the comic is quarantined, an administrator, and any recipient
+     * holding a share of any status, including one that grants no reading.
+     *
+     * A stranger does not, which is the point: without it, walking the id space
+     * would map out other people's libraries by which ids answered differently.
+     */
+    public const KNOW = 'COMIC_KNOW';
+
     public function __construct(private readonly ComicShareRepository $shareRepository)
     {
     }
@@ -36,7 +50,7 @@ final class ComicVoter extends Voter
     protected function supports(string $attribute, mixed $subject): bool
     {
         return $subject instanceof Comic
-            && in_array($attribute, [self::VIEW, self::EDIT, self::DELETE, self::SHARE], true);
+            && in_array($attribute, [self::VIEW, self::EDIT, self::DELETE, self::SHARE, self::KNOW], true);
     }
 
     protected function voteOnAttribute(string $attribute, mixed $subject, TokenInterface $token): bool
@@ -47,7 +61,7 @@ final class ComicVoter extends Voter
         }
 
         $isOwner = $subject->getOwner()?->getId() === $user->getId();
-        $isAdmin = in_array('ROLE_ADMIN', $user->getRoles(), true);
+        $isAdmin = $user->isAdmin();
 
         return match ($attribute) {
             // Sharing is the owner's alone. An admin can moderate a comic but
@@ -65,6 +79,15 @@ final class ComicVoter extends Voter
             self::VIEW => $isAdmin
                 || ($isOwner && !$subject->isQuarantined())
                 || (!$subject->isSharingRestricted() && !$subject->isQuarantined() && $this->hasAcceptedShare($user, $subject)),
+
+            // Standing, not permission. Note what it does *not* consult:
+            // quarantine, sharing restrictions, share status and the 18+ gate
+            // all withdraw reading from somebody who still knows the comic is
+            // there, and pretending otherwise to them would be a worse answer
+            // than the refusal they have earned.
+            self::KNOW => $isOwner
+                || $isAdmin
+                || $this->shareRepository->hasAnyShareFor($user, $subject),
 
             default => false,
         };

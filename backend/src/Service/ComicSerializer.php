@@ -108,7 +108,7 @@ class ComicSerializer
     ): array {
         $owner = $comic->getOwner();
         $isOwner = $owner?->getId() === $viewer->getId();
-        $isAdmin = in_array('ROLE_ADMIN', $viewer->getRoles(), true);
+        $isAdmin = $viewer->isAdmin();
 
         $data = [
             'id' => $comic->getId(),

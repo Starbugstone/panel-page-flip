@@ -589,10 +589,13 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(403);
         // Not only the metadata: the endpoints that serve the actual bytes are
         // behind the same voter, so an accepted share cannot route around it.
+        // All of them refuse in the same words — the gate is something this
+        // recipient can clear, and an endpoint claiming the comic is missing
+        // would be telling them to give up on a comic they can plainly see.
         $this->requestCover($owner, $comic);
         self::assertResponseStatusCodeSame(403);
         $this->browser()->request('GET', '/api/comics/' . $comic->getId() . '/pages/1');
-        self::assertResponseStatusCodeSame(404);
+        self::assertResponseStatusCodeSame(403);
         self::assertSame([], $this->getJson('/api/comics')['comics']);
 
         // The relationship survived: it is reading that stopped, not the share.

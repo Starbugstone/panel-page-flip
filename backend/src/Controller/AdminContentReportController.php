@@ -16,15 +16,15 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 
 #[Route('/api/admin/content-reports', name: 'api_admin_content_reports_')]
+#[IsGranted('ROLE_ADMIN')]
 final class AdminContentReportController extends AbstractController
 {
     #[Route('', name: 'list', methods: ['GET'])]
     public function list(Request $request, ContentReportRepository $reports): JsonResponse
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
-
         try {
             $from = $this->date($request->query->get('from'));
             $to = $this->date($request->query->get('to'));
@@ -47,7 +47,6 @@ final class AdminContentReportController extends AbstractController
     #[Route('/{id}', name: 'detail', methods: ['GET'], requirements: ['id' => '\d+'])]
     public function detail(ContentReport $report): JsonResponse
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
         return $this->json(['report' => $this->serialize($report)]);
     }
 
@@ -179,7 +178,6 @@ final class AdminContentReportController extends AbstractController
 
     private function admin(): User
     {
-        $this->denyAccessUnlessGranted('ROLE_ADMIN');
         $user = $this->getUser();
         if (!$user instanceof User) {
             throw $this->createAccessDeniedException();

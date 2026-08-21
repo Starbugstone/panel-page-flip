@@ -58,7 +58,7 @@ final class PersonalDataRetentionService
 
         foreach ($staleUserIds as $userId) {
             $user = $this->entityManager()->find(User::class, $userId);
-            if ($user === null || in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+            if ($user === null || $user->isAdmin()) {
                 continue;
             }
 

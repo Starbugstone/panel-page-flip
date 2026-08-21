@@ -276,10 +276,7 @@ final class ComicPageVariantTest extends AbstractApiTestCase
 
     private function cacheDirectory(Comic $comic): string
     {
-        $directory = self::getContainer()->getParameter('page_cache_directory').'/'.$comic->getId();
-        $this->temporaryDirectories[] = $directory;
-
-        return $directory;
+        return self::getContainer()->getParameter('page_cache_directory').'/'.$comic->getId();
     }
 
     /**
@@ -304,7 +301,26 @@ final class ComicPageVariantTest extends AbstractApiTestCase
         $this->temporaryFiles[] = $path;
         $this->writeArchive($path, self::SOURCE_WIDTH, self::SOURCE_HEIGHT);
 
+        // The page cache is keyed by comic id under a directory the database
+        // rollback knows nothing about, and ids are reissued from the start of
+        // every run. Left alone, a comic inherits the cached variants and
+        // geometry files of whatever comic held its id in an earlier run — so a
+        // test that counts what serving one page wrote would pass on a clean
+        // checkout and fail on the fourth run, having proved nothing either
+        // time. Claimed and emptied here, released in tearDown.
+        $this->temporaryDirectories[] = $this->cacheDirectory($comic);
+        $this->purgeCacheDirectory($comic);
+
         return [$owner, $comic];
+    }
+
+    private function purgeCacheDirectory(Comic $comic): void
+    {
+        foreach (glob($this->cacheDirectory($comic).'/*') ?: [] as $stale) {
+            if (is_file($stale)) {
+                unlink($stale);
+            }
+        }
     }
 
     private function replaceArchive(Comic $comic, int $width, int $height): void

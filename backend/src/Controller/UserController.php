@@ -33,7 +33,7 @@ class UserController extends AbstractController
         $user = $this->requireUser();
 
         // Check if user is an admin
-        if (!in_array('ROLE_ADMIN', $user->getRoles())) {
+        if (!$user->isAdmin()) {
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
@@ -98,7 +98,7 @@ class UserController extends AbstractController
         $user = $this->requireUser();
 
         // Check if user is an admin or the requested user
-        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $user->getId() !== $id) {
+        if (!$user->isAdmin() && $user->getId() !== $id) {
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
@@ -206,7 +206,7 @@ class UserController extends AbstractController
             // An account that is an administrator from the moment it exists is a
             // privilege grant, and reads the same to anybody investigating later
             // as promoting an existing one.
-            if (in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+            if ($user->isAdmin()) {
                 $securityLogger->critical(SecurityAuditLogger::ADMIN_ROLE_CHANGED, [
                     'actor_user_id' => $admin->getId(),
                     'target_user_id' => $user->getId(),
@@ -245,7 +245,7 @@ class UserController extends AbstractController
         $user = $this->requireUser();
 
         // Check if user is an admin or the requested user
-        if (!in_array('ROLE_ADMIN', $user->getRoles()) && $user->getId() !== $id) {
+        if (!$user->isAdmin() && $user->getId() !== $id) {
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
@@ -269,7 +269,7 @@ class UserController extends AbstractController
         }
 
         // Only admins can update roles
-        if (isset($data['roles']) && in_array('ROLE_ADMIN', $user->getRoles())) {
+        if (isset($data['roles']) && $user->isAdmin()) {
             // Ensure ROLE_USER is always present
             $roles = $data['roles'];
             if (!in_array('ROLE_USER', $roles)) {
@@ -280,7 +280,7 @@ class UserController extends AbstractController
                 return $this->json(['message' => 'You cannot remove your own admin role'], Response::HTTP_FORBIDDEN);
             }
 
-            if (in_array('ROLE_ADMIN', $targetUser->getRoles(), true) && !in_array('ROLE_ADMIN', $roles, true)) {
+            if ($targetUser->isAdmin() && !in_array('ROLE_ADMIN', $roles, true)) {
                 $remainingAdmins = $entityManager->getRepository(User::class)->countAdminsExcluding($targetUser);
                 if ($remainingAdmins === 0) {
                     // Once is somebody discovering the rule. Repeatedly is worth
@@ -307,7 +307,7 @@ class UserController extends AbstractController
         // An administrator's switch, never the user's own: withdrawing external
         // metadata access from yourself is not a thing anybody needs, and
         // allowing it here would let a user grant it back.
-        if (array_key_exists('metadataApiEnabled', $data) && in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+        if (array_key_exists('metadataApiEnabled', $data) && $user->isAdmin()) {
             if (!is_bool($data['metadataApiEnabled'])) {
                 return $this->json(['message' => 'metadataApiEnabled must be true or false'], Response::HTTP_BAD_REQUEST);
             }
@@ -348,7 +348,7 @@ class UserController extends AbstractController
 
         $afterRoles = $targetUser->getRoles();
 
-        if ($user instanceof User && in_array('ROLE_ADMIN', $user->getRoles(), true)) {
+        if ($user instanceof User && $user->isAdmin()) {
             if ($beforeRoles !== $afterRoles || $user->getId() !== $targetUser->getId()) {
                 $auditService->log($user, 'user_update', 'user', $targetUser->getId(), [
                     'email' => $targetUser->getEmail(),
@@ -425,7 +425,7 @@ class UserController extends AbstractController
         $user = $this->requireUser();
 
         // Check if user is an admin
-        if (!in_array('ROLE_ADMIN', $user->getRoles())) {
+        if (!$user->isAdmin()) {
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
@@ -447,7 +447,7 @@ class UserController extends AbstractController
         }
 
         $targetUserId = $targetUser->getId();
-        $targetWasAdmin = in_array('ROLE_ADMIN', $targetUser->getRoles(), true);
+        $targetWasAdmin = $targetUser->isAdmin();
 
         $auditService->log($user, 'user_delete', 'user', $targetUserId, ['email' => $targetUser->getEmail()]);
         // Flush so AccountDeletionService can load and redact this audit row.
@@ -497,7 +497,7 @@ class UserController extends AbstractController
         SharingCodeService $sharingCodes
     ): JsonResponse {
         $admin = $this->getUser();
-        if (!$admin instanceof User || !in_array('ROLE_ADMIN', $admin->getRoles(), true)) {
+        if (!$admin instanceof User || !$admin->isAdmin()) {
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
@@ -527,7 +527,7 @@ class UserController extends AbstractController
         SecurityAuditLogger $securityLogger
     ): JsonResponse {
         $admin = $this->getUser();
-        if (!$admin instanceof User || !in_array('ROLE_ADMIN', $admin->getRoles(), true)) {
+        if (!$admin instanceof User || !$admin->isAdmin()) {
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
