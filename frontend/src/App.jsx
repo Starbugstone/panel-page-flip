@@ -41,34 +41,34 @@ const PageLoading = () => <div className="flex h-screen items-center justify-cen
 // Protected route component
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
-  
+
   if (loading) {
     return <PageLoading />;
   }
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" />;
   }
-  
+
   return children;
 };
 
 // Admin route component
 const AdminRoute = ({ children }) => {
   const { isAuthenticated, loading, isAdmin } = useAuth();
-  
+
   if (loading) {
     return <PageLoading />;
   }
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" />;
   }
-  
+
   if (!isAdmin) {
     return <Navigate to="/dashboard" />;
   }
-  
+
   return children;
 };
 
@@ -78,10 +78,10 @@ const AppRoutes = () => {
   return (
     <BrowserRouter>
       <div className="min-h-screen flex flex-col">
-        <Header 
-          isLoggedIn={isAuthenticated} 
-          onLogout={logout} 
-          isAdmin={isAdmin} 
+        <Header
+          isLoggedIn={isAuthenticated}
+          onLogout={logout}
+          isAdmin={isAdmin}
         />
         <main className="flex-1">
           <Suspense fallback={<PageLoading />}>

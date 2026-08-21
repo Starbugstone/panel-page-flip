@@ -360,17 +360,8 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     }
 
     /**
-     * Whether this account holds administrative privilege.
-     *
-     * Asking the entity keeps the question answerable where there is no
-     * security token to ask instead — a console command, a serializer, a
-     * service reasoning about somebody who is not the current user. Two dozen
-     * open-coded `in_array` checks had drifted apart on strictness, and a
-     * needle that is not compared strictly is a needle that can be matched by
-     * something that is not a role name.
-     *
-     * Where a token *is* available, prefer `isGranted('ROLE_ADMIN')`: only the
-     * authorization checker honours the role hierarchy.
+     * Use for accounts outside the current security token. When a token is
+     * available, prefer isGranted() so the role hierarchy is honoured.
      */
     public function isAdmin(): bool
     {

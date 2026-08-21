@@ -109,10 +109,7 @@ export function AuthProvider({ children }) {
     logout,
     checkAuth,
     isAuthenticated: Boolean(user),
-    // Asked in three places with three spellings, one of which read the roles
-    // array without guarding it. Nothing here is a security boundary — the API
-    // refuses on its own and is the only thing that counts — but a nav item
-    // that appears for the wrong person still looks like a bug.
+    // UI convenience only; the API remains the authorization boundary.
     isAdmin: Boolean(user?.roles?.includes("ROLE_ADMIN")),
     sessionExpired,
     refreshSession,

@@ -31,18 +31,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\Cache\ItemInterface;
 
-/**
- * One guard for the whole class, rather than one per action.
- *
- * The rule was previously restated in every method, in two dialects — ten
- * `denyAccessUnlessGranted` calls and three actions relying on `getAdminUser()`
- * to refuse on their way past. Every one of them was correct, which is the
- * least reassuring way for a security check to be written: nothing about the
- * arrangement made the eleventh action inherit it, and reading the class was
- * the only way to find out which kind an action was.
- *
- * Declared here, an action cannot be added without it.
- */
+/** Keep the administrative boundary structural so every action inherits it. */
 #[Route('/api/admin', name: 'api_admin_')]
 #[IsGranted('ROLE_ADMIN')]
 class AdminController extends AbstractController
@@ -480,13 +469,7 @@ class AdminController extends AbstractController
         ]);
     }
 
-    /**
-     * The signed-in administrator, as the entity the audit log needs.
-     *
-     * No longer a guard — the class attribute settled that before this method
-     * could be reached. What is left is the narrowing from the framework's
-     * UserInterface, and a refusal for the case that narrowing cannot cover.
-     */
+    /** Narrow the authenticated principal to the entity required by audit logs. */
     private function getAdminUser(): User
     {
         $user = $this->getUser();

@@ -121,14 +121,14 @@ class ComicUploadController extends AbstractController
     public function initUpload(Request $request, LibraryFolderService $folderService): JsonResponse
     {
         $user = $this->requireUser();
-        
+
         try {
             $data = \App\Http\JsonRequestDecoder::decode($request);
-            
+
             if (!isset($data['fileId']) || !isset($data['filename']) || !isset($data['totalChunks'])) {
                 return $this->json(['message' => 'Missing required parameters'], Response::HTTP_BAD_REQUEST);
             }
-            
+
             $fileId = (string) $data['fileId'];
             $this->assertSafeFileId($fileId);
             $filename = $this->assertSafeFilename((string) $data['filename']);
@@ -153,14 +153,14 @@ class ComicUploadController extends AbstractController
             if ($totalChunks < 1 || $totalChunks > $this->uploadMaxTotalChunks) {
                 return $this->json(['message' => 'Invalid chunk count'], Response::HTTP_BAD_REQUEST);
             }
-            
+
             // Create user-specific directory for chunks
             $userChunkDir = $this->tempUploadDir . '/' . $user->getId() . '/' . $fileId;
             $this->ensureTempUploadDir($userChunkDir);
 
             // Save metadata
             file_put_contents(
-                $userChunkDir . '/metadata.json', 
+                $userChunkDir . '/metadata.json',
                 json_encode([
                     'filename' => $filename,
                     'totalChunks' => $totalChunks,
@@ -171,7 +171,7 @@ class ComicUploadController extends AbstractController
                     'timestamp' => time()
                 ])
             );
-            
+
             return $this->json([
                 'message' => 'Upload initialized',
                 'fileId' => $fileId,
@@ -189,7 +189,7 @@ class ComicUploadController extends AbstractController
     public function uploadChunk(Request $request): JsonResponse
     {
         $user = $this->requireUser();
-        
+
         try {
             $fileId = (string) $request->request->get('fileId');
             $this->assertSafeFileId($fileId);
@@ -208,13 +208,13 @@ class ComicUploadController extends AbstractController
             if ((int) $chunk->getSize() > $this->uploadMaxChunkBytes) {
                 return $this->json(['message' => 'Chunk is too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
             }
-            
+
             // Get user chunk directory
             $userChunkDir = $this->tempUploadDir . '/' . $user->getId() . '/' . $fileId;
             if (!file_exists($userChunkDir)) {
                 return $this->json(['message' => 'Upload not initialized'], Response::HTTP_BAD_REQUEST);
             }
-            
+
             // Load metadata
             $metadataPath = $userChunkDir . '/metadata.json';
             if (!file_exists($metadataPath)) {
@@ -300,7 +300,7 @@ class ComicUploadController extends AbstractController
 
     #[Route('/upload/complete', name: 'upload_complete', methods: ['POST'])]
     public function completeUpload(
-        Request $request, 
+        Request $request,
         EntityManagerInterface $entityManager,
         ComicService $comicService,
         LibraryFolderService $folderService
@@ -313,22 +313,22 @@ class ComicUploadController extends AbstractController
             if (!isset($data['fileId'])) {
                 return $this->json(['message' => 'Missing fileId parameter'], Response::HTTP_BAD_REQUEST);
             }
-            
+
             $fileId = (string) $data['fileId'];
             $this->assertSafeFileId($fileId);
-            
+
             // Get user chunk directory
             $userChunkDir = $this->tempUploadDir . '/' . $user->getId() . '/' . $fileId;
             if (!file_exists($userChunkDir)) {
                 return $this->json(['message' => 'Upload not found'], Response::HTTP_BAD_REQUEST);
             }
-            
+
             // Load metadata
             $metadataPath = $userChunkDir . '/metadata.json';
             if (!file_exists($metadataPath)) {
                 return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
             }
-            
+
             // The same per-upload lock the chunk handler takes, for the same
             // reason: this reads the staged metadata, sums it, and unlinks the
             // chunk files as it assembles them. A chunk request overlapping any
@@ -428,21 +428,21 @@ class ComicUploadController extends AbstractController
         $extension = ComicSourceType::fromFilename($filename)->value;
         $finalFilePath = $userChunkDir . '/assembled.' . $extension;
         $finalFile = fopen($finalFilePath, 'wb');
-        
+
         for ($i = 0; $i < $metadata['totalChunks']; $i++) {
             $chunkPath = $userChunkDir . '/chunk_' . $i;
             if (!file_exists($chunkPath)) {
                 fclose($finalFile);
                 return $this->json(['message' => 'Chunk ' . $i . ' is missing'], Response::HTTP_BAD_REQUEST);
             }
-            
+
             $chunkData = file_get_contents($chunkPath);
             fwrite($finalFile, $chunkData);
             unlink($chunkPath); // Delete chunk after combining
         }
-        
+
         fclose($finalFile);
-        
+
         // Create a Symfony UploadedFile from the combined file
         $tempFile = new UploadedFile(
             $finalFilePath,
@@ -486,12 +486,12 @@ class ComicUploadController extends AbstractController
         if (!file_exists($directory)) {
             return;
         }
-        
+
         $files = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($directory, \RecursiveDirectoryIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::CHILD_FIRST
         );
-        
+
         foreach ($files as $file) {
             if ($file->isDir()) {
                 rmdir($file->getRealPath());
@@ -499,7 +499,7 @@ class ComicUploadController extends AbstractController
                 unlink($file->getRealPath());
             }
         }
-        
+
         rmdir($directory);
     }
 }

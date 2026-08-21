@@ -11,7 +11,6 @@ use App\Security\ComicNotAccessibleException;
 use App\Security\Voter\ComicVoter;
 use App\Service\ComicService;
 use App\Service\PageDerivativeService;
-use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -80,7 +79,6 @@ class ComicPageController extends AbstractController
     public function pageManifest(
         int $id,
         Request $request,
-        EntityManagerInterface $entityManager,
         PageDerivativeService $derivatives
     ): Response {
         $this->requireUser();
@@ -111,7 +109,6 @@ class ComicPageController extends AbstractController
         int $id,
         int $page,
         Request $request,
-        EntityManagerInterface $entityManager,
         ComicService $comicService,
         PageDerivativeService $derivatives
     ): Response {
@@ -329,8 +326,7 @@ class ComicPageController extends AbstractController
         int $userId,
         int $comicId,
         string $filename,
-        Request $request,
-        EntityManagerInterface $entityManager
+        Request $request
     ): Response {
         $this->requireUser();
 
@@ -346,7 +342,7 @@ class ComicPageController extends AbstractController
         if (!$coverPath) {
             return $this->json(['message' => 'Comic has no cover image path.'], Response::HTTP_NOT_FOUND);
         }
-        
+
         $expectedFilename = basename($coverPath);
         if ($filename !== $expectedFilename) {
             $this->logger->warning('Invalid cover filename requested.', ['comic_id' => $comicId, 'user_id' => $userId]);
