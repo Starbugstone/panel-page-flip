@@ -46,6 +46,20 @@ describe("formatBytes", () => {
   });
 });
 
+describe("the ladder both byte formatters share", () => {
+  it("crosses tiers at the same boundaries under either set of names", () => {
+    expect(formatFileSize(1024 ** 2 - 1)).toBe("1024.0 KB");
+    expect(formatBytes(1024 ** 2 - 1)).toBe("1024.0 KiB");
+    expect(formatFileSize(1024 ** 2)).toBe("1.0 MB");
+    expect(formatBytes(1024 ** 2)).toBe("1.0 MiB");
+  });
+
+  it("stops at its largest unit rather than inventing one", () => {
+    expect(formatFileSize(5 * 1024 ** 4)).toBe("5120.0 GB");
+    expect(formatBytes(5 * 1024 ** 5)).toBe("5120.00 TiB");
+  });
+});
+
 describe("formatByteCount", () => {
   it("groups the exact figure so it can be read", () => {
     expect(formatByteCount(10737418240)).toBe("10,737,418,240");

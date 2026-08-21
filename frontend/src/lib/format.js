@@ -34,34 +34,50 @@ export function formatDate(value, fallback = "N/A") {
 }
 
 /**
+ * Step down a byte count through 1024-based tiers until it fits a unit.
+ *
+ * Both formatters below scale by 1024; they differ only in what they call the
+ * tiers and how much precision each tier deserves, so that is all they pass.
+ *
+ * @param {number|null|undefined} bytes
+ * @param {string[]} units Tier names, smallest first. The last one is the ceiling.
+ * @param {number[]} decimals Fraction digits per tier, parallel to `units`.
+ */
+function formatScaledBytes(bytes, units, decimals) {
+  const value = Number(bytes) || 0;
+  const magnitude = Math.abs(value);
+
+  let tier = 0;
+  while (tier < units.length - 1 && magnitude >= 1024 ** (tier + 1)) tier++;
+
+  return `${(value / 1024 ** tier).toFixed(decimals[tier])} ${units[tier]}`;
+}
+
+/**
  * Format a byte count for display, e.g. "1.4 MB".
+ *
+ * Decimal-looking names over binary tiers, which is what file managers show and
+ * what this has always shown. Anything measured against the storage quota wants
+ * formatBytes instead, where the names match the arithmetic.
+ *
  * @param {number|null|undefined} bytes
  */
 export function formatFileSize(bytes) {
-  const value = Number(bytes) || 0;
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  return formatScaledBytes(bytes, ["B", "KB", "MB", "GB"], [0, 1, 1, 1]);
 }
 
 /**
  * Format a byte count in binary units, e.g. "3.18 GiB".
  *
- * Binary rather than decimal because the storage quota this reports against is
- * itself binary (10 * 1024^3), and a "10.7 GB" quota next to a 10 GiB limit
- * would read as a bug. Bigger units carry more decimals: a tenth of a GiB is
- * 107 MB, which is too coarse to watch an account approach its limit.
+ * Named for what it actually divides by, because the storage quota this reports
+ * against is itself binary (10 * 1024^3) and a "10.7 GB" quota beside a 10 GiB
+ * limit reads as a bug. Bigger units carry more decimals: a tenth of a GiB is
+ * 107 MB, too coarse to watch an account approach its limit.
  *
  * @param {number|null|undefined} bytes
  */
 export function formatBytes(bytes) {
-  const value = Number(bytes) || 0;
-  if (Math.abs(value) < 1024) return `${Math.round(value)} B`;
-  if (Math.abs(value) < 1024 ** 2) return `${(value / 1024).toFixed(1)} KiB`;
-  if (Math.abs(value) < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MiB`;
-  if (Math.abs(value) < 1024 ** 4) return `${(value / 1024 ** 3).toFixed(2)} GiB`;
-  return `${(value / 1024 ** 4).toFixed(2)} TiB`;
+  return formatScaledBytes(bytes, ["B", "KiB", "MiB", "GiB", "TiB"], [0, 1, 1, 2, 2]);
 }
 
 /**

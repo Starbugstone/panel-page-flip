@@ -6,6 +6,7 @@ namespace App\Tests\Functional\Repository;
 
 use App\Entity\User;
 use App\Repository\UserRepository;
+use App\Service\StorageQuotaService;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\TagFactory;
 use App\Tests\Factory\UserFactory;
@@ -108,6 +109,30 @@ final class UserContentStatsTest extends AbstractApiTestCase
         self::assertSame(3, $stats['comicCount']);
         self::assertSame(500, $stats['storageUsedBytes']);
         self::assertSame(2, $stats['unmeasuredComicCount']);
+    }
+
+    /**
+     * The invariant this whole feature rests on.
+     *
+     * Reporting cannot reuse the enforcement query — the admin list needs one
+     * grouped query for a whole page, not one per row — so the sum is written
+     * twice. This is what stops the two copies drifting into different answers
+     * to the same question.
+     */
+    public function testTheReportedTotalIsWhatQuotaEnforcementCounts(): void
+    {
+        $user = UserFactory::createOne()->object();
+        ComicFactory::createOne(['owner' => $user, 'fileSize' => 8_192]);
+        ComicFactory::createOne(['owner' => $user, 'fileSize' => 64]);
+        ComicFactory::createOne(['owner' => $user, 'fileSize' => null]);
+
+        $quota = static::getContainer()->get(StorageQuotaService::class);
+
+        self::assertSame(
+            $quota->getUserStorageBytes($user),
+            $this->statsFor($user)['storageUsedBytes'],
+            'The admin screen and upload admission must agree on this account\'s usage.'
+        );
     }
 
     /** A library past 2 GiB is ordinary here, and must not arrive as a string. */
