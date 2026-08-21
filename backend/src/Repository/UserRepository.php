@@ -82,24 +82,40 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
     }
 
     /**
-     * Owned-comic and created-tag totals for the given users, keyed by user id.
+     * Owned-comic, storage and created-tag totals for the given users, keyed by
+     * user id.
      *
      * Two grouped queries rather than counting each user's collections in PHP,
      * which would hydrate every comic and tag in the install to render one page.
      *
+     * `storageUsedBytes` deliberately sums the same column quota enforcement
+     * reads, so the number an administrator sees answers the same question as
+     * StorageQuotaService rather than a second definition of "storage used".
+     *
+     * `unmeasuredComicCount` is how many of those comics carry no `fileSize`.
+     * The column arrived after comics could already exist and the backfill
+     * leaves it null when the source file cannot be found; SUM then skips them
+     * silently, which would present an understated total as exact.
+     *
      * @param list<int> $userIds
-     * @return array<int, array{comicCount: int, tagCount: int}>
+     * @return array<int, array{comicCount: int, tagCount: int, storageUsedBytes: int, unmeasuredComicCount: int}>
      */
-    public function countOwnedContent(array $userIds): array
+    public function getOwnedContentStats(array $userIds): array
     {
         if ($userIds === []) {
             return [];
         }
 
-        $counts = array_fill_keys($userIds, ['comicCount' => 0, 'tagCount' => 0]);
+        $empty = ['comicCount' => 0, 'tagCount' => 0, 'storageUsedBytes' => 0, 'unmeasuredComicCount' => 0];
+        $counts = array_fill_keys($userIds, $empty);
 
         $comicRows = $this->getEntityManager()->createQueryBuilder()
-            ->select('IDENTITY(c.owner) AS ownerId', 'COUNT(c.id) AS total')
+            ->select(
+                'IDENTITY(c.owner) AS ownerId',
+                'COUNT(c.id) AS total',
+                'COALESCE(SUM(c.fileSize), 0) AS storageUsedBytes',
+                'SUM(CASE WHEN c.fileSize IS NULL THEN 1 ELSE 0 END) AS unmeasured',
+            )
             ->from(Comic::class, 'c')
             ->where('c.owner IN (:userIds)')
             ->groupBy('c.owner')
@@ -107,7 +123,12 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             ->getQuery()
             ->getScalarResult();
         foreach ($comicRows as $row) {
-            $counts[(int) $row['ownerId']]['comicCount'] = (int) $row['total'];
+            $ownerId = (int) $row['ownerId'];
+            $counts[$ownerId]['comicCount'] = (int) $row['total'];
+            // BIGINT sums come back as strings on every driver; cast once here so
+            // the payload is an integer rather than "9341553868".
+            $counts[$ownerId]['storageUsedBytes'] = (int) $row['storageUsedBytes'];
+            $counts[$ownerId]['unmeasuredComicCount'] = (int) $row['unmeasured'];
         }
 
         $tagRows = $this->getEntityManager()->createQueryBuilder()

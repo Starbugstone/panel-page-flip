@@ -45,7 +45,20 @@ final class StorageQuotaService
 
     public function wouldExceedQuota(User $user, int $additionalBytes): bool
     {
-        return $this->getUserStorageBytes($user) + $additionalBytes > $this->uploadUserQuotaBytes;
+        return $this->getUserStorageBytes($user) + $additionalBytes > $this->getQuotaBytes($user);
+    }
+
+    /**
+     * The quota this account is actually held to.
+     *
+     * Every user gets the same configured limit today, which is why the
+     * argument looks unused. It is the seam #64 needs: resolving a per-user
+     * override happens here, and callers that already ask the service rather
+     * than reading `%upload_user_quota_bytes%` will not have to change.
+     */
+    public function getQuotaBytes(User $user): int
+    {
+        return $this->uploadUserQuotaBytes;
     }
 
     public function getUserStorageBytes(User $user): int
