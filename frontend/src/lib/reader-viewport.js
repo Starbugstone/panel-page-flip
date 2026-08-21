@@ -29,6 +29,10 @@ function memoryTier(deviceMemory) {
  * claim about what hardware this is: a narrow desktop window is a "phone" here
  * because a page has a phone's worth of room, and it says so while still
  * reporting the fine pointer that decides hit targets and hover affordances.
+ *
+ * Deliberately no pixel measurements in the result. A profile that changed on
+ * every pixel of a drag would re-render the reader continuously; this one
+ * changes only when the answer does.
  */
 export function classifyViewport({
   width = 0,
@@ -50,8 +54,6 @@ export function classifyViewport({
     coarsePointer,
     hasHover,
     memory: memoryTier(deviceMemory),
-    width,
-    height,
   };
 }
 

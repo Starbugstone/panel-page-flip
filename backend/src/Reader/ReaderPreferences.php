@@ -7,10 +7,11 @@ namespace App\Reader;
 /**
  * The persisted reader contract.
  *
- * Keeping an envelope around the global settings gives later reader work a
- * place for device/orientation overrides without changing the meaning of the
- * existing values. Stored data is always normalized before it reaches a
- * client, while writes are strict so arbitrary JSON is never retained.
+ * The envelope around the global settings carries per-device/orientation
+ * overrides, so a phone held upright can be read differently from a tablet
+ * turned sideways without either rewriting the account default. Stored data is
+ * always normalized before it reaches a client, while writes are strict so
+ * arbitrary JSON is never retained.
  */
 final class ReaderPreferences
 {
@@ -25,6 +26,21 @@ final class ReaderPreferences
     /** @var list<string> */
     private const FITS = ['contain', 'width', 'height', 'original'];
 
+    /** @var list<string> */
+    private const DEVICES = ['phone', 'tablet', 'desktop'];
+
+    /** @var list<string> */
+    private const ORIENTATIONS = ['portrait', 'landscape'];
+
+    /**
+     * What a device/orientation context may say for itself. A context chooses
+     * how a page is sized on that shape of screen; selecting a renderer stays
+     * global, so mode and direction are deliberately absent.
+     *
+     * @var list<string>
+     */
+    private const OVERRIDABLE = ['fit'];
+
     /**
      * @return array{
      *     schemaVersion: int,
@@ -36,7 +52,7 @@ final class ReaderPreferences
      *         showProgress: bool,
      *         wakeLock: bool
      *     },
-     *     overrides: array{}
+     *     overrides: list<array{context: array{device: string, orientation: string}, settings: array{fit: string}}>
      * }
      */
     public function defaults(): array
@@ -51,8 +67,8 @@ final class ReaderPreferences
                 'showProgress' => true,
                 'wakeLock' => true,
             ],
-            // Reserved for validated device/orientation contexts. Keeping the
-            // slot now lets later work extend the model instead of replacing it.
+            // One entry per device/orientation the reader has been told about;
+            // an account that has never said anything has none.
             'overrides' => [],
         ];
     }
@@ -91,8 +107,48 @@ final class ReaderPreferences
                     ? $settings['wakeLock']
                     : $defaults['settings']['wakeLock'],
             ],
-            'overrides' => [],
+            'overrides' => $this->normalizeOverrides($stored['overrides'] ?? null),
         ];
+    }
+
+    /**
+     * Keep what still makes sense and drop the rest, so one context written by
+     * a newer client cannot cost a user the settings they made everywhere else.
+     *
+     * @return list<array{context: array{device: string, orientation: string}, settings: array{fit: string}}>
+     */
+    private function normalizeOverrides(mixed $stored): array
+    {
+        if (!is_array($stored)) {
+            return [];
+        }
+
+        $byContext = [];
+        foreach ($stored as $override) {
+            $device = $override['context']['device'] ?? null;
+            $orientation = $override['context']['orientation'] ?? null;
+            $fit = $override['settings']['fit'] ?? null;
+
+            if (!is_string($device) || !in_array($device, self::DEVICES, true)
+                || !is_string($orientation) || !in_array($orientation, self::ORIENTATIONS, true)
+                || !is_string($fit) || !in_array($fit, self::FITS, true)) {
+                continue;
+            }
+
+            // Last wins, so a context saved twice reads as one choice rather
+            // than two entries that disagree.
+            $byContext[$device . ':' . $orientation] = [
+                'context' => ['device' => $device, 'orientation' => $orientation],
+                'settings' => ['fit' => $fit],
+            ];
+        }
+
+        return array_values(array_slice($byContext, 0, self::maxOverrides()));
+    }
+
+    private static function maxOverrides(): int
+    {
+        return count(self::DEVICES) * count(self::ORIENTATIONS);
     }
 
     /**
@@ -118,9 +174,7 @@ final class ReaderPreferences
             throw new \InvalidArgumentException('settings must be an object.');
         }
 
-        if (($candidate['overrides'] ?? null) !== []) {
-            throw new \InvalidArgumentException('overrides are not supported yet.');
-        }
+        $this->assertValidOverrides($candidate['overrides'] ?? null);
 
         $required = ['mode', 'direction', 'fit', 'autoHideControls', 'showProgress', 'wakeLock'];
         $this->assertExactKeys($settings, $required, 'settings');
@@ -142,6 +196,62 @@ final class ReaderPreferences
         }
 
         return $this->normalize($candidate);
+    }
+
+    /**
+     * Unlike normalize(), a write is refused rather than trimmed: a client
+     * sending a context this application does not have should be told so, not
+     * have part of its request silently dropped.
+     */
+    private function assertValidOverrides(mixed $overrides): void
+    {
+        if (!is_array($overrides) || !array_is_list($overrides)) {
+            throw new \InvalidArgumentException('overrides must be a list.');
+        }
+
+        // The set of contexts is closed, so a longer list is duplicates or junk
+        // either way; refusing it keeps an unbounded write out of the column.
+        if (count($overrides) > self::maxOverrides()) {
+            throw new \InvalidArgumentException('too many overrides.');
+        }
+
+        $seen = [];
+        foreach ($overrides as $override) {
+            if (!is_array($override)) {
+                throw new \InvalidArgumentException('each override must be an object.');
+            }
+
+            $this->assertExactKeys($override, ['context', 'settings'], 'override');
+
+            $context = $override['context'];
+            if (!is_array($context)) {
+                throw new \InvalidArgumentException('override context must be an object.');
+            }
+            $this->assertExactKeys($context, ['device', 'orientation'], 'override context');
+
+            if (!in_array($context['device'], self::DEVICES, true)) {
+                throw new \InvalidArgumentException('override device is not supported.');
+            }
+            if (!in_array($context['orientation'], self::ORIENTATIONS, true)) {
+                throw new \InvalidArgumentException('override orientation is not supported.');
+            }
+
+            $key = $context['device'] . ':' . $context['orientation'];
+            if (isset($seen[$key])) {
+                throw new \InvalidArgumentException('overrides name the same context twice.');
+            }
+            $seen[$key] = true;
+
+            $settings = $override['settings'];
+            if (!is_array($settings)) {
+                throw new \InvalidArgumentException('override settings must be an object.');
+            }
+            $this->assertExactKeys($settings, self::OVERRIDABLE, 'override settings');
+
+            if (!in_array($settings['fit'], self::FITS, true)) {
+                throw new \InvalidArgumentException('override fit is not supported.');
+            }
+        }
     }
 
     /** @param list<string> $allowed */

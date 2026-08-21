@@ -39,6 +39,40 @@ final class ReaderPreferencesTest extends TestCase
         self::assertTrue($normalized['settings']['wakeLock']);
     }
 
+    public function testKeepsOverridesItUnderstandsAndDropsTheRest(): void
+    {
+        $normalized = $this->preferences->normalize([
+            'schemaVersion' => 1,
+            'settings' => $this->preferences->defaults()['settings'],
+            'overrides' => [
+                ['context' => ['device' => 'watch', 'orientation' => 'portrait'], 'settings' => ['fit' => 'width']],
+                ['context' => ['device' => 'phone', 'orientation' => 'sideways'], 'settings' => ['fit' => 'width']],
+                ['context' => ['device' => 'phone', 'orientation' => 'portrait'], 'settings' => ['fit' => 'stretch']],
+                ['context' => ['device' => 'phone', 'orientation' => 'portrait'], 'settings' => ['fit' => 'width']],
+                'not an override',
+            ],
+        ]);
+
+        self::assertSame([
+            ['context' => ['device' => 'phone', 'orientation' => 'portrait'], 'settings' => ['fit' => 'width']],
+        ], $normalized['overrides']);
+    }
+
+    public function testLastWrittenContextWins(): void
+    {
+        $normalized = $this->preferences->normalize([
+            'schemaVersion' => 1,
+            'settings' => $this->preferences->defaults()['settings'],
+            'overrides' => [
+                ['context' => ['device' => 'tablet', 'orientation' => 'landscape'], 'settings' => ['fit' => 'width']],
+                ['context' => ['device' => 'tablet', 'orientation' => 'landscape'], 'settings' => ['fit' => 'height']],
+            ],
+        ]);
+
+        self::assertCount(1, $normalized['overrides']);
+        self::assertSame('height', $normalized['overrides'][0]['settings']['fit']);
+    }
+
     public function testStaleSchemaFallsBackToAllDefaults(): void
     {
         self::assertSame(
@@ -54,6 +88,34 @@ final class ReaderPreferencesTest extends TestCase
         $candidate['settings']['showProgress'] = false;
 
         self::assertSame($candidate, $this->preferences->validate($candidate));
+    }
+
+    public function testValidOverridesAreAccepted(): void
+    {
+        $candidate = $this->preferences->defaults();
+        $candidate['overrides'] = [
+            ['context' => ['device' => 'phone', 'orientation' => 'portrait'], 'settings' => ['fit' => 'width']],
+            ['context' => ['device' => 'tablet', 'orientation' => 'landscape'], 'settings' => ['fit' => 'contain']],
+        ];
+
+        self::assertSame($candidate, $this->preferences->validate($candidate));
+    }
+
+    /**
+     * A context says how a page is sized on that shape of screen. Letting it
+     * carry a mode or a direction would be a way to select a renderer that the
+     * global settings currently refuse.
+     */
+    public function testOverrideCannotCarryASettingItIsNotAllowedTo(): void
+    {
+        $candidate = $this->preferences->defaults();
+        $candidate['overrides'] = [[
+            'context' => ['device' => 'phone', 'orientation' => 'portrait'],
+            'settings' => ['fit' => 'width', 'mode' => 'double'],
+        ]];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->preferences->validate($candidate);
     }
 
     /** @dataProvider invalidReplacementProvider */
@@ -86,6 +148,40 @@ final class ReaderPreferencesTest extends TestCase
                 ...$defaults['settings'],
                 'wakeLock' => 1,
             ],
+        ]];
+        yield 'overrides not a list' => [[
+            ...$defaults,
+            'overrides' => ['phone:portrait' => ['context' => ['device' => 'phone', 'orientation' => 'portrait'], 'settings' => ['fit' => 'width']]],
+        ]];
+        yield 'unknown override device' => [[
+            ...$defaults,
+            'overrides' => [['context' => ['device' => 'watch', 'orientation' => 'portrait'], 'settings' => ['fit' => 'width']]],
+        ]];
+        yield 'unknown override orientation' => [[
+            ...$defaults,
+            'overrides' => [['context' => ['device' => 'phone', 'orientation' => 'sideways'], 'settings' => ['fit' => 'width']]],
+        ]];
+        yield 'unsupported override fit' => [[
+            ...$defaults,
+            'overrides' => [['context' => ['device' => 'phone', 'orientation' => 'portrait'], 'settings' => ['fit' => 'stretch']]],
+        ]];
+        yield 'the same context twice' => [[
+            ...$defaults,
+            'overrides' => [
+                ['context' => ['device' => 'phone', 'orientation' => 'portrait'], 'settings' => ['fit' => 'width']],
+                ['context' => ['device' => 'phone', 'orientation' => 'portrait'], 'settings' => ['fit' => 'height']],
+            ],
+        ]];
+        yield 'more contexts than exist' => [[
+            ...$defaults,
+            'overrides' => array_fill(0, 7, [
+                'context' => ['device' => 'phone', 'orientation' => 'portrait'],
+                'settings' => ['fit' => 'width'],
+            ]),
+        ]];
+        yield 'override missing its context' => [[
+            ...$defaults,
+            'overrides' => [['settings' => ['fit' => 'width']]],
         ]];
     }
 }
