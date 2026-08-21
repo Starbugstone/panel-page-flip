@@ -43,6 +43,29 @@ const tabs = [
 ];
 
 const emptyPagination = { page: 1, limit: 25, totalItems: 0, totalPages: 1 };
+const configurationTabs = [
+  {
+    value: "formats",
+    label: "Formats",
+    path: "/api/admin/comic-formats",
+    loadingText: "Checking format support…",
+    settleControl: "Save enabled formats",
+    response: { formats: {}, delivery: null },
+  },
+  {
+    value: "metadata",
+    label: "Metadata",
+    path: "/api/admin/metadata-providers",
+    settleControl: "Test credentials",
+    response: { providers: [], environment: {}, settings: {} },
+  },
+];
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((settle) => { resolve = settle; });
+  return { promise, resolve };
+}
 
 function emptyResponse(url) {
   if (url === "/api/admin/stats") return { stats: {} };
@@ -175,6 +198,37 @@ describe("AdminDashboard tab navigation", () => {
     expect(within(activePanel()).getByText("No sharing codes match these filters.")).toBeInTheDocument();
   });
 
+  it.each(configurationTabs)("keeps $label selected while its status request settles", async ({
+    value,
+    label,
+    path,
+    loadingText,
+    settleControl,
+    response,
+  }) => {
+    const request = deferred();
+    vi.mocked(api.get).mockImplementation((url) => (
+      url === path ? request.promise : Promise.resolve(emptyResponse(url))
+    ));
+
+    const user = userEvent.setup();
+    const router = renderDashboard();
+    await user.click(screen.getByRole("tab", { name: label }));
+
+    expectSelectedTab(label);
+    expect(router.state.location.search).toBe(`?tab=${value}`);
+    if (loadingText) expect(within(activePanel()).getByText(loadingText)).toBeInTheDocument();
+    expect(within(activePanel()).getByRole("button", { name: settleControl })).toBeDisabled();
+
+    request.resolve(response);
+
+    await waitFor(() => expect(
+      within(activePanel()).getByRole("button", { name: settleControl }),
+    ).toBeEnabled());
+    expectSelectedTab(label);
+    expect(router.state.location.search).toBe(`?tab=${value}`);
+  });
+
   it("restores valid tabs through browser Back and Forward navigation", async () => {
     const user = userEvent.setup();
     const router = renderDashboard();
@@ -202,8 +256,9 @@ describe("AdminDashboard tab navigation", () => {
     // Radix activates a tab on both primary-button mousedown and focus. A real
     // browser can deliver both before the controlled value has re-rendered,
     // so the duplicate callback must not create two identical history entries.
-    act(() => {
+    await act(async () => {
       fireEvent.mouseDown(sharingCodes, { button: 0, ctrlKey: false });
+      await Promise.resolve();
       fireEvent.focus(sharingCodes);
     });
     await waitFor(() => expectSelectedTab("Sharing codes"));

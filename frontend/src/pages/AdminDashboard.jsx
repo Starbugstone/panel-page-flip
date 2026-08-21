@@ -33,7 +33,8 @@ export default function AdminDashboard() {
   const setActiveTab = (tab) => {
     // Radix can report the same pointer selection from mousedown and focus
     // before this controlled value has re-rendered. Treat it as one navigation
-    // so Back does not have to cross two identical history entries.
+    // so Back does not have to cross two identical history entries. Syncing the
+    // ref from the URL-derived value also keeps external navigation authoritative.
     if (lastRequestedTab.current === tab) return;
     lastRequestedTab.current = tab;
 
