@@ -13,10 +13,10 @@ export function ReaderFitSuggestion({ fitLabel, contextLabel, onAccept, onDismis
       role="status"
       className="reader-suggestion"
     >
-      <p className="text-sm">
-        <span className="font-medium">{fitLabel}</span> usually reads better on {contextLabel}.
+      <p className="text-sm leading-snug">
+        <span className="font-medium">{fitLabel}</span> reads better on {contextLabel}.
       </p>
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         <Button size="sm" variant="secondary" onClick={onAccept}>Use it here</Button>
         <Button size="icon" variant="ghost" onClick={onDismiss} aria-label="Dismiss suggestion" title="Dismiss suggestion">
           <X className="h-4 w-4" />

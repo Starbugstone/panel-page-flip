@@ -61,9 +61,15 @@ export function useReaderGestures(elementRef, { zoomed = false, paged = true, en
 
     const onPointerDown = (event) => {
       if (!isGesturePointer(event)) return;
-      // Capture, so a finger that leaves the page still finishes its gesture
-      // here rather than silently stopping halfway.
-      element.setPointerCapture?.(event.pointerId);
+      try {
+        // Capture, so a finger that leaves the page still finishes its gesture
+        // here rather than silently stopping halfway. A pointer the browser has
+        // already forgotten refuses to be captured, which is not a reason to
+        // drop the gesture.
+        element.setPointerCapture?.(event.pointerId);
+      } catch {
+        // Nothing to do: without capture the gesture simply ends early.
+      }
       dispatch(toEvent("pointerdown", event));
     };
 
@@ -74,7 +80,11 @@ export function useReaderGestures(elementRef, { zoomed = false, paged = true, en
 
     const onPointerUp = (event) => {
       if (!isGesturePointer(event)) return;
-      element.releasePointerCapture?.(event.pointerId);
+      try {
+        element.releasePointerCapture?.(event.pointerId);
+      } catch {
+        // Already released, which is the state this wanted anyway.
+      }
       dispatch(toEvent("pointerup", event));
     };
 

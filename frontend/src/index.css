@@ -143,7 +143,7 @@
   }
 
   .reader-suggestion {
-    @apply fixed left-1/2 z-[70] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-card/95 py-2 pl-4 pr-2 shadow-lg;
+    @apply fixed left-1/2 z-[70] flex w-[min(26rem,calc(100vw-1.5rem))] -translate-x-1/2 items-center justify-between gap-3 rounded-xl border bg-card/95 py-2 pl-4 pr-2 shadow-lg;
     bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 

@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useReaderGestures } from "@/hooks/use-reader-gestures";
@@ -43,6 +45,11 @@ export function SinglePageReader({
 }) {
   const safeFit = Object.hasOwn(VIEWPORT_CLASSES, fit) ? fit : "contain";
   const zoomed = isZoomed(transform);
+  // Clicking a zoomed page to fit it again is the mouse's way out, and touch
+  // has the second double tap. They are not alternatives: a browser sends a
+  // click after a tap too, and after a double tap that click would arrive on
+  // the zoom the double tap had just applied and undo it.
+  const lastPointerTypeRef = useRef("mouse");
 
   useReaderGestures(containerRef, { zoomed, paged, ...gestures });
 
@@ -56,6 +63,7 @@ export function SinglePageReader({
       // vertically the way every other page on the web does; a zoomed one is
       // moved entirely by the gestures above.
       style={{ touchAction: zoomed ? "none" : "pan-y" }}
+      onPointerDownCapture={(event) => { lastPointerTypeRef.current = event.pointerType; }}
     >
       {image && (
         <img
@@ -70,7 +78,9 @@ export function SinglePageReader({
             transform: `translate3d(${transform.x + swipeOffset}px, ${transform.y}px, 0) scale(${transform.scale})`,
             transformOrigin: "center center",
           }}
-          onClick={onImageClick}
+          onClick={() => {
+            if (lastPointerTypeRef.current === "mouse") onImageClick?.();
+          }}
         />
       )}
 
