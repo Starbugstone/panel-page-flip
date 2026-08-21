@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, BookOpen, Cloud, MailCheck, ShieldAlert, Tags, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Cloud, HardDrive, MailCheck, ShieldAlert, Tags, Trash2 } from "lucide-react";
 
 import { AdminComicsList } from "@/components/AdminComicsList";
 import { AdminTagsList } from "@/components/AdminTagsList";
+import { UserStorageUsage } from "@/components/UserStorageUsage";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -234,6 +235,23 @@ function AdminUserDetailsPage({ userId }) {
             <SummaryCard icon={MailCheck} label="Created" value={formatDateTime(user.createdAt)} />
             <SummaryCard icon={MailCheck} label="Last login" value={formatDateTime(user.lastLoginAt, "Never")} />
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><HardDrive className="h-5 w-5" /> Storage</CardTitle>
+              <CardDescription>
+                Canonical comic files owned by this account, against the quota uploads are held to.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <UserStorageUsage
+                usedBytes={user.storageUsedBytes}
+                quotaBytes={user.storageQuotaBytes}
+                unmeasuredComicCount={user.unmeasuredComicCount}
+                className="max-w-md"
+              />
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

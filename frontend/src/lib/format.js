@@ -46,6 +46,33 @@ export function formatFileSize(bytes) {
 }
 
 /**
+ * Format a byte count in binary units, e.g. "3.18 GiB".
+ *
+ * Binary rather than decimal because the storage quota this reports against is
+ * itself binary (10 * 1024^3), and a "10.7 GB" quota next to a 10 GiB limit
+ * would read as a bug. Bigger units carry more decimals: a tenth of a GiB is
+ * 107 MB, which is too coarse to watch an account approach its limit.
+ *
+ * @param {number|null|undefined} bytes
+ */
+export function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (Math.abs(value) < 1024) return `${Math.round(value)} B`;
+  if (Math.abs(value) < 1024 ** 2) return `${(value / 1024).toFixed(1)} KiB`;
+  if (Math.abs(value) < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MiB`;
+  if (Math.abs(value) < 1024 ** 4) return `${(value / 1024 ** 3).toFixed(2)} GiB`;
+  return `${(value / 1024 ** 4).toFixed(2)} TiB`;
+}
+
+/**
+ * The exact byte count, grouped for reading: "10,737,418,240".
+ * @param {number|null|undefined} bytes
+ */
+export function formatByteCount(bytes) {
+  return new Intl.NumberFormat("en-US").format(Number(bytes) || 0);
+}
+
+/**
  * Case-insensitive "does this field contain the query" check that tolerates
  * null/undefined fields, which most comic metadata columns are.
  * @param {unknown} value

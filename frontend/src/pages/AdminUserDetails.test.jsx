@@ -28,6 +28,9 @@ const account = {
   isEmailVerified: true,
   comicCount: 0,
   tagCount: 0,
+  storageUsedBytes: 0,
+  storageQuotaBytes: 10 * 1024 ** 3,
+  unmeasuredComicCount: 0,
 };
 
 const renderPage = () => render(
@@ -47,6 +50,29 @@ describe("AdminUserDetails", () => {
     vi.clearAllMocks();
     vi.mocked(api.get).mockResolvedValue({ user: account });
     vi.mocked(api.post).mockResolvedValue({ message: "User code replaced." });
+  });
+
+  it("shows the same storage figures the user list does", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      user: { ...account, comicCount: 40, storageUsedBytes: 8.3 * 1024 ** 3, unmeasuredComicCount: 0 },
+    });
+    renderPage();
+
+    expect(await screen.findByText("8.30 GiB")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAccessibleName(
+      "Storage used: 8.30 GiB of 10.00 GiB, 83.0%."
+    );
+  });
+
+  it("flags storage as incomplete when sizes are missing, here as in the list", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      user: { ...account, comicCount: 5, storageUsedBytes: 6.4 * 1024 ** 3, unmeasuredComicCount: 2 },
+    });
+    renderPage();
+
+    expect(await screen.findByRole("progressbar")).toHaveAccessibleName(
+      /Measured storage used.*2 comics have no stored file-size metadata/
+    );
   });
 
   it("rotates the user code through the route the backend serves", async () => {

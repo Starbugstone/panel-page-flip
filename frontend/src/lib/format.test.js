@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDateTime, formatFileSize, matchesQuery } from "./format";
+import { formatByteCount, formatBytes, formatDate, formatDateTime, formatFileSize, matchesQuery } from "./format";
 
 describe("formatDateTime", () => {
   it("returns the fallback when there is nothing to format", () => {
@@ -26,6 +26,30 @@ describe("formatFileSize", () => {
     expect(formatFileSize(1536)).toBe("1.5 KB");
     expect(formatFileSize(1572864)).toBe("1.5 MB");
     expect(formatFileSize(0)).toBe("0 B");
+  });
+});
+
+describe("formatBytes", () => {
+  it("uses binary units, because the quota it reports against is binary", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(1024)).toBe("1.0 KiB");
+    expect(formatBytes(44669239)).toBe("42.6 MiB");
+    expect(formatBytes(3414781133)).toBe("3.18 GiB");
+    expect(formatBytes(10 * 1024 ** 3)).toBe("10.00 GiB");
+    expect(formatBytes(3 * 1024 ** 4)).toBe("3.00 TiB");
+  });
+
+  it("treats nothing as nothing rather than NaN", () => {
+    expect(formatBytes(null)).toBe("0 B");
+    expect(formatBytes(undefined)).toBe("0 B");
+  });
+});
+
+describe("formatByteCount", () => {
+  it("groups the exact figure so it can be read", () => {
+    expect(formatByteCount(10737418240)).toBe("10,737,418,240");
+    expect(formatByteCount(0)).toBe("0");
   });
 });
 
