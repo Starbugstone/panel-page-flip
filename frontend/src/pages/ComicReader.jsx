@@ -72,6 +72,7 @@ export default function ComicReader() {
   const [isSwiping, setIsSwiping] = useState(false);
   const [fallbackImages, setFallbackImages] = useState([]);
 
+  const readerRootRef = useRef(null);
   const imageContainerRef = useRef(null);
   const imageRef = useRef(null);
   const imageCacheRef = useRef({});
@@ -104,6 +105,7 @@ export default function ComicReader() {
     preferences,
     isLoaded: arePreferencesLoaded,
     isSaving: arePreferencesSaving,
+    hasSyncError: readerPreferencesHaveSyncError,
     changeSettings,
     changeOverride,
     clearOverride,
@@ -521,12 +523,15 @@ export default function ComicReader() {
   const fitSuggestionId = `fit:${viewportContextKey(viewportContext)}`;
   const suggestionWasDismissed = (id) => preferences.dismissedSuggestions.includes(id);
   const isSuggestingMode = arePreferencesLoaded
+    && !isZoomed
+    && !showThumbnails
     && profile.device === "tablet"
     && profile.orientation === "landscape"
     && settings.mode === "single"
     && !suggestionWasDismissed(MODE_SUGGESTION_ID);
   const isSuggestingFit = !isSuggestingMode
     && !isZoomed
+    && !showThumbnails
     && arePreferencesLoaded
     && !hasContextOverride
     && preferences.settings.fit === DEFAULT_READER_PREFERENCES.settings.fit
@@ -602,7 +607,13 @@ export default function ComicReader() {
   const requestedImages = currentUnit.map((pageIndex, slot) => {
     const exact = imageCache[pageIndex];
     const fallback = fallbackImages[slot];
-    const image = isUsableImage(exact) ? exact : isUsableImage(fallback) ? fallback : null;
+    // Old artwork is useful while a request is unresolved, but once the target
+    // has definitively failed it becomes misleading. Show the retry state on
+    // its own instead of presenting the previous page behind an error for this
+    // one.
+    const image = isUsableImage(exact)
+      ? exact
+      : exact !== "failed" && isUsableImage(fallback) ? fallback : null;
     return {
       pageIndex,
       image,
@@ -620,6 +631,7 @@ export default function ComicReader() {
 
   return (
     <div
+      ref={readerRootRef}
       className="reader-root relative flex flex-col items-center overflow-hidden bg-background"
       data-touch-capable={profile.touchCapable ? "true" : "false"}
       data-effective-reader-mode={effectiveMode}
@@ -627,6 +639,11 @@ export default function ComicReader() {
       data-reader-chrome={isChromeHidden ? "hidden" : "visible"}
       onFocus={() => setIsControlFocused(true)}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsControlFocused(false); }}
+      onPointerDownCapture={(event) => {
+        if (!event.target.closest?.("[data-page-fit], [data-reader-mode]")) return;
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && readerRootRef.current?.contains(active)) active.blur();
+      }}
       onPointerMove={(event) => { if (event.pointerType === "mouse") revealChrome(); }}
     >
       <div className={`${effectiveMode === "continuous" || settings.fit === "width" || settings.fit === "original" ? "max-w-none" : "max-w-4xl"} ${isFullscreen ? "reader-stage-fullscreen" : "reader-stage"} ${effectiveMode !== "continuous" && !isChromeHidden ? "reader-stage-controls-visible" : ""} flex w-full items-center justify-center pt-4`}>
@@ -668,7 +685,6 @@ export default function ComicReader() {
             pageNumber={currentPage + 1}
             title={comic.title}
             fit={settings.fit}
-            isFullscreen={isFullscreen}
             transform={transform}
             swipeOffset={swipeOffset}
             isSwiping={isSwiping}
@@ -688,6 +704,7 @@ export default function ComicReader() {
           settings={settings}
           isLoaded={arePreferencesLoaded}
           isSaving={arePreferencesSaving}
+          hasSyncError={readerPreferencesHaveSyncError}
           contextLabel={describeViewportContext(profile)}
           hasOverride={hasContextOverride}
           modeNotice={settings.mode === "double" && effectiveMode !== "double"

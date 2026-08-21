@@ -24,6 +24,7 @@ export function ReaderSettings({
   settings,
   isLoaded,
   isSaving,
+  hasSyncError,
   contextLabel,
   hasOverride,
   modeNotice,
@@ -48,7 +49,7 @@ export function ReaderSettings({
       <PopoverContent align="end" className="max-h-[var(--radix-popover-content-available-height)] w-[min(22rem,calc(100vw-2rem))] space-y-4 overflow-y-auto">
         <div>
           <h2 className="font-semibold">Reader settings</h2>
-          <p className="mt-1 text-xs text-muted-foreground">Saved to your account</p>
+          <p className="mt-1 text-xs text-muted-foreground">Preferences sync across devices</p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -153,7 +154,7 @@ export function ReaderSettings({
 
         <div className="flex items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground" role="status" aria-live="polite">
-            {!isLoaded ? "Loading settings…" : isSaving ? "Saving…" : "Saved across devices"}
+            {!isLoaded ? "Loading settings…" : isSaving ? "Saving…" : hasSyncError ? "Not synced with your account" : "Saved across devices"}
           </span>
           <Button variant="ghost" size="sm" onClick={onReset} disabled={!isLoaded}>
             <RotateCcw className="mr-2 h-4 w-4" /> Reset defaults

@@ -125,7 +125,7 @@
     padding-right: calc(1rem + env(safe-area-inset-right));
   }
 
-  /* Sits above .fullscreen-container (z-50), which otherwise paints its opaque
+  /* Sits above the fullscreen reader root, which otherwise paints its opaque
      background over these controls and swallows their clicks. */
   .reader-controls-fullscreen {
     @apply z-[60];
@@ -139,9 +139,15 @@
   }
 
   .reader-header-fullscreen {
+    @apply pointer-events-none opacity-0;
     padding-top: calc(0.5rem + env(safe-area-inset-top));
     padding-left: calc(0.5rem + env(safe-area-inset-left));
     padding-right: calc(0.5rem + env(safe-area-inset-right));
+  }
+
+  body:has(.reader-root[data-reader-chrome="visible"]) .reader-header-fullscreen,
+  .reader-header-fullscreen:focus-within {
+    @apply pointer-events-auto opacity-100;
   }
 
   .reader-view-controls {
@@ -163,10 +169,6 @@
      faded out must not still be the thing under a tap on the artwork. */
   .reader-chrome-hidden {
     @apply pointer-events-none opacity-0;
-  }
-
-  .fullscreen-container {
-    @apply fixed inset-0 bg-background z-50 flex items-center justify-center pt-16;
   }
 
   .zoomed-image {

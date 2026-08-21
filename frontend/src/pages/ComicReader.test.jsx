@@ -628,6 +628,18 @@ describe("ComicReader", () => {
       expect(surface().querySelector("img").src).toContain("/pages/1");
       expect(pageBox()).toHaveValue(2);
     });
+
+    it("stops showing stale artwork once the requested page has failed", async () => {
+      FakeImage.policy = (src) => src.includes("/pages/1") ? "load" : "error";
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+
+      expect(await screen.findByText(/error loading page 2/i)).toBeInTheDocument();
+      expect(surface().querySelector("img")).toBeNull();
+    });
   });
 
   describe("the thumbnail navigator", () => {
@@ -790,6 +802,21 @@ describe("ComicReader", () => {
       expect(pageControls()).toHaveClass("reader-chrome-hidden");
     });
 
+    it("releases a pointer-focused control when the reader returns to the artwork", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      const zoom = screen.getByRole("button", { name: /zoom in/i });
+      await user.click(zoom);
+      expect(zoom).toHaveFocus();
+
+      const surfaceElement = measuredSurface();
+      gesture(surfaceElement, touch("pointerdown", { x: 200, y: 400, time: 0 }));
+
+      expect(zoom).not.toHaveFocus();
+      gesture(surfaceElement, touch("pointercancel", { x: 200, y: 400, time: 10 }));
+    });
+
     it("does not offer a click zone as well, which would turn two pages at once", async () => {
       renderReader();
       await page(1);
@@ -933,6 +960,36 @@ describe("ComicReader", () => {
       await page(1);
 
       expect(await screen.findByRole("button", { name: /use two pages/i })).toBeInTheDocument();
+    });
+
+    it("gets the mode suggestion out of the way while thumbnails are open", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 1180, height: 820 });
+      renderReader();
+      await page(1);
+      await screen.findByRole("button", { name: /use two pages/i });
+
+      await user.click(screen.getByRole("button", { name: /show page thumbnails/i }));
+
+      expect(screen.getByRole("group", { name: /page thumbnails/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /use two pages/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("fullscreen layout", () => {
+    it("keeps single-page artwork inside the same control-safe stage", async () => {
+      renderReader();
+      await page(1);
+      Object.defineProperty(document, "fullscreenElement", { configurable: true, value: document.documentElement });
+
+      act(() => document.dispatchEvent(new Event("fullscreenchange")));
+
+      expect(document.querySelector(".reader-root")).toHaveAttribute("data-fullscreen", "true");
+      expect(surface()).not.toHaveClass("fullscreen-container");
+      expect(surface().parentElement).toHaveClass("reader-stage-controls-visible");
+
+      Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
+      act(() => document.dispatchEvent(new Event("fullscreenchange")));
     });
   });
 

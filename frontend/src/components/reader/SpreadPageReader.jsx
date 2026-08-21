@@ -56,7 +56,7 @@ export function SpreadPageReader({
     >
       <div
         ref={contentRef}
-        className={`flex ${safeFit === "width" ? "w-full items-start" : "max-h-full max-w-full items-center"} justify-center gap-2 ${isSwiping || zoomed ? "" : "transition-transform duration-200 motion-reduce:transition-none"}`}
+        className={`flex ${safeFit === "width" ? "w-full items-start" : safeFit === "original" ? "w-max max-w-none items-start" : "max-h-full max-w-full items-center"} justify-center gap-2 ${isSwiping || zoomed ? "" : "transition-transform duration-200 motion-reduce:transition-none"}`}
         style={{
           transform: `translate3d(${transform.x + swipeOffset}px, ${transform.y}px, 0) scale(${transform.scale})`,
           transformOrigin: "center center",
@@ -67,7 +67,7 @@ export function SpreadPageReader({
         }}
       >
         {pages.map(({ pageIndex, image, isLoading, hasFailed, onRetry, isStale }) => (
-          <div key={pageIndex} className="relative flex h-full min-h-0 min-w-0 flex-1 items-start justify-center">
+          <div key={pageIndex} className={`relative flex h-full min-h-0 min-w-0 items-start justify-center ${safeFit === "original" ? "flex-none" : "flex-1"}`}>
             {image && (
               <img
                 src={image.src}

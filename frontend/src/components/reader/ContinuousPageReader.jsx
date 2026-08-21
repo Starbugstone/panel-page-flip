@@ -122,7 +122,7 @@ export function ContinuousPageReader({
           const pageIndex = Number(entry.target.dataset.continuousPage);
           if (!Number.isInteger(pageIndex)) return;
           if (entry.isIntersecting) next.add(pageIndex);
-          else if (Math.abs(pageIndex - reportedRef.current) > 2) next.delete(pageIndex);
+          else next.delete(pageIndex);
         });
         return next;
       });

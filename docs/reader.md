@@ -21,6 +21,24 @@ Changing page size does not reload the comic or reset reading progress. Changing
 it while zoomed returns the page to its natural scale so the selected fit is
 immediately clear.
 
+## Reading modes and direction
+
+| Setting | Behaviour |
+| --- | --- |
+| Single page | Shows one logical source page at a time. |
+| Two pages | Shows facing pages on a suitable landscape desktop or tablet. The first page can stay alone as a cover, likely scanned spreads stay alone, and final odd pages remain readable. Narrow and portrait screens safely show one page without changing the saved preference. |
+| Continuous scroll | Stacks pages in source order for native vertical scrolling. Nearby pages load around the viewport while distant pages keep their space without holding decoded artwork. |
+
+**Reading direction** changes facing-page placement and physical tap/swipe
+semantics. Right-to-left reading puts the later page on the left and makes a
+left-edge tap or rightward swipe advance. Source page numbers, progress, the
+Previous/Next labels and keyboard arrows remain logical and never reorder the
+comic.
+
+In two-page mode, **Show first page alone** controls whether page 1 is treated as
+a cover. The page-number field always shows the canonical logical page; the
+range beneath it identifies both pages in the visible spread.
+
 ## Reading with a finger
 
 Touch reading is not the desktop reader with the mouse taken away. One gesture
@@ -28,9 +46,9 @@ model covers the whole page surface:
 
 | Gesture | Action |
 | --- | --- |
-| Tap the left or right edge | Previous or next page |
+| Tap the left or right edge | Previous or next page in paged modes, adjusted for reading direction |
 | Tap the middle | Show or hide the reader controls |
-| Swipe left or right | Next or previous page |
+| Swipe left or right | Next or previous page in paged modes, adjusted for reading direction |
 | Double tap | Zoom to readable width around what was tapped; again to come back |
 | Pinch | Zoom around the middle of the two fingers |
 | Drag while zoomed | Pan the page, never turn it |
@@ -41,6 +59,10 @@ becomes a page turn, however far the first finger travelled. A finger left over
 from a pinch does nothing on its way off the glass. The first tap of a double
 tap does not flash the controls before the zoom it was really asking for, and a
 drag that wanders off axis is a scroll rather than a page turn.
+
+Continuous mode leaves one-finger vertical scrolling native and does not attach
+paged swipe navigation. Pinch, double tap and zoomed panning still work on each
+loaded page.
 
 A mouse keeps its click zones, its wheel and its hover. It has a cursor and does
 not need any of this disambiguating, so it does not go through it.
@@ -67,7 +89,7 @@ Where there is no mouse to hover, and in fullscreen, the controls fade out after
 a few seconds of reading and come back on a tap in the middle of the page. They
 never fade while one of them has focus or a settings popover is open, any
 keyboard interaction brings them straight back, and faded controls stop
-accepting taps rather than sitting invisibly over the artwork. **Fade fullscreen
+accepting taps rather than sitting invisibly over the artwork. **Auto-hide reader
 controls** turns the whole behaviour off.
 
 Reader controls stay clear of browser chrome, notches and the home indicator,
@@ -86,12 +108,16 @@ navigator on a long book does not fetch hundreds of images.
 
 ## How far ahead it reads
 
-The pages held ready around the current one are chosen from what the device can
+In paged modes, the pages held ready around the current one are chosen from what the device can
 afford, not from a fixed number: roughly five pages ahead on a desktop, three on
 a tablet, two on a phone, halved again where the browser reports little memory,
 and cut to the next page alone when the connection is slow or the user has asked
 to save data. There is no setting; the same window decides both what is fetched
 early and what is released.
+
+Continuous mode instead follows the scroll viewport: visible and nearby pages
+hold images, while pages outside the proximity margin return to stable
+placeholders.
 
 ## Page quality
 
@@ -105,7 +131,7 @@ behind them.
 ## Other settings
 
 - **Show progress bar** displays the slim indicator above the page controls.
-- **Fade fullscreen controls** lets the controls take themselves off screen while
+- **Auto-hide reader controls** lets the controls take themselves off screen while
   you read — in fullscreen, and on a touchscreen, where there is no hover to
   bring them back. Turning it off keeps them visible.
 - **Different page size here** keeps a separate page size for the device and
@@ -131,8 +157,8 @@ another editable control.
 ## Extension contract
 
 Navigation and progress always use the source comic's one-based logical page
-numbers. A future spread or continuous renderer may present those pages
-differently, but it must not persist a synthetic spread or viewport number.
+numbers. Spread and continuous renderers present those pages differently, but
+never persist a synthetic spread, viewport number or scroll percentage.
 
 Page URLs are created in one source-neutral helper and retain the protected
 `/api/comics/{id}/pages/{page}` endpoint, with the requested size as a query
@@ -151,7 +177,7 @@ stays global. Unsupported modes, directions and contexts are rejected on write
 and dropped on read, so one entry from a newer client can never cost a user the
 settings they made everywhere else.
 
-Gesture recognition, the zoom transform, the viewport classification and the
-preload window are each a pure module with its own tests, and the reader
-component only receives their verdicts. A spread or continuous renderer changes
-what a "next page" means without reopening any of them.
+Gesture recognition, spread grouping, the zoom transform, viewport
+classification and preload policy are isolated modules with their own tests.
+The paged and continuous renderers consume the same logical navigation and
+protected derivative sources without inventing a second progress model.

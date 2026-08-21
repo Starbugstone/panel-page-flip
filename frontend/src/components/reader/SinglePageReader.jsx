@@ -44,7 +44,6 @@ export function SinglePageReader({
   pageNumber,
   title,
   fit,
-  isFullscreen,
   transform = IDENTITY_TRANSFORM,
   swipeOffset = 0,
   isSwiping = false,
@@ -68,7 +67,7 @@ export function SinglePageReader({
   return (
     <div
       ref={containerRef}
-      className={`relative max-h-full h-full w-full flex ${zoomed ? ZOOMED_CLASSES : VIEWPORT_CLASSES[safeFit]} ${isFullscreen ? "fullscreen-container" : ""}`}
+      className={`relative max-h-full h-full w-full flex ${zoomed ? ZOOMED_CLASSES : VIEWPORT_CLASSES[safeFit]}`}
       data-page-fit={safeFit}
       data-page-zoomed={zoomed ? "true" : "false"}
       // A zoomed page is moved entirely by the gestures above; a fitted one

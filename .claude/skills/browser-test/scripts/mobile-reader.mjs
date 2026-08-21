@@ -99,7 +99,10 @@ const readerState = () => page.evaluate(() => {
     controlsOpacity: controls ? getComputedStyle(controls).opacity : null,
     controlsBottomPad: controls ? getComputedStyle(controls).paddingBottom : null,
     stageHeight: surface?.parentElement?.getBoundingClientRect().height,
+    rootHeight: document.querySelector('.reader-root')?.getBoundingClientRect().height,
+    headerHeight: document.querySelector('.reader-header')?.getBoundingClientRect().height ?? 0,
     innerHeight: window.innerHeight,
+    documentHeight: document.documentElement.scrollHeight,
     alt: shown?.getAttribute('alt'),
     navZones: document.querySelectorAll('.page-navigation').length,
     suggestion: document.querySelector('[role="status"]')?.textContent ?? null,
@@ -177,9 +180,12 @@ try {
   if (state.touchAction === 'pan-y') ok('vertical scrolling left to the browser (touch-action: pan-y)');
   else bad(`touch-action is ${state.touchAction}`);
 
-  const expectedStage = state.innerHeight - 160;
-  if (Math.abs(state.stageHeight - expectedStage) < 2) ok(`reading area follows the real viewport (${state.stageHeight}px of ${state.innerHeight})`);
-  else bad(`stage ${state.stageHeight}px, expected about ${expectedStage}px`);
+  const expectedReader = state.innerHeight - state.headerHeight;
+  if (Math.abs(state.rootHeight - expectedReader) < 2 && state.documentHeight <= state.innerHeight + 1) {
+    ok(`reading area follows the real viewport (${state.rootHeight}px plus ${state.headerHeight}px header)`);
+  } else {
+    bad(`reader ${state.rootHeight}px + header ${state.headerHeight}px, viewport ${state.innerHeight}px, document ${state.documentHeight}px`);
+  }
 
   if (/fit width/i.test(state.suggestion || '') && /phone in portrait/i.test(state.suggestion || '')) ok(`fit suggested: "${state.suggestion.trim()}"`);
   else bad(`no fit suggestion on a phone in portrait: ${JSON.stringify(state.suggestion)}`);

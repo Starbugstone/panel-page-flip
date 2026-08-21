@@ -20,6 +20,7 @@ export function useReaderPreferences(toast) {
   const [preferences, setPreferences] = useState(DEFAULT_READER_PREFERENCES);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [hasSyncError, setHasSyncError] = useState(false);
   const preferencesRef = useRef(DEFAULT_READER_PREFERENCES);
   const pendingOperationRef = useRef(null);
   const pumpingRef = useRef(false);
@@ -50,10 +51,15 @@ export function useReaderPreferences(toast) {
 
         if (!pendingOperationRef.current) {
           applyPreferences(normalizeReaderPreferences(data?.preferences));
+          if (mountedRef.current) setHasSyncError(false);
         }
       } catch (error) {
         logger.error("Failed to save reader preferences:", error);
-        if (mountedRef.current) {
+        // Every write is a complete replacement. A newer pending operation
+        // therefore includes this one and can still save it; only the final
+        // failure means the optimistic settings really are session-only.
+        if (!pendingOperationRef.current && mountedRef.current) {
+          setHasSyncError(true);
           toast({
             title: "Reader setting not saved",
             description: "Your choice works for this session, but may not follow you to another device.",
@@ -78,6 +84,7 @@ export function useReaderPreferences(toast) {
       })
       .catch((error) => {
         if (!active) return;
+        setHasSyncError(true);
         logger.warn("Failed to load reader preferences; using defaults:", error);
         toast({
           title: "Using default reader settings",
@@ -97,6 +104,7 @@ export function useReaderPreferences(toast) {
 
   const save = useCallback((next) => {
     changedLocallyRef.current = true;
+    if (mountedRef.current) setHasSyncError(false);
     applyPreferences(next);
     pendingOperationRef.current = { kind: "save", preferences: next };
     void pump();
@@ -131,6 +139,7 @@ export function useReaderPreferences(toast) {
     settings: preferences.settings,
     isLoaded,
     isSaving,
+    hasSyncError,
     changeSettings,
     changeOverride,
     clearOverride,
