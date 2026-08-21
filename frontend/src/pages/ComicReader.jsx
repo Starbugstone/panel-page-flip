@@ -21,8 +21,9 @@ import { usePageVariant } from "@/hooks/use-page-variant";
 import { usePageGeometry } from "@/hooks/use-page-geometry";
 import { createComicPageUrls, withForcedReload } from "@/lib/reader-pages";
 import { tapZone } from "@/lib/reader-gestures";
-import { preloadWindowFor, readNetworkHints } from "@/lib/reader-preload";
+import { usePreloadWindow } from "@/hooks/use-preload-window";
 import {
+  DEFAULT_READER_PREFERENCES,
   OVERRIDABLE_SETTINGS,
   READER_FITS,
   effectiveReaderSettings,
@@ -125,10 +126,10 @@ export default function ComicReader() {
   // image stays on screen and is replaced when the larger one arrives.
   const loadedVariantsRef = useRef({});
 
-  // How many pages either side of this one are worth holding decoded, decided
-  // once from what this device can afford rather than from a constant that has
-  // to suit both a desktop and a phone on a train.
-  const preloadWindow = useMemo(() => preloadWindowFor(profile, readNetworkHints()), [profile]);
+  // How many pages either side of this one are worth holding decoded, from what
+  // this device and this connection can afford rather than from a constant that
+  // has to suit both a desktop and a phone on a train.
+  const preloadWindow = usePreloadWindow(profile);
 
   // The cache entry for the current page already says everything these used to
   // be told: a value means it is ready, 'failed' means it is not coming, and
@@ -834,10 +835,13 @@ export default function ComicReader() {
 
   const suggestedFit = suggestedFitFor(profile);
   const suggestedFitLabel = READER_FITS.find(({ value }) => value === suggestedFit)?.label;
-  // Offered once per context per session, and never while this screen already
-  // has a page size somebody chose for it.
+  // Offered once per context per session, and only to a reader who has never
+  // said how they want pages sized. Somebody who chose a fit for themselves has
+  // answered this question already, and asking again on every phone they read
+  // on is nagging them to undo their own setting.
   const isSuggestingFit = arePreferencesLoaded
     && !hasContextOverride
+    && preferences.settings.fit === DEFAULT_READER_PREFERENCES.settings.fit
     && suggestedFit !== settings.fit
     && !dismissedSuggestions[viewportContextKey(viewportContext)];
 

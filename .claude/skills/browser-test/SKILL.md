@@ -47,8 +47,10 @@ mkdir -p "$DOCKER_CONFIG" && printf '{}' > "$DOCKER_CONFIG/config.json"
 ## 2. Drive it
 
 `scripts/drive.mjs` is a worked example that logs in, uploads a CBZ and a PDF,
-opens the reader and exercises the reader settings. Copy it, edit the middle,
-and run:
+opens the reader and exercises the reader settings. `scripts/mobile-reader.mjs`
+drives the same reader as a phone — real touch events for swipe, tap, pinch and
+double tap — which is the only place gestures, transforms and viewport units can
+actually be judged. Copy either, edit the middle, and run:
 
 ```bash
 .claude/skills/browser-test/scripts/drive.sh /path/to/your-driver.mjs

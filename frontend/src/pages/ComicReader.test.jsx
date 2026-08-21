@@ -613,6 +613,23 @@ describe("ComicReader", () => {
     });
   });
 
+  describe("turning the device, continued", () => {
+    it("drops a zoom that was framed against the viewport before the turn", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      expect(surface()).toHaveAttribute("data-page-zoomed", "true");
+
+      useScreen({ width: 844, height: 390 });
+      act(() => { window.dispatchEvent(new Event("resize")); });
+
+      expect(surface()).toHaveAttribute("data-page-zoomed", "false");
+    });
+  });
+
   describe("suggesting a fit rather than imposing one", () => {
     it("offers fit width on a phone held upright", async () => {
       useScreen({ width: 390, height: 844 });
@@ -621,6 +638,26 @@ describe("ComicReader", () => {
 
       expect(await screen.findByRole("status")).toHaveTextContent(/fit width/i);
       expect(screen.getByRole("status")).toHaveTextContent(/this phone in portrait/i);
+    });
+
+    it("says nothing to a reader who has already chosen how pages are sized", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? {
+            preferences: {
+              ...DEFAULT_READER_PREFERENCES,
+              settings: { ...DEFAULT_READER_PREFERENCES.settings, fit: "original" },
+            },
+          }
+          : comic()
+      ));
+
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+      await waitFor(() => expect(surface()).toHaveAttribute("data-page-fit", "original"));
+
+      expect(screen.queryByRole("button", { name: /use it here/i })).not.toBeInTheDocument();
     });
 
     it("leaves a desktop alone, which is already reading the way it should", async () => {
