@@ -56,6 +56,24 @@ actually be judged. Copy either, edit the middle, and run:
 .claude/skills/browser-test/scripts/drive.sh /path/to/your-driver.mjs
 ```
 
+Two more drivers cover the areas that unit tests cannot reach:
+`reader-mat-and-spread.mjs` measures the reader's layout and hit-testing in a
+browser that actually lays out, and `bulk-upload.mjs` prints every `/upload/*`
+response with its body — the queue reports only "Failed", so that is the way to
+tell a rejected file from a timed-out one.
+
+Both read their login from the environment rather than embedding it, so export
+the fixture credentials `up.sh` printed before running them:
+
+```bash
+export PPF_USER_EMAIL=navtest@example.com PPF_USER_PASSWORD='...'
+.claude/skills/browser-test/scripts/drive.sh .claude/skills/browser-test/scripts/bulk-upload.mjs
+```
+
+They fail immediately with a clear message when it is unset. A password written
+into a tracked file is what secret scanning exists to catch, and a scanner is
+right not to care that this particular one is a throwaway local account.
+
 Screenshots land in `var/browser-test/` and the run prints PASS/FAIL per
 assertion plus any console errors and 4xx/5xx responses.
 

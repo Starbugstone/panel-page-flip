@@ -34,8 +34,17 @@ fi
 
 cp "$DRIVER" "$CACHE/driver.mjs"
 
+# Fixture credentials are passed through from the environment, never written
+# into a committed file. They are throwaway local-dev logins, but a literal
+# password in a tracked file is exactly what secret scanning is for, and a
+# scanner is right not to care that this one is harmless. up.sh prints the
+# export line; drivers that need them fail loudly when they are unset.
 docker run --rm --network "$NETWORK" \
   -v "$CACHE":/pw \
   -v "$OUT/fixtures":/fixtures:ro \
   -v "$OUT":/out \
+  -e PPF_USER_EMAIL \
+  -e PPF_USER_PASSWORD \
+  -e PPF_ADMIN_EMAIL \
+  -e PPF_ADMIN_PASSWORD \
   -w /pw "$IMAGE" node /pw/driver.mjs

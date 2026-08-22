@@ -14,6 +14,15 @@ import { chromium } from 'playwright';
 const BASE = process.env.APP_BASE || 'http://nginx';
 const RUN = Date.now().toString(36).slice(-5);
 const SHOTS = '/out';
+// Supplied by drive.sh from the fixture accounts up.sh creates. Read rather
+// than embedded: a literal password in a committed file is what secret
+// scanners exist to catch, and they are right to catch it.
+const USER = process.env.PPF_USER_EMAIL || 'navtest@example.com';
+const PASSWORD = process.env.PPF_USER_PASSWORD;
+if (!PASSWORD) {
+  console.error('PPF_USER_PASSWORD is not set. Run this through drive.sh.');
+  process.exit(2);
+}
 
 const browser = await chromium.launch({ args: ['--no-sandbox'] });
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
@@ -31,8 +40,8 @@ page.on('response', async (r) => {
 
 try {
   await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
-  await page.fill('input[type="email"]', 'navtest@example.com');
-  await page.fill('input[type="password"]', 'NavTest123!');
+  await page.fill('input[type="email"]', USER);
+  await page.fill('input[type="password"]', PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 20000 });
   const gotIt = page.getByRole('button', { name: /got it/i });

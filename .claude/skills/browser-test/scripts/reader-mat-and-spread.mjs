@@ -14,6 +14,15 @@ import { chromium } from 'playwright';
 const BASE = process.env.APP_BASE || 'http://nginx';
 const RUN = Date.now().toString(36).slice(-5);
 const SHOTS = '/out';
+// Supplied by drive.sh from the fixture accounts up.sh creates. Read rather
+// than embedded: a literal password in a committed file is what secret
+// scanners exist to catch, and they are right to catch it.
+const USER = process.env.PPF_USER_EMAIL || 'navtest@example.com';
+const PASSWORD = process.env.PPF_USER_PASSWORD;
+if (!PASSWORD) {
+  console.error('PPF_USER_PASSWORD is not set. Run this through drive.sh.');
+  process.exit(2);
+}
 const errors = [];
 
 const step = (m) => console.log(`\n=== ${m} ===`);
@@ -55,7 +64,7 @@ const setMode = async (label) => {
 
 try {
   step('1. Log in and upload a comic for this run');
-  await login('navtest@example.com', 'NavTest123!');
+  await login(USER, PASSWORD);
 
   await page.evaluate(async () => {
     const token = document.cookie.split(';').map((c) => c.trim())

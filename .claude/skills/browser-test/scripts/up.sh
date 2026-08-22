@@ -72,6 +72,11 @@ Ready.
   user       navtest@example.com  / NavTest123!
   admin      navadmin@example.com / NavAdmin123!
 
+  Drivers that read credentials from the environment (bulk-upload.mjs,
+  reader-mat-and-spread.mjs) need them exported first:
+
+    export PPF_USER_EMAIL=navtest@example.com PPF_USER_PASSWORD='<the password above>'
+
   fixtures   var/browser-test/fixtures/
 
 Drive it with:
