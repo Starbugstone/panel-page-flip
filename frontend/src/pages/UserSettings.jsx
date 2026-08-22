@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { useToast } from "@/hooks/use-toast";
 import { useTags } from "@/hooks/use-tags";
+import { AccountSettingsCard } from "@/components/AccountSettingsCard";
 import { TagBadge } from "@/components/TagBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -153,7 +154,11 @@ export default function UserSettings() {
     <div className="container mx-auto max-w-5xl px-4 py-8">
       <div className="mb-6">
         <h1 className="text-3xl font-comic">Settings</h1>
-        <p className="mt-1 text-muted-foreground">Manage the tags that belong only to your account.</p>
+        <p className="mt-1 text-muted-foreground">Manage your account, your storage, and the tags that belong only to you.</p>
+      </div>
+
+      <div className="mb-6">
+        <AccountSettingsCard />
       </div>
 
       <Card>

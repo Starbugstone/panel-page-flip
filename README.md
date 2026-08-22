@@ -18,7 +18,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - One-way Dropbox imports with duplicate detection and folder-based tags
 - Responsive light and dark themes
 - Administration for users, comics, tags, Dropbox connections, cleanup, and audit history
-- Per-user storage usage against the enforced quota, visible in the admin user list and on each account — see [storage accounting and the per-user quota](docs/storage-quota.md)
+- Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
 
 ## Technology
 
