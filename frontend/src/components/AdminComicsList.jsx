@@ -95,14 +95,14 @@ export function AdminComicsList({ ownerId, embedded = false }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-bold">{embedded ? "Comics owned by this user" : "Comics Management"}</h2>
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             type="search"
             placeholder="Search comics..."
-            className="pl-8 w-[300px]"
+            className="w-full pl-8 sm:w-[300px]"
             value={searchInput}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -116,7 +116,7 @@ export function AdminComicsList({ ownerId, embedded = false }) {
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className="border rounded-md">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>

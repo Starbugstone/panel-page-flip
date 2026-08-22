@@ -52,17 +52,25 @@ export function ThemeProvider({
   const value = {
     theme,
     setTheme: (newTheme) => {
+      // Applied first, and outside the try: persistence is a convenience, but
+      // the user asking for a theme is the whole request. A browser that
+      // refuses site data — a private window, blocked cookies — throws on the
+      // write, and doing it the other way round swallowed the click along with
+      // it, so the toggle did nothing at all rather than working for the
+      // session.
+      setTheme(newTheme);
+
       try {
-        // Set the cookie to persist theme preference (365 days expiration)
         setCookie(storageKey, newTheme, 365);
-        
-        // Also update localStorage for backward compatibility
-        localStorage.setItem(storageKey, newTheme);
-        
-        // Update state
-        setTheme(newTheme);
       } catch {
-        // Keep the current theme when browser storage is unavailable.
+        // Unpersisted, not unapplied.
+      }
+
+      try {
+        // Still written for a session that started before the cookie existed.
+        localStorage.setItem(storageKey, newTheme);
+      } catch {
+        // Same again: the cookie above is the one that matters.
       }
     },
   };

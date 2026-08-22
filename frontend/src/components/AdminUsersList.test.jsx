@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -91,5 +92,28 @@ describe("AdminUsersList storage column", () => {
     expect(rowFor("alice@example\\.com").getByRole("link", { name: "Manage Alice" })).toBeInTheDocument();
     expect(rowFor("bob@example\\.com").getByRole("button", { name: "Delete Bob" })).toBeInTheDocument();
     expect(screen.getByText(/Showing/)).toBeInTheDocument();
+  });
+
+  it("enables user creation only after every required field meets the password policy", async () => {
+    const actor = userEvent.setup();
+    await renderList([user()]);
+
+    await actor.click(screen.getByRole("button", { name: "Add User" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const create = dialog.getByRole("button", { name: "Create User" });
+
+    expect(create).toBeDisabled();
+    expect(dialog.getByLabelText("Name")).toBeRequired();
+    expect(dialog.getByLabelText("Email")).toBeRequired();
+    expect(dialog.getByLabelText("Password")).toBeRequired();
+
+    await actor.type(dialog.getByLabelText("Name"), "New Reader");
+    await actor.type(dialog.getByLabelText("Email"), "reader@example.com");
+    await actor.type(dialog.getByLabelText("Password"), "too-short");
+    expect(create).toBeDisabled();
+
+    await actor.clear(dialog.getByLabelText("Password"));
+    await actor.type(dialog.getByLabelText("Password"), "StrongPass123!");
+    expect(create).toBeEnabled();
   });
 });

@@ -86,6 +86,16 @@ assertions will not always tell you.
   `#reader-page-input` to 1 first, as `drive.mjs` does.
 - **Comics accumulate across runs.** Tag this run's uploads and drive only
   those, or a re-run silently tests a comic left over from last time.
+- **So do reader preferences.** They are saved per account and outlive the run
+  that set them, so a driver that leaves the reader in two-page mode makes the
+  *next* driver's page assertions fail against an app that is working
+  perfectly. `drive.mjs` now starts by sending
+  `DELETE /api/reader/preferences`; do the same in any driver that touches the
+  reader settings.
+- **A control that is disabled is not always broken.** "Show first page alone"
+  only means something in two-page mode and is disabled outside it. Assert on
+  the controls a mode actually has, and prove a gated one comes back when its
+  mode is selected.
 
 ## 3. Reset
 

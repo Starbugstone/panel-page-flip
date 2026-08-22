@@ -121,18 +121,6 @@ parameters:
 			path: src/Controller/ComicController.php
 
 		-
-			message: '#^Result of && is always false\.$#'
-			identifier: booleanAnd.alwaysFalse
-			count: 2
-			path: src/Controller/ComicController.php
-
-		-
-			message: '#^Strict comparison using \=\=\= between array and null will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 2
-			path: src/Controller/ComicController.php
-
-		-
 			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
@@ -175,18 +163,6 @@ parameters:
 			path: src/Controller/TagController.php
 
 		-
-			message: '#^Call to an undefined method App\\Entity\\User\:\:setEmailVerificationToken\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: src/Controller/UserController.php
-
-		-
-			message: '#^Call to an undefined method App\\Entity\\User\:\:setEmailVerificationTokenExpiresAt\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: src/Controller/UserController.php
-
-		-
 			message: '#^Call to an undefined method Doctrine\\ORM\\EntityRepository\<App\\Entity\\User\>\:\:countAdminsExcluding\(\)\.$#'
 			identifier: method.notFound
 			count: 1
@@ -196,18 +172,6 @@ parameters:
 			message: '#^Instanceof between App\\Entity\\User and App\\Entity\\User will always evaluate to true\.$#'
 			identifier: instanceof.alwaysTrue
 			count: 1
-			path: src/Controller/UserController.php
-
-		-
-			message: '#^Result of && is always false\.$#'
-			identifier: booleanAnd.alwaysFalse
-			count: 2
-			path: src/Controller/UserController.php
-
-		-
-			message: '#^Strict comparison using \=\=\= between array and null will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 2
 			path: src/Controller/UserController.php
 
 		-
