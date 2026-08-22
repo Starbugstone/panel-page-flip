@@ -37,6 +37,7 @@ import { useAuth } from "@/hooks/use-auth"; // Import useAuth hook
 import { useToast } from "@/hooks/use-toast";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminPagination } from "@/components/AdminPagination";
+import { UserStorageUsage } from "@/components/UserStorageUsage";
 import { api } from "@/lib/api";
 import { validatePassword } from "@/lib/password-policy";
 import { formatDateTime } from "@/lib/format";
@@ -263,6 +264,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                 <TableHead>Created</TableHead>
                 <TableHead>Last login</TableHead>
                 <TableHead>Comics</TableHead>
+                <TableHead className="w-[13rem]">Storage</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -299,6 +301,13 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                     <TableCell>{formatDateTime(user.createdAt)}</TableCell>
                     <TableCell>{formatDateTime(user.lastLoginAt, "Never")}</TableCell>
                     <TableCell>{user.comicCount}</TableCell>
+                    <TableCell>
+                      <UserStorageUsage
+                        usedBytes={user.storageUsedBytes}
+                        quotaBytes={user.storageQuotaBytes}
+                        unmeasuredComicCount={user.unmeasuredComicCount}
+                      />
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button
@@ -356,7 +365,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">
+                  <TableCell colSpan={8} className="text-center py-8">
                     {emptyMessage}
                   </TableCell>
                 </TableRow>

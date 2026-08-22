@@ -13,6 +13,7 @@ use App\Service\PasswordValidator;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
 use App\Service\SharingCodeService;
+use App\Service\StorageQuotaService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -28,7 +29,7 @@ class UserController extends AbstractController
     use RequiresAuthenticatedUser;
 
     #[Route('', name: 'list', methods: ['GET'])]
-    public function list(Request $request, EntityManagerInterface $entityManager, UserMetadataCredentialRepository $credentialRepository): JsonResponse
+    public function list(Request $request, EntityManagerInterface $entityManager, UserMetadataCredentialRepository $credentialRepository, StorageQuotaService $storageQuota): JsonResponse
     {
         $user = $this->requireUser();
 
@@ -43,7 +44,7 @@ class UserController extends AbstractController
         /** @var UserRepository $userRepository */
         $userRepository = $entityManager->getRepository(User::class);
         $page = $userRepository->findAdminPage($pagination, $verified);
-        $counts = $userRepository->countOwnedContent(
+        $stats = $userRepository->getOwnedContentStats(
             array_map(static fn (User $u): int => $u->getId(), $page->items)
         );
 
@@ -55,8 +56,9 @@ class UserController extends AbstractController
         $usersArray = array_map(
             fn (User $u): array => $this->serializeUser(
                 $u,
-                $counts[$u->getId()] ?? null,
-                isset($withCredential[$u->getId()])
+                $stats[$u->getId()] ?? null,
+                isset($withCredential[$u->getId()]),
+                $storageQuota->getQuotaBytes($u)
             ),
             $page->items
         );
@@ -70,11 +72,11 @@ class UserController extends AbstractController
     }
 
     /**
-     * @param array{comicCount: int, tagCount: int}|null $counts Precomputed
-     *        totals; omitted counts fall back to the user's own collections.
+     * @param array{comicCount: int, tagCount: int, storageUsedBytes: int, unmeasuredComicCount: int}|null $stats
+     *        Precomputed totals; omitted counts fall back to the user's own collections.
      * @return array<string, mixed>
      */
-    private function serializeUser(User $user, ?array $counts = null, bool $hasPersonalMetadataCredential = false): array
+    private function serializeUser(User $user, ?array $stats = null, bool $hasPersonalMetadataCredential = false, ?int $storageQuotaBytes = null): array
     {
         return [
             'id' => $user->getId(),
@@ -84,8 +86,13 @@ class UserController extends AbstractController
             'createdAt' => $user->getCreatedAt()?->format('c'),
             'lastLoginAt' => $user->getLastLoginAt()?->format('c'),
             'isEmailVerified' => $user->isEmailVerified(),
-            'comicCount' => $counts['comicCount'] ?? $user->getComics()->count(),
-            'tagCount' => $counts['tagCount'] ?? $user->getCreatedTags()->count(),
+            'comicCount' => $stats['comicCount'] ?? $user->getComics()->count(),
+            'tagCount' => $stats['tagCount'] ?? $user->getCreatedTags()->count(),
+            // Raw bytes, never a percentage or a formatted string: the client
+            // needs the real values to say 112% when the data says 112%.
+            'storageUsedBytes' => $stats['storageUsedBytes'] ?? 0,
+            'storageQuotaBytes' => $storageQuotaBytes,
+            'unmeasuredComicCount' => $stats['unmeasuredComicCount'] ?? 0,
             'metadataApiEnabled' => $user->isMetadataApiEnabled(),
             // Whether they brought their own provider token, never which one.
             'hasPersonalMetadataCredential' => $hasPersonalMetadataCredential,
@@ -93,7 +100,7 @@ class UserController extends AbstractController
     }
 
     #[Route('/{id}', name: 'get', methods: ['GET'], requirements: ['id' => '\\d+'])]
-    public function get(int $id, EntityManagerInterface $entityManager, UserMetadataCredentialRepository $credentialRepository): JsonResponse
+    public function get(int $id, EntityManagerInterface $entityManager, UserMetadataCredentialRepository $credentialRepository, StorageQuotaService $storageQuota): JsonResponse
     {
         $user = $this->requireUser();
 
@@ -103,15 +110,23 @@ class UserController extends AbstractController
         }
 
         // Get user by id
-        $targetUser = $entityManager->getRepository(User::class)->find($id);
+        /** @var UserRepository $userRepository */
+        $userRepository = $entityManager->getRepository(User::class);
+        $targetUser = $userRepository->find($id);
         if (!$targetUser) {
             return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
         }
 
+        // The same grouped query the list uses, for a page of one. Counting the
+        // user's collections here instead would give this endpoint a second
+        // definition of comic count and no storage figure at all.
+        $stats = $userRepository->getOwnedContentStats([$targetUser->getId()]);
+
         $userData = $this->serializeUser(
             $targetUser,
-            null,
-            $credentialRepository->findForUser($targetUser) !== null
+            $stats[$targetUser->getId()] ?? null,
+            $credentialRepository->findForUser($targetUser) !== null,
+            $storageQuota->getQuotaBytes($targetUser)
         );
 
         // The admin user page needs enough to explain why an account can or
