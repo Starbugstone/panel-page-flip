@@ -25,6 +25,12 @@ const MAX_PIXEL_RATIO = 3;
 
 const rungIndex = (variant) => READER_LADDER.findIndex((rung) => rung.name === variant);
 
+export function isPageVariantAtLeast(candidate, requested) {
+  const candidateIndex = rungIndex(candidate);
+  const requestedIndex = rungIndex(requested);
+  return candidateIndex >= 0 && requestedIndex >= 0 && candidateIndex >= requestedIndex;
+}
+
 /**
  * The smallest bounded variant that still covers the pixels this page will
  * occupy.
@@ -67,6 +73,11 @@ export function createPageThumbnailUrl(comicId, pageNumber) {
   if (!comicId || !Number.isInteger(pageNumber) || pageNumber < 1) return null;
 
   return createComicPageUrl(encodeURIComponent(String(comicId)), pageNumber, THUMBNAIL_VARIANT);
+}
+
+export function createReaderPageUrl(comicId, pageNumber, variant) {
+  if (!comicId || !Number.isInteger(pageNumber) || pageNumber < 1) return null;
+  return createComicPageUrl(encodeURIComponent(String(comicId)), pageNumber, variant);
 }
 
 export function createPageManifestUrl(comicId, from = 1) {

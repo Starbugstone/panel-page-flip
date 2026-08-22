@@ -19,6 +19,26 @@ use Doctrine\Persistence\ManagerRegistry;
  */
 class ComicRepository extends ServiceEntityRepository
 {
+    /**
+     * The one definition of "storage used": the canonical source bytes an owner
+     * is accountable for.
+     *
+     * Upload admission, the admin user list and the installation total all read
+     * their figure from here. They ask different questions of it — one owner, a
+     * page of owners, everybody — but they cannot drift into different answers
+     * about the same comics. Generated pages, thumbnails and upload chunks are
+     * absent on purpose: they are rebuildable cache and count against no quota.
+     */
+    private const STORAGE_BYTES = 'COALESCE(SUM(c.fileSize), 0)';
+
+    /**
+     * `fileSize` arrived after comics could already exist, and the backfill
+     * leaves it null when the source file cannot be located. SUM() then skips
+     * those rows without complaint, so they are counted here instead of
+     * quietly understating a total that is presented as exact.
+     */
+    private const UNMEASURED_COMICS = 'SUM(CASE WHEN c.fileSize IS NULL THEN 1 ELSE 0 END)';
+
     /** Sortable columns for the admin comic table, as query alias => DQL field. */
     public const ADMIN_SORT_FIELDS = [
         'title' => 'c.title',
@@ -146,5 +166,68 @@ class ComicRepository extends ServiceEntityRepository
             ->setParameter('comics', $comics)
             ->getQuery()
             ->getResult();
+    }
+
+    /**
+     * Comic count, storage bytes and unmeasured-comic count per owner, keyed by
+     * owner id, for the owners asked about.
+     *
+     * One grouped query rather than one per owner: the admin user list renders a
+     * whole page from this. The count and the byte total come out of the same
+     * query so a comic cannot be counted by one and missed by the other.
+     *
+     * @param list<int> $ownerIds
+     * @return array<int, array{comicCount: int, storageUsedBytes: int, unmeasuredComicCount: int}>
+     */
+    public function getStorageStatsByOwner(array $ownerIds): array
+    {
+        if ($ownerIds === []) {
+            return [];
+        }
+
+        $stats = array_fill_keys(
+            $ownerIds,
+            ['comicCount' => 0, 'storageUsedBytes' => 0, 'unmeasuredComicCount' => 0]
+        );
+
+        $rows = $this->createQueryBuilder('c')
+            ->select(
+                'IDENTITY(c.owner) AS ownerId',
+                'COUNT(c.id) AS comicCount',
+                self::STORAGE_BYTES . ' AS storageUsedBytes',
+                self::UNMEASURED_COMICS . ' AS unmeasuredComicCount',
+            )
+            ->where('c.owner IN (:ownerIds)')
+            ->groupBy('c.owner')
+            ->setParameter('ownerIds', $ownerIds)
+            ->getQuery()
+            ->getScalarResult();
+
+        foreach ($rows as $row) {
+            // BIGINT aggregates arrive as strings on every driver; cast once here
+            // so callers and the API payload deal in integers throughout.
+            $stats[(int) $row['ownerId']] = [
+                'comicCount' => (int) $row['comicCount'],
+                'storageUsedBytes' => (int) $row['storageUsedBytes'],
+                'unmeasuredComicCount' => (int) $row['unmeasuredComicCount'],
+            ];
+        }
+
+        return $stats;
+    }
+
+    /** What one owner has used, as quota admission counts it. */
+    public function getStorageBytesForOwner(int $ownerId): int
+    {
+        return $this->getStorageStatsByOwner([$ownerId])[$ownerId]['storageUsedBytes'];
+    }
+
+    /** Every comic on the installation, for the admin dashboard total. */
+    public function getTotalStorageBytes(): int
+    {
+        return (int) $this->createQueryBuilder('c')
+            ->select(self::STORAGE_BYTES)
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 }

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-import { formatDateTime, formatFileSize } from "@/lib/format";
+import { formatBytes, formatDateTime } from "@/lib/format";
 
 export function AdminOverview() {
   const { toast } = useToast();
@@ -43,7 +43,7 @@ export function AdminOverview() {
         <Card><CardHeader><CardTitle>Total users</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{stats?.totalUsers ?? 0}</CardContent></Card>
         <Card><CardHeader><CardTitle>Verified users</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{stats?.verifiedUsers ?? 0}</CardContent></Card>
         <Card><CardHeader><CardTitle>Total comics</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{stats?.totalComics ?? 0}</CardContent></Card>
-        <Card><CardHeader><CardTitle>Storage used</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{formatFileSize(stats?.storageUsed)}</CardContent></Card>
+        <Card><CardHeader><CardTitle>Storage used</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{formatBytes(stats?.storageUsed)}</CardContent></Card>
       </div>
 
       <Card>

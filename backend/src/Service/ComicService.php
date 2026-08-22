@@ -322,11 +322,6 @@ class ComicService
         return $this->storageQuota->wouldExceedQuota($user, $additionalBytes);
     }
 
-    public function getUserStorageBytes(User $user): int
-    {
-        return $this->storageQuota->getUserStorageBytes($user);
-    }
-
     /**
      * @param array<int, mixed> $tags
      * @return list<string>

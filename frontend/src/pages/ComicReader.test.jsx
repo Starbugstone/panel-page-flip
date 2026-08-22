@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -74,6 +74,11 @@ const comic = (pageCount = 3) => ({
   comic: { id: 42, title: "Sandman", pageCount, readingProgress: null },
 });
 
+const savedPreferences = (patch) => ({
+  ...DEFAULT_READER_PREFERENCES,
+  settings: { ...DEFAULT_READER_PREFERENCES.settings, ...patch },
+});
+
 const renderReader = () => render(
   <MemoryRouter initialEntries={["/read/42"]}>
     <Routes>
@@ -86,6 +91,46 @@ const page = (n) => screen.findByAltText(new RegExp(`page ${n} of Sandman`, "i")
 // Exactly "Go to page": the thumbnail strip's buttons are labelled "Go to page
 // 3" and a loose match would find them too.
 const pageBox = () => screen.getByLabelText("Go to page");
+
+
+/**
+ * A touchscreen, as far as the reader can tell: a coarse pointer, no hover, and
+ * a viewport of the shape being tested. jsdom lays nothing out, so the page
+ * surface is given a width by hand — tap zones are fractions of it.
+ */
+function useScreen({ width, height, coarsePointer = true, touchCapable = coarsePointer }) {
+  window.innerWidth = width;
+  window.innerHeight = height;
+  window.matchMedia = (query) => ({
+    matches: query === "(pointer: coarse)"
+      ? coarsePointer
+      : query === "(any-pointer: coarse)" ? touchCapable : !coarsePointer,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  });
+}
+
+const surface = () => document.querySelector("[data-page-fit]");
+
+function measuredSurface(width = 400) {
+  const element = surface();
+  Object.defineProperty(element, "clientWidth", { value: width, configurable: true });
+  return element;
+}
+
+function touch(type, { id = 1, x = 0, y = 0, time = 0 } = {}) {
+  const event = new Event(type, { bubbles: true });
+  Object.assign(event, { pointerId: id, clientX: x, clientY: y, pointerType: "touch" });
+  Object.defineProperty(event, "timeStamp", { value: time });
+  return event;
+}
+
+const gesture = (element, ...events) => act(() => {
+  events.forEach((event) => element.dispatchEvent(event));
+});
+
+const pageControls = () => screen.getByRole("group", { name: "Reader page controls" });
 
 describe("ComicReader", () => {
   beforeEach(() => {
@@ -109,6 +154,7 @@ describe("ComicReader", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete window.matchMedia;
   });
 
   describe("what the cache entry for a page decides", () => {
@@ -418,6 +464,182 @@ describe("ComicReader", () => {
 
       expect(await page(1)).toBeInTheDocument();
     });
+
+    it("upgrades only the visible artwork when zooming", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      await waitFor(() => expect(pageRequests().some((src) => src.includes("reader-large"))).toBe(true));
+
+      const upgradedPages = pageRequests()
+        .filter((src) => src.includes("reader-large"))
+        .map((src) => src.match(/\/pages\/(\d+)/)?.[1]);
+      expect(new Set(upgradedPages)).toEqual(new Set(["1"]));
+    });
+  });
+
+  describe("facing pages and reading direction", () => {
+    beforeEach(() => useScreen({ width: 1180, height: 820 }));
+
+    it("keeps the cover alone, then advances by a real two-page spread", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "double" }) } : comic(5)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+
+      expect(await page(2)).toBeInTheDocument();
+      expect(await page(3)).toBeInTheDocument();
+      expect(screen.getByText("Showing pages 2–3")).toBeInTheDocument();
+      expect(screen.getByRole("progressbar")).toHaveAccessibleName("Pages 2–3 of 5");
+    });
+
+    it("restores the second logical page of a pair without moving progress", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? { preferences: savedPreferences({ mode: "double" }) }
+          : { comic: { ...comic(5).comic, readingProgress: { currentPage: 3, revision: 4 } } }
+      ));
+      renderReader();
+
+      expect(await page(2)).toBeInTheDocument();
+      expect(await page(3)).toBeInTheDocument();
+      expect(pageBox()).toHaveValue(3);
+      await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+        "/api/comics/42/progress",
+        expect.objectContaining({ currentPage: 3 }),
+        expect.anything()
+      ));
+    });
+
+    it("reverses visual placement for RTL without changing source page numbers", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? { preferences: savedPreferences({ mode: "double", direction: "rtl" }) }
+          : comic(5)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+      await page(3);
+
+      const displayed = [...surface().querySelectorAll("img")].map((image) => image.alt);
+      expect(displayed).toEqual(["Page 3 of Sandman", "Page 2 of Sandman"]);
+      expect(pageBox()).toHaveValue(2);
+    });
+
+    it("shows a failed side inline without hiding the readable side", async () => {
+      FakeImage.failing("/pages/3");
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "double" }) } : comic(5)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+
+      expect(await page(2)).toBeInTheDocument();
+      expect(await screen.findByText(/error loading page 3/i)).toBeInTheDocument();
+    });
+
+    it("leaves detected wide scans alone and resumes pairing afterwards", async () => {
+      vi.mocked(api.get).mockImplementation((path) => {
+        if (path === "/api/reader/preferences") return Promise.resolve({ preferences: savedPreferences({ mode: "double" }) });
+        if (path.includes("/pages?")) return Promise.resolve({
+          complete: true,
+          pages: Array.from({ length: 5 }, (_, index) => ({
+            page: index + 1,
+            width: index === 1 ? 1800 : 800,
+            height: 1200,
+            aspectRatio: index === 1 ? 1.5 : 2 / 3,
+          })),
+        });
+        return Promise.resolve(comic(5));
+      });
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics/42/pages?from=1"));
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+
+      expect(await page(2)).toBeInTheDocument();
+      expect(screen.queryByAltText(/page 3/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("continuous reading", () => {
+    beforeEach(() => useScreen({ width: 390, height: 844 }));
+
+    it("loads only pages near the viewport and keeps far-page geometry stable", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "continuous" }) } : comic(40)
+      ));
+      renderReader();
+      await screen.findByAltText(/page 1 of Sandman/i);
+
+      const reader = document.querySelector("[data-reader-mode='continuous']");
+      expect(reader.querySelectorAll("img").length).toBeLessThanOrEqual(3);
+      expect(reader.querySelector("[data-continuous-page='39'] img")).toBeNull();
+      expect(reader.querySelector("[data-continuous-page='39']")).toHaveTextContent("Page 40");
+    });
+
+    it("jumps to a logical page without enabling paged swipe navigation", async () => {
+      const scrollIntoView = vi.fn();
+      HTMLElement.prototype.scrollIntoView = scrollIntoView;
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "continuous" }) } : comic(12)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await screen.findByAltText(/page 1 of Sandman/i);
+
+      await user.clear(pageBox());
+      await user.type(pageBox(), "8");
+      await user.tab();
+      await waitFor(() => expect(pageBox()).toHaveValue(8));
+      expect(await screen.findByAltText(/page 8 of Sandman/i)).toBeInTheDocument();
+      expect(scrollIntoView).toHaveBeenCalled();
+
+      const reader = document.querySelector("[data-reader-mode='continuous']");
+      gesture(reader,
+        touch("pointerdown", { x: 320, y: 400, time: 0 }),
+        touch("pointermove", { x: 200, y: 402, time: 40 }),
+        touch("pointerup", { x: 80, y: 404, time: 90 }));
+      expect(pageBox()).toHaveValue(8);
+    });
+  });
+
+  describe("slow requested pages", () => {
+    it("keeps the previous artwork visible while the next page is arriving", async () => {
+      FakeImage.policy = (src) => src.includes("/pages/1") ? "load" : "hold";
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+
+      await screen.findByText("Loading page 2…");
+      expect(surface().querySelector("img").src).toContain("/pages/1");
+      expect(pageBox()).toHaveValue(2);
+    });
+
+    it("stops showing stale artwork once the requested page has failed", async () => {
+      FakeImage.policy = (src) => src.includes("/pages/1") ? "load" : "error";
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+
+      expect(await screen.findByText(/error loading page 2/i)).toBeInTheDocument();
+      expect(surface().querySelector("img")).toBeNull();
+    });
   });
 
   describe("the thumbnail navigator", () => {
@@ -465,6 +687,359 @@ describe("ComicReader", () => {
       renderReader();
 
       expect(await page(1)).toBeInTheDocument();
+    });
+  });
+
+
+  describe("reading with a finger", () => {
+    beforeEach(() => useScreen({ width: 390, height: 844 }));
+
+    it("turns the page on a swipe", async () => {
+      renderReader();
+      await page(1);
+      const surfaceElement = measuredSurface();
+
+      gesture(surfaceElement,
+        touch("pointerdown", { x: 320, y: 400, time: 0 }),
+        touch("pointermove", { x: 240, y: 402, time: 40 }),
+        touch("pointerup", { x: 160, y: 404, time: 90 }));
+
+      expect(await page(2)).toBeInTheDocument();
+    });
+
+    it("goes back when the swipe goes the other way", async () => {
+      renderReader();
+      await page(1);
+      const surfaceElement = measuredSurface();
+
+      gesture(surfaceElement,
+        touch("pointerdown", { x: 300, y: 400, time: 0 }),
+        touch("pointermove", { x: 200, y: 402, time: 40 }),
+        touch("pointerup", { x: 80, y: 404, time: 90 }));
+      await page(2);
+
+      gesture(surfaceElement,
+        touch("pointerdown", { x: 80, y: 400, time: 200 }),
+        touch("pointermove", { x: 200, y: 402, time: 240 }),
+        touch("pointerup", { x: 300, y: 404, time: 290 }));
+
+      expect(await page(1)).toBeInTheDocument();
+    });
+
+    it("pans a zoomed page instead of turning it", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      const surfaceElement = measuredSurface();
+
+      gesture(surfaceElement,
+        touch("pointerdown", { x: 320, y: 400, time: 0 }),
+        touch("pointermove", { x: 240, y: 402, time: 40 }),
+        touch("pointerup", { x: 160, y: 404, time: 90 }));
+
+      expect(await page(1)).toBeInTheDocument();
+      expect(pageBox()).toHaveValue(1);
+    });
+
+    it("never changes page from an edge tap while zoomed", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      const surfaceElement = measuredSurface();
+
+      gesture(surfaceElement,
+        touch("pointerdown", { x: 380, y: 400, time: 0 }),
+        touch("pointerup", { x: 380, y: 400, time: 40 }));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 350)));
+
+      expect(pageBox()).toHaveValue(1);
+      expect(await page(1)).toBeInTheDocument();
+    });
+
+    it("reverses physical tap navigation in right-to-left mode", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: savedPreferences({ direction: "rtl" }) } : comic()
+      ));
+      renderReader();
+      await page(1);
+      const surfaceElement = measuredSurface();
+
+      gesture(surfaceElement,
+        touch("pointerdown", { x: 10, y: 400, time: 0 }),
+        touch("pointerup", { x: 10, y: 400, time: 40 }));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 350)));
+
+      expect(await page(2)).toBeInTheDocument();
+    });
+
+    it("turns the page from the tap zone at the edge", async () => {
+      renderReader();
+      await page(1);
+      const surfaceElement = measuredSurface();
+
+      gesture(surfaceElement,
+        touch("pointerdown", { x: 380, y: 400, time: 0 }),
+        touch("pointerup", { x: 380, y: 400, time: 40 }));
+      // The tap is held back until it is clear that no second tap is coming.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 350)));
+
+      expect(await page(2)).toBeInTheDocument();
+    });
+
+    it("gives the screen to the artwork when the middle is tapped", async () => {
+      renderReader();
+      await page(1);
+      const surfaceElement = measuredSurface();
+      expect(pageControls()).not.toHaveClass("reader-chrome-hidden");
+
+      gesture(surfaceElement,
+        touch("pointerdown", { x: 200, y: 400, time: 0 }),
+        touch("pointerup", { x: 200, y: 400, time: 40 }));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 350)));
+
+      expect(pageControls()).toHaveClass("reader-chrome-hidden");
+    });
+
+    it("releases a pointer-focused control when the reader returns to the artwork", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      const zoom = screen.getByRole("button", { name: /zoom in/i });
+      await user.click(zoom);
+      expect(zoom).toHaveFocus();
+
+      const surfaceElement = measuredSurface();
+      gesture(surfaceElement, touch("pointerdown", { x: 200, y: 400, time: 0 }));
+
+      expect(zoom).not.toHaveFocus();
+      gesture(surfaceElement, touch("pointercancel", { x: 200, y: 400, time: 10 }));
+    });
+
+    it("does not offer a click zone as well, which would turn two pages at once", async () => {
+      renderReader();
+      await page(1);
+
+      expect(document.querySelectorAll(".page-navigation")).toHaveLength(0);
+    });
+  });
+
+  describe("turning the device", () => {
+    it("keeps the page that was being read", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+      await page(2);
+
+      useScreen({ width: 844, height: 390 });
+      act(() => { window.dispatchEvent(new Event("resize")); });
+
+      expect(await page(2)).toBeInTheDocument();
+      expect(pageBox()).toHaveValue(2);
+    });
+  });
+
+  describe("hybrid input", () => {
+    it("keeps touch gestures and comfortable controls when the primary pointer is a mouse", async () => {
+      useScreen({ width: 1280, height: 800, coarsePointer: false, touchCapable: true });
+      renderReader();
+      await page(1);
+
+      expect(document.querySelector(".reader-root")).toHaveAttribute("data-touch-capable", "true");
+      const surfaceElement = measuredSurface(1280);
+      gesture(surfaceElement,
+        touch("pointerdown", { x: 1100, y: 400, time: 0 }),
+        touch("pointermove", { x: 850, y: 402, time: 40 }),
+        touch("pointerup", { x: 600, y: 404, time: 90 }));
+
+      expect(await page(2)).toBeInTheDocument();
+    });
+  });
+
+  describe("turning the device, continued", () => {
+    it("drops a zoom that was framed against the viewport before the turn", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      expect(surface()).toHaveAttribute("data-page-zoomed", "true");
+
+      useScreen({ width: 844, height: 390 });
+      act(() => { window.dispatchEvent(new Event("resize")); });
+
+      expect(surface()).toHaveAttribute("data-page-zoomed", "false");
+    });
+  });
+
+  describe("suggesting a fit rather than imposing one", () => {
+    it("offers fit width on a phone held upright", async () => {
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+
+      expect(await screen.findByRole("status")).toHaveTextContent(/fit width/i);
+      expect(screen.getByRole("status")).toHaveTextContent(/this phone in portrait/i);
+    });
+
+    it("says nothing to a reader who has already chosen how pages are sized", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? {
+            preferences: {
+              ...DEFAULT_READER_PREFERENCES,
+              settings: { ...DEFAULT_READER_PREFERENCES.settings, fit: "original" },
+            },
+          }
+          : comic()
+      ));
+
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+      await waitFor(() => expect(surface()).toHaveAttribute("data-page-fit", "original"));
+
+      expect(screen.queryByRole("button", { name: /use it here/i })).not.toBeInTheDocument();
+    });
+
+    it("leaves a desktop alone, which is already reading the way it should", async () => {
+      useScreen({ width: 1440, height: 900, coarsePointer: false });
+      renderReader();
+      await page(1);
+
+      expect(screen.queryByRole("button", { name: /use it here/i })).not.toBeInTheDocument();
+    });
+
+    it("records an accepted suggestion against this screen, not against the account", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+      await screen.findByRole("button", { name: /use it here/i });
+
+      await user.click(screen.getByRole("button", { name: /use it here/i }));
+
+      await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+        "/api/reader/preferences",
+        expect.objectContaining({
+          preferences: expect.objectContaining({
+            // The account default is untouched: every other screen reads as before.
+            settings: expect.objectContaining({ fit: "contain" }),
+            overrides: [{ context: { device: "phone", orientation: "portrait" }, settings: { fit: "width" } }],
+          }),
+        }),
+        expect.anything()
+      ));
+    });
+
+    it("stops asking once it has been dismissed", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+      await screen.findByRole("button", { name: /dismiss suggestion/i });
+
+      await user.click(screen.getByRole("button", { name: /dismiss suggestion/i }));
+
+      expect(screen.queryByRole("button", { name: /use it here/i })).not.toBeInTheDocument();
+      await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+        "/api/reader/preferences",
+        expect.objectContaining({ preferences: expect.objectContaining({ dismissedSuggestions: ["fit:phone:portrait"] }) }),
+        expect.anything()
+      ));
+    });
+
+    it("offers two-page mode once on a tablet in landscape", async () => {
+      useScreen({ width: 1180, height: 820 });
+      renderReader();
+      await page(1);
+
+      expect(await screen.findByRole("button", { name: /use two pages/i })).toBeInTheDocument();
+    });
+
+    it("gets the mode suggestion out of the way while thumbnails are open", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 1180, height: 820 });
+      renderReader();
+      await page(1);
+      await screen.findByRole("button", { name: /use two pages/i });
+
+      await user.click(screen.getByRole("button", { name: /show page thumbnails/i }));
+
+      expect(screen.getByRole("group", { name: /page thumbnails/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /use two pages/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("fullscreen layout", () => {
+    it("keeps single-page artwork inside the same control-safe stage", async () => {
+      renderReader();
+      await page(1);
+      Object.defineProperty(document, "fullscreenElement", { configurable: true, value: document.documentElement });
+
+      act(() => document.dispatchEvent(new Event("fullscreenchange")));
+
+      expect(document.querySelector(".reader-root")).toHaveAttribute("data-fullscreen", "true");
+      expect(surface()).not.toHaveClass("fullscreen-container");
+      expect(surface().parentElement).toHaveClass("reader-stage-controls-visible");
+
+      Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
+      act(() => document.dispatchEvent(new Event("fullscreenchange")));
+    });
+  });
+
+  describe("handing a screen back to the account default", () => {
+    it("does not leave a zoom behind that was measured against the old fit", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+
+      await user.click(await screen.findByRole("button", { name: /use it here/i }));
+      await waitFor(() => expect(surface()).toHaveAttribute("data-page-fit", "width"));
+
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      expect(surface()).toHaveAttribute("data-page-zoomed", "true");
+
+      await user.click(screen.getByRole("button", { name: /reader settings/i }));
+      await user.click(await screen.findByRole("switch", { name: /different page size here/i }));
+
+      await waitFor(() => expect(surface()).toHaveAttribute("data-page-fit", "contain"));
+      expect(surface()).toHaveAttribute("data-page-zoomed", "false");
+    });
+  });
+
+  describe("how much it holds in memory", () => {
+    const cachedPages = () => new Set(FakeImage.instances
+      .map(({ src }) => src.match(/\/pages\/(\d+)/)?.[1])
+      .filter(Boolean));
+
+    it("reads further ahead on a desktop than on a phone", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: DEFAULT_READER_PREFERENCES } : comic(12)
+      ));
+
+      useScreen({ width: 1440, height: 900, coarsePointer: false });
+      renderReader();
+      await page(1);
+      await waitFor(() => expect(cachedPages().size).toBeGreaterThan(3));
+      const onDesktop = cachedPages().size;
+
+      cleanup();
+      FakeImage.reset();
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+      // Nothing more is coming once the window is full; give the queue a moment
+      // to prove it has stopped rather than racing it.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+
+      expect(cachedPages().size).toBeLessThan(onDesktop);
     });
   });
 
