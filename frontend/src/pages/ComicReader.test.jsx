@@ -79,6 +79,15 @@ const savedPreferences = (patch) => ({
   settings: { ...DEFAULT_READER_PREFERENCES.settings, ...patch },
 });
 
+/**
+ * An account that has chosen paged reading.
+ *
+ * The shipped default is continuous scroll, so most of this file has to ask for
+ * pages rather than assume them — a test about page turns that silently stopped
+ * rendering a paged reader would pass for the wrong reason.
+ */
+const PAGED_PREFERENCES = savedPreferences({ mode: "single" });
+
 const renderReader = () => render(
   <MemoryRouter initialEntries={["/read/42"]}>
     <Routes>
@@ -141,7 +150,7 @@ describe("ComicReader", () => {
     vi.mocked(api.get).mockReset();
     vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
       path === "/api/reader/preferences"
-        ? { preferences: DEFAULT_READER_PREFERENCES }
+        ? { preferences: PAGED_PREFERENCES }
         : comic()
     ));
     vi.mocked(api.post).mockResolvedValue({ progress: { currentPage: 1, revision: 1 } });
@@ -288,7 +297,7 @@ describe("ComicReader", () => {
     it("restores and saves the underlying comic page number", async () => {
       vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
         path === "/api/reader/preferences"
-          ? { preferences: DEFAULT_READER_PREFERENCES }
+          ? { preferences: PAGED_PREFERENCES }
           : { comic: { ...comic().comic, readingProgress: { currentPage: 2, revision: 7 } } }
       ));
 
@@ -305,10 +314,7 @@ describe("ComicReader", () => {
 
   describe("reader settings", () => {
     it("loads a saved fit without reloading comic metadata", async () => {
-      const saved = {
-        ...DEFAULT_READER_PREFERENCES,
-        settings: { ...DEFAULT_READER_PREFERENCES.settings, fit: "width" },
-      };
+      const saved = savedPreferences({ mode: "single", fit: "width" });
       vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
         path === "/api/reader/preferences" ? { preferences: saved } : comic()
       ));
@@ -342,7 +348,9 @@ describe("ComicReader", () => {
         "/api/reader/preferences",
         { keepalive: true }
       ));
-      expect(container.querySelector("[data-page-fit]")).toHaveAttribute("data-page-fit", "contain");
+      // Reset means the shipped defaults, which read continuously — so the
+      // paged surface the fit was chosen on goes back with the fit.
+      await waitFor(() => expect(container.querySelector("[data-reader-mode='continuous']")).toBeInTheDocument());
     });
 
     it("falls back safely when saved settings are stale", async () => {
@@ -355,7 +363,22 @@ describe("ComicReader", () => {
       const { container } = renderReader();
       await page(1);
 
-      expect(container.querySelector("[data-page-fit]")).toHaveAttribute("data-page-fit", "contain");
+      // A schema this build does not understand is discarded whole, so every
+      // setting comes from the defaults rather than the recognisable half of a
+      // stale envelope being kept.
+      expect(container.querySelector("[data-reader-mode='continuous']")).toBeInTheDocument();
+    });
+
+    it("reads continuously until an account says otherwise", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: DEFAULT_READER_PREFERENCES } : comic()
+      ));
+
+      const { container } = renderReader();
+
+      await screen.findByAltText(/page 1 of Sandman/i);
+      expect(container.querySelector("[data-reader-mode='continuous']")).toBeInTheDocument();
+      expect(container.querySelector("[data-page-fit]")).toBeNull();
     });
 
     it("can hide the progress indicator without affecting navigation", async () => {
@@ -393,10 +416,7 @@ describe("ComicReader", () => {
       expect(api.put).not.toHaveBeenCalled();
 
       resolvePreferences({
-        preferences: {
-          ...DEFAULT_READER_PREFERENCES,
-          settings: { ...DEFAULT_READER_PREFERENCES.settings, wakeLock: false },
-        },
+        preferences: savedPreferences({ mode: "single", wakeLock: false }),
       });
 
       await waitFor(() => expect(screen.getByRole("switch", { name: /keep screen awake/i })).toBeEnabled());
@@ -679,7 +699,7 @@ describe("ComicReader", () => {
 
     it("reads perfectly well when the server cannot say", async () => {
       vi.mocked(api.get).mockImplementation((path) => {
-        if (path === "/api/reader/preferences") return Promise.resolve({ preferences: DEFAULT_READER_PREFERENCES });
+        if (path === "/api/reader/preferences") return Promise.resolve({ preferences: PAGED_PREFERENCES });
         if (path.includes("/pages?")) return Promise.reject(new Error("no manifest here"));
         return Promise.resolve(comic());
       });
@@ -760,7 +780,7 @@ describe("ComicReader", () => {
 
     it("reverses physical tap navigation in right-to-left mode", async () => {
       vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
-        path === "/api/reader/preferences" ? { preferences: savedPreferences({ direction: "rtl" }) } : comic()
+        path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "single", direction: "rtl" }) } : comic()
       ));
       renderReader();
       await page(1);
@@ -890,12 +910,7 @@ describe("ComicReader", () => {
     it("says nothing to a reader who has already chosen how pages are sized", async () => {
       vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
         path === "/api/reader/preferences"
-          ? {
-            preferences: {
-              ...DEFAULT_READER_PREFERENCES,
-              settings: { ...DEFAULT_READER_PREFERENCES.settings, fit: "original" },
-            },
-          }
+          ? { preferences: savedPreferences({ mode: "single", fit: "original" }) }
           : comic()
       ));
 
@@ -1021,7 +1036,7 @@ describe("ComicReader", () => {
 
     it("reads further ahead on a desktop than on a phone", async () => {
       vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
-        path === "/api/reader/preferences" ? { preferences: DEFAULT_READER_PREFERENCES } : comic(12)
+        path === "/api/reader/preferences" ? { preferences: PAGED_PREFERENCES } : comic(12)
       ));
 
       useScreen({ width: 1440, height: 900, coarsePointer: false });

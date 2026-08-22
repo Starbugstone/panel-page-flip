@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createGestureState, reduceGesture, tapZone } from "./reader-gestures";
+import { createGestureState, mouseClickAction, reduceGesture, tapZone } from "./reader-gestures";
 
 const down = (x, y, time, id = 1) => ({ type: "pointerdown", id, x, y, time });
 const move = (x, y, time, id = 1) => ({ type: "pointermove", id, x, y, time });
@@ -200,5 +200,33 @@ describe("tap zones", () => {
 
   it("answers center rather than dividing by an unmeasured width", () => {
     expect(tapZone(0, 0)).toBe("center");
+  });
+});
+
+describe("what a mouse click means", () => {
+  const wide = { width: 400 };
+
+  it("turns the page from the mat on either side of it", () => {
+    expect(mouseClickAction({ ...wide, x: 20 })).toBe("left");
+    expect(mouseClickAction({ ...wide, x: 390 })).toBe("right");
+  });
+
+  /**
+   * The whole point of the change: a reader following a panel with the cursor
+   * clicks where they are looking, and on a page that also turned pages every
+   * one of those clicks lost their place.
+   */
+  it("never turns the page from the artwork itself", () => {
+    expect(mouseClickAction({ ...wide, x: 20, onArtwork: true })).toBe("chrome");
+    expect(mouseClickAction({ ...wide, x: 390, onArtwork: true })).toBe("chrome");
+  });
+
+  it("gives the middle of the mat to the controls", () => {
+    expect(mouseClickAction({ ...wide, x: 200 })).toBe("chrome");
+  });
+
+  it("offers a zoomed page its way back out, wherever the click landed", () => {
+    expect(mouseClickAction({ ...wide, x: 20, zoomed: true })).toBe("zoomOut");
+    expect(mouseClickAction({ ...wide, x: 200, zoomed: true, onArtwork: true })).toBe("zoomOut");
   });
 });

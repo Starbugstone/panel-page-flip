@@ -34,7 +34,10 @@ const MAX_OVERRIDES = READER_DEVICES.length * READER_ORIENTATIONS.length;
 export const DEFAULT_READER_PREFERENCES = Object.freeze({
   schemaVersion: 1,
   settings: Object.freeze({
-    mode: "single",
+    // Continuous scroll, because it is the reading model every other thing on
+    // a phone already uses and the only one with no page-turn target to miss.
+    // Paged reading stays one setting away for anybody who prefers it.
+    mode: "continuous",
     direction: "ltr",
     fit: "contain",
     autoHideControls: true,
@@ -83,7 +86,7 @@ export function normalizeReaderPreferences(candidate) {
   return {
     schemaVersion: 1,
     settings: {
-      mode: MODE_VALUES.has(settings.mode) ? settings.mode : "single",
+      mode: MODE_VALUES.has(settings.mode) ? settings.mode : DEFAULT_READER_PREFERENCES.settings.mode,
       direction: DIRECTION_VALUES.has(settings.direction) ? settings.direction : "ltr",
       fit: FIT_VALUES.has(settings.fit) ? settings.fit : "contain",
       autoHideControls: typeof settings.autoHideControls === "boolean" ? settings.autoHideControls : true,

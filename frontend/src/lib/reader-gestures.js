@@ -268,3 +268,35 @@ export function tapZone(x, width, edgeFraction = 0.28) {
   if (ratio >= 1 - edgeFraction) return "right";
   return "center";
 }
+
+/**
+ * What a mouse click on the paged reader means.
+ *
+ * Page turns live on the mat around the artwork and never on the artwork
+ * itself. A mouse has a cursor, so a reader follows a panel with it and clicks
+ * where they are already looking — and on a page that was also a page-turn
+ * target, every one of those clicks lost their place. The letterbox is dead
+ * space by definition, which makes it the one region where a click cannot mean
+ * anything else.
+ *
+ * The page keeps the click that cannot lose anything: showing and hiding the
+ * chrome. Touch is unaffected and still uses the whole width — a phone fitted
+ * to width has no mat to aim at, and a thumb has no cursor to aim with.
+ *
+ * @param {object} click
+ * @param {number} click.x Pointer offset within the reader viewport.
+ * @param {number} click.width Reader viewport width.
+ * @param {boolean} click.onArtwork Whether the click landed on a page image.
+ * @param {boolean} click.zoomed Whether the page is currently zoomed in.
+ * @returns {"zoomOut"|"chrome"|"left"|"right"}
+ */
+export function mouseClickAction({ x, width, onArtwork = false, zoomed = false }) {
+  // A zoomed page is bigger than its window, so there is no mat and no zone to
+  // read. Clicking is the mouse's way back out.
+  if (zoomed) return "zoomOut";
+  if (onArtwork) return "chrome";
+
+  const zone = tapZone(x, width);
+
+  return zone === "center" ? "chrome" : zone;
+}

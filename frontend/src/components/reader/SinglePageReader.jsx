@@ -3,6 +3,7 @@ import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useReaderGestures } from "@/hooks/use-reader-gestures";
+import { useReaderMousePan } from "@/hooks/use-reader-mouse-pan";
 import { IDENTITY_TRANSFORM, isZoomed } from "@/lib/reader-zoom";
 
 const VIEWPORT_CLASSES = {
@@ -49,7 +50,7 @@ export function SinglePageReader({
   isSwiping = false,
   paged = true,
   gestures,
-  onImageClick,
+  onSurfaceClick,
   onRetry,
   isStale = false,
   children,
@@ -63,17 +64,25 @@ export function SinglePageReader({
   const lastPointerTypeRef = useRef("mouse");
 
   useReaderGestures(containerRef, { zoomed, paged, ...gestures });
+  const { cursorClass } = useReaderMousePan(containerRef, { enabled: zoomed, onPan: gestures?.onPan });
 
   return (
     <div
       ref={containerRef}
-      className={`relative max-h-full h-full w-full flex ${zoomed ? ZOOMED_CLASSES : VIEWPORT_CLASSES[safeFit]}`}
+      className={`relative max-h-full h-full w-full flex ${zoomed ? ZOOMED_CLASSES : VIEWPORT_CLASSES[safeFit]} ${cursorClass}`}
       data-page-fit={safeFit}
       data-page-zoomed={zoomed ? "true" : "false"}
       // A zoomed page is moved entirely by the gestures above; a fitted one
       // still scrolls the way every other page on the web does.
       style={{ touchAction: zoomed ? "none" : TOUCH_ACTION[safeFit] }}
       onPointerDownCapture={(event) => { lastPointerTypeRef.current = event.pointerType; }}
+      onClick={(event) => {
+        // Bound to the viewport rather than the artwork, so the mat around the
+        // page is clickable. What a click on the page itself may mean is the
+        // caller's decision, not this element's.
+        if (event.target.closest("button, a, input, select, textarea")) return;
+        if (lastPointerTypeRef.current === "mouse") onSurfaceClick?.(event);
+      }}
     >
       {image && (
         <img
@@ -81,6 +90,7 @@ export function SinglePageReader({
           src={image.src}
           alt={isStale ? "" : `Page ${pageNumber} of ${title || "Comic"}`}
           aria-hidden={isStale ? "true" : undefined}
+          data-reader-artwork="true"
           // A dragged image is the browser offering to copy a file, which under
           // a finger or a mouse is never what a page turn meant.
           draggable={false}
@@ -88,9 +98,6 @@ export function SinglePageReader({
           style={{
             transform: `translate3d(${transform.x + swipeOffset}px, ${transform.y}px, 0) scale(${transform.scale})`,
             transformOrigin: "center center",
-          }}
-          onClick={(event) => {
-            if (lastPointerTypeRef.current === "mouse") onImageClick?.(event);
           }}
         />
       )}
