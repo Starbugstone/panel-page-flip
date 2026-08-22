@@ -458,12 +458,12 @@ final class PdfPageProviderTest extends TestCase
     /** The estimate is what the gate is built on, so it is asserted directly. */
     public function testTheCostEstimateTracksFileSize(): void
     {
-        // The measurement this is derived from: 57.7 MB took 20.9 seconds.
+        // The measurement the default is derived from: 57.7 MB took 20.9s.
         self::assertEqualsWithDelta(
             20.9,
             PdfPageProvider::estimatedCheckSeconds((int) (57.7 * 1048576)),
             3.0,
-            'The modelled rate must stay close to the measured one.',
+            'The default rate must stay close to the measured one.',
         );
 
         self::assertSame(0.0, PdfPageProvider::estimatedCheckSeconds(0));
@@ -472,6 +472,46 @@ final class PdfPageProviderTest extends TestCase
             PdfPageProvider::estimatedCheckSeconds(10 * 1048576),
             PdfPageProvider::estimatedCheckSeconds(20 * 1048576),
         );
+    }
+
+    /**
+     * The rate is a property of the host, not of this application: a slower
+     * disk changes what the same budget can afford. The default was measured on
+     * a development container, so an operator has to be able to correct it.
+     */
+    public function testASlowerHostChecksSmallerDocumentsForTheSameBudget(): void
+    {
+        $budget = 8.0;
+        $twentyMegabytes = 20 * 1048576;
+
+        // At the measured rate, 20 MB is exactly affordable.
+        self::assertTrue(PdfPageProvider::isWorthChecking($twentyMegabytes, $budget, 0.4));
+
+        // On a host three times slower, the same budget must buy less.
+        self::assertFalse(PdfPageProvider::isWorthChecking($twentyMegabytes, $budget, 1.2));
+
+        // And on a faster one, more.
+        self::assertTrue(PdfPageProvider::isWorthChecking(60 * 1048576, $budget, 0.1));
+    }
+
+    /** A rate of zero is a misconfiguration, not a licence to check anything. */
+    public function testAZeroOrNegativeRateFallsBackToTheMeasuredOne(): void
+    {
+        $huge = 500 * 1048576;
+
+        self::assertFalse(PdfPageProvider::isWorthChecking($huge, 8.0, 0.0));
+        self::assertFalse(PdfPageProvider::isWorthChecking($huge, 8.0, -1.0));
+    }
+
+    /** What the operator-facing command prints, which is the ratio that matters. */
+    public function testTheReportedThresholdIsTheBudgetOverTheRate(): void
+    {
+        self::assertSame(20.0, PdfPageProvider::largestCheckedMegabytes(8.0, 0.4));
+        self::assertSame(200.0, PdfPageProvider::largestCheckedMegabytes(30.0, 0.15));
+
+        // Either setting at zero means nothing is checked.
+        self::assertSame(0.0, PdfPageProvider::largestCheckedMegabytes(0.0, 0.4));
+        self::assertSame(0.0, PdfPageProvider::largestCheckedMegabytes(8.0, 0.0));
     }
 
     /**

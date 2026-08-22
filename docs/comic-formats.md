@@ -39,9 +39,29 @@ Encrypted and password-protected PDFs are rejected either way, and are told apar
 
 That asymmetry matters because comic PDFs are large. A 120 MB manga volume needs roughly 45 seconds of that check and a 500 MB one nearly three minutes — all of it inside the request the uploader is waiting on, holding a PHP-FPM worker, to obtain a *second opinion* on a document the very next step proves servable by rendering a page of it.
 
-So the check runs only on documents it can finish. `PDF_STRUCTURE_CHECK_BUDGET_SECONDS` is a per-document time budget, 8 seconds by default, which at that rate admits documents up to roughly 20 MB — the single issues where a silent structural fault is most likely to go unnoticed. Anything larger skips the check deliberately and imports on the Poppler checks alone, which is exactly what a host without `qpdf` already does.
+So the check runs only on documents it can finish. Two settings decide which:
 
-Set it to `0` to turn the check off everywhere. That is a supported configuration rather than a degraded one; raise it if your host is fast and your library is mostly small documents.
+| Setting | Default | What it is |
+| --- | --- | --- |
+| `PDF_STRUCTURE_CHECK_BUDGET_SECONDS` | `8.0` | What the check may cost per document. `0` disables it. |
+| `PDF_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE` | `0.4` | What it costs per megabyte **on your host**. |
+
+Budget divided by rate is the largest document that gets checked — `8.0 / 0.4` is 20 MB by default, the single issues where a silent structural fault is most likely to go unnoticed. Anything larger skips the check deliberately and imports on the Poppler checks alone, which is exactly what a host without `qpdf` already does.
+
+**The rate is worth correcting.** It is a property of the hardware rather than of this application — a slower disk or a busier CPU changes it — and the default was measured on a development container, not on anybody's server. To measure your own, time the check on a large PDF:
+
+```bash
+time qpdf --check --no-warn /path/to/a-large-comic.pdf
+```
+
+Divide the seconds by the file's size in megabytes and set `PDF_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE` to the result. `php bin/console app:comic-formats:check` prints the threshold your current settings produce, so you can see what changed:
+
+```text
+PDF structural check / qpdf (optional): yes
+ Checks PDFs up to 20 MB (8.0s budget at 0.40s/MB); larger ones import on the Poppler checks alone.
+```
+
+Setting the budget to `0` turns the check off everywhere. That is a supported configuration rather than a degraded one; raise the budget if your host is fast and your library is mostly small documents.
 
 A check that does start and then runs out of time is **not** treated as a failed document. A second opinion that did not arrive is not a negative one, and the alternative — which this project shipped until it was measured — rejects precisely the large, legitimate files that are slowest to check.
 

@@ -50,8 +50,14 @@ final class PdfPageProvider implements ComicPageProviderInterface
      * So the check is gated on whether it can finish inside a fixed budget,
      * rather than being started on everything and abandoned partway. Being
      * abandoned costs the same as finishing and buys nothing.
+     *
+     * The rate is configurable because it is a property of the *host*, not of
+     * this application: a slower disk or a busier CPU changes it, and the
+     * default here was measured on a development container rather than on
+     * anybody's server. `app:comic-formats:check` reports what the rate implies
+     * so an operator can compare it against their own hardware.
      */
-    private const STRUCTURE_CHECK_SECONDS_PER_MEGABYTE = 0.4;
+    private const DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE = 0.4;
 
     /**
      * Eight seconds, which at the rate above admits documents up to ~20 MB.
@@ -105,6 +111,15 @@ final class PdfPageProvider implements ComicPageProviderInterface
          */
         #[Autowire('%pdf_structure_check_budget_seconds%')]
         private readonly float $structureCheckBudget = self::DEFAULT_STRUCTURE_CHECK_BUDGET,
+        /**
+         * What the check costs per megabyte on *this* host.
+         *
+         * Measured on a development container, so it is the number most worth
+         * correcting on real hardware: it is what converts the budget above
+         * into "documents up to N megabytes are checked".
+         */
+        #[Autowire('%pdf_structure_check_seconds_per_megabyte%')]
+        private readonly float $structureCheckRate = self::DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE,
         // A seam for the tests, which need a check that reliably runs out of
         // time without a pathological document to make it do so honestly.
         private readonly ?float $structureCheckTimeout = null,
@@ -349,7 +364,7 @@ final class PdfPageProvider implements ComicPageProviderInterface
         if ($qpdf === null) return;
 
         $bytes = (int) (@filesize($sourcePath) ?: 0);
-        if (!self::isWorthChecking($bytes, $this->structureCheckBudget)) {
+        if (!self::isWorthChecking($bytes, $this->structureCheckBudget, $this->structureCheckRate)) {
             // Deliberately not attempted, rather than started and abandoned.
             // A document this size cannot be checked inside the budget, and a
             // check that runs out of time has cost the same as one that
@@ -395,17 +410,36 @@ final class PdfPageProvider implements ComicPageProviderInterface
      * Public and static so the gate can be asserted directly; nothing about it
      * needs a document, a subprocess or a temporary file to be tested.
      */
-    public static function isWorthChecking(int $fileSizeBytes, float $budgetSeconds): bool
-    {
+    public static function isWorthChecking(
+        int $fileSizeBytes,
+        float $budgetSeconds,
+        float $secondsPerMegabyte = self::DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE,
+    ): bool {
         if ($budgetSeconds <= 0.0) return false;
 
-        return self::estimatedCheckSeconds($fileSizeBytes) <= $budgetSeconds;
+        // A rate of zero would claim every document is free to check, which is
+        // a misconfiguration rather than a licence to check a 500 MB file.
+        if ($secondsPerMegabyte <= 0.0) {
+            $secondsPerMegabyte = self::DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE;
+        }
+
+        return self::estimatedCheckSeconds($fileSizeBytes, $secondsPerMegabyte) <= $budgetSeconds;
     }
 
     /** What the check is expected to cost on a document of this size. */
-    public static function estimatedCheckSeconds(int $fileSizeBytes): float
+    public static function estimatedCheckSeconds(
+        int $fileSizeBytes,
+        float $secondsPerMegabyte = self::DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE,
+    ): float {
+        return max(0, $fileSizeBytes) / 1048576 * $secondsPerMegabyte;
+    }
+
+    /** The largest document this budget and rate admit, for operator-facing output. */
+    public static function largestCheckedMegabytes(float $budgetSeconds, float $secondsPerMegabyte): float
     {
-        return max(0, $fileSizeBytes) / 1048576 * self::STRUCTURE_CHECK_SECONDS_PER_MEGABYTE;
+        if ($budgetSeconds <= 0.0 || $secondsPerMegabyte <= 0.0) return 0.0;
+
+        return $budgetSeconds / $secondsPerMegabyte;
     }
 
     private function assertPdfSignature(string $sourcePath): void

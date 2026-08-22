@@ -42,6 +42,14 @@ parameters:
     # alone. See docs/comic-formats.md.
     pdf_structure_check_budget_seconds: '%env(float:default:pdf_structure_check_budget_default:PDF_STRUCTURE_CHECK_BUDGET_SECONDS)%'
     pdf_structure_check_budget_default: 8.0
+    # What that check costs per megabyte on this host. It is a property of the
+    # hardware rather than of the application — a slower disk or a busier CPU
+    # changes it — and the default was measured on a development container, so
+    # it is the number most worth correcting on a real server. Together with the
+    # budget above it decides the largest document that gets checked:
+    # budget / rate = megabytes. `app:comic-formats:check` reports that figure.
+    pdf_structure_check_seconds_per_megabyte: '%env(float:default:pdf_structure_check_rate_default:PDF_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE)%'
+    pdf_structure_check_rate_default: 0.4
     # The application is same-origin in production. One public URL drives
     # absolute email/OAuth links, CLI routing and generated SEO metadata.
     app_url: '%env(APP_URL)%'

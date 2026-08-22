@@ -3,6 +3,8 @@
 namespace App\Command;
 
 use App\ComicSource\ComicRuntimeProbe;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use App\ComicSource\PdfPageProvider;
 use App\Service\ComicFormatService;
 use App\Service\ComicPageDelivery;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -25,6 +27,10 @@ final class ComicFormatsCheckCommand extends Command
     public function __construct(
         private readonly ComicFormatService $formats,
         private readonly ComicPageDelivery $delivery,
+        #[Autowire('%pdf_structure_check_budget_seconds%')]
+        private readonly float $structureCheckBudget = 8.0,
+        #[Autowire('%pdf_structure_check_seconds_per_megabyte%')]
+        private readonly float $structureCheckRate = 0.4,
     ) {
         parent::__construct();
     }
@@ -83,6 +89,26 @@ final class ComicFormatsCheckCommand extends Command
             'PDF structural check / qpdf (optional): %s',
             $qpdfUsable ? '<info>yes</info>' : '<comment>no</comment>'
         ));
+
+        // The threshold rather than the two numbers behind it: "documents up to
+        // N MB are checked" is the thing an operator can compare against their
+        // own library, and the settings only matter through their ratio.
+        if ($qpdfUsable) {
+            $largest = PdfPageProvider::largestCheckedMegabytes(
+                $this->structureCheckBudget,
+                $this->structureCheckRate,
+            );
+
+            $io->writeln($largest <= 0.0
+                ? ' <comment>Disabled by configuration; PDFs import on the Poppler checks alone.</comment>'
+                : sprintf(
+                    ' Checks PDFs up to <info>%.0f MB</info> (%.1fs budget at %.2fs/MB); larger ones import on the Poppler checks alone.',
+                    $largest,
+                    $this->structureCheckBudget,
+                    $this->structureCheckRate,
+                ));
+            $io->writeln(' <comment>The rate is a property of this host. Time `qpdf --check` on a large PDF here and set PDF_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE if it differs.</comment>');
+        }
 
         // How pages leave the server is the same question for every comic,
         // independent of which formats are switched on, so it is reported even
