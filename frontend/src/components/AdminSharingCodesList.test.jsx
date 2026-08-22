@@ -62,6 +62,17 @@ describe("AdminSharingCodesList", () => {
     respondWith([liveCode]);
   });
 
+  it("renders the normal controls and empty state for a successful empty response", async () => {
+    respondWith([]);
+    renderList();
+
+    expect(screen.getByRole("heading", { name: "Sharing codes" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Search sharing codes by owner" })).toBeInTheDocument();
+    expect(await screen.findByText("No sharing codes match these filters.")).toBeInTheDocument();
+    expect(screen.getByText("No sharing codes")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 1")).toBeInTheDocument();
+  });
+
   it("identifies a code by its record, never by the code itself", async () => {
     renderList();
 
