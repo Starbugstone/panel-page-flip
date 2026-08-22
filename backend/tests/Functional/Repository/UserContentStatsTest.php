@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Tests\Functional\Repository;
 
-use App\Entity\Comic;
 use App\Entity\User;
 use App\Repository\ComicRepository;
 use App\Repository\UserRepository;
@@ -13,7 +12,6 @@ use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\TagFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
-use Doctrine\ORM\EntityManagerInterface;
 
 /**
  * The grouped totals behind the admin user table.
@@ -190,17 +188,11 @@ final class UserContentStatsTest extends AbstractApiTestCase
 
     private function comics(): ComicRepository
     {
-        /** @var ComicRepository $repository */
-        $repository = static::getContainer()->get(EntityManagerInterface::class)->getRepository(Comic::class);
-
-        return $repository;
+        return static::getContainer()->get(ComicRepository::class);
     }
 
     private function repository(): UserRepository
     {
-        /** @var UserRepository $repository */
-        $repository = static::getContainer()->get(EntityManagerInterface::class)->getRepository(User::class);
-
-        return $repository;
+        return static::getContainer()->get(UserRepository::class);
     }
 }
