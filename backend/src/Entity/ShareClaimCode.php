@@ -26,8 +26,11 @@ use Doctrine\ORM\Mapping as ORM;
  *
  * It is a capability, so it is treated like one:
  *
- * - **Only the hash is stored.** The plaintext exists once, in the message the
- *   owner sends, exactly like an invitation link
+ * - **Only the hash decides anything.** Redemption compares against the hash and
+ *   nothing else, so a code cannot be redeemed by reading it back out of the
+ *   database. A copy encrypted with `APP_DATA_KEY` is kept alongside for the
+ *   owner's own benefit — a code pasted into a chat and then lost would
+ *   otherwise force them to withdraw a live code and mint another
  * - **It expires**, after the operator's configured lifetime and seven days by
  *   default. A code pasted into a group chat is out of its owner's hands the
  *   moment it is sent; a bounded life is what stops it from still working
@@ -94,6 +97,23 @@ class ShareClaimCode
     private string $codeHash;
 
     /**
+     * The code itself, encrypted with `APP_DATA_KEY`.
+     *
+     * The hash above is still what redemption compares against — this is never
+     * consulted to decide whether a code is valid, so an unreadable or absent
+     * ciphertext cannot let anything in. It exists for one thing: the owner
+     * asking what they handed out, because a code pasted into a chat and then
+     * lost is otherwise unrecoverable and they have to withdraw a live code and
+     * mint another to get back to a sentence they can send.
+     *
+     * Nullable, because codes issued before this column existed genuinely have
+     * nothing to show, and because that is the honest representation of a code
+     * this instance cannot read back.
+     */
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $codeCipher = null;
+
+    /**
      * The comics on offer.
      *
      * Both sides of the join cascade, and only the join rows do. Deleting a
@@ -154,11 +174,13 @@ class ShareClaimCode
         string $codeHash,
         array $comics,
         int $maxUses,
-        \DateTimeImmutable $expiresAt
+        \DateTimeImmutable $expiresAt,
+        ?string $codeCipher = null
     ) {
         $this->owner = $owner;
         $this->type = $type;
         $this->codeHash = $codeHash;
+        $this->codeCipher = $codeCipher;
         $this->comics = new ArrayCollection($comics);
         $this->issuedComicCount = count($comics);
         $this->maxUses = $maxUses;
@@ -222,6 +244,24 @@ class ShareClaimCode
     public function getCodeHash(): string
     {
         return $this->codeHash;
+    }
+
+    /** The encrypted code, for the one service allowed to decrypt it. */
+    public function getCodeCipher(): ?string
+    {
+        return $this->codeCipher;
+    }
+
+    /**
+     * Whether there is a code to show at all.
+     *
+     * A dead code is deliberately still revealable: the owner looking at a
+     * withdrawn or expired entry is answering "which one was that?", and
+     * showing it hands over nothing — it cannot be redeemed.
+     */
+    public function isRevealable(): bool
+    {
+        return $this->codeCipher !== null;
     }
 
     /** @return Collection<int, Comic> */
@@ -410,6 +450,11 @@ class ShareClaimCode
             'isRedeemable' => $this->isRedeemable(),
             'deadReason' => $this->deadReason(),
             'deletableAfter' => $this->deletableAfter()->format('c'),
+            // Whether the owner may ask for the code back. Never the code
+            // itself: that is one request per code, rate limited and audited,
+            // so a page that merely lists what was handed out cannot leak every
+            // live capability on the account in one response.
+            'canReveal' => $this->isRevealable(),
         ];
     }
 
@@ -423,8 +468,9 @@ class ShareClaimCode
      * an abuse report is precisely the person who needs to know what was being
      * handed out.
      *
-     * Still never the code. Only its hash is stored, so there is nothing to
-     * show and nothing to recover.
+     * Still never the code, and no `canReveal` either. The stored ciphertext is
+     * the owner's own record of what they handed out; an administrator acting
+     * on a report needs to stop a code, which they can, not to hold one.
      *
      * @return array<string, mixed>
      */

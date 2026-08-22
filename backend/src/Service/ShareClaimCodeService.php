@@ -60,6 +60,7 @@ final class ShareClaimCodeService
         private readonly ExplicitContentPromoter $explicitContent,
         private readonly ShareContentCodeLifetime $lifetime,
         private readonly RateLimiterFactory $shareClaimCodeLimiter,
+        private readonly AppDataEncryptionService $encryption,
     ) {
     }
 
@@ -131,7 +132,7 @@ final class ShareClaimCodeService
         // nothing behind — not a code, and not a reclassification. Creating a
         // code sends no mail, which is why this is its own allowance rather
         // than the invitation limiter's.
-        $this->reserveIssueAllowance($owner);
+        $this->reserveCodeAllowance($owner, 'You have created too many sharing codes recently.');
 
         // After the allowance and before the code, flushed with it below, so a
         // code cannot come into existence carrying comics the reclassification
@@ -151,7 +152,11 @@ final class ShareClaimCodeService
             SharingCodeFormat::hash($type, $plaintext),
             $comics,
             $maxUses,
-            $this->lifetime->expiryFrom()
+            $this->lifetime->expiryFrom(),
+            // Stored beside the hash, never instead of it. Redemption still
+            // compares hashes, so this cannot widen what a code opens — it only
+            // lets the owner read back what they handed out.
+            $this->encryption->encrypt(SharingCodeFormat::forDisplay($type, $plaintext))
         );
 
         $this->entityManager->persist($code);
@@ -407,6 +412,64 @@ final class ShareClaimCodeService
     }
 
     /**
+     * Read a code back to the owner who issued it.
+     *
+     * One code per request and charged against the same allowance as issuing
+     * one, so an account cannot walk its own list and come away holding every
+     * live capability on it in a single response — and so a session somebody
+     * else has taken over cannot either.
+     *
+     * A dead code is still readable. The owner looking at a withdrawn or
+     * expired entry is asking "which one was that?", and answering hands over
+     * nothing that can be redeemed.
+     *
+     * @throws ShareException
+     */
+    public function reveal(int $codeId, User $owner): string
+    {
+        $code = $this->contentCodeRepository->find($codeId);
+
+        // Missing rather than forbidden, the same silence as revoke: an id that
+        // belongs to somebody else must not be distinguishable from one that
+        // belongs to nobody.
+        if ($code === null || $code->getOwner()?->getId() !== $owner->getId()) {
+            throw new ShareException('That sharing code was not found.', 404);
+        }
+
+        if (!$code->isRevealable()) {
+            throw new ShareException(
+                'This code was issued before codes could be shown again, so there is nothing to show. '
+                . 'Withdraw it and create a new one.',
+                409
+            );
+        }
+
+        $this->reserveCodeAllowance($owner, 'You have looked up too many sharing codes recently.');
+
+        try {
+            $plaintext = $this->encryption->decrypt($code->getCodeCipher());
+        } catch (\RuntimeException) {
+            // A key that has been rotated without a re-encrypt pass. The code
+            // still works for anybody holding it, so this is a display failure
+            // and has to read as one rather than as a broken code.
+            throw new ShareException('This code cannot be read back on this installation.', 409);
+        }
+
+        if (!is_string($plaintext) || $plaintext === '') {
+            throw new ShareException('This code cannot be read back on this installation.', 409);
+        }
+
+        $this->auditLogger->audit(SecurityAuditLogger::SHARE_CLAIM_CODE_REVEALED, [
+            'actor_user_id' => $owner->getId(),
+            'target_type' => 'share_content_code',
+            'target_id' => $code->getId(),
+            'code_type' => $code->getType()->value,
+        ]);
+
+        return $plaintext;
+    }
+
+    /**
      * Withdraw a code. The shares it already produced are untouched — they are
      * ordinary relationships now, revoked from the Sharing page like any other.
      *
@@ -477,7 +540,14 @@ final class ShareClaimCodeService
     /**
      * @throws ShareException
      */
-    private function reserveIssueAllowance(User $owner): void
+    /**
+     * Spend one of this owner's code allowances.
+     *
+     * Issuing and revealing share it, because they hand over the same thing:
+     * one usable code. The message is the caller's, since "too many created"
+     * and "too many shown" are different things to be told to stop doing.
+     */
+    private function reserveCodeAllowance(User $owner, string $message): void
     {
         $limit = $this->shareClaimCodeLimiter->create((string) $owner->getId())->consume();
 
@@ -485,7 +555,7 @@ final class ShareClaimCodeService
             return;
         }
 
-        throw ShareException::rateLimited('You have created too many sharing codes recently.', $limit);
+        throw ShareException::rateLimited($message, $limit);
     }
 
     /**

@@ -938,6 +938,10 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         $this->browser()->request('POST', '/api/shares/content-codes/redeem', [], [], $accept, '{"code":"C-AAAA-AAAA-AAAA"}');
         self::assertResponseStatusCodeSame(401);
 
+        // Refused before the id is looked up, so this needs no code to exist.
+        $this->browser()->request('GET', '/api/shares/content-codes/1/reveal', [], [], $accept);
+        self::assertResponseStatusCodeSame(401);
+
         $this->browser()->request('POST', '/api/users/resolve-username', [], [], $accept, '{"username":"SomeoneElse"}');
         self::assertResponseStatusCodeSame(401);
     }

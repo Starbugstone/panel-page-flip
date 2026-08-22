@@ -69,3 +69,39 @@ reach a comic the viewer cannot currently access.
 - `tests/Functional/Security/AdminSurfaceIsClosedTest.php` derives the
   administrative routes from the router and asserts each one refuses an
   ordinary account.
+
+## Reading a sharing code back
+
+A `C-` or `G-` code is compared by hash and nothing else, so a code cannot be
+redeemed by reading it out of the database. Alongside that hash the code is also
+kept encrypted with `APP_DATA_KEY` — the same key that protects Dropbox tokens,
+see [the application data key](application-data-key.md) — so its owner can ask
+for it again.
+
+That exists for one case: a code pasted into a conversation and then lost. The
+alternative was withdrawing a live code and minting another, which breaks it for
+everybody who already had it.
+
+The rules around it:
+
+- **Only the owner.** `GET /api/shares/content-codes/{id}/reveal` answers for
+  the account that issued the code and reports somebody else's as missing rather
+  than forbidden. An administrator cannot read a code; support acting on a
+  report needs to *stop* one, which they can.
+- **One code per request, and charged for.** Revealing spends the same allowance
+  as issuing, so an account cannot walk its own list and come away holding every
+  live capability on it in a single response — and neither can a session
+  somebody else has taken over.
+- **Listing never reveals.** `GET /api/shares/content-codes` carries a
+  `canReveal` boolean and never a code.
+- **Dead codes are still readable.** "Which one was that?" is a question about a
+  withdrawn or expired code as much as a live one, and answering it hands over
+  nothing redeemable.
+- **Every reveal is audited** as `SHARE_CLAIM_CODE_REVEALED` — identifiers only,
+  never the code. That is the question worth answering after an account is taken
+  over: which capabilities did the intruder walk away holding?
+
+Codes issued before this column existed have nothing stored. `canReveal` is
+false for them and the endpoint says so rather than returning an empty string.
+A key rotated without a re-encrypt pass reads the same way: the code still works
+for anybody holding it, so it is a display failure and says so.

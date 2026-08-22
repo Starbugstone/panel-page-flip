@@ -649,4 +649,153 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         $this->getJson('/api/comics/' . $ordinary->getId());
         self::assertResponseIsSuccessful();
     }
+
+    /* ---------------------------------------------------------------------- */
+    /* Reading a code back                                                     */
+    /* ---------------------------------------------------------------------- */
+
+    /**
+     * The point of storing a code encrypted: an owner who has lost the message
+     * they sent it in can read it back rather than having to withdraw a live
+     * code and mint another.
+     */
+    public function testAnOwnerCanReadTheirOwnCodeBack(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'reveal-mine@example.com']);
+        $ids = $this->ownedComicIds($owner, 1);
+
+        $created = $this->postJson('/api/shares/comic-codes', [
+            'comicIds' => $ids,
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ]);
+        self::assertResponseStatusCodeSame(201);
+
+        $codeId = $created['contentCode']['id'];
+        $revealed = $this->getJson(sprintf('/api/shares/content-codes/%d/reveal', $codeId));
+
+        self::assertResponseIsSuccessful();
+        self::assertSame($created['code'], $revealed['code']);
+    }
+
+    /** The list says a code can be read back; it never carries the code itself. */
+    public function testTheListSaysACodeIsRevealableWithoutRevealingIt(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'reveal-flag@example.com']);
+        $ids = $this->ownedComicIds($owner, 1);
+
+        $created = $this->postJson('/api/shares/comic-codes', [
+            'comicIds' => $ids,
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        $listed = $this->getJson('/api/shares/content-codes')['codes'][0];
+
+        self::assertTrue($listed['canReveal']);
+        self::assertArrayNotHasKey('code', $listed);
+        self::assertStringNotContainsString(
+            $created['code'],
+            json_encode($listed, JSON_THROW_ON_ERROR),
+        );
+    }
+
+    /**
+     * Somebody else's code is missing, not forbidden — the same silence
+     * withdrawing one applies, so an id cannot be used to learn whose it is.
+     */
+    public function testSomebodyElsesCodeCannotBeRead(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'reveal-owner@example.com']);
+        $ids = $this->ownedComicIds($owner, 1);
+        $created = $this->postJson('/api/shares/comic-codes', [
+            'comicIds' => $ids,
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ]);
+        $codeId = $created['contentCode']['id'];
+
+        $this->createAndLoginUser(['email' => 'reveal-stranger@example.com']);
+        $this->getJson(sprintf('/api/shares/content-codes/%d/reveal', $codeId));
+
+        self::assertResponseStatusCodeSame(404);
+    }
+
+    /**
+     * A code issued before this column existed genuinely has nothing to show.
+     * Saying so, and what to do instead, beats an empty string.
+     */
+    public function testACodeWithNothingStoredSaysSoRatherThanShowingNothing(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'reveal-legacy@example.com']);
+        $ids = $this->ownedComicIds($owner, 1);
+        $created = $this->postJson('/api/shares/comic-codes', [
+            'comicIds' => $ids,
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ]);
+        $codeId = (int) $created['contentCode']['id'];
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->getConnection()->executeStatement(
+            'UPDATE share_claim_code SET code_cipher = NULL WHERE id = :id',
+            ['id' => $codeId],
+        );
+        $entityManager->clear();
+
+        self::assertFalse($this->getJson('/api/shares/content-codes')['codes'][0]['canReveal']);
+
+        $payload = $this->getJson(sprintf('/api/shares/content-codes/%d/reveal', $codeId));
+
+        self::assertResponseStatusCodeSame(409);
+        self::assertStringContainsString('nothing to show', $payload['message']);
+    }
+
+    /**
+     * A withdrawn code is still readable. "Which one was that?" is a question
+     * about a dead code as much as a live one, and answering it hands over
+     * nothing that can be redeemed.
+     */
+    public function testAWithdrawnCodeCanStillBeRead(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'reveal-withdrawn@example.com']);
+        $ids = $this->ownedComicIds($owner, 1);
+        $created = $this->postJson('/api/shares/comic-codes', [
+            'comicIds' => $ids,
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ]);
+        $codeId = (int) $created['contentCode']['id'];
+
+        $this->deleteJson(sprintf('/api/shares/content-codes/%d', $codeId));
+        self::assertResponseIsSuccessful();
+
+        $revealed = $this->getJson(sprintf('/api/shares/content-codes/%d/reveal', $codeId));
+
+        self::assertResponseIsSuccessful();
+        self::assertSame($created['code'], $revealed['code']);
+    }
+
+    /** Nothing readable is written to the database in the clear. */
+    public function testTheStoredCodeIsNotReadableWithoutTheKey(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'reveal-at-rest@example.com']);
+        $ids = $this->ownedComicIds($owner, 1);
+        $created = $this->postJson('/api/shares/comic-codes', [
+            'comicIds' => $ids,
+            'maxUses' => 1,
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        $stored = static::getContainer()->get(EntityManagerInterface::class)
+            ->getConnection()
+            ->fetchOne(
+                'SELECT code_cipher FROM share_claim_code WHERE id = :id',
+                ['id' => (int) $created['contentCode']['id']],
+            );
+
+        self::assertIsString($stored);
+        self::assertStringStartsWith('enc:v1:', $stored);
+        self::assertStringNotContainsString($created['code'], $stored);
+    }
 }
