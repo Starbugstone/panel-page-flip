@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
+  AlertTriangle,
   Search,
   UserPlus,
   UserRoundCog,
@@ -37,6 +38,7 @@ import { useAuth } from "@/hooks/use-auth"; // Import useAuth hook
 import { useToast } from "@/hooks/use-toast";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminPagination } from "@/components/AdminPagination";
+import { AdminWarnDialog } from "@/components/AdminWarnDialog";
 import { UserStorageUsage } from "@/components/UserStorageUsage";
 import { api } from "@/lib/api";
 import { validatePassword } from "@/lib/password-policy";
@@ -48,6 +50,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
   const [editingUser, setEditingUser] = useState(null);
   const [editFormData, setEditFormData] = useState({ name: '', email: '', password: '', roles: [] });
   const [confirmAction, setConfirmAction] = useState(null);
+  const [warningTarget, setWarningTarget] = useState(null);
   const { user: currentUser } = useAuth(); // Get the currently logged-in user
 
   // State for Add User Dialog
@@ -324,6 +327,15 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                           onClick={() => handleEditUser(user)}
                         >
                           <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Warn ${user.name || user.email}`}
+                          title="Warn user"
+                          onClick={() => setWarningTarget(user)}
+                        >
+                          <AlertTriangle className="h-4 w-4" />
                         </Button>
                         {/* Replaces the cog that used to promote a user to
                             administrator on a single click. Role changes are
@@ -602,6 +614,13 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AdminWarnDialog
+        target={warningTarget ? { userId: warningTarget.id } : null}
+        subjectLabel={warningTarget ? (warningTarget.name || warningTarget.email) : undefined}
+        recipientLabel={warningTarget ? (warningTarget.name || warningTarget.email) : undefined}
+        onClose={() => setWarningTarget(null)}
+      />
     </div>
   );
 }

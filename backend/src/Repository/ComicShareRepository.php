@@ -5,6 +5,8 @@ namespace App\Repository;
 use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\User;
+use App\Service\Pagination\PaginatedResult;
+use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -18,6 +20,21 @@ use Doctrine\Persistence\ManagerRegistry;
  */
 class ComicShareRepository extends ServiceEntityRepository
 {
+    /** Query alias => DQL expression, for the admin table's sort control. */
+    public const ADMIN_SORT_FIELDS = [
+        'createdAt' => 's.createdAt',
+        'status' => 's.status',
+        'comicTitle' => 'c.title',
+    ];
+
+    /** The statuses the admin table may filter on. */
+    public const ADMIN_STATUSES = [
+        ComicShare::STATUS_PENDING,
+        ComicShare::STATUS_ACCEPTED,
+        ComicShare::STATUS_DECLINED,
+        ComicShare::STATUS_REVOKED,
+    ];
+
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, ComicShare::class);
@@ -410,5 +427,68 @@ class ComicShareRepository extends ServiceEntityRepository
             ->andWhere('s.recipientUser = :user OR s.recipientEmailNormalized = :email')
             ->setParameter('user', $user)
             ->setParameter('email', ComicShare::normaliseEmail((string) $user->getEmail()));
+    }
+
+    /**
+     * One page of share grants for the administrative table.
+     *
+     * A grant, not a code: a share made by emailed invitation has no code
+     * behind it, and those are exactly the ones the sharing-codes table cannot
+     * see. Somebody acting on a report needs the relationship itself.
+     *
+     * @param array{status?: string|null, comicId?: int|null, ownerId?: int|null, explicitOnly?: bool} $filters
+     *
+     * @return PaginatedResult<ComicShare>
+     */
+    public function findAdminPage(PaginationRequest $request, array $filters = []): PaginatedResult
+    {
+        $qb = $this->createQueryBuilder('s')
+            ->leftJoin('s.comic', 'c')
+            ->leftJoin('s.owner', 'o')
+            ->leftJoin('s.recipientUser', 'r');
+
+        if (in_array($filters['status'] ?? null, self::ADMIN_STATUSES, true)) {
+            $qb->andWhere('s.status = :status')->setParameter('status', $filters['status']);
+        }
+
+        if (($filters['comicId'] ?? null) !== null) {
+            $qb->andWhere('s.comic = :comicId')->setParameter('comicId', $filters['comicId']);
+        }
+
+        if (($filters['ownerId'] ?? null) !== null) {
+            $qb->andWhere('s.owner = :ownerId')->setParameter('ownerId', $filters['ownerId']);
+        }
+
+        // The filter a report is usually about: what adult material is moving
+        // between accounts on this instance.
+        if (($filters['explicitOnly'] ?? false) === true) {
+            $qb->andWhere('c.explicitContent = true');
+        }
+
+        // The comic, whoever handed it over, and whoever holds it. The stored
+        // recipient address is included because a share to somebody with no
+        // account yet is only identifiable by it.
+        if ($pattern = $request->searchPattern()) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(c.title) LIKE :search',
+                'LOWER(o.name) LIKE :search',
+                'LOWER(o.email) LIKE :search',
+                'LOWER(r.name) LIKE :search',
+                'LOWER(r.email) LIKE :search',
+                'LOWER(s.recipientEmail) LIKE :search',
+            ))->setParameter('search', $pattern);
+        }
+
+        $total = (int) (clone $qb)->select('COUNT(s.id)')->getQuery()->getSingleScalarResult();
+
+        $shares = $qb
+            ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)
+            ->addOrderBy('s.id', 'DESC')
+            ->setFirstResult($request->offset())
+            ->setMaxResults($request->limit)
+            ->getQuery()
+            ->getResult();
+
+        return PaginatedResult::fromRequest($shares, $total, $request);
     }
 }

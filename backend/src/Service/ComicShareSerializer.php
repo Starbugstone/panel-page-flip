@@ -221,4 +221,58 @@ class ComicShareSerializer
             'contentQuarantined' => $comic?->isQuarantined() ?? false,
         ];
     }
+
+    /**
+     * What an administrator is shown about one share grant.
+     *
+     * Deliberately not the owner's view. The 18+ redaction that view applies is
+     * for a *recipient's* benefit, and an administrator checking whether adult
+     * material is moving between accounts is exactly the person who has to see
+     * the title and the flag. Both parties are named, because "who gave this to
+     * whom?" is the only question this table exists to answer.
+     *
+     * @return array<string, mixed>
+     */
+    public function toAdminPayload(ComicShare $share): array
+    {
+        $comic = $share->getComic();
+        $owner = $share->getOwner();
+        $recipient = $share->getRecipientUser();
+
+        return [
+            'id' => $share->getId(),
+            'status' => $share->getStatus(),
+            'createdAt' => $share->getCreatedAt()->format('c'),
+            'acceptedAt' => $share->getAcceptedAt()?->format('c'),
+            'revokedAt' => $share->getRevokedAt()?->format('c'),
+            'comic' => $comic === null ? null : [
+                'id' => $comic->getId(),
+                'title' => $comic->getTitle(),
+                'explicitContent' => $comic->isExplicitContent(),
+                'sharingRestricted' => $comic->isSharingRestricted(),
+                'quarantined' => $comic->isQuarantined(),
+            ],
+            'owner' => $owner === null ? null : [
+                'id' => $owner->getId(),
+                'name' => $owner->getName(),
+                'email' => $owner->getEmail(),
+            ],
+            // The account where there is one, and the address it was sent to
+            // otherwise — a share to somebody with no account yet is only
+            // identifiable by that address, and withholding it here would leave
+            // a row nobody could act on.
+            'recipient' => $recipient === null ? null : [
+                'id' => $recipient->getId(),
+                'name' => $recipient->getName(),
+                'email' => $recipient->getEmail(),
+                'username' => $recipient->getUsername(),
+            ],
+            'recipientEmail' => $share->getRecipientEmailNormalized(),
+            'canRevoke' => in_array(
+                $share->getStatus(),
+                [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED],
+                true
+            ),
+        ];
+    }
 }

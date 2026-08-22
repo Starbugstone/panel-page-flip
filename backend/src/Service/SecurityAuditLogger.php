@@ -100,6 +100,11 @@ class SecurityAuditLogger
     // back. That is the question worth answering after an account is taken
     // over: which capabilities did the intruder walk away holding?
     public const SHARE_CLAIM_CODE_REVEALED = 'audit.share.claim_code_revealed';
+    // Identifiers and shape only, never the message. The administrator's words
+    // to one person live in the row they were written into, which has its own
+    // retention and its own audience; the log records that a notice was sent.
+    public const USER_WARNING_ISSUED = 'audit.user.warning_issued';
+    public const COMIC_SHARE_ADMIN_REVOKED = 'audit.share.admin_revoked';
     public const INTEGRATION_DISCONNECTED = 'audit.integration.disconnected';
     public const STORAGE_ORPHAN_QUARANTINE = 'audit.storage.orphan_quarantine';
     public const RETENTION_CLEANUP = 'audit.retention.cleanup';

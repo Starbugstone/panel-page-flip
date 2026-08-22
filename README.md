@@ -17,7 +17,8 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Comic sharing that grants revocable read access without copying files, with a dedicated Sharing page and re-readable `C-`/`G-` codes — see [who may reach a comic](docs/comic-access.md)
 - One-way Dropbox imports with duplicate detection and folder-based tags
 - Responsive light and dark themes
-- Administration for users, comics, tags, Dropbox connections, cleanup, and audit history
+- Administration for users, comics, shares, tags, Dropbox connections, cleanup, and audit history
+- Administrator notices warning one account about their activity, a comic, or something they shared, shown on their next visit and optionally emailed — see [administrator notices](docs/administrator-notices.md)
 - Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
 
 ## Technology

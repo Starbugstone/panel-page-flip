@@ -205,6 +205,12 @@ parameters:
 			path: src/Entity/Comic.php
 
 		-
+			message: '#^Property App\\Entity\\UserWarning\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
+			identifier: property.unusedType
+			count: 1
+			path: src/Entity/UserWarning.php
+
+		-
 			message: '#^Property App\\Entity\\LibraryFolder\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
 			identifier: property.unusedType
 			count: 1

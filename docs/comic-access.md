@@ -20,6 +20,15 @@ has not been cleared for.
 Downloading the archive is owner-only and is not an administrator's to take.
 Moderating a library is not a reason to keep a copy of somebody's files.
 
+An administrator's `COMIC_VIEW` is what lets the **Comics** tab open any comic in
+the reader, so a report about a specific comic can be checked rather than acted
+on blind. The tab labels a comic marked 18+ beside its title for the same
+reason: whether a comic is classified correctly should not require opening the
+edit dialog on every row.
+
+Individual share grants are listed and revoked on the **Shares** tab — see
+[revoking one grant](#revoking-one-grant) below.
+
 ## Why a refusal is sometimes a 404
 
 Comic ids are small sequential integers. If a signed-in stranger could tell
@@ -69,6 +78,30 @@ reach a comic the viewer cannot currently access.
 - `tests/Functional/Security/AdminSurfaceIsClosedTest.php` derives the
   administrative routes from the router and asserts each one refuses an
   ordinary account.
+
+## Revoking one grant
+
+The admin **Shares** tab lists share grants rather than the codes some of them
+came from. The distinction matters: the sharing-codes table can stop a code
+being redeemed again, but it cannot see a share made by emailed invitation, and
+it cannot take back access that has already been granted. Both of those are what
+a report about one comic reaching one person actually asks about.
+
+`POST /api/admin/shares/{id}/revoke` performs the same operation the owner
+performs from their own Sharing page: the recipient loses access, the owner
+keeps their comic, and nothing is deleted. It is idempotent — revoking an
+already-revoked share is the state the caller wanted, so a double click or a
+stale table answers the same way rather than erroring.
+
+Removing the comic itself is a heavier decision and stays on the
+[content report](content-reporting.md) screen. Telling the sharer why is a
+[notice](administrator-notices.md), and the same row offers both.
+
+The admin view of a share is deliberately not the owner's view of it. The 18+
+redaction that view applies is for a *recipient's* benefit, and an administrator
+checking what adult material is moving between accounts is exactly the person
+who has to see the title and the flag. Both parties are named, because "who gave
+this to whom?" is the only question the table exists to answer.
 
 ## Reading a sharing code back
 

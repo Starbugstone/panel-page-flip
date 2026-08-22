@@ -6,6 +6,7 @@ import { Navigate, useSearchParams } from "react-router-dom";
 import { AdminUsersList } from "@/components/AdminUsersList";
 import { AdminComicsList } from "@/components/AdminComicsList";
 import { AdminTagsList } from "@/components/AdminTagsList";
+import { AdminSharesList } from "@/components/AdminSharesList";
 import { AdminSharingCodesList } from "@/components/AdminSharingCodesList";
 import { AdminOverview } from "@/components/AdminOverview";
 import { AdminDropbox } from "@/components/AdminDropbox";
@@ -14,7 +15,7 @@ import { AdminComicFormats } from "@/components/AdminComicFormats";
 import { AdminMetadataProviders } from "@/components/AdminMetadataProviders";
 import { AdminContentReports } from "@/components/AdminContentReports";
 
-const TABS = ["overview", "pending", "users", "comics", "formats", "metadata", "tags", "sharing-codes", "content-reports", "dropbox", "audit"];
+const TABS = ["overview", "pending", "users", "comics", "formats", "metadata", "tags", "shares", "sharing-codes", "content-reports", "dropbox", "audit"];
 
 export default function AdminDashboard() {
   const { isAdmin, loading } = useAuth(); // Destructure loading state
@@ -72,6 +73,7 @@ export default function AdminDashboard() {
           <TabsTrigger value="formats">Formats</TabsTrigger>
           <TabsTrigger value="metadata">Metadata</TabsTrigger>
           <TabsTrigger value="tags">Tags</TabsTrigger>
+          <TabsTrigger value="shares">Shares</TabsTrigger>
           <TabsTrigger value="sharing-codes">Sharing codes</TabsTrigger>
           <TabsTrigger value="content-reports">Content reports</TabsTrigger>
           <TabsTrigger value="dropbox">Dropbox</TabsTrigger>
@@ -104,6 +106,10 @@ export default function AdminDashboard() {
         
         <TabsContent value="tags" className="space-y-6">
           <AdminTagsList />
+        </TabsContent>
+
+        <TabsContent value="shares" className="space-y-6">
+          <AdminSharesList />
         </TabsContent>
 
         <TabsContent value="sharing-codes" className="space-y-6">

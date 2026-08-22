@@ -6,6 +6,7 @@ import SessionMonitor from "@/components/SessionMonitor.jsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider.jsx";
+import { AdminNoticeBanner } from "@/components/AdminNoticeBanner.jsx";
 import { Header } from "@/components/Header.jsx";
 import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { Footer } from "@/components/Footer.jsx";
@@ -83,6 +84,10 @@ const AppRoutes = () => {
           onLogout={logout}
           isAdmin={isAdmin}
         />
+        {/* Above the routed page rather than on one of them: a notice about a
+            comic has to be readable from wherever the reader is, and the comic
+            it is about may already be gone. */}
+        <AdminNoticeBanner isLoggedIn={isAuthenticated} />
         <main className="flex-1">
           <Suspense fallback={<PageLoading />}>
             <Routes>
