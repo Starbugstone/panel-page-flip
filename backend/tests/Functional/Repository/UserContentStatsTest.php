@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Functional\Repository;
 
+use App\Entity\Comic;
 use App\Entity\User;
+use App\Repository\ComicRepository;
 use App\Repository\UserRepository;
 use App\Service\StorageQuotaService;
 use App\Tests\Factory\ComicFactory;
@@ -114,10 +116,10 @@ final class UserContentStatsTest extends AbstractApiTestCase
     /**
      * The invariant this whole feature rests on.
      *
-     * Reporting cannot reuse the enforcement query — the admin list needs one
-     * grouped query for a whole page, not one per row — so the sum is written
-     * twice. This is what stops the two copies drifting into different answers
-     * to the same question.
+     * "Storage used" is defined once, in ComicRepository, and reached through
+     * three doors: quota admission asks about one owner, the admin list asks
+     * about a page of them, the dashboard asks about everybody. These assert the
+     * doors still open onto the same room.
      */
     public function testTheReportedTotalIsWhatQuotaEnforcementCounts(): void
     {
@@ -133,6 +135,34 @@ final class UserContentStatsTest extends AbstractApiTestCase
             $this->statsFor($user)['storageUsedBytes'],
             'The admin screen and upload admission must agree on this account\'s usage.'
         );
+    }
+
+    public function testTheInstallationTotalIsTheSumOfWhatTheOwnersUse(): void
+    {
+        $alice = UserFactory::createOne()->object();
+        $bob = UserFactory::createOne()->object();
+        ComicFactory::createOne(['owner' => $alice, 'fileSize' => 5_000]);
+        ComicFactory::createOne(['owner' => $bob, 'fileSize' => 1_500]);
+        ComicFactory::createOne(['owner' => $bob, 'fileSize' => null]);
+
+        $perOwner = $this->comics()->getStorageStatsByOwner([$alice->getId(), $bob->getId()]);
+
+        self::assertSame(
+            array_sum(array_column($perOwner, 'storageUsedBytes')),
+            $this->comics()->getTotalStorageBytes(),
+            'The dashboard total must be the same accounting as the rows beneath it.'
+        );
+    }
+
+    /**
+     * An account that was never saved owns nothing. Quota admission rejects it
+     * outright, but asking what it uses should answer rather than explode.
+     */
+    public function testAnUnsavedAccountUsesNoStorage(): void
+    {
+        $quota = static::getContainer()->get(StorageQuotaService::class);
+
+        self::assertSame(0, $quota->getUserStorageBytes(new User()));
     }
 
     /** A library past 2 GiB is ordinary here, and must not arrive as a string. */
@@ -156,6 +186,14 @@ final class UserContentStatsTest extends AbstractApiTestCase
     private function statsFor(User $user): array
     {
         return $this->repository()->getOwnedContentStats([$user->getId()])[$user->getId()];
+    }
+
+    private function comics(): ComicRepository
+    {
+        /** @var ComicRepository $repository */
+        $repository = static::getContainer()->get(EntityManagerInterface::class)->getRepository(Comic::class);
+
+        return $repository;
     }
 
     private function repository(): UserRepository

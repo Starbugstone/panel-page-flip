@@ -26,10 +26,23 @@ the admin figure agree with `StorageQuotaService`.
 
 ## Where the numbers come from
 
-`StorageQuotaService` owns both halves.
+The sum is written once, in `ComicRepository`, and reached through three doors:
 
-- `getUserStorageBytes()` sums one owner's comics — the figure upload admission
-  is checked against.
+| Caller | Asks about | Method |
+| --- | --- | --- |
+| Upload admission | one owner | `getStorageBytesForOwner()` |
+| Admin user list | a page of owners | `getStorageStatsByOwner()` |
+| Admin dashboard tile | everybody | `getTotalStorageBytes()` |
+
+All three build on the same `STORAGE_BYTES` expression, so there is no second
+definition to drift. `getStorageStatsByOwner()` returns the comic count and the
+byte total from one grouped query, which is why a comic cannot be counted by one
+and missed by the other; `UserRepository::getOwnedContentStats()` only joins tag
+counts onto that result.
+
+The quota half lives in `StorageQuotaService`:
+
+- `getUserStorageBytes()` is what upload admission is checked against.
 - `getQuotaBytes(User)` returns the effective limit, `upload_user_quota_bytes`,
   10 GiB today.
 
@@ -38,9 +51,8 @@ seam: when the quota becomes configurable and per-user (#64), resolution changes
 inside this one method and every caller keeps working. Nothing outside the
 service may read `%upload_user_quota_bytes%` or hardcode the number.
 
-The admin list does **not** call that service once per row. `UserRepository::getOwnedContentStats()`
-answers for a whole page in one grouped query, alongside the existing grouped tag
-query, and the admin list never touches the filesystem.
+The admin list does **not** call the quota service once per row — one grouped
+query serves the page — and it never touches the filesystem.
 
 ## The API contract
 

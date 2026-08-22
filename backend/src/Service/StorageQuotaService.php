@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Service;
 
-use App\Entity\Comic;
 use App\Entity\User;
-use Doctrine\ORM\EntityManagerInterface;
+use App\Repository\ComicRepository;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\LockInterface;
 
@@ -18,7 +17,7 @@ final class StorageQuotaService
     private const LOCK_TTL_SECONDS = 900.0;
 
     public function __construct(
-        private readonly EntityManagerInterface $entityManager,
+        private readonly ComicRepository $comics,
         private readonly LockFactory $lockFactory,
         private readonly int $uploadUserQuotaBytes,
     ) {
@@ -63,13 +62,14 @@ final class StorageQuotaService
 
     public function getUserStorageBytes(User $user): int
     {
-        return (int) $this->entityManager->createQueryBuilder()
-            ->select('COALESCE(SUM(c.fileSize), 0)')
-            ->from(Comic::class, 'c')
-            ->where('c.owner = :owner')
-            ->setParameter('owner', $user)
-            ->getQuery()
-            ->getSingleScalarResult();
+        $ownerId = $user->getId();
+        // An account that was never persisted owns no comics, so there is no row
+        // to sum and no quota question to answer.
+        if ($ownerId === null) {
+            return 0;
+        }
+
+        return $this->comics->getStorageBytesForOwner($ownerId);
     }
 
     public function lockResource(User $user): string

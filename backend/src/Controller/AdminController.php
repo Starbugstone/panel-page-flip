@@ -7,6 +7,7 @@ namespace App\Controller;
 use App\Entity\AdminAuditLog;
 use App\Entity\Comic;
 use App\Entity\User;
+use App\Repository\ComicRepository;
 use App\Repository\AdminAuditLogRepository;
 use App\Service\AdminAuditService;
 use App\Service\AppDataEncryptionService;
@@ -235,9 +236,9 @@ class AdminController extends AbstractController
     }
 
     #[Route('/stats', name: 'stats', methods: ['GET'])]
-    public function stats(EntityManagerInterface $entityManager): JsonResponse
+    public function stats(EntityManagerInterface $entityManager, ComicRepository $comics): JsonResponse
     {
-        $stats = $this->cache->get('admin.stats.v1', function (ItemInterface $item) use ($entityManager): array {
+        $stats = $this->cache->get('admin.stats.v1', function (ItemInterface $item) use ($entityManager, $comics): array {
             $item->expiresAfter(60);
 
             $totalUsers = (int) $entityManager->createQueryBuilder()
@@ -260,11 +261,9 @@ class AdminController extends AbstractController
                 ->getQuery()
                 ->getSingleScalarResult();
 
-            $storageUsed = (int) $entityManager->createQueryBuilder()
-                ->select('COALESCE(SUM(c.fileSize), 0)')
-                ->from(Comic::class, 'c')
-                ->getQuery()
-                ->getSingleScalarResult();
+            // The same definition the per-user admin figures use, so the
+            // installation total and the rows beneath it are the same accounting.
+            $storageUsed = $comics->getTotalStorageBytes();
 
             $signups = $entityManager->getRepository(User::class)->findBy([], ['createdAt' => 'DESC'], 10);
 
