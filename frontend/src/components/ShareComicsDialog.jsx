@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { logger } from "@/lib/logger";
 import {
   EXPLICIT_FLAG_LABEL,
@@ -277,18 +278,18 @@ export function ShareComicsDialog({
   };
 
   const copyIssuedCode = async () => {
-    try {
-      await navigator.clipboard.writeText(issuedCode);
+    if (await copyText(issuedCode)) {
       setCodeCopied(true);
       setTimeout(() => setCodeCopied(false), 2000);
-    } catch (err) {
-      logger.error("Could not copy the sharing code:", err);
-      toast({
-        title: "Could not copy the code",
-        description: "Select the code and copy it manually.",
-        variant: "destructive",
-      });
+      return;
     }
+
+    logger.error("Could not copy the sharing code.");
+    toast({
+      title: "Could not copy the code",
+      description: "Select the code and copy it manually.",
+      variant: "destructive",
+    });
   };
 
   /** The typed uses, made legal. The server enforces the same range. */

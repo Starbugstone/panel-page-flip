@@ -50,6 +50,10 @@ export default function BulkUploadQueue() {
   const [folderId, setFolderId] = useState(() => requestedFolder && /^\d+$/.test(requestedFolder) ? Number(requestedFolder) : null);
   const selectedFolderId = folderId != null && (foldersLoading || folders.some((folder) => Number(folder.id) === folderId)) ? folderId : null;
   const controllers = useRef(new Map());
+  // Rows taken out of the queue after it started. The workers below walk a list
+  // captured when the run began, so without this a file removed mid-run would
+  // still be uploaded after it had left the screen.
+  const removedRef = useRef(new Set());
   const inputRef = useRef(null);
   const completed = rows.filter((row) => row.status === "done").length;
   const failed = rows.filter((row) => row.status === "error" || row.status === "cancelled").length;
@@ -58,6 +62,18 @@ export default function BulkUploadQueue() {
 
   const updateRow = (id, updates) => {
     setRows((current) => current.map((row) => row.id === id ? { ...row, ...updates } : row));
+  };
+
+  /**
+   * Take a file back out of the queue.
+   *
+   * Allowed while the rest of the queue is running, because that is when it is
+   * most wanted: fifty files were dropped in, three of them were the wrong ones,
+   * and waiting for the whole run to finish before fixing that is not an answer.
+   */
+  const removeRow = (id) => {
+    removedRef.current.add(id);
+    setRows((current) => current.filter((row) => row.id !== id));
   };
 
   const addFiles = (files) => {
@@ -108,6 +124,7 @@ export default function BulkUploadQueue() {
       while (nextIndex < selectedRows.length) {
         const row = selectedRows[nextIndex];
         nextIndex += 1;
+        if (removedRef.current.has(row.id)) continue;
         await uploadRow(row);
       }
     };
@@ -121,6 +138,8 @@ export default function BulkUploadQueue() {
       toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
       return;
     }
+    // Only removals made during this run may cancel work in it.
+    removedRef.current = new Set();
     setRunning(true);
     await runQueue(pending);
     setRunning(false);
@@ -167,13 +186,21 @@ export default function BulkUploadQueue() {
                     {row.comic?.id && <Link className="text-xs text-comic-purple underline" to={`/read/${row.comic.id}`}>Open comic</Link>}
                   </TableCell>
                   <TableCell>
-                    {ACTIVE_STATUSES.has(row.status) ? (
-                      <Button size="icon" variant="outline" onClick={() => controllers.current.get(row.id)?.abort()} aria-label={`Cancel ${row.file.name}`}><XIcon /></Button>
-                    ) : row.status === "error" || row.status === "cancelled" ? (
-                      <Button size="icon" variant="outline" disabled={running} onClick={async () => { setRunning(true); await uploadRow(row); setRunning(false); }} aria-label={`Retry ${row.file.name}`}><RotateCcw className="h-4 w-4" /></Button>
-                    ) : row.status !== "done" ? (
-                      <Button size="icon" variant="ghost" disabled={running} onClick={() => setRows((current) => current.filter((item) => item.id !== row.id))} aria-label={`Remove ${row.file.name}`}><Trash2 className="h-4 w-4" /></Button>
-                    ) : null}
+                    <div className="flex items-center gap-1">
+                      {ACTIVE_STATUSES.has(row.status) && (
+                        <Button size="icon" variant="outline" onClick={() => controllers.current.get(row.id)?.abort()} aria-label={`Cancel ${row.file.name}`}><XIcon /></Button>
+                      )}
+                      {(row.status === "error" || row.status === "cancelled") && (
+                        <Button size="icon" variant="outline" disabled={running} onClick={async () => { setRunning(true); await uploadRow(row); setRunning(false); }} aria-label={`Retry ${row.file.name}`}><RotateCcw className="h-4 w-4" /></Button>
+                      )}
+                      {/* Anything not in flight and not already uploaded. A file
+                          mid-upload is cancelled first, and an uploaded one is a
+                          comic in the library — deleting that is the library's
+                          job, not this queue's. */}
+                      {!ACTIVE_STATUSES.has(row.status) && row.status !== "done" && (
+                        <Button size="icon" variant="ghost" onClick={() => removeRow(row.id)} aria-label={`Remove ${row.file.name}`}><Trash2 className="h-4 w-4" /></Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

@@ -16,6 +16,11 @@ final class ReaderPreferencesTest extends TestCase
         $this->preferences = new ReaderPreferences();
     }
 
+    public function testDefaultsToContinuousScroll(): void
+    {
+        self::assertSame('continuous', $this->preferences->defaults()['settings']['mode']);
+    }
+
     public function testNormalizesInvalidStoredFieldsWithoutDiscardingValidOnes(): void
     {
         $normalized = $this->preferences->normalize([
@@ -31,7 +36,12 @@ final class ReaderPreferencesTest extends TestCase
             ],
         ]);
 
-        self::assertSame('single', $normalized['settings']['mode']);
+        // An unrecognised mode falls back to the shipped default rather than to
+        // a second copy of it written down here.
+        self::assertSame(
+            $this->preferences->defaults()['settings']['mode'],
+            $normalized['settings']['mode'],
+        );
         self::assertSame('rtl', $normalized['settings']['direction']);
         self::assertSame('width', $normalized['settings']['fit']);
         self::assertFalse($normalized['settings']['autoHideControls']);

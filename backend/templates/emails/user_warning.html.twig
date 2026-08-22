@@ -1,0 +1,91 @@
+{# The emailed copy of a notice that is already waiting in the application.
+
+   Deliberately not a second, richer channel: it carries the same message the
+   recipient will see when they sign in, and nothing the in-app notice does not
+   have. An email is forwarded, indexed and read on somebody else's screen, so
+   it names no administrator, quotes no report, and links to nothing that would
+   act on the recipient's behalf if it were opened by the wrong person. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A notice about your {{ site_name }} account</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .card {
+            background-color: #ffffff;
+            border-radius: 6px;
+            padding: 24px;
+        }
+        .logo {
+            font-size: 22px;
+            font-weight: bold;
+            color: #6d28d9;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .notice {
+            background-color: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            padding: 12px 16px;
+            margin: 20px 0;
+            border-radius: 0 4px 4px 0;
+            white-space: pre-wrap;
+        }
+        .context {
+            font-size: 14px;
+            color: #555;
+            margin: 16px 0;
+        }
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 28px;
+            border-top: 1px solid #eee;
+            padding-top: 16px;
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="logo">{{ site_name }}</div>
+
+    <p>Hello{% if recipient_name %} {{ recipient_name }}{% endif %},</p>
+
+    <p>An administrator of {{ site_name }} has left a notice on your account.</p>
+
+    {% if subject_label %}
+        <p class="context">
+            {% if subject == 'comic' %}
+                This is about the comic <strong>{{ subject_label }}</strong>.
+            {% elseif subject == 'share' %}
+                This is about a comic you shared: <strong>{{ subject_label }}</strong>.
+            {% else %}
+                This is about <strong>{{ subject_label }}</strong>.
+            {% endif %}
+        </p>
+    {% endif %}
+
+    <div class="notice">{{ message }}</div>
+
+    <p>The same notice is waiting for you when you next sign in, where you can dismiss it.</p>
+
+    <div class="footer">
+        <p>
+            This message does not by itself change what you can read, upload or share. If you
+            believe it was sent in error, reply to {{ contact_email }}.
+        </p>
+        <p>You are receiving this because you hold an account on {{ site_name }}.</p>
+    </div>
+</div>
+</body>
+</html>

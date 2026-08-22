@@ -31,6 +31,7 @@ The sum is written once, in `ComicRepository`, and reached through three doors:
 | Caller | Asks about | Method |
 | --- | --- | --- |
 | Upload admission | one owner | `getStorageBytesForOwner()` |
+| The account's own view | itself | `getStorageStatsByOwner()` |
 | Admin user list | a page of owners | `getStorageStatsByOwner()` |
 | Admin dashboard tile | everybody | `getTotalStorageBytes()` |
 
@@ -56,8 +57,8 @@ query serves the page — and it never touches the filesystem.
 
 ## The API contract
 
-`GET /api/users` and `GET /api/users/{id}` report the same fields for the same
-account, from the same grouped query:
+`GET /api/users`, `GET /api/users/{id}` and `GET /api/me/storage` report the same
+fields for the same account, from the same grouped query:
 
 ```json
 {
@@ -71,6 +72,14 @@ account, from the same grouped query:
 Raw integers, never a percentage or a formatted string. The client divides, so
 an account at 112% is shown as 112% rather than clamped on the way out; only the
 progress bar is clamped, and only visually.
+
+`/api/me/storage` is deliberately its own request rather than a field on
+`/api/me`, which the session monitor polls: a grouped sum over every comic an
+account owns is cheap once and pointless every thirty seconds. The account sees
+its own figures in the library sidebar and on the settings page, both through
+`useStorageUsage`, and both render the same `UserStorageUsage` component the
+admin user list does — so an account and the administrator looking at it can
+never be told different things about the same disk.
 
 ## Unmeasured comics
 

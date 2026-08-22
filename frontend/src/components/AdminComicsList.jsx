@@ -4,11 +4,13 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TagBadge } from "@/components/TagBadge";
-import { Search, Tag as TagIcon, Trash, Edit, Eye } from "lucide-react";
+import { AlertTriangle, Search, ShieldAlert, Tag as TagIcon, Trash, Edit, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminPagination } from "@/components/AdminPagination";
+import { AdminWarnDialog } from "@/components/AdminWarnDialog";
+import { Badge } from "@/components/ui/badge";
 import { ComicEditDialog } from "@/components/ComicEditDialog";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
@@ -39,6 +41,7 @@ export function AdminComicsList({ ownerId, embedded = false }) {
   const { toast } = useToast();
   const [editingComic, setEditingComic] = useState(null);
   const [comicToDelete, setComicToDelete] = useState(null);
+  const [warningTarget, setWarningTarget] = useState(null);
 
   const filters = useMemo(
     () => ({ adminContext: "true", ...(ownerId ? { ownerId } : {}) }),
@@ -95,14 +98,14 @@ export function AdminComicsList({ ownerId, embedded = false }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-bold">{embedded ? "Comics owned by this user" : "Comics Management"}</h2>
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             type="search"
             placeholder="Search comics..."
-            className="pl-8 w-[300px]"
+            className="w-full pl-8 sm:w-[300px]"
             value={searchInput}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -116,7 +119,7 @@ export function AdminComicsList({ ownerId, embedded = false }) {
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className="border rounded-md">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -134,7 +137,18 @@ export function AdminComicsList({ ownerId, embedded = false }) {
                   <TableRow key={comic.id}>
                     <TableCell>
                       <div className="flex flex-col">
-                        <span className="font-medium">{comic.title}</span>
+                        <span className="flex items-center gap-2 font-medium">
+                          {comic.title}
+                          {/* Only when it is set. A "Not 18+" badge on every
+                              other row would be noise on the majority to label
+                              the minority, and absence already says it. */}
+                          {comic.explicitContent && (
+                            <Badge variant="destructive" className="gap-1">
+                              <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+                              18+
+                            </Badge>
+                          )}
+                        </span>
                         <span className="text-sm text-muted-foreground">{comic.author}</span>
                       </div>
                     </TableCell>
@@ -159,13 +173,40 @@ export function AdminComicsList({ ownerId, embedded = false }) {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleViewComic(comic.id)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Open this comic in the reader"
+                          aria-label={`Read ${comic.title}`}
+                          onClick={() => handleViewComic(comic.id)}
+                        >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleEditComic(comic)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Edit comic"
+                          aria-label={`Edit ${comic.title}`}
+                          onClick={() => handleEditComic(comic)}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setComicToDelete(comic)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Warn the owner about this comic"
+                          aria-label={`Warn the owner about ${comic.title}`}
+                          onClick={() => setWarningTarget(comic)}
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Delete comic"
+                          aria-label={`Delete ${comic.title}`}
+                          onClick={() => setComicToDelete(comic)}
+                        >
                           <Trash className="h-4 w-4" />
                         </Button>
                       </div>
@@ -196,6 +237,14 @@ export function AdminComicsList({ ownerId, embedded = false }) {
         isOpen={!!editingComic}
         onClose={() => setEditingComic(null)}
         onSave={handleSaveComic}
+      />
+      <AdminWarnDialog
+        target={warningTarget ? { comicId: warningTarget.id } : null}
+        subjectLabel={warningTarget?.title}
+        recipientLabel={warningTarget
+          ? (warningTarget.owner?.name || warningTarget.owner?.email || "The owner")
+          : undefined}
+        onClose={() => setWarningTarget(null)}
       />
       <AlertDialog open={!!comicToDelete} onOpenChange={(open) => !open && setComicToDelete(null)}>
         <AlertDialogContent>

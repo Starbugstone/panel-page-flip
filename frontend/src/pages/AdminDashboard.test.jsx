@@ -116,6 +116,7 @@ describe("AdminDashboard tab navigation", () => {
     const router = renderDashboard();
 
     expectSelectedTab("Overview");
+    expect(screen.getByRole("tablist")).toHaveClass("w-full", "overflow-x-auto");
     expect(router.state.location.search).toBe("");
     expect(await within(activePanel()).findByText("Total users")).toBeInTheDocument();
   });

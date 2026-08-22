@@ -2,6 +2,8 @@
 
 namespace App\Controller;
 
+use App\Repository\ComicRepository;
+use App\Service\StorageQuotaService;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -46,6 +48,36 @@ class MeController extends AbstractController
                 'isAdmin' => $user->isAdmin(),
             ],
             'sessionRefreshed' => $sessionRefreshed,
+        ]);
+    }
+
+    /**
+     * How much of this account's storage quota is gone.
+     *
+     * Its own request rather than a field on `/api/me`, which the session
+     * monitor polls: a grouped sum over every comic an account owns is cheap
+     * once and pointless every thirty seconds.
+     *
+     * The same three numbers, from the same grouped query, that the admin user
+     * list is built from — so an account and the administrator looking at it
+     * can never be told different things about the same disk.
+     */
+    #[Route('/api/me/storage', name: 'api_me_storage', methods: ['GET'])]
+    public function storage(
+        ComicRepository $comics,
+        StorageQuotaService $quota,
+    ): JsonResponse {
+        $user = $this->requireUser();
+        $stats = $comics->getStorageStatsByOwner([(int) $user->getId()])[(int) $user->getId()];
+
+        return $this->json([
+            // Raw integers, never a percentage or a formatted string: the
+            // client divides, so an account over its quota reads as over rather
+            // than as exactly full.
+            'comicCount' => $stats['comicCount'],
+            'storageUsedBytes' => $stats['storageUsedBytes'],
+            'storageQuotaBytes' => $quota->getQuotaBytes($user),
+            'unmeasuredComicCount' => $stats['unmeasuredComicCount'],
         ]);
     }
 }

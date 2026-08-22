@@ -529,9 +529,6 @@ class ComicController extends AbstractController
 
         // Get data from request
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
-        }
 
         $metadataBefore = [
             'title' => $comic->getTitle(),
@@ -791,9 +788,6 @@ class ComicController extends AbstractController
 
         // Get data from request
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
-        }
 
         // Validate page number
         if (!isset($data['currentPage']) || !is_numeric($data['currentPage']) || $data['currentPage'] < 1) {

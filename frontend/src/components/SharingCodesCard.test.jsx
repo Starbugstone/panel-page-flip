@@ -25,14 +25,20 @@ const liveCode = {
   isRevoked: false,
   isRedeemable: true,
   deadReason: null,
+  canReveal: true,
 };
 
-const stubGets = (codes = []) => {
+const stubGets = (codes = [], reveals = {}) => {
   vi.mocked(api.get).mockImplementation((url) => {
     if (url === "/api/shares/user-code") {
       return Promise.resolve({ name: "Test Reader", username: "TestReader1234", label: "Test Reader (@TestReader1234)", userCode: "U-7RFX-KP3M-Q82D" });
     }
     if (url === "/api/shares/content-codes") return Promise.resolve({ codes });
+    const reveal = url.match(/^\/api\/shares\/content-codes\/(\d+)\/reveal$/);
+    if (reveal) {
+      const answer = reveals[reveal[1]];
+      return answer instanceof Error ? Promise.reject(answer) : Promise.resolve({ code: answer });
+    }
     return Promise.reject(new Error(`Unexpected GET ${url}`));
   });
 };
@@ -252,5 +258,67 @@ describe("SharingCodesCard", () => {
 
     expect(await screen.findByText(/could not be loaded/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy your user code" })).toBeDisabled();
+  });
+});
+
+/**
+ * A code lives in the message its owner sent it in, and that message gets lost.
+ * Before this, the only way back was to withdraw a live code and mint another.
+ */
+describe("reading a handed-out code back", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("does not show a code until it is asked for", async () => {
+    stubGets([liveCode], { 3: "C-8XKM-2PQR-4TVW" });
+    renderCard();
+
+    expect(await screen.findByRole("button", { name: /show the code for Batman #1/i })).toBeInTheDocument();
+    expect(screen.queryByText("C-8XKM-2PQR-4TVW")).not.toBeInTheDocument();
+    expect(api.get).not.toHaveBeenCalledWith("/api/shares/content-codes/3/reveal");
+  });
+
+  it("shows it when it is", async () => {
+    const user = userEvent.setup();
+    stubGets([liveCode], { 3: "C-8XKM-2PQR-4TVW" });
+    renderCard();
+
+    await user.click(await screen.findByRole("button", { name: /show the code for Batman #1/i }));
+
+    expect(await screen.findByText("C-8XKM-2PQR-4TVW")).toBeInTheDocument();
+  });
+
+  it("puts it away again without asking twice", async () => {
+    const user = userEvent.setup();
+    stubGets([liveCode], { 3: "C-8XKM-2PQR-4TVW" });
+    renderCard();
+
+    await user.click(await screen.findByRole("button", { name: /show the code/i }));
+    await screen.findByText("C-8XKM-2PQR-4TVW");
+    await user.click(screen.getByRole("button", { name: /hide the code/i }));
+
+    await waitFor(() => expect(screen.queryByText("C-8XKM-2PQR-4TVW")).not.toBeInTheDocument());
+    expect(api.get.mock.calls.filter(([url]) => url === "/api/shares/content-codes/3/reveal")).toHaveLength(1);
+  });
+
+  /** A code from before the column existed has nothing behind the button. */
+  it("offers nothing to show for a code that cannot be read back", async () => {
+    stubGets([{ ...liveCode, canReveal: false }]);
+    renderCard();
+
+    await screen.findByText(/Batman #1/);
+    expect(screen.queryByRole("button", { name: /show the code/i })).not.toBeInTheDocument();
+  });
+
+  it("says so when the code cannot be fetched", async () => {
+    const user = userEvent.setup();
+    stubGets([liveCode], { 3: new Error("Rate limited.") });
+    renderCard();
+
+    await user.click(await screen.findByRole("button", { name: /show the code/i }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Could not show the code",
+      variant: "destructive",
+    })));
   });
 });

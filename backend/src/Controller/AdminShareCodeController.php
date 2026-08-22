@@ -24,8 +24,10 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
  * and it is the whole of it: everything here reads metadata or calls a lifecycle
  * method that already exists.
  *
- * Three things it deliberately cannot do. It cannot show a code, because only
- * the hash is stored and there is nothing to show. It cannot revoke a share,
+ * Three things it deliberately cannot do. It cannot show a code: the encrypted
+ * copy an instance keeps is the *owner's* record of what they handed out, and
+ * support acting on a report needs to stop a code rather than hold one. It
+ * cannot revoke a share,
  * because withdrawing a code stops the way in and never the access already
  * granted — taking a comic back is moderation, which is a different decision on
  * a different screen. And it cannot delete a live record, because the cleanup

@@ -112,7 +112,7 @@ class ComicPageController extends AbstractController
         ComicService $comicService,
         PageDerivativeService $derivatives
     ): Response {
-        $user = $this->requireUser();
+        $this->requireUser();
 
         // Pages are the comic itself, so they go through exactly the same check
         // as its metadata.

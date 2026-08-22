@@ -44,6 +44,10 @@ final class ShareClaimCodeController extends AbstractController
     /**
      * The codes this owner has handed out, without the codes themselves.
      *
+     * Each entry says whether its code can be read back; doing so is one
+     * request per code through `/reveal`, so listing what was handed out never
+     * hands it out again.
+     *
      * Both kinds in one list, each labelled with its type: an owner asking
      * "what have I given away?" wants one answer, and the prefix is what tells
      * a single comic from an arc at a glance.
@@ -71,6 +75,21 @@ final class ShareClaimCodeController extends AbstractController
             // `expiresAt`; this is only for the sentence before that exists.
             'lifetimeDays' => $this->lifetime->days(),
         ]);
+    }
+
+    /**
+     * Read one of your own codes back.
+     *
+     * Its own request rather than a field on the list above, and charged for:
+     * a page that merely enumerates what an account handed out must not also
+     * hand back every live capability on it in one response.
+     */
+    #[Route('/content-codes/{id}/reveal', name: 'app_share_content_codes_reveal', methods: ['GET'], requirements: ['id' => '\d+'])]
+    public function revealCode(int $id): JsonResponse
+    {
+        $user = $this->requireUser();
+
+        return $this->json(['code' => $this->contentCodes->reveal($id, $user)]);
     }
 
     #[Route('/comic-codes', name: 'app_share_comic_codes_create', methods: ['POST'])]
@@ -170,8 +189,9 @@ final class ShareClaimCodeController extends AbstractController
 
         return $this->json([
             'message' => 'Sharing code created.',
-            // Returned once and never again — only the hash is stored, exactly
-            // as for an invitation link. An owner who loses it makes a new one.
+            // The moment the owner has it to send. A copy is kept encrypted so
+            // they can read it back from their own list later; redemption still
+            // compares hashes, so that copy widens nothing.
             'code' => SharingCodeFormat::forDisplay($type, $plaintext),
             'contentCode' => $code->toOwnerPayload(),
         ], Response::HTTP_CREATED);

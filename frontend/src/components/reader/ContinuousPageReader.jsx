@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { usePageVariant } from "@/hooks/use-page-variant";
 import { useReaderGestures } from "@/hooks/use-reader-gestures";
+import { useReaderMousePan } from "@/hooks/use-reader-mouse-pan";
 import { useReaderTransform } from "@/hooks/use-reader-transform";
 import { createReaderPageUrl, withForcedReload } from "@/lib/reader-pages";
 
@@ -25,6 +26,10 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
     onPinch: ({ scale, focal, dx, dy }) => pinch({ scale, focal, dx, dy }),
   }), [doubleTapAt, onActivity, pan, pinch]);
   useReaderGestures(containerRef, { zoomed: isZoomed, paged: false, ...gestures });
+  // A continuous page can only be zoomed by pinching or double tapping it, so
+  // this is for a touch laptop rather than a desktop — but once a page is
+  // larger than its slot, a mouse has to be able to move it too.
+  const { cursorClass } = useReaderMousePan(containerRef, { enabled: isZoomed, onPan: pan });
 
   if (status === "failed") {
     return (
@@ -44,7 +49,7 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
         draggable={false}
         onLoad={() => setResult({ key: url, status: "loaded" })}
         onError={() => setResult({ key: url, status: "failed" })}
-        className="block max-h-full max-w-full object-contain shadow-lg"
+        className={`block max-h-full max-w-full object-contain shadow-lg ${cursorClass}`}
         style={{
           transform: `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`,
           transformOrigin: "center center",

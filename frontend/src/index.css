@@ -171,8 +171,11 @@
     @apply pointer-events-none opacity-0;
   }
 
+  /* The cursor belongs to the viewport, not the artwork: a zoomed page is
+     dragged around, and the grab cursor has to be offered over the mat it is
+     dragged across as well as over the page itself. */
   .zoomed-image {
-    @apply cursor-zoom-out max-h-none max-w-none;
+    @apply max-h-none max-w-none;
   }
 
   .fullscreen-controls {

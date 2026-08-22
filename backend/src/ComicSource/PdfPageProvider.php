@@ -8,6 +8,8 @@ use App\Enum\ComicSourceType;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\LockInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
 use Symfony\Contracts\Cache\CacheInterface;
@@ -29,6 +31,45 @@ final class PdfPageProvider implements ComicPageProviderInterface
     private const SLOT_TTL_SECONDS = 35.0;
     private const RENDER_TIMEOUT_SECONDS = 30;
     private const INSPECT_TIMEOUT_SECONDS = 15;
+
+    /**
+     * What `qpdf --check` costs, measured rather than guessed.
+     *
+     * It reads and validates every object in the document, so its cost is
+     * linear in *file size* — about 0.4 seconds per megabyte on this project's
+     * reference container (11.5 MB in 5.5s; 57.7 MB in 20.9s). Every other step
+     * in the acceptance path is flat: `pdfinfo` answers in ~0.05s and rendering
+     * page one in ~0.15s, whatever the document weighs.
+     *
+     * That asymmetry is the whole problem. A comic PDF is routinely 100-500 MB,
+     * which at this rate is 40 seconds to three minutes of a PHP-FPM worker —
+     * spent on a *second opinion* about a document that the very next step
+     * proves servable by rendering a page of it with the renderer this check
+     * exists to second-guess.
+     *
+     * So the check is gated on whether it can finish inside a fixed budget,
+     * rather than being started on everything and abandoned partway. Being
+     * abandoned costs the same as finishing and buys nothing.
+     *
+     * The rate is configurable because it is a property of the *host*, not of
+     * this application: a slower disk or a busier CPU changes it, and the
+     * default here was measured on a development container rather than on
+     * anybody's server. `app:comic-formats:check` reports what the rate implies
+     * so an operator can compare it against their own hardware.
+     */
+    private const DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE = 0.4;
+
+    /**
+     * Eight seconds, which at the rate above admits documents up to ~20 MB.
+     *
+     * Small enough that no upload waits noticeably on a second opinion, and
+     * large enough to cover the single-issue PDFs where a silent structural
+     * fault is most likely to go unnoticed.
+     */
+    private const DEFAULT_STRUCTURE_CHECK_BUDGET = 8.0;
+
+    /** Head-room over the budget, for a host slower than the one measured. */
+    private const STRUCTURE_CHECK_TIMEOUT_FACTOR = 3.0;
 
     /**
      * Bounds on what a caller's size hint may ask the renderer to draw. The
@@ -61,6 +102,27 @@ final class PdfPageProvider implements ComicPageProviderInterface
         private readonly LockFactory $lockFactory,
         private readonly ?CacheInterface $pageIndexCache = null,
         private readonly ?LoggerInterface $logger = null,
+        /**
+         * How long the optional structural check may cost per document.
+         *
+         * Zero turns it off, which is a supported configuration rather than a
+         * degraded one: the check has always been optional, and an installation
+         * without qpdf imports PDFs on the Poppler checks alone.
+         */
+        #[Autowire('%pdf_structure_check_budget_seconds%')]
+        private readonly float $structureCheckBudget = self::DEFAULT_STRUCTURE_CHECK_BUDGET,
+        /**
+         * What the check costs per megabyte on *this* host.
+         *
+         * Measured on a development container, so it is the number most worth
+         * correcting on real hardware: it is what converts the budget above
+         * into "documents up to N megabytes are checked".
+         */
+        #[Autowire('%pdf_structure_check_seconds_per_megabyte%')]
+        private readonly float $structureCheckRate = self::DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE,
+        // A seam for the tests, which need a check that reliably runs out of
+        // time without a pathological document to make it do so honestly.
+        private readonly ?float $structureCheckTimeout = null,
     ) {
     }
 
@@ -301,13 +363,83 @@ final class PdfPageProvider implements ComicPageProviderInterface
         $qpdf = (new ExecutableFinder())->find('qpdf');
         if ($qpdf === null) return;
 
+        $bytes = (int) (@filesize($sourcePath) ?: 0);
+        if (!self::isWorthChecking($bytes, $this->structureCheckBudget, $this->structureCheckRate)) {
+            // Deliberately not attempted, rather than started and abandoned.
+            // A document this size cannot be checked inside the budget, and a
+            // check that runs out of time has cost the same as one that
+            // finished while answering nothing.
+            $this->logger?->info('PDF is too large for the structural check; importing on the Poppler checks alone.', [
+                'bytes' => $bytes,
+                'budget_seconds' => $this->structureCheckBudget,
+            ]);
+
+            return;
+        }
+
         // The path is always an absolute, application-generated one from the
         // source resolver, so it can never be read as a qpdf option.
+        $timeout = $this->structureCheckTimeout
+            ?? max(1.0, $this->structureCheckBudget * self::STRUCTURE_CHECK_TIMEOUT_FACTOR);
         $process = new Process([$qpdf, '--check', '--no-warn', $sourcePath]);
-        $process->setTimeout(self::INSPECT_TIMEOUT_SECONDS);
-        $process->run();
+        $process->setTimeout($timeout);
+
+        try {
+            $process->run();
+        } catch (ProcessTimedOutException) {
+            // A second opinion that did not arrive is not a negative one.
+            //
+            // This check is optional by design: an installation with no qpdf
+            // imports PDFs on the Poppler checks alone. A check that runs out
+            // of time has to land in that same place rather than condemning a
+            // document it never finished reading — otherwise the slowest files,
+            // which are the large legitimate ones, are the ones refused.
+            $this->logger?->info('PDF structural check did not finish; importing on the Poppler checks alone.', [
+                'timeout_seconds' => $timeout,
+            ]);
+
+            return;
+        }
 
         if ($process->getExitCode() === 2) throw new \RuntimeException('PDF structure is damaged.');
+    }
+
+    /**
+     * Whether the structural check can finish on this document inside `$budget`.
+     *
+     * Public and static so the gate can be asserted directly; nothing about it
+     * needs a document, a subprocess or a temporary file to be tested.
+     */
+    public static function isWorthChecking(
+        int $fileSizeBytes,
+        float $budgetSeconds,
+        float $secondsPerMegabyte = self::DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE,
+    ): bool {
+        if ($budgetSeconds <= 0.0) return false;
+
+        // A rate of zero would claim every document is free to check, which is
+        // a misconfiguration rather than a licence to check a 500 MB file.
+        if ($secondsPerMegabyte <= 0.0) {
+            $secondsPerMegabyte = self::DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE;
+        }
+
+        return self::estimatedCheckSeconds($fileSizeBytes, $secondsPerMegabyte) <= $budgetSeconds;
+    }
+
+    /** What the check is expected to cost on a document of this size. */
+    public static function estimatedCheckSeconds(
+        int $fileSizeBytes,
+        float $secondsPerMegabyte = self::DEFAULT_STRUCTURE_CHECK_SECONDS_PER_MEGABYTE,
+    ): float {
+        return max(0, $fileSizeBytes) / 1048576 * $secondsPerMegabyte;
+    }
+
+    /** The largest document this budget and rate admit, for operator-facing output. */
+    public static function largestCheckedMegabytes(float $budgetSeconds, float $secondsPerMegabyte): float
+    {
+        if ($budgetSeconds <= 0.0 || $secondsPerMegabyte <= 0.0) return 0.0;
+
+        return $budgetSeconds / $secondsPerMegabyte;
     }
 
     private function assertPdfSignature(string $sourcePath): void

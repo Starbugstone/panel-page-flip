@@ -5,13 +5,16 @@ namespace App\Service;
 use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\User;
+use App\Entity\UserWarning;
 use App\Repository\ComicShareRepository;
+use App\Repository\UserWarningRepository;
 
 final class PersonalDataExporter
 {
     public function __construct(
         private readonly ComicSerializer $comicSerializer,
         private readonly ComicShareRepository $shareRepository,
+        private readonly UserWarningRepository $warningRepository,
     ) {
     }
 
@@ -51,6 +54,21 @@ final class PersonalDataExporter
         $sentShares = $this->mapShares($this->shareRepository->findAllForOwnerIncludingTombstones($user));
         $receivedShares = $this->mapShares($this->shareRepository->findAllForRecipient($user));
 
+        // Dismissed ones included, and never the administrator who sent them.
+        // A notice is stored about this user and so belongs in their export;
+        // who wrote it is the operator's record, not a fact about the subject.
+        $warnings = array_map(
+            static fn (UserWarning $warning): array => [
+                'id' => $warning->getId(),
+                'message' => $warning->getMessage(),
+                'subject' => $warning->getSubject(),
+                'subjectLabel' => $warning->getSubjectLabel(),
+                'createdAt' => $warning->getCreatedAt()->format(\DateTimeInterface::ATOM),
+                'dismissedAt' => $warning->getAcknowledgedAt()?->format(\DateTimeInterface::ATOM),
+            ],
+            $this->warningRepository->findBy(['recipient' => $user], ['createdAt' => 'ASC'])
+        );
+
         return [
             'exportedAt' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
             'account' => [
@@ -72,6 +90,7 @@ final class PersonalDataExporter
             'personalTags' => $tags,
             'sharesGranted' => $sentShares,
             'sharesReceived' => $receivedShares,
+            'administratorNotices' => $warnings,
         ];
     }
 

@@ -400,9 +400,10 @@ export const SHARING_CODE_COPY = {
   groupCode: "Create a G- code for these comics as one package — a story arc handed over with a "
     + "single code. Redeeming it costs one use however many comics it carries.",
   redeem: "Someone sent you a C- or G- code? Redeem it here to add their comics to your collection.",
-  handedOut: "Withdraw a code at any time to stop anyone else using it. Anyone who already "
-    + "claimed a comic keeps it until you revoke them. Codes that have stopped working are kept "
-    + "for a month so you can see who took them up.",
+  handedOut: "Show a code again if you have lost the message you sent it in. Withdraw one at "
+    + "any time to stop anyone else using it — anyone who already claimed a comic keeps it until "
+    + "you revoke them. Codes that have stopped working are kept for a month so you can see who "
+    + "took them up.",
 };
 
 /**

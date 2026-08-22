@@ -27,7 +27,7 @@ import { parsePageNumber } from "@/lib/comic-progress";
 import { toggleFullscreen } from "@/lib/fullscreen";
 import { isTypingTarget } from "@/lib/keyboard";
 import { logger } from "@/lib/logger";
-import { tapZone } from "@/lib/reader-gestures";
+import { mouseClickAction, tapZone } from "@/lib/reader-gestures";
 import {
   adjacentReadingPage,
   buildReadingUnits,
@@ -461,6 +461,15 @@ export default function ComicReader() {
   useEffect(() => {
     const handleKeyPress = (event) => {
       if (isTypingTarget(event.target)) return;
+      // Only while there is a zoom to leave and nothing else is claiming the
+      // key. Escape closes the settings sheet first — taking the zoom off at
+      // the same time would be two things happening for one press. Leaving
+      // fullscreen resets the transform anyway, so those two cannot disagree.
+      if (event.key === "Escape" && isZoomed && !isSettingsOpen) {
+        event.preventDefault();
+        zoomToFit();
+        return;
+      }
       if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) event.preventDefault();
       if (event.key === "ArrowLeft") handlePreviousPage();
       if (event.key === "ArrowRight") handleNextPage();
@@ -469,7 +478,7 @@ export default function ComicReader() {
     };
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [goToReaderPage, handleNextPage, handlePreviousPage, pageCount]);
+  }, [goToReaderPage, handleNextPage, handlePreviousPage, isSettingsOpen, isZoomed, pageCount, zoomToFit]);
   useEffect(() => {
     const handleFullscreenChange = () => {
       const next = Boolean(document.fullscreenElement);
@@ -579,12 +588,19 @@ export default function ComicReader() {
     onPinch: ({ scale, focal, dx, dy }) => pinch({ scale, focal, dx, dy }),
   }), [doubleTapAt, isZoomed, pan, physicalLeft, physicalRight, pinch, toggleChrome]);
   const handleMousePageClick = useCallback((event) => {
-    if (isZoomed) return zoomToFit();
     const rect = imageContainerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const zone = tapZone(event.clientX - rect.left, rect.width);
-    if (zone === "center") toggleChrome();
-    else if (zone === "left") physicalLeft();
+
+    const action = mouseClickAction({
+      x: event.clientX - rect.left,
+      width: rect.width,
+      onArtwork: Boolean(event.target.closest?.("[data-reader-artwork]")),
+      zoomed: isZoomed,
+    });
+
+    if (action === "zoomOut") zoomToFit();
+    else if (action === "chrome") toggleChrome();
+    else if (action === "left") physicalLeft();
     else physicalRight();
   }, [isZoomed, physicalLeft, physicalRight, toggleChrome, zoomToFit]);
 
@@ -672,7 +688,7 @@ export default function ComicReader() {
             swipeOffset={swipeOffset}
             isSwiping={isSwiping}
             gestures={gestures}
-            onImageClick={handleMousePageClick}
+            onSurfaceClick={handleMousePageClick}
           />
         ) : (
           <SinglePageReader
@@ -689,7 +705,7 @@ export default function ComicReader() {
             swipeOffset={swipeOffset}
             isSwiping={isSwiping}
             gestures={gestures}
-            onImageClick={handleMousePageClick}
+            onSurfaceClick={handleMousePageClick}
             onRetry={() => retryPage(currentPage)}
           />
         )}

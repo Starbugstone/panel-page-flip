@@ -370,4 +370,177 @@ final class PdfPageProviderTest extends TestCase
         $this->pdfPath = null;
         parent::tearDown();
     }
+
+    /* ---------------------------------------------------------------------- */
+    /* The structural check is a second opinion, not a gate                    */
+    /* ---------------------------------------------------------------------- */
+
+    /**
+     * The regression this exists for.
+     *
+     * `qpdf --check` reads every object in the document, so a large scan takes
+     * longer than a flat budget allowed. The check is explicitly optional — an
+     * installation without qpdf imports on the Poppler checks alone — but a
+     * timeout escaped as an exception and became "not a valid or supported
+     * comic source". The slowest files are the large legitimate ones, so the
+     * effect was that ordinary 100 MB manga volumes could not be uploaded at
+     * all, failing at the very end of a long upload.
+     */
+    public function testAStructuralCheckThatRunsOutOfTimeDoesNotRejectTheDocument(): void
+    {
+        $finder = new ExecutableFinder();
+        if ($finder->find('pdfinfo') === null) {
+            self::markTestSkipped('Poppler is not installed.');
+        }
+        if ($finder->find('qpdf') === null) {
+            self::markTestSkipped('qpdf is not installed, so there is no check to time out.');
+        }
+
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        file_put_contents($this->pdfPath, $this->onePagePdf());
+
+        // A budget the document passes the size gate on, paired with a clock
+        // nothing can finish inside — which is what a slow host does to a file
+        // small enough to have been worth checking.
+        $provider = new PdfPageProvider(
+            new LockFactory(new FlockStore(sys_get_temp_dir())),
+            null,
+            null,
+            8.0,
+            0.000001,
+        );
+
+        self::assertSame(
+            1,
+            $provider->inspect($this->pdfPath, ComicSourceType::PDF)->pageCount,
+            'A structural check that timed out must not reject a readable PDF.',
+        );
+    }
+
+    /** A document qpdf can actually make sense of is still checked properly. */
+    public function testAReadableDocumentStillPassesTheStructuralCheck(): void
+    {
+        $finder = new ExecutableFinder();
+        if ($finder->find('pdfinfo') === null) {
+            self::markTestSkipped('Poppler is not installed.');
+        }
+
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        file_put_contents($this->pdfPath, $this->onePagePdf());
+        $provider = new PdfPageProvider(new LockFactory(new FlockStore(sys_get_temp_dir())));
+
+        self::assertSame(1, $provider->inspect($this->pdfPath, ComicSourceType::PDF)->pageCount);
+    }
+
+    /**
+     * The gate, which is the actual fix.
+     *
+     * `qpdf --check` costs about 0.4s per megabyte because it reads every
+     * object in the document. Comic PDFs are routinely 100-500 MB, so the check
+     * cannot finish on them inside any budget a web request can afford — and a
+     * check that is started and abandoned has cost the same as one that
+     * finished while answering nothing. So a document it cannot finish is never
+     * started, rather than being timed out partway through.
+     */
+    public function testLargeDocumentsAreNotPutThroughACheckThatCannotFinish(): void
+    {
+        $budget = 8.0;
+
+        // The single issues the check is genuinely worth running on.
+        self::assertTrue(PdfPageProvider::isWorthChecking(5 * 1048576, $budget));
+        self::assertTrue(PdfPageProvider::isWorthChecking(15 * 1048576, $budget));
+
+        // The manga volumes that could not be uploaded at all.
+        self::assertFalse(PdfPageProvider::isWorthChecking(121 * 1048576, $budget));
+        self::assertFalse(PdfPageProvider::isWorthChecking(500 * 1048576, $budget));
+    }
+
+    /** The estimate is what the gate is built on, so it is asserted directly. */
+    public function testTheCostEstimateTracksFileSize(): void
+    {
+        // The measurement the default is derived from: 57.7 MB took 20.9s.
+        self::assertEqualsWithDelta(
+            20.9,
+            PdfPageProvider::estimatedCheckSeconds((int) (57.7 * 1048576)),
+            3.0,
+            'The default rate must stay close to the measured one.',
+        );
+
+        self::assertSame(0.0, PdfPageProvider::estimatedCheckSeconds(0));
+        self::assertSame(0.0, PdfPageProvider::estimatedCheckSeconds(-1));
+        self::assertGreaterThan(
+            PdfPageProvider::estimatedCheckSeconds(10 * 1048576),
+            PdfPageProvider::estimatedCheckSeconds(20 * 1048576),
+        );
+    }
+
+    /**
+     * The rate is a property of the host, not of this application: a slower
+     * disk changes what the same budget can afford. The default was measured on
+     * a development container, so an operator has to be able to correct it.
+     */
+    public function testASlowerHostChecksSmallerDocumentsForTheSameBudget(): void
+    {
+        $budget = 8.0;
+        $twentyMegabytes = 20 * 1048576;
+
+        // At the measured rate, 20 MB is exactly affordable.
+        self::assertTrue(PdfPageProvider::isWorthChecking($twentyMegabytes, $budget, 0.4));
+
+        // On a host three times slower, the same budget must buy less.
+        self::assertFalse(PdfPageProvider::isWorthChecking($twentyMegabytes, $budget, 1.2));
+
+        // And on a faster one, more.
+        self::assertTrue(PdfPageProvider::isWorthChecking(60 * 1048576, $budget, 0.1));
+    }
+
+    /** A rate of zero is a misconfiguration, not a licence to check anything. */
+    public function testAZeroOrNegativeRateFallsBackToTheMeasuredOne(): void
+    {
+        $huge = 500 * 1048576;
+
+        self::assertFalse(PdfPageProvider::isWorthChecking($huge, 8.0, 0.0));
+        self::assertFalse(PdfPageProvider::isWorthChecking($huge, 8.0, -1.0));
+    }
+
+    /** What the operator-facing command prints, which is the ratio that matters. */
+    public function testTheReportedThresholdIsTheBudgetOverTheRate(): void
+    {
+        self::assertSame(20.0, PdfPageProvider::largestCheckedMegabytes(8.0, 0.4));
+        self::assertSame(200.0, PdfPageProvider::largestCheckedMegabytes(30.0, 0.15));
+
+        // Either setting at zero means nothing is checked.
+        self::assertSame(0.0, PdfPageProvider::largestCheckedMegabytes(0.0, 0.4));
+        self::assertSame(0.0, PdfPageProvider::largestCheckedMegabytes(8.0, 0.0));
+    }
+
+    /**
+     * A budget of zero turns the check off, which is a supported configuration
+     * rather than a degraded one — it is what a host without qpdf already does.
+     */
+    public function testAZeroBudgetDisablesTheCheckEntirely(): void
+    {
+        self::assertFalse(PdfPageProvider::isWorthChecking(1024, 0.0));
+        self::assertFalse(PdfPageProvider::isWorthChecking(0, 0.0));
+        self::assertFalse(PdfPageProvider::isWorthChecking(1024, -1.0));
+    }
+
+    /** And a disabled check still imports a perfectly good PDF. */
+    public function testAPdfStillImportsWithTheCheckDisabled(): void
+    {
+        if ((new ExecutableFinder())->find('pdfinfo') === null) {
+            self::markTestSkipped('Poppler is not installed.');
+        }
+
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        file_put_contents($this->pdfPath, $this->onePagePdf());
+        $provider = new PdfPageProvider(
+            new LockFactory(new FlockStore(sys_get_temp_dir())),
+            null,
+            null,
+            0.0,
+        );
+
+        self::assertSame(1, $provider->inspect($this->pdfPath, ComicSourceType::PDF)->pageCount);
+    }
 }

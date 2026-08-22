@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, Copy, KeyRound, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { AlertTriangle, Check, Copy, Eye, EyeOff, KeyRound, Loader2, RefreshCw, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { logger } from "@/lib/logger";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -62,6 +63,11 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
   const [withdrawingId, setWithdrawingId] = useState(null);
   const [confirmingRotation, setConfirmingRotation] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
+  // Codes the owner has asked to see, by id. Fetched one at a time and held
+  // only for this visit — nothing about a code is kept once the page is left.
+  const [revealed, setRevealed] = useState({});
+  const [revealingId, setRevealingId] = useState(null);
+  const [copiedCodeId, setCopiedCodeId] = useState(null);
   const { toast } = useToast();
 
   // Fetches without touching state, so both the effect below and the withdraw
@@ -157,20 +163,62 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
   };
 
   const copyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(identity.userCode);
+    if (await copyText(identity.userCode)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      return;
+    }
+
+    // Clipboard access can still be refused outright; the code is on screen and
+    // selectable, so say so rather than pretending the copy worked.
+    logger.error("Could not copy the user code.");
+    toast({
+      title: "Could not copy the code",
+      description: "Select the code and copy it manually.",
+      variant: "destructive",
+    });
+  };
+
+  const toggleReveal = async (code) => {
+    if (revealed[code.id]) {
+      setRevealed((current) => {
+        const next = { ...current };
+        delete next[code.id];
+        return next;
+      });
+      return;
+    }
+
+    setRevealingId(code.id);
+
+    try {
+      const data = await api.get(`/api/shares/content-codes/${code.id}/reveal`);
+      setRevealed((current) => ({ ...current, [code.id]: data.code }));
     } catch (err) {
-      // Clipboard access can be refused; the code is on screen and selectable,
-      // so say so rather than pretending the copy worked.
-      logger.error("Could not copy the user code:", err);
+      logger.error("Reading a sharing code back failed:", err);
       toast({
-        title: "Could not copy the code",
-        description: "Select the code and copy it manually.",
+        title: "Could not show the code",
+        description: err.message || "Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setRevealingId(null);
     }
+  };
+
+  const copyHandedOutCode = async (code) => {
+    if (await copyText(revealed[code.id])) {
+      setCopiedCodeId(code.id);
+      setTimeout(() => setCopiedCodeId(null), 2000);
+      return;
+    }
+
+    logger.error("Could not copy a handed-out sharing code.");
+    toast({
+      title: "Could not copy the code",
+      description: "Select the code and copy it manually.",
+      variant: "destructive",
+    });
   };
 
   const redeem = async () => {
@@ -343,11 +391,47 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
                           ? ` · expires ${new Date(code.expiresAt).toLocaleString()}`
                           : "")}
                     </p>
+                    {revealed[code.id] && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <code className="rounded border bg-muted px-2 py-1 font-mono text-sm tracking-widest">
+                          {revealed[code.id]}
+                        </code>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => copyHandedOutCode(code)}
+                          aria-label={`Copy the code for ${describeCode(code)}`}
+                        >
+                          {copiedCodeId === code.id
+                            ? <Check className="h-4 w-4" />
+                            : <Copy className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={code.isRedeemable ? "default" : "outline"}>
                       {DEAD_REASON_LABELS[code.deadReason] || "Active"}
                     </Badge>
+                    {/* Offered on dead codes too: "which one was that?" is a
+                        question about a withdrawn code as much as a live one,
+                        and answering it hands over nothing redeemable. */}
+                    {code.canReveal && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={revealingId === code.id}
+                        aria-label={revealed[code.id]
+                          ? `Hide the code for ${describeCode(code)}`
+                          : `Show the code for ${describeCode(code)}`}
+                        onClick={() => toggleReveal(code)}
+                      >
+                        {revealingId === code.id
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : revealed[code.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        <span className="ml-2 hidden sm:inline">{revealed[code.id] ? "Hide" : "Show"}</span>
+                      </Button>
+                    )}
                     {code.isRedeemable && (
                       <Button
                         size="sm"

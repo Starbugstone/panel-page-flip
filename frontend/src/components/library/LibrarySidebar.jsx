@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { BookOpen, Cloud, FolderPlus, Library, Share2, Sparkles } from "lucide-react";
+import { BookOpen, Cloud, FolderPlus, HardDrive, Library, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LibraryFolderTree } from "@/components/library/LibraryFolderTree";
+import { UserStorageUsage } from "@/components/UserStorageUsage";
+import { useStorageUsage } from "@/hooks/use-storage-usage";
 
 const QUICK_VIEWS = [
   { value: "all", label: "All comics", icon: Library },
@@ -16,6 +18,7 @@ const QUICK_VIEWS = [
 export function LibrarySidebar({ folders, activeFolderId, activeView, onFolderSelect, onViewSelect, onCreateFolder }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const { usage } = useStorageUsage();
 
   const create = async (event) => {
     event.preventDefault();
@@ -60,6 +63,23 @@ export function LibrarySidebar({ folders, activeFolderId, activeView, onFolderSe
           <p className="px-2 py-3 text-sm text-muted-foreground">Create a folder to organise your collection.</p>
         )}
       </div>
+      {/* Absent rather than a placeholder while it loads or after it fails:
+          storage use is ambient here, and a bar with nothing behind it would
+          be worse than no bar. */}
+      {usage && (
+        <div className="border-t pt-4">
+          <h2 className="mb-2 flex items-center gap-1.5 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <HardDrive className="h-3.5 w-3.5" /> Storage
+          </h2>
+          <div className="px-2">
+            <UserStorageUsage
+              usedBytes={usage.storageUsedBytes}
+              quotaBytes={usage.storageQuotaBytes}
+              unmeasuredComicCount={usage.unmeasuredComicCount}
+            />
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

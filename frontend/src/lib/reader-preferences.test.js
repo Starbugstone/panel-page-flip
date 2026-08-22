@@ -85,7 +85,8 @@ describe("what one device and orientation may say for itself", () => {
     });
 
     expect(preferences.overrides[0].settings).toEqual({ fit: "width" });
-    expect(effectiveReaderSettings(preferences, phonePortrait).mode).toBe("single");
+    expect(effectiveReaderSettings(preferences, phonePortrait).mode)
+      .toBe(DEFAULT_READER_PREFERENCES.settings.mode);
   });
 
   it("hands a context back to the account default", () => {

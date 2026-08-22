@@ -25,9 +25,9 @@ immediately clear.
 
 | Setting | Behaviour |
 | --- | --- |
+| Continuous scroll | Stacks pages in source order for native vertical scrolling. Nearby pages load around the viewport while distant pages keep their space without holding decoded artwork. **This is the default**: it is the reading model every other thing on a phone already uses, and the only one with no page-turn target to miss. |
 | Single page | Shows one logical source page at a time. |
-| Two pages | Shows facing pages on a suitable landscape desktop or tablet. The first page can stay alone as a cover, likely scanned spreads stay alone, and final odd pages remain readable. Narrow and portrait screens safely show one page without changing the saved preference. |
-| Continuous scroll | Stacks pages in source order for native vertical scrolling. Nearby pages load around the viewport while distant pages keep their space without holding decoded artwork. |
+| Two pages | Shows facing pages on a suitable landscape desktop or tablet. The first page can stay alone as a cover, likely scanned spreads stay alone, and final odd pages remain readable. Narrow and portrait screens safely show one page without changing the saved preference. A reading unit holding one page — a cover, or a final odd page — is bounded by the height of the reader and centred in it, rather than stretched across the full width and clipped at the bottom. |
 
 **Reading direction** changes facing-page placement and physical tap/swipe
 semantics. Right-to-left reading puts the later page on the left and makes a
@@ -64,8 +64,39 @@ Continuous mode leaves one-finger vertical scrolling native and does not attach
 paged swipe navigation. Pinch, double tap and zoomed panning still work on each
 loaded page.
 
-A mouse keeps its click zones, its wheel and its hover. It has a cursor and does
-not need any of this disambiguating, so it does not go through it.
+A mouse does not go through any of this. It has a cursor, hover and a wheel, and
+putting its clicks behind a double-tap window would make every one of them feel
+broken — so it has its own small set of rules instead.
+
+## Reading with a mouse
+
+| Action | Behaviour |
+| --- | --- |
+| Click the mat left or right of the page | Previous or next page in paged modes, adjusted for reading direction |
+| Click the page itself | Show or hide the reader controls. **Never turns the page** |
+| Click anywhere while zoomed | Back to the fitted page |
+| Drag while zoomed | Pan the page; the cursor becomes a grab handle to say so |
+| Wheel while zoomed | Zoom around the pointer |
+| `Escape` while zoomed | Back to the fitted page |
+
+Page turns live on the letterbox around the artwork and never on the artwork
+itself. A reader following a panel with the cursor clicks where they are already
+looking, and on a page that also turned pages every one of those clicks lost
+their place. The mat is dead space by definition, which makes it the one region
+where a click cannot mean anything else. The page keeps the click that cannot
+lose anything — showing and hiding the chrome.
+
+Touch is deliberately unaffected and still uses the whole width: a phone fitted
+to width has no mat to aim at, and a thumb has no cursor to aim with.
+
+The drag that moved a zoomed page does not also arrive as a click, or letting go
+would zoom back out and undo the pan that was just made. `Escape` only claims the
+key while there is a zoom to leave and the settings sheet is closed, so it keeps
+its ordinary meanings the rest of the time.
+
+Continuous mode has no zoom control on a desktop — there is no zoom button, and
+the wheel scrolls. Pinch and double tap still zoom a continuous page on a
+touchscreen, and a mouse can drag one that has been zoomed that way.
 
 ## Page size on this screen
 

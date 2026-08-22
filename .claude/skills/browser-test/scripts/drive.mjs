@@ -96,6 +96,24 @@ try {
   await ctx.clearCookies();
   await login('navtest@example.com', 'NavTest123!');
   ok('user logged in');
+
+  // Reader preferences are saved per account and outlive the run that set
+  // them, exactly as comics do. A previous driver that left the reader in
+  // two-page mode makes the page assertions below fail against an app that is
+  // working perfectly — so start every run from the shipped defaults.
+  const prefsReset = await page.evaluate(async () => {
+    const token = document.cookie.split(';').map((c) => c.trim())
+      .find((c) => c.startsWith('XSRF-TOKEN='))?.slice('XSRF-TOKEN='.length) || '';
+    const r = await fetch('/api/reader/preferences', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'X-XSRF-TOKEN': decodeURIComponent(token) },
+    });
+    return r.status;
+  });
+  if (prefsReset < 400) ok(`reader preferences reset to defaults (${prefsReset})`);
+  else bad(`could not reset reader preferences: ${prefsReset}`);
+
   await shot('04-dashboard');
 
   for (const [file, title] of [
@@ -188,13 +206,43 @@ try {
       await shot(`09-reader-${c.sourceType}-settings`);
       ok(`${c.title}: settings popover opened`);
 
-      // Every control must be enabled once preferences have loaded.
+      // Every control must be enabled once preferences have loaded — except
+      // the ones a reading mode genuinely does not have. "Show first page
+      // alone" only means anything in two-page mode and is disabled outside
+      // it, so asserting on every switch reported a failure against a
+      // perfectly healthy app on every single run.
+      const modeGated = ['reader-cover-alone'];
       const disabled = [];
       for (const s of await page.locator('[role="switch"]').all()) {
+        if (modeGated.includes(await s.getAttribute('id'))) continue;
         if (await s.isDisabled()) disabled.push((await s.getAttribute('aria-label')) || '?');
       }
       if (disabled.length === 0) ok(`${c.title}: all setting switches enabled after load`);
       else bad(`${c.title}: switches still disabled after load: ${disabled.join(', ')}`);
+
+      // And prove the gate is a gate, not a stuck control: it has to come back
+      // to life when the mode it belongs to is selected.
+      const coverAlone = page.locator('#reader-cover-alone');
+      if (await coverAlone.count()) {
+        if (!(await coverAlone.isDisabled())) ok(`${c.title}: cover-alone already enabled`);
+        else {
+          const modeCombo = page.getByRole('combobox').first();
+          await modeCombo.click();
+          await page.waitForTimeout(500);
+          const twoPages = page.getByRole('option', { name: /two pages/i }).first();
+          if (await twoPages.count()) {
+            await twoPages.click();
+            await page.waitForTimeout(1200);
+            if (!(await coverAlone.isDisabled())) ok(`${c.title}: cover-alone enables in two-page mode`);
+            else bad(`${c.title}: cover-alone stays disabled even in two-page mode`);
+            // Put the mode back so the fit assertions below are unaffected.
+            await modeCombo.click();
+            await page.waitForTimeout(500);
+            await page.getByRole('option', { name: /single page/i }).first().click().catch(() => {});
+            await page.waitForTimeout(900);
+          } else bad(`${c.title}: no two-page reading mode option`);
+        }
+      }
 
       // Change fit -> Fit width
       const combo = page.getByRole('combobox', { name: /page size/i }).first();

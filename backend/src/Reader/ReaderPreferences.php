@@ -62,7 +62,11 @@ final class ReaderPreferences
         return [
             'schemaVersion' => self::SCHEMA_VERSION,
             'settings' => [
-                'mode' => 'single',
+                // Continuous scroll, because it is the reading model every
+                // other thing on a phone already uses and the only one with no
+                // page-turn target to miss. Paged reading stays one setting
+                // away for anybody who prefers it.
+                'mode' => 'continuous',
                 'direction' => 'ltr',
                 'fit' => 'contain',
                 'autoHideControls' => true,

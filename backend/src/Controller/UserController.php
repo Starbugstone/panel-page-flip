@@ -9,6 +9,7 @@ use App\Repository\UserMetadataCredentialRepository;
 use App\Repository\UserRepository;
 use App\Service\AccountDeletionService;
 use App\Service\AdminAuditService;
+use App\Service\EmailVerificationService;
 use App\Service\PasswordValidator;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
@@ -154,9 +155,6 @@ class UserController extends AbstractController
         $this->denyAccessUnlessGranted('ROLE_ADMIN');
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
-        }
 
         // Basic validation for required fields
         if (empty($data['email']) || empty($data['password']) || empty($data['name'])) {
@@ -272,9 +270,6 @@ class UserController extends AbstractController
 
         // Get data from request
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
-        }
 
         $beforeRoles = $targetUser->getRoles();
 
@@ -539,7 +534,8 @@ class UserController extends AbstractController
         int $id,
         EntityManagerInterface $entityManager,
         AdminAuditService $auditService,
-        SecurityAuditLogger $securityLogger
+        SecurityAuditLogger $securityLogger,
+        EmailVerificationService $emailVerification
     ): JsonResponse {
         $admin = $this->getUser();
         if (!$admin instanceof User || !$admin->isAdmin()) {
@@ -551,11 +547,11 @@ class UserController extends AbstractController
             return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
         }
 
-        $targetUser->setIsEmailVerified(true);
-        $targetUser->setEmailVerificationToken(null);
-        $targetUser->setEmailVerificationTokenExpiresAt(null);
+        // Logged before the verification is written so that both land in the
+        // one flush below: an audit trail that can be missing the entry for the
+        // change it exists to record is worse than no audit trail at all.
         $auditService->log($admin, 'user_verify', 'user', $targetUser->getId(), ['email' => $targetUser->getEmail()]);
-        $entityManager->flush();
+        $emailVerification->markVerified($targetUser);
 
         $securityLogger->audit(SecurityAuditLogger::USER_EMAIL_VERIFIED, [
             'actor_user_id' => $admin->getId(),
