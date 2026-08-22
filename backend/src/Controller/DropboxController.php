@@ -45,7 +45,7 @@ class DropboxController extends AbstractController
     #[Route('/connect', name: 'dropbox_connect', methods: ['GET'])]
     public function connect(): Response
     {
-        $user = $this->requireUser();
+        $this->requireUser();
 
         // Random state, echoed back by Dropbox, to protect the callback from CSRF.
         $state = bin2hex(random_bytes(16));

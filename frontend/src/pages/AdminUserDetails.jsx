@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, BookOpen, Cloud, HardDrive, MailCheck, ShieldAlert, Tags, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarPlus, Clock, Cloud, HardDrive, ShieldAlert, Tags, Trash2 } from "lucide-react";
 
 import { AdminComicsList } from "@/components/AdminComicsList";
 import { AdminTagsList } from "@/components/AdminTagsList";
@@ -210,7 +210,10 @@ function AdminUserDetailsPage({ userId }) {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-comic">{user.name || user.email}</h1>
-          <p className="mt-1 text-muted-foreground">{user.email}</p>
+          {/* Most accounts have no display name, and the heading falls back
+              to the address — printing it again underneath said nothing and
+              read as a rendering fault. */}
+          {user.name ? <p className="mt-1 text-muted-foreground">{user.email}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {user.roles?.includes("ROLE_ADMIN") && <Badge>Admin</Badge>}
@@ -232,8 +235,8 @@ function AdminUserDetailsPage({ userId }) {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <SummaryCard icon={BookOpen} label="Comics owned" value={user.comicCount ?? 0} />
             <SummaryCard icon={Tags} label="Personal tags" value={user.tagCount ?? 0} />
-            <SummaryCard icon={MailCheck} label="Created" value={formatDateTime(user.createdAt)} />
-            <SummaryCard icon={MailCheck} label="Last login" value={formatDateTime(user.lastLoginAt, "Never")} />
+            <SummaryCard icon={CalendarPlus} label="Created" value={formatDateTime(user.createdAt)} />
+            <SummaryCard icon={Clock} label="Last login" value={formatDateTime(user.lastLoginAt, "Never")} />
           </div>
 
           <Card>

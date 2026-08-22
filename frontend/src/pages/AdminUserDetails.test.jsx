@@ -122,4 +122,26 @@ describe("AdminUserDetails", () => {
 
     release({ message: "User code replaced." });
   });
+  /**
+   * The heading already falls back to the address for the great majority of
+   * accounts, which have no display name. Printing it a second line down read
+   * as a rendering fault rather than as information.
+   */
+  describe("identity heading", () => {
+    it("shows the address once when the account has no display name", async () => {
+      vi.mocked(api.get).mockResolvedValue({ user: { ...account, name: null } });
+      renderPage();
+
+      const heading = await screen.findByRole("heading", { name: "reader@example.com" });
+      expect(heading).toBeInTheDocument();
+      expect(screen.getAllByText("reader@example.com")).toHaveLength(1);
+    });
+
+    it("keeps the address under the name when there is one", async () => {
+      renderPage();
+
+      expect(await screen.findByRole("heading", { name: "Test Reader" })).toBeInTheDocument();
+      expect(screen.getByText("reader@example.com")).toBeInTheDocument();
+    });
+  });
 });
