@@ -73,6 +73,17 @@ parameters:
     env(COMIC_VINE_SHARED_ENABLED): 'true'
     metron_shared_enabled: '%env(bool:METRON_SHARED_ENABLED)%'
     comic_vine_shared_enabled: '%env(bool:COMIC_VINE_SHARED_ENABLED)%'
+    # Advertising. Two settings, because everything else AdSense can be told —
+    # which formats run, which pages are excluded, whether an Offerwall appears —
+    # is configured in the AdSense account. See docs/advertising.md.
+    #
+    # Off unless an operator turns it on: the ordinary deployment of this
+    # software is somebody's own library, which has no publisher account and no
+    # reason to load a third-party script.
+    env(ADSENSE_ENABLED): 'false'
+    env(ADSENSE_CLIENT): ''
+    adsense_enabled: '%env(bool:ADSENSE_ENABLED)%'
+    adsense_client: '%env(ADSENSE_CLIENT)%'
     # Daily log files live under these, one folder per stream. Security and
     # audit files are grouped into YYYY/MM/ because a year of them at one file
     # per day is several hundred entries in a single listing.
@@ -200,6 +211,10 @@ services:
             $mailerFromName: '%mailer_from_name%'
             
     # Comic service with comics directory configuration
+    App\Service\BulkUploadSessionService:
+        arguments:
+            $bulkUploadSessionCache: '@upload.bulk_session.cache'
+
     App\Service\StorageQuotaService:
         arguments:
             $uploadUserQuotaBytes: '%upload_user_quota_bytes%'

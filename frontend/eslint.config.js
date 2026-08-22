@@ -27,7 +27,12 @@ export default [
     },
   },
   {
-    files: ["src/components/ui/**/*.{js,jsx}", "src/components/ThemeProvider.jsx", "src/hooks/**/*.{js,jsx}"],
+    files: [
+      "src/components/ui/**/*.{js,jsx}",
+      "src/components/ThemeProvider.jsx",
+      "src/components/ads/AdSenseProvider.jsx",
+      "src/hooks/**/*.{js,jsx}",
+    ],
     rules: { "react-refresh/only-export-components": "off" },
   },
 ];

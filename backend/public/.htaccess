@@ -29,6 +29,11 @@ DirectoryIndex index.php index.html
     
     # For API routes, forward to index.php
     RewriteRule ^api(/.*)?$ index.php [QSA,L]
+
+    # ads.txt is generated from the configured publisher id, so it is a Symfony
+    # route rather than a file on disk. Without this it would fall through to
+    # index.html below and answer the IAB crawler with the React application.
+    RewriteRule ^ads\.txt$ index.php [QSA,L]
     
     # For all other routes, try to serve the file directly, otherwise use index.html
     RewriteCond %{REQUEST_FILENAME} !-f

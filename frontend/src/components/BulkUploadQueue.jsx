@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
 import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile } from "@/lib/comic-upload";
+import { closeBulkUploadSession } from "@/lib/bulk-upload-session";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -143,6 +144,12 @@ export default function BulkUploadQueue() {
     setRunning(true);
     await runQueue(pending);
     setRunning(false);
+    // The batch is what a rewarded session covers, so it ends here rather than
+    // on a timer or on leaving the page: a file that failed can still be
+    // retried inside this run, and the next batch asks again. Nothing about
+    // uploading depended on the session, so nothing here checks whether it
+    // closed.
+    await closeBulkUploadSession();
   };
 
   return (

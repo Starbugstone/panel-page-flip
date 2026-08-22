@@ -1,5 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 
+import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
+
 export function Footer() {
   const { pathname } = useLocation();
   if (pathname.startsWith("/read/")) return null;
@@ -11,6 +13,7 @@ export function Footer() {
         <Link className="hover:text-foreground" to="/terms">Terms</Link>
         <Link className="hover:text-foreground" to="/cookies">Cookies</Link>
         <Link className="hover:text-foreground" to="/report-content">Report illegal content</Link>
+        <PrivacyChoicesButton className="hover:text-foreground underline-offset-4 hover:underline" />
       </nav>
     </footer>
   );
