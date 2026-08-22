@@ -54,6 +54,12 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
   const [isAddUserDialogOpen, setIsAddUserDialogOpen] = useState(false);
   const [newUserData, setNewUserData] = useState({ name: '', email: '', password: '', roles: ['ROLE_USER'] });
   const newUserPasswordErrors = newUserData.password ? validatePassword(newUserData.password) : [];
+  const canCreateUser = Boolean(
+    newUserData.name.trim()
+    && newUserData.email.trim()
+    && newUserData.password
+    && newUserPasswordErrors.length === 0
+  );
   const editPasswordErrors = editFormData.password ? validatePassword(editFormData.password) : [];
 
   const title = showOnlyUnverified ? "Pending Verifications" : "Users Management";
@@ -217,7 +223,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold">{title}</h2>
           {showOnlyUnverified && (
@@ -226,19 +232,19 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-4">
-          <div className="relative">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
+          <div className="relative w-full sm:w-auto">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"
               placeholder={searchPlaceholder}
-              className="pl-8 w-[250px]"
+              className="w-full pl-8 sm:w-[250px]"
               value={searchInput}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           {!showOnlyUnverified && (
-            <Button onClick={handleOpenAddUserDialog}>
+            <Button className="w-full sm:w-auto" onClick={handleOpenAddUserDialog}>
               <UserPlus className="mr-2 h-4 w-4" />
               Add User
             </Button>
@@ -499,6 +505,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                 <Label htmlFor="new-name" className="text-right">Name</Label>
                 <Input 
                   id="new-name" 
+                  required
                   value={newUserData.name}
                   onChange={(e) => setNewUserData({...newUserData, name: e.target.value})}
                   className="col-span-3" 
@@ -510,6 +517,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                 <Input 
                   id="new-email" 
                   type="email"
+                  required
                   value={newUserData.email}
                   onChange={(e) => setNewUserData({...newUserData, email: e.target.value})}
                   className="col-span-3" 
@@ -521,6 +529,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                 <Input 
                   id="new-password" 
                   type="password"
+                  required
                   value={newUserData.password}
                   onChange={(e) => setNewUserData({...newUserData, password: e.target.value})}
                   className="col-span-3" 
@@ -570,7 +579,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
               <DialogClose asChild>
                 <Button type="button" variant="outline">Cancel</Button>
               </DialogClose>
-              <Button type="button" onClick={handleCreateUser}>Create User</Button>
+              <Button type="button" disabled={!canCreateUser} onClick={handleCreateUser}>Create User</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

@@ -130,21 +130,21 @@ export function AdminTagsList({ creatorId, embedded = false }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-bold">{embedded ? "Tags created by this user" : "Tags Management"}</h2>
-        <div className="flex items-center gap-4">
-          <div className="relative">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
+          <div className="relative w-full sm:w-auto">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"
               placeholder="Search tags..."
-              className="pl-8 w-[250px]"
+              className="w-full pl-8 sm:w-[250px]"
               value={searchInput}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           {!embedded && (
-            <Button onClick={() => setIsAddDialogOpen(true)}>
+            <Button className="w-full sm:w-auto" onClick={() => setIsAddDialogOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Add Tag
             </Button>
@@ -164,7 +164,7 @@ export function AdminTagsList({ creatorId, embedded = false }) {
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className="border rounded-md">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
