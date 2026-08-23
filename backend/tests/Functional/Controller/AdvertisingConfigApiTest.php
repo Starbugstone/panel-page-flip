@@ -32,7 +32,6 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
 
         self::assertFalse($adsense['enabled']);
         self::assertNull($adsense['client']);
-        self::assertFalse($adsense['testMode']);
     }
 
     /**
@@ -44,7 +43,7 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
         $payload = $this->getJson('/api/public-config');
 
         self::assertSame(['adsense'], array_keys($payload));
-        self::assertSame(['enabled', 'client', 'testMode'], array_keys($payload['adsense']));
+        self::assertSame(['enabled', 'client'], array_keys($payload['adsense']));
     }
 
     public function testAdsTxtIsAbsentWhereThereIsNoAuthorisedSeller(): void
@@ -76,16 +75,14 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
 
         self::assertTrue($adsense['enabled']);
         self::assertSame('ca-pub-1234567890123456', $adsense['client']);
-        // Outside production every placement is a test placement, so a developer
-        // pointing a real account at localhost records no impressions.
-        self::assertTrue($adsense['testMode']);
+        self::assertSame(['enabled', 'client'], array_keys($adsense));
     }
 
     private function enableAdvertising(string $client): void
     {
         static::getContainer()->set(
             AdvertisingConfiguration::class,
-            new AdvertisingConfiguration(true, $client, 'test', new NullLogger())
+            new AdvertisingConfiguration(true, $client, new NullLogger())
         );
     }
 }

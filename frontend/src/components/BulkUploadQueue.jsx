@@ -7,6 +7,8 @@ import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
 import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile } from "@/lib/comic-upload";
 import { closeBulkUploadSession } from "@/lib/bulk-upload-session";
+import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
+import { isAdvertisingActive } from "@/lib/advertising";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,6 +41,7 @@ export default function BulkUploadQueue() {
   const { toast } = useToast();
   const { refreshSession } = useAuth();
   const { config } = useConfig();
+  const { config: adSenseConfig } = useAdSense();
   const [searchParams] = useSearchParams();
   const { folders, isLoading: foldersLoading } = useLibraryFolders();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
@@ -111,25 +114,35 @@ export default function BulkUploadQueue() {
         onStatus: (status) => updateRow(row.id, { status }),
       });
       updateRow(row.id, { status: "done", progress: 100, comic: result.comic });
+
+      return true;
     } catch (error) {
       const cancelled = error.name === "AbortError" || controller.signal.aborted;
       updateRow(row.id, { status: cancelled ? "cancelled" : "error", error: cancelled ? "Upload cancelled" : error.message });
+
+      return false;
     } finally {
       controllers.current.delete(row.id);
     }
   };
 
+  /** @returns {Promise<number>} how many files in this run did not upload */
   const runQueue = async (selectedRows) => {
     let nextIndex = 0;
+    let failures = 0;
     const worker = async () => {
       while (nextIndex < selectedRows.length) {
         const row = selectedRows[nextIndex];
         nextIndex += 1;
         if (removedRef.current.has(row.id)) continue;
-        await uploadRow(row);
+        if (!await uploadRow(row)) failures += 1;
       }
     };
     await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_FILES, selectedRows.length) }, worker));
+
+    // Counted here rather than read off `rows` afterwards, because this function
+    // is awaited inside a closure that captured `rows` before the run started.
+    return failures;
   };
 
   const startAll = async () => {
@@ -142,14 +155,22 @@ export default function BulkUploadQueue() {
     // Only removals made during this run may cancel work in it.
     removedRef.current = new Set();
     setRunning(true);
-    await runQueue(pending);
+    const failures = await runQueue(pending);
     setRunning(false);
-    // The batch is what a rewarded session covers, so it ends here rather than
-    // on a timer or on leaving the page: a file that failed can still be
-    // retried inside this run, and the next batch asks again. Nothing about
-    // uploading depended on the session, so nothing here checks whether it
-    // closed.
-    await closeBulkUploadSession();
+
+    // The batch is what a rewarded session covers, so it ends when the batch
+    // does — but only once there is nothing left to retry. Closing it while
+    // files are still failed would charge a second advertisement for finishing
+    // the batch the first one paid for, which issue #73 rules out explicitly.
+    // The session then expires on its own two hours later.
+    //
+    // Skipped entirely where advertising is off, because the gate never opened
+    // a session there and this would be an authenticated request to delete
+    // something that does not exist. Nothing about uploading depended on the
+    // session, so nothing here checks whether it closed.
+    if (failures === 0 && isAdvertisingActive(adSenseConfig)) {
+      await closeBulkUploadSession();
+    }
   };
 
   return (

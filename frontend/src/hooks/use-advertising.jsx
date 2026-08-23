@@ -20,7 +20,7 @@ import { logger } from "@/lib/logger";
  * request.
  */
 
-export const ADVERTISING_OFF = Object.freeze({ enabled: false, client: null, testMode: false });
+export const ADVERTISING_OFF = Object.freeze({ enabled: false, client: null });
 
 export function useAdvertisingConfig() {
   const [state, setState] = useState({ config: ADVERTISING_OFF, isLoading: true });

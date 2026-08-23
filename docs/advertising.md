@@ -45,7 +45,7 @@ place this is decided; the browser is told the outcome and never the inputs.
 anybody has signed in):
 
 ```json
-{ "adsense": { "enabled": true, "client": "ca-pub-1234567890123456", "testMode": false } }
+{ "adsense": { "enabled": true, "client": "ca-pub-1234567890123456" } }
 ```
 
 The publisher id is public by design; it appears in the page code Google issues.
@@ -65,8 +65,12 @@ and a stale one names somebody else as entitled to sell this domain's inventory.
 With advertising off the path 404s, because an installation with no AdSense
 account has no authorised seller to declare.
 
-Both nginx configurations and `backend/public/.htaccess` route `/ads.txt` to
-Symfony. A deployment on some other web server needs the equivalent rule.
+Both nginx configurations, `backend/public/.htaccess` and the released Apache
+configuration (`scripts/deploy/htaccess.dist`) route `/ads.txt` to Symfony. The
+last of those is the one the build script installs on the production host, so a
+rule added only to the development file leaves the real deployment answering the
+IAB crawler with the React application. A deployment on some other web server
+needs the equivalent rule.
 
 ## Where advertising may appear
 
@@ -128,6 +132,14 @@ messaging), which the site code installs. This application:
   long after the banner is gone. It is absent where advertising is off, because
   there is then nothing to revisit.
 
+The control has to work on pages the advertising site code never loads — the
+reader, the library, settings — which are exactly the pages somebody is on when
+they change their mind. It therefore fetches Google's Funding Choices script on
+demand: that is the consent half of AdSense without the advertising half, so it
+is safe on a page rendering somebody's comic. Consent that can be given and not
+withdrawn is not consent, and a control that only works on four routes is not a
+withdrawal mechanism.
+
 ## The rewarded bulk-upload gate
 
 Single-file upload is never gated. Somebody who does not want to watch an
@@ -165,11 +177,19 @@ server-side because a `localStorage` flag is not a scope: cleared, copied or
 edited it answers "may I skip the offer" with whatever suits, and it never
 expires by itself.
 
-**The honest limit:** AdSense's Offerwall implements the rewarded format itself
-and publishes no completion callback — the `googlefc` API exposes consent,
-ad-block and US-state surfaces, and nothing for rewarded entitlement. So
-`rewarded: true` is what the browser reported, not something the server
-verified. It is an audit note, and nothing treats it as permission:
+**How the advertisement is actually shown.** `frontend/src/lib/rewarded-ad.js`
+asks Google through the Ad Placement API (`adBreak` with `type: "reward"`),
+which the site code provides and which does report completion: `adViewed` is the
+only thing that produces a watched result. Google plays the advertisement — this
+application draws no player, counts no seconds and renders no skip control,
+which is both the policy requirement and the only way to stay on the right side
+of it. An Offerwall configured in the console is the alternative route to the
+same place and needs no code here.
+
+**The honest limit:** the browser is still the one reporting the outcome, and an
+Offerwall shown by Google's own message surface publishes no callback at all. So
+`rewarded: true` is what the browser said, not something the server verified. It
+is an audit note, and nothing treats it as permission:
 
 - the upload endpoints do not consult it, and must not start to;
 - `POST /api/upload/bulk/session` never refuses;
@@ -181,9 +201,12 @@ application, and an installation with no advertising has to reach it unchanged.
 
 ## Content Security Policy
 
-`docker/nginx_frontend/security-headers.conf` lists the Google origins AdSense
-and the CMP fetch from, in `script-src`, `frame-src`, `img-src` and
-`connect-src`. Named origins, no wildcards. They cost nothing on an installation
+`docker/nginx_frontend/security-headers.conf` and `scripts/deploy/htaccess.dist`
+list the Google origins AdSense and the CMP fetch from, in `script-src`,
+`frame-src`, `img-src` and `connect-src`. The two must stay in step — the second
+is what the released Apache deployment actually serves, and a policy widened
+only in the first leaves advertising blocked on the real host. Named origins, no
+wildcards. They cost nothing on an installation
 with advertising off, because nothing ever reaches for them.
 
 **What is deliberately not shipped is `script-src 'unsafe-inline'`.** Auto Ads
@@ -212,28 +235,44 @@ appears, and bulk upload opens directly.
 publisher and does not serve AdSense web inventory; there is nothing to paste
 into `ADSENSE_CLIENT` for a trial run. What there is instead:
 
-- **Automatic test mode.** Whenever `APP_ENV` is not `prod`, the runtime
-  configuration reports `testMode: true`, which marks placements as test
-  placements. A developer who puts their own publisher id in
-  `backend/.env.local` to watch the integration work therefore records no
-  impressions against their account — which matters, because impressions from a
-  machine nobody visits is the kind of traffic AdSense suspends accounts over.
+- **Nothing that marks a placement as a test.** Auto Ads are configured entirely
+  in the AdSense account and Google exposes no page-side test flag for them, so
+  there is deliberately no `testMode` in the runtime configuration: a flag there
+  could only promise a safety it does not deliver. Pointing a real publisher id
+  at a development machine records real impressions on traffic nobody made,
+  which is the kind of traffic AdSense suspends accounts over. Leave
+  `ADSENSE_ENABLED=false` outside production.
 - **The invalid-configuration path.** Setting `ADSENSE_ENABLED=true` with an
   empty or malformed client exercises the warning and the fail-open behaviour
   end to end without contacting Google at all.
-- **The route policy and the gate are covered by tests**
+- **The route policy, the gate and the legal text are covered by tests**
   (`frontend/src/lib/advertising.test.js`,
+  `frontend/src/lib/adsense-loader.test.jsx`,
+  `frontend/src/lib/rewarded-ad.test.js`,
   `frontend/src/components/ads/AdSenseProvider.test.jsx`,
+  `frontend/src/components/ads/PrivacyChoicesButton.test.jsx`,
+  `frontend/src/components/CookieNotice.advertising.test.jsx`,
+  `frontend/src/pages/LegalPages.test.jsx`,
   `frontend/src/pages/BulkUploadGate.test.jsx`), so the boundary can be changed
-  with something other than a manual sweep of every page.
+  with something other than a manual sweep of every page. `advertising.test.js`
+  reads the routes out of `App.jsx`, so a route added or renamed there has to be
+  classified here rather than becoming ad-free by accident.
 
 ## Production checklist
 
 Application side:
 
-1. Set `ADSENSE_ENABLED=true` and the production `ADSENSE_CLIENT`.
+1. Set `PROD_ADSENSE_ENABLED=true` and `PROD_ADSENSE_CLIENT` in the release
+   environment before running `scripts/build-release.sh`. These are what reach
+   the server: the script runs `composer dump-env prod`, after which Symfony
+   reads `.env.local.php` and stops reading `backend/.env` altogether, so
+   editing `.env` on the host afterwards changes nothing. The build refuses a
+   malformed publisher id rather than shipping advertising quietly switched off.
 2. Confirm `https://<your-domain>/ads.txt` returns the record, not HTML.
-3. Extend `script-src` with `'unsafe-inline'` or a nonce (see above).
+3. Extend `script-src` with `'unsafe-inline'` or a nonce — in
+   `docker/nginx_frontend/security-headers.conf` for the Docker deployment, or
+   `scripts/deploy/htaccess.dist` for the Apache release. Both ship the same
+   Google origins and both omit `'unsafe-inline'`.
 4. Confirm the startup log carries no `ADSENSE_CLIENT is missing or invalid`
    warning.
 

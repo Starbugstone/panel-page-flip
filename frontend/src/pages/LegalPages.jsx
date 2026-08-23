@@ -33,9 +33,27 @@ function useLegalConfig() {
  * that omits a processor they do.
  */
 function useAdvertisingInUse() {
+  const { config, isLoading } = useAdSense();
+
+  // Null, not false, until the answer arrives. These pages carry absolute
+  // claims in both directions — "we do not use advertising networks" is a
+  // statement of fact on an indexable page — and defaulting to the negative one
+  // for the length of a round trip publishes the wrong fact on every load of an
+  // installation that does show advertising. Unknown renders neither claim.
+  return isLoading ? null : isAdvertisingActive(config);
+}
+
+/**
+ * Reopening the consent message from inside the policy text.
+ *
+ * The publisher id has to be passed through because the consent platform is
+ * fetched on demand: these pages are ad-free, so nothing Google-owned has been
+ * loaded by the time somebody reads them and decides to change their mind.
+ */
+function useReopenPrivacyChoices() {
   const { config } = useAdSense();
 
-  return isAdvertisingActive(config);
+  return () => reopenPrivacyChoices({ client: config.client });
 }
 
 function Contact({ email }) {
@@ -87,6 +105,7 @@ export function PrivacyPolicy() {
   const { operator, privacyEmail } = useLegalConfig();
 
   const advertising = useAdvertisingInUse();
+  const reopenChoices = useReopenPrivacyChoices();
 
   return (
     <LegalLayout title="Privacy Policy">
@@ -126,7 +145,7 @@ export function PrivacyPolicy() {
         Email delivery providers receive recipient addresses and message content.
         If you connect Dropbox, Dropbox receives API requests needed to list and
         import the files you select. Dropbox is optional and can be disconnected.
-        {advertising
+        {advertising === null ? null : advertising
           ? " Google serves advertising on a small number of pages, described below. We do not use third-party analytics."
           : " We do not use advertising networks or third-party analytics."}
       </p>
@@ -180,7 +199,7 @@ export function PrivacyPolicy() {
             accept all, reject all, or choose individually; rejecting is as easy
             as accepting; and you can change or withdraw your choices at any time
             using{" "}
-            <button type="button" className="underline" onClick={() => reopenPrivacyChoices()}>
+            <button type="button" className="underline" onClick={reopenChoices}>
               privacy choices
             </button>
             , which also appears in the footer of every page.
@@ -322,11 +341,12 @@ export function TermsOfService() {
 
 export function CookieNoticePage() {
   const advertising = useAdvertisingInUse();
+  const reopenChoices = useReopenPrivacyChoices();
 
   return (
     <LegalLayout title="Cookie Notice">
       <p>
-        {advertising
+        {advertising === null ? null : advertising
           ? "Panel Page Flip uses storage needed to operate the service and remember your theme preference. On a small number of pages it also shows Google advertising, which uses storage of its own — you decide whether to allow that."
           : "Panel Page Flip does not use advertising or analytics cookies. It uses only storage needed to operate the service and remember your theme preference."}
       </p>
@@ -360,14 +380,14 @@ export function CookieNoticePage() {
         Session and security storage are necessary for signed-in features. You can
         clear site data in your browser. Doing so signs you out and resets preferences.
       </p>
-      {advertising ? (
+      {advertising === null ? null : advertising ? (
         <>
           <p>
             Advertising storage is not necessary, and you choose whether to allow it. Where the
             EEA, UK or Swiss rules apply, the consent panel appears before any non-essential
             advertising storage is used; rejecting is as easy as accepting. Reopen it at any time
             through{" "}
-            <button type="button" className="underline" onClick={() => reopenPrivacyChoices()}>
+            <button type="button" className="underline" onClick={reopenChoices}>
               privacy choices
             </button>
             , which is also in the footer of every page.

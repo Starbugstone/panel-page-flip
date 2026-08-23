@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
@@ -12,6 +12,7 @@ import {
   resolveBulkUploadAccess,
 } from "@/lib/bulk-upload-session";
 import { logger } from "@/lib/logger";
+import { requestRewardedAd } from "@/lib/rewarded-ad";
 
 /**
  * The clean route in front of bulk upload.
@@ -27,20 +28,26 @@ import { logger } from "@/lib/logger";
  * through to the uploader.
  */
 export default function BulkUploadGate() {
-  const { scriptStatus } = useAdSense();
+  const { scriptStatus, isLoading } = useAdSense();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [decision, setDecision] = useState(null);
   const [accepting, setAccepting] = useState(false);
+  const [adFailed, setAdFailed] = useState(false);
+  const mounted = useRef(true);
+
+  useEffect(() => () => { mounted.current = false; }, []);
 
   const folder = searchParams.get("folder");
   const uploaderPath = folder ? `${BULK_UPLOAD_ROUTE}?folder=${encodeURIComponent(folder)}` : BULK_UPLOAD_ROUTE;
 
   useEffect(() => {
-    // Waiting out the script is what makes the offer meaningful: deciding while
-    // it is still in flight would resolve every visit to "open" and the rewarded
-    // choice would never be made.
-    if (scriptStatus === "loading") return undefined;
+    // Both waits are load-bearing, and for the same reason. Until the runtime
+    // configuration lands, `scriptStatus` is "idle" because advertising still
+    // looks switched off — deciding then resolves every visit to "open", the
+    // offer is never made, and on a fast session endpoint that is *every*
+    // visit rather than a rare race.
+    if (isLoading || scriptStatus === "loading") return undefined;
 
     let ignore = false;
     resolveBulkUploadAccess({ scriptStatus }).then((outcome) => {
@@ -48,7 +55,7 @@ export default function BulkUploadGate() {
     });
 
     return () => { ignore = true; };
-  }, [scriptStatus]);
+  }, [isLoading, scriptStatus]);
 
   if (decision === "open") return <Navigate replace to={uploaderPath} />;
 
@@ -60,16 +67,47 @@ export default function BulkUploadGate() {
     );
   }
 
+  /**
+   * Show the advertisement, then open the batch.
+   *
+   * `rewarded` records what Google reported and nothing else — the server keeps
+   * it as an audit note and no endpoint treats it as permission. Where no
+   * advertisement could be shown at all the batch still opens: issue #73 is
+   * explicit that missing rewarded inventory must not block bulk upload.
+   */
   const watchAdAndContinue = async () => {
     setAccepting(true);
+    setAdFailed(false);
+
+    const outcome = await requestRewardedAd();
+
+    if (outcome === "dismissed") {
+      // They closed it early. Nothing is taken away — the offer stands and the
+      // single uploader is still one button away — but silently proceeding
+      // would record a reward that was not earned.
+      if (mounted.current) {
+        setAccepting(false);
+        setAdFailed(true);
+      }
+
+      return;
+    }
+
     try {
-      await openBulkUploadSession({ rewarded: true });
+      await openBulkUploadSession({ rewarded: outcome === "viewed" });
     } catch (error) {
       // The session is bookkeeping, not permission. Failing to record it must
       // not cost somebody the upload they just agreed to watch an advert for.
       logger.warn("Could not record the bulk upload session:", error.message);
     }
-    navigate(uploaderPath);
+
+    // Guarded because the await above can outlive the page: somebody who picks
+    // "Use single upload instead" while the request is in flight must not be
+    // dragged back onto the uploader when it settles.
+    if (!mounted.current) return;
+
+    setAccepting(false);
+    navigate(uploaderPath, { replace: true });
   };
 
   return (
@@ -90,6 +128,13 @@ export default function BulkUploadGate() {
             it. Uploading comics one at a time is always available and never asks
             for one.
           </p>
+          {adFailed && (
+            <p role="status" className="text-foreground">
+              The advertisement was closed before it finished, so bulk upload has
+              not been unlocked. You can try again, or upload comics one at a
+              time instead.
+            </p>
+          )}
         </CardContent>
         <CardFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
           <Button className="w-full sm:w-auto" onClick={watchAdAndContinue} disabled={accepting}>

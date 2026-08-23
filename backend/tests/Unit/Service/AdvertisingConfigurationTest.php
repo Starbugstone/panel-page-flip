@@ -34,7 +34,7 @@ final class AdvertisingConfigurationTest extends TestCase
 
         self::assertNull($configuration->client());
         self::assertSame(
-            ['enabled' => false, 'client' => null, 'testMode' => false],
+            ['enabled' => false, 'client' => null],
             $configuration->publicConfiguration()
         );
     }
@@ -84,34 +84,30 @@ final class AdvertisingConfigurationTest extends TestCase
     }
 
     /**
-     * A developer who pastes their own publisher id into a development
-     * installation must not record impressions against their account.
+     * Two keys and no more.
+     *
+     * Asserted on the key list rather than only on the values, because anything
+     * added here is published to every unauthenticated visitor — and a flag
+     * describing the installation is exactly the kind of thing that gets added
+     * without anybody deciding it should be public.
      */
-    public function testEverythingOutsideProductionIsATestPlacement(): void
-    {
-        self::assertTrue($this->configuration(true, self::VALID_CLIENT, 'dev')->isTestMode());
-        self::assertTrue($this->configuration(true, self::VALID_CLIENT, 'test')->isTestMode());
-        self::assertFalse($this->configuration(true, self::VALID_CLIENT, 'prod')->isTestMode());
-    }
-
     public function testTheBrowserIsToldTheOutcomeAndNothingElse(): void
     {
-        $published = $this->configuration(true, self::VALID_CLIENT, 'prod')->publicConfiguration();
+        $published = $this->configuration(true, self::VALID_CLIENT)->publicConfiguration();
 
         self::assertSame(
-            ['enabled' => true, 'client' => self::VALID_CLIENT, 'testMode' => false],
+            ['enabled' => true, 'client' => self::VALID_CLIENT],
             $published
         );
-        self::assertSame(['enabled', 'client', 'testMode'], array_keys($published));
+        self::assertSame(['enabled', 'client'], array_keys($published));
     }
 
     private function configuration(
         bool $enabled,
         string $client,
-        string $environment = 'test',
         ?CollectingLogger $logger = null,
     ): AdvertisingConfiguration {
-        return new AdvertisingConfiguration($enabled, $client, $environment, $logger ?? new CollectingLogger());
+        return new AdvertisingConfiguration($enabled, $client, $logger ?? new CollectingLogger());
     }
 }
 

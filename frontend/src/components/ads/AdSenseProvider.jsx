@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 
 import { useAdvertisingConfig, ADVERTISING_OFF } from "@/hooks/use-advertising.jsx";
 import { isAdSafeRoute, isAdvertisingActive } from "@/lib/advertising";
-import { loadAdSenseScript, removeInjectedAds } from "@/lib/adsense-loader";
+import { keepRouteAdFree, loadAdSenseScript } from "@/lib/adsense-loader";
 
 /**
  * The one place Google's site code is loaded, and the one place it is kept away
@@ -58,11 +58,17 @@ export function AdSenseProvider({ children }) {
   }, [active, adSafe, config.client]);
 
   useEffect(() => {
-    if (adSafe) return;
+    if (adSafe) return undefined;
+
     // Runs whether or not this application ever loaded the script: an operator
     // may have added Auto Ads through a tag manager, and the boundary is about
     // what is on the page, not about who put it there.
-    removeInjectedAds();
+    //
+    // Watches rather than sweeping once, because Auto Ads arrive well after the
+    // navigation commits — a single pass at commit time reliably finds nothing,
+    // and the advertisement that lands a moment later stays beside the artwork
+    // for the whole visit.
+    return keepRouteAdFree();
   }, [adSafe, pathname]);
 
   return (

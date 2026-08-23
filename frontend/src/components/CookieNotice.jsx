@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 export function CookieNotice() {
   const { pathname } = useLocation();
-  const { config } = useAdSense();
+  const { config, isLoading } = useAdSense();
   const [visible, setVisible] = useState(() => !wasCookieNoticeDismissed());
   const isReaderPage = pathname.startsWith("/read/");
   const advertising = isAdvertisingActive(config);
@@ -19,7 +19,12 @@ export function CookieNotice() {
     setVisible(false);
   };
 
-  if (!visible) return null;
+  // Nothing is said about cookies until the server has said whether this
+  // installation shows advertising. The two wordings contradict each other, and
+  // the dismissal is permanent: somebody who pressed "Got it" during the round
+  // trip would have been told the opposite of the truth, once, and never see
+  // the correction.
+  if (!visible || isLoading) return null;
 
   return (
     <aside

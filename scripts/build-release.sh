@@ -247,6 +247,16 @@ if [ "$DO_BACKEND" = "1" ]; then
         fail "PROD_MAILER_DSN must be set when PROD_SECURITY_ALERTS_ENABLED is enabled."
     fi
 
+    # A mistyped publisher id is not a build error to Symfony — it logs a warning
+    # and serves the site with advertising quietly off, which is an outage
+    # nobody is watching for. Caught here instead, while somebody is looking.
+    if [ "${PROD_ADSENSE_ENABLED:-false}" = "true" ]; then
+        case "${PROD_ADSENSE_CLIENT:-}" in
+            ca-pub-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+            *) fail "PROD_ADSENSE_CLIENT must be ca-pub- followed by 16 digits when PROD_ADSENSE_ENABLED is true." ;;
+        esac
+    fi
+
     write_dotenv APP_ENV prod
     write_dotenv APP_DEBUG 0
     write_dotenv APP_SECRET "$PROD_APP_SECRET"
@@ -278,6 +288,13 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv DROPBOX_APP_FOLDER "${PROD_DROPBOX_APP_FOLDER:-/}"
     write_dotenv DROPBOX_SYNC_LIMIT "${PROD_DROPBOX_SYNC_LIMIT:-10}"
     write_dotenv DROPBOX_RATE_LIMIT "${PROD_DROPBOX_RATE_LIMIT:-60}"
+    # Advertising. Off unless the operator sets PROD_ADSENSE_ENABLED, and
+    # baked in here because `composer dump-env prod` consolidates this file into
+    # .env.local.php — after which Symfony stops reading backend/.env entirely.
+    # Without these two lines an operator can edit .env on the server all day
+    # and AdvertisingConfiguration still reports "off". See docs/advertising.md.
+    write_dotenv ADSENSE_ENABLED "${PROD_ADSENSE_ENABLED:-false}"
+    write_dotenv ADSENSE_CLIENT "${PROD_ADSENSE_CLIENT:-}"
     write_dotenv DEPLOY_TOKEN "$POST_DEPLOY_TOKEN"
     chmod 600 "$PROD_ENV_FILE"
 

@@ -30,8 +30,24 @@ export const AD_SAFE_ROUTES = Object.freeze(["/", "/login", "/upload", "/upload/
 /** Google's AdSense site code, which also installs the Google CMP. */
 export const ADSENSE_SCRIPT_HOST = "https://pagead2.googlesyndication.com";
 
+/** Google's consent platform on its own, with no advertising attached. */
+export const CONSENT_PLATFORM_HOST = "https://fundingchoicesmessages.google.com";
+
 export function adSenseScriptSrc(client) {
   return `${ADSENSE_SCRIPT_HOST}/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`;
+}
+
+/**
+ * The publisher id as everything outside the site code spells it: `pub-…`
+ * rather than `ca-pub-…`. Both the ads.txt record and the consent platform's
+ * URL want this form.
+ */
+export function publisherId(client) {
+  return typeof client === "string" ? client.replace(/^ca-/, "") : "";
+}
+
+export function consentPlatformScriptSrc(client) {
+  return `${CONSENT_PLATFORM_HOST}/i/${encodeURIComponent(publisherId(client))}?ers=1`;
 }
 
 /**

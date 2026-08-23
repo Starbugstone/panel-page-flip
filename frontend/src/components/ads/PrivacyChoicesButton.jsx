@@ -9,17 +9,21 @@ import { reopenPrivacyChoices } from "@/lib/privacy-choices";
  * the footer of every page rather than inside the banner that collected it —
  * the banner is gone by the time somebody changes their mind.
  *
- * Absent where advertising is off, because there is then no advertising consent
- * to revisit and offering one would imply this installation collected something
- * it never did.
+ * Absent where advertising is off, and absent until the server has said which
+ * it is: offering it on an installation that shows no advertising would imply
+ * this deployment collected a consent it never asked for.
  */
 export function PrivacyChoicesButton({ className }) {
-  const { config } = useAdSense();
+  const { config, isLoading } = useAdSense();
 
-  if (!isAdvertisingActive(config)) return null;
+  if (isLoading || !isAdvertisingActive(config)) return null;
 
   return (
-    <button type="button" className={className} onClick={() => reopenPrivacyChoices()}>
+    <button
+      type="button"
+      className={className}
+      onClick={() => reopenPrivacyChoices({ client: config.client })}
+    >
       Privacy choices
     </button>
   );

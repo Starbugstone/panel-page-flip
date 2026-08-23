@@ -5,16 +5,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import BulkUploadGate from "@/pages/BulkUploadGate.jsx";
 import { api } from "@/lib/api";
+import { requestRewardedAd } from "@/lib/rewarded-ad";
 
-const { scriptStatus } = vi.hoisted(() => ({ scriptStatus: { value: "idle" } }));
+const { adSense } = vi.hoisted(() => ({
+  adSense: { scriptStatus: "idle", isLoading: false },
+}));
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), log: vi.fn() } }));
+vi.mock("@/lib/rewarded-ad", () => ({ requestRewardedAd: vi.fn() }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
   useAdSense: () => ({
-    config: { enabled: true, client: "ca-pub-1234567890123456", testMode: false },
-    isLoading: false,
-    scriptStatus: scriptStatus.value,
+    config: { enabled: true, client: "ca-pub-1234567890123456" },
+    isLoading: adSense.isLoading,
+    scriptStatus: adSense.scriptStatus,
   }),
 }));
 
@@ -32,8 +36,10 @@ const renderGate = (entry = "/upload/bulk") => render(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  scriptStatus.value = "idle";
+  adSense.scriptStatus = "idle";
+  adSense.isLoading = false;
   vi.mocked(api.post).mockResolvedValue({ active: true, rewarded: true });
+  vi.mocked(requestRewardedAd).mockResolvedValue("viewed");
 });
 
 describe("entering bulk upload", () => {
@@ -48,7 +54,7 @@ describe("entering bulk upload", () => {
 
   it("goes straight to the uploader when no rewarded advertisement can be served", async () => {
     serverSays({ active: false, gateRequired: true });
-    scriptStatus.value = "unavailable";
+    adSense.scriptStatus = "unavailable";
 
     renderGate();
 
@@ -57,7 +63,7 @@ describe("entering bulk upload", () => {
 
   it("goes straight to the uploader when the server could not be asked", async () => {
     vi.mocked(api.get).mockRejectedValue(new Error("Unable to reach the server"));
-    scriptStatus.value = "ready";
+    adSense.scriptStatus = "ready";
 
     renderGate();
 
@@ -66,7 +72,7 @@ describe("entering bulk upload", () => {
 
   it("does not ask again part way through a batch", async () => {
     serverSays({ active: true, gateRequired: true });
-    scriptStatus.value = "ready";
+    adSense.scriptStatus = "ready";
 
     renderGate();
 
@@ -75,7 +81,28 @@ describe("entering bulk upload", () => {
 
   it("waits for Google's code rather than deciding without it", async () => {
     serverSays({ active: false, gateRequired: true });
-    scriptStatus.value = "loading";
+    adSense.scriptStatus = "loading";
+
+    renderGate();
+
+    await waitFor(() => expect(screen.getByLabelText("Preparing bulk upload")).toBeInTheDocument());
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The regression that made the offer unreachable.
+   *
+   * Until the runtime configuration lands, advertising looks switched off and
+   * `scriptStatus` is "idle" rather than "loading" — so a gate that only waited
+   * on the script decided immediately, resolved "open", and redirected before
+   * the configuration arrived. React commits child effects before parent ones,
+   * so the session request went out first and won that race on every ordinary
+   * load: the rewarded choice was never offered at all.
+   */
+  it("waits for the runtime configuration before deciding", async () => {
+    serverSays({ active: false, gateRequired: true });
+    adSense.isLoading = true;
+    adSense.scriptStatus = "idle";
 
     renderGate();
 
@@ -87,7 +114,7 @@ describe("entering bulk upload", () => {
 describe("the rewarded choice", () => {
   beforeEach(() => {
     serverSays({ active: false, gateRequired: true });
-    scriptStatus.value = "ready";
+    adSense.scriptStatus = "ready";
   });
 
   it("says what is being asked for and what it unlocks", async () => {
@@ -109,16 +136,48 @@ describe("the rewarded choice", () => {
     expect(await screen.findByRole("heading", { name: "Upload New Comic" })).toBeInTheDocument();
   });
 
-  it("records one batch on the server and opens the uploader", async () => {
+  it("shows the advertisement before recording anything", async () => {
     renderGate();
 
     await userEvent.click(await screen.findByRole("button", { name: "Watch ad and continue" }));
 
+    expect(requestRewardedAd).toHaveBeenCalled();
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
       "/api/upload/bulk/session",
       { rewarded: true }
     ));
     expect(await screen.findByRole("heading", { name: "Bulk upload comics" })).toBeInTheDocument();
+  });
+
+  /**
+   * `rewarded` is an audit note, and an audit note that says "yes" whatever
+   * happened records nothing. Google confirming the view is the only thing that
+   * may set it.
+   */
+  it("records no reward when Google had no advertisement to show", async () => {
+    vi.mocked(requestRewardedAd).mockResolvedValue("unavailable");
+
+    renderGate();
+    await userEvent.click(await screen.findByRole("button", { name: "Watch ad and continue" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/upload/bulk/session",
+      { rewarded: false }
+    ));
+    // Still opens: issue #73 rules out letting missing inventory block a batch.
+    expect(await screen.findByRole("heading", { name: "Bulk upload comics" })).toBeInTheDocument();
+  });
+
+  it("keeps the offer open when the advertisement is closed early", async () => {
+    vi.mocked(requestRewardedAd).mockResolvedValue("dismissed");
+
+    renderGate();
+    await userEvent.click(await screen.findByRole("button", { name: "Watch ad and continue" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/closed before it finished/i);
+    expect(api.post).not.toHaveBeenCalled();
+    // The button has to come back, or the page is a dead end.
+    expect(screen.getByRole("button", { name: "Watch ad and continue" })).toBeEnabled();
   });
 
   /**
@@ -140,5 +199,24 @@ describe("the rewarded choice", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Watch ad and continue" }));
 
     expect(await screen.findByRole("heading", { name: "Bulk upload comics" })).toBeInTheDocument();
+  });
+
+  /**
+   * The advertisement and the request that follows it both outlive the click,
+   * and the page can be gone by the time they finish. Navigating anyway would
+   * drag somebody who chose single upload back onto the bulk uploader.
+   */
+  it("does not navigate after the page has been left", async () => {
+    let finishAd;
+    vi.mocked(requestRewardedAd).mockReturnValue(new Promise((resolve) => { finishAd = resolve; }));
+
+    const { unmount } = renderGate();
+    await userEvent.click(await screen.findByRole("button", { name: "Watch ad and continue" }));
+
+    unmount();
+    finishAd("viewed");
+
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: "Bulk upload comics" })).not.toBeInTheDocument();
   });
 });

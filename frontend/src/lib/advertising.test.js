@@ -1,10 +1,15 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
   AD_SAFE_ROUTES,
   adSenseScriptSrc,
+  consentPlatformScriptSrc,
   isAdSafeRoute,
   isAdvertisingActive,
+  publisherId,
   shouldOfferRewardedGate,
 } from "@/lib/advertising";
 
@@ -15,10 +20,6 @@ import {
  * safeguard and cannot be relied on to be configured.
  */
 describe("where advertising is allowed to run", () => {
-  it("allows only the four application-owned pages", () => {
-    expect([...AD_SAFE_ROUTES]).toEqual(["/", "/login", "/upload", "/upload/bulk"]);
-  });
-
   it.each([
     "/dashboard",
     "/read/12",
@@ -104,5 +105,60 @@ describe("whether to offer the rewarded advertisement", () => {
     ["the server said nothing", { gateRequired: undefined, scriptStatus: "ready" }],
   ])("opens bulk upload directly when %s", (_reason, input) => {
     expect(shouldOfferRewardedGate(input)).toBe(false);
+  });
+});
+
+/**
+ * A forcing function for the allowlist.
+ *
+ * `AD_SAFE_ROUTES` is hand-maintained, and the file it sits in says the
+ * allowlist direction exists so a new route cannot quietly acquire advertising.
+ * That only holds if adding or renaming a route makes somebody look at this
+ * list — so these read App.jsx, exactly as the shared route manifest's test
+ * does, rather than comparing the constant to a copy of itself.
+ */
+describe("the allowlist against the router", () => {
+  const frontendDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const appSource = readFileSync(resolve(frontendDir, "src/App.jsx"), "utf8");
+  const reactRoutes = [...appSource.matchAll(/<Route\s+path="([^"]+)"/g)]
+    .map((match) => match[1])
+    .filter((path) => path !== "*");
+
+  it("allows no route the router does not have", () => {
+    // A renamed route leaves its old name behind here, where it protects
+    // nothing, while the new one is ad-free by accident rather than by choice.
+    expect(reactRoutes).toEqual(expect.arrayContaining([...AD_SAFE_ROUTES]));
+  });
+
+  it("treats every other route in the application as ad-free", () => {
+    const notAllowed = reactRoutes.filter((path) => !AD_SAFE_ROUTES.includes(path));
+
+    for (const path of notAllowed) {
+      // Parameterised routes are checked through a concrete instance, which is
+      // what isAdSafeRoute is actually given at runtime.
+      expect(isAdSafeRoute(path.replace(/:[^/]+/g, "1"))).toBe(false);
+    }
+  });
+
+  /**
+   * Deliberately brittle. Widening the allowlist is a decision about where
+   * Google may place an advertisement on a site full of unvetted uploads, and
+   * it should not be possible to make it without editing a test that says so.
+   */
+  it("holds exactly the four pages that carry no user content", () => {
+    expect([...AD_SAFE_ROUTES]).toEqual(["/", "/login", "/upload", "/upload/bulk"]);
+  });
+});
+
+describe("the consent platform URL", () => {
+  it("uses the publisher id in the form Google's own URLs take", () => {
+    expect(publisherId("ca-pub-1234567890123456")).toBe("pub-1234567890123456");
+    expect(consentPlatformScriptSrc("ca-pub-1234567890123456"))
+      .toBe("https://fundingchoicesmessages.google.com/i/pub-1234567890123456?ers=1");
+  });
+
+  it("does not fall over on a missing client", () => {
+    expect(publisherId(null)).toBe("");
+    expect(publisherId(undefined)).toBe("");
   });
 });

@@ -1,24 +1,42 @@
+import { loadConsentPlatform } from "@/lib/adsense-loader";
 import { logger } from "@/lib/logger";
 
 /**
  * Reopening Google's consent message.
  *
- * The whole of the consent state lives in Google's certified CMP, which the
- * AdSense site code installs. This application therefore asks the CMP to show
- * its message again and reads nothing: a copy of somebody's consent kept over
- * here could only ever be a second answer that disagrees with the real one, and
- * the wrong one to act on.
+ * The whole of the consent state lives in Google's certified CMP, which this
+ * application reads nothing out of: a copy of somebody's consent kept over here
+ * could only ever be a second answer that disagrees with the real one, and the
+ * wrong one to act on.
+ *
+ * What this does have to solve is *where*. The advertising site code loads only
+ * on the four ad-safe routes, so on a reader, library or settings page
+ * `window.googlefc` has never existed — and those are exactly the pages
+ * somebody is on when they decide to withdraw consent. Consent that can be
+ * given and not withdrawn is not consent, so the platform is fetched on demand
+ * here. Funding Choices on its own is the consent half without the advertising
+ * half, which is what makes it safe on a page rendering a comic.
  *
  * `googlefc.callbackQueue` is Google's own way of queueing a call made before
- * the API is ready, so pushing onto it works whether or not the script has
- * finished loading.
+ * the API is ready, so pushing onto it works whether the script has finished
+ * initialising or merely finished downloading.
  *
- * @returns {boolean} whether the request could be handed to the CMP at all
+ * @returns {Promise<boolean>} whether the request reached the CMP at all
  */
-export function reopenPrivacyChoices(win = typeof window === "undefined" ? null : window) {
-  const googlefc = win?.googlefc;
+export async function reopenPrivacyChoices({
+  client,
+  win = typeof window === "undefined" ? null : window,
+  doc = typeof document === "undefined" ? null : document,
+} = {}) {
+  if (!win) return false;
+
+  if (!win.googlefc) {
+    await loadConsentPlatform(client, { doc });
+  }
+
+  const googlefc = win.googlefc;
   if (!googlefc) {
-    // Advertising is off, blocked or still loading. Nothing to reopen, and
+    // Blocked, or this installation has no publisher id. Nothing to reopen, and
     // nothing worth interrupting the user about.
     logger.log("No consent management platform is loaded; privacy choices cannot be reopened.");
 

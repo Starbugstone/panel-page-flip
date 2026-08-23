@@ -1,4 +1,4 @@
-import { adSenseScriptSrc } from "@/lib/advertising";
+import { adSenseScriptSrc, consentPlatformScriptSrc } from "@/lib/advertising";
 import { logger } from "@/lib/logger";
 
 /**
@@ -13,6 +13,7 @@ import { logger } from "@/lib/logger";
  */
 
 const SCRIPT_ID = "adsense-site-code";
+const CMP_SCRIPT_ID = "google-cmp";
 
 /**
  * What Auto Ads leave behind in the DOM.
@@ -42,6 +43,69 @@ const INJECTED_AD_SELECTORS = [
 export const SCRIPT_TIMEOUT_MS = 5000;
 
 /**
+ * Attach the one set of handlers that decides a script tag's outcome.
+ *
+ * Every path — load, error, timeout — writes `dataset.status` and settles
+ * exactly once. Both halves matter. Without the write, a script the timeout
+ * gave up on is never memoised, so each later caller attaches another pair of
+ * listeners and another timer to a node that lives for the whole session and
+ * waits a further five seconds for an answer that already exists. Without the
+ * settle-once guard, a script that arrives at 5.5s resolves "ready" after its
+ * promise already said "unavailable", leaving the caller's cached answer
+ * permanently contradicting the DOM.
+ */
+function settleScript(script, timeoutMs, { onError } = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (status) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      script.dataset.status = status;
+      resolve(status);
+    };
+
+    const timer = setTimeout(() => finish("unavailable"), timeoutMs);
+
+    script.addEventListener("load", () => finish("ready"), { once: true });
+    script.addEventListener("error", () => {
+      onError?.();
+      finish("unavailable");
+    }, { once: true });
+  });
+}
+
+/**
+ * Load a Google script tag once, handing every later caller the first outcome.
+ *
+ * @returns {Promise<"ready" | "unavailable">}
+ */
+function loadOnce({ doc, id, src, timeoutMs, onError }) {
+  const existing = doc.getElementById(id);
+  if (existing) {
+    // Already asked for. `dataset.status` is written by every settle path, so a
+    // second caller gets the first attempt's outcome instead of racing it or
+    // injecting a duplicate script.
+    if (existing.dataset.status === "ready") return Promise.resolve("ready");
+    if (existing.dataset.status === "unavailable") return Promise.resolve("unavailable");
+
+    return settleScript(existing, timeoutMs);
+  }
+
+  const script = doc.createElement("script");
+  script.id = id;
+  script.async = true;
+  script.crossOrigin = "anonymous";
+  script.src = src;
+
+  const settled = settleScript(script, timeoutMs, { onError });
+  (doc.head || doc.documentElement).appendChild(script);
+
+  return settled;
+}
+
+/**
  * Load the AdSense site code.
  *
  * Resolves with the resulting status rather than throwing: a blocked or failed
@@ -56,52 +120,46 @@ export function loadAdSenseScript(
 ) {
   if (!doc || !client) return Promise.resolve("unavailable");
 
-  const existing = doc.getElementById(SCRIPT_ID);
-  if (existing) {
-    // Already asked for. `dataset.status` is set by the handlers below, so a
-    // second caller gets the first attempt's outcome instead of racing it or
-    // injecting a duplicate script.
-    if (existing.dataset.status === "ready") return Promise.resolve("ready");
-    if (existing.dataset.status === "unavailable") return Promise.resolve("unavailable");
+  return loadOnce({
+    doc,
+    id: SCRIPT_ID,
+    src: adSenseScriptSrc(client),
+    timeoutMs,
+    // Not a warning. An ad blocker is a choice the reader made, and this
+    // application works the same either way.
+    onError: () => logger.log("AdSense site code did not load; advertising is unavailable."),
+  });
+}
 
-    return new Promise((resolve) => {
-      existing.addEventListener("load", () => resolve("ready"), { once: true });
-      existing.addEventListener("error", () => resolve("unavailable"), { once: true });
-      setTimeout(() => resolve("unavailable"), timeoutMs);
-    });
-  }
+/**
+ * Load Google's consent platform on its own, without the advertising site code.
+ *
+ * The footer's privacy-choices control has to work on every page, and the site
+ * code is deliberately loaded only on the four ad-safe routes — so on a reader
+ * or library page `window.googlefc` has never existed and the control would do
+ * nothing. Funding Choices is the consent half by itself: it shows the
+ * message and records the answer, and serves no advertising, which is what
+ * makes it safe to load on a page rendering somebody's comic.
+ *
+ * @returns {Promise<"ready" | "unavailable">}
+ */
+export function loadConsentPlatform(
+  client,
+  { doc = typeof document === "undefined" ? null : document, timeoutMs = SCRIPT_TIMEOUT_MS } = {}
+) {
+  if (!doc || !client) return Promise.resolve("unavailable");
 
-  return new Promise((resolve) => {
-    setTimeout(() => resolve("unavailable"), timeoutMs);
-
-    const script = doc.createElement("script");
-    script.id = SCRIPT_ID;
-    script.async = true;
-    script.crossOrigin = "anonymous";
-    script.src = adSenseScriptSrc(client);
-    script.addEventListener("load", () => {
-      script.dataset.status = "ready";
-      resolve("ready");
-    }, { once: true });
-    script.addEventListener("error", () => {
-      script.dataset.status = "unavailable";
-      // Not a warning. An ad blocker is a choice the reader made, and this
-      // application works the same either way.
-      logger.log("AdSense site code did not load; advertising is unavailable.");
-      resolve("unavailable");
-    }, { once: true });
-
-    (doc.head || doc.documentElement).appendChild(script);
+  return loadOnce({
+    doc,
+    id: CMP_SCRIPT_ID,
+    src: consentPlatformScriptSrc(client),
+    timeoutMs,
+    onError: () => logger.log("The consent platform did not load; privacy choices are unavailable."),
   });
 }
 
 /**
  * Remove advertising Google has already placed on the page.
- *
- * The site code cannot be unloaded, and this is a single-page application: once
- * it has run on the landing page it is still resident when the reader opens a
- * comic. Auto Ads insert on their own schedule, so the application sweeps its
- * own DOM whenever the current route is one where advertising must not appear.
  *
  * @returns {number} how many elements were removed, for tests and for logging
  */
@@ -114,9 +172,72 @@ export function removeInjectedAds(root = typeof document === "undefined" ? null 
   return injected.length;
 }
 
-/** Test seam: forget the loaded script so the next call starts over. */
-export function resetAdSenseScriptForTesting(doc = typeof document === "undefined" ? null : document) {
-  doc?.getElementById(SCRIPT_ID)?.remove();
+function isOrContainsAd(node) {
+  if (node.nodeType !== 1) return false;
+
+  const selector = INJECTED_AD_SELECTORS.join(",");
+
+  return node.matches(selector) || node.querySelector(selector) !== null;
 }
 
-export { SCRIPT_ID as ADSENSE_SCRIPT_ID };
+/**
+ * Keep an ad-free route ad-free for as long as the user is on it.
+ *
+ * A single sweep at navigation time is not enough, and the gap it leaves is the
+ * exact failure this whole feature exists to prevent. The site code cannot be
+ * unloaded, so it is still resident when the reader opens a comic, and Auto Ads
+ * insert on their own schedule — typically some hundreds of milliseconds after
+ * the page settles. A sweep that runs once at commit finds nothing, and the
+ * advertisement that arrives afterwards stays beside the artwork for the whole
+ * reading session.
+ *
+ * So: sweep now, then watch. The observer is the guarantee; the first sweep just
+ * makes it immediate.
+ *
+ * @returns {() => void} stop watching
+ */
+export function keepRouteAdFree(root = typeof document === "undefined" ? null : document) {
+  if (!root) return () => {};
+
+  removeInjectedAds(root);
+
+  const target = root.body || root.documentElement;
+  if (!target || typeof MutationObserver === "undefined") return () => {};
+
+  // Checks what was added rather than re-querying the document on every
+  // mutation. This watches for the whole time the user is on an ad-free route,
+  // and the busiest of those is the reader, which mutates constantly as pages
+  // turn — a full-document query per mutation would be a real cost paid on the
+  // application's hottest surface to catch something that arrives once or never.
+  const observer = new MutationObserver((records) => {
+    const arrived = records.some((record) => (
+      record.type === "attributes"
+        ? isOrContainsAd(record.target)
+        : [...record.addedNodes].some(isOrContainsAd)
+    ));
+
+    if (arrived) removeInjectedAds(root);
+  });
+
+  // Attributes as well as insertions, because Auto Ads also take over elements
+  // that are already on the page by stamping their own markers onto them —
+  // childList alone never sees that. Filtered to the three markers rather than
+  // watching every attribute, which in the reader would fire on every class
+  // change a page turn makes.
+  observer.observe(target, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["data-google-query-id", "data-anchor-status", "data-vignette-loaded"],
+  });
+
+  return () => observer.disconnect();
+}
+
+/** Test seam: forget the loaded scripts so the next call starts over. */
+export function resetAdSenseScriptForTesting(doc = typeof document === "undefined" ? null : document) {
+  doc?.getElementById(SCRIPT_ID)?.remove();
+  doc?.getElementById(CMP_SCRIPT_ID)?.remove();
+}
+
+export { SCRIPT_ID as ADSENSE_SCRIPT_ID, CMP_SCRIPT_ID };

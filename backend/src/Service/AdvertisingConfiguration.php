@@ -45,8 +45,6 @@ final class AdvertisingConfiguration
         bool $adsenseEnabled,
         #[Autowire('%adsense_client%')]
         string $adsenseClient,
-        #[Autowire('%kernel.environment%')]
-        private readonly string $environment,
         LoggerInterface $logger,
     ) {
         $client = trim($adsenseClient);
@@ -76,30 +74,22 @@ final class AdvertisingConfiguration
     }
 
     /**
-     * Whether ad slots should carry Google's test flag.
-     *
-     * Tied to the Symfony environment rather than to a third setting: a
-     * developer who puts a real publisher id in `backend/.env.local` to see the
-     * integration work would otherwise be recording impressions against their
-     * own account from a machine nobody visits, which is the kind of traffic
-     * AdSense suspends accounts over.
-     */
-    public function isTestMode(): bool
-    {
-        return $this->environment !== 'prod';
-    }
-
-    /**
      * The whole of what the browser is told.
      *
-     * @return array{enabled: bool, client: string|null, testMode: bool}
+     * Two keys, matching the two settings. There is deliberately no test-mode
+     * flag: Auto Ads are configured entirely in the AdSense account and Google
+     * exposes no way for a page to mark them as test placements, so a flag here
+     * could only promise a safety it does not deliver. What protects a developer
+     * trying the integration is leaving ADSENSE_ENABLED off — see
+     * docs/advertising.md.
+     *
+     * @return array{enabled: bool, client: string|null}
      */
     public function publicConfiguration(): array
     {
         return [
             'enabled' => $this->enabled,
             'client' => $this->client(),
-            'testMode' => $this->enabled && $this->isTestMode(),
         ];
     }
 }

@@ -103,7 +103,6 @@ final class BulkUploadSessionServiceTest extends TestCase
         $advertising = new AdvertisingConfiguration(
             $advertisingEnabled,
             $advertisingEnabled ? 'ca-pub-1234567890123456' : '',
-            'test',
             new NullLogger()
         );
 

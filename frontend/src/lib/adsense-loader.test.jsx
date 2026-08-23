@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ADSENSE_SCRIPT_ID,
+  CMP_SCRIPT_ID,
+  keepRouteAdFree,
   loadAdSenseScript,
+  loadConsentPlatform,
   removeInjectedAds,
   resetAdSenseScriptForTesting,
 } from "@/lib/adsense-loader";
@@ -67,10 +70,86 @@ describe("loading Google's site code", () => {
     }
   });
 
+  /**
+   * The timeout path has to memoise like the others.
+   *
+   * A blocker that swallows the request silently is exactly what the timeout is
+   * for, and it is the one path where neither handler runs. Without recording
+   * the outcome on the node, every later caller re-entered the slow path:
+   * another pair of listeners on a script that will never fire them, another
+   * five-second wait, and a growing pile of both for the whole session.
+   */
+  it("remembers that it gave up, instead of waiting again for each caller", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = loadAdSenseScript(CLIENT, { timeoutMs: 5000 });
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(first).resolves.toBe("unavailable");
+
+      // Resolves without the clock having to move at all.
+      await expect(loadAdSenseScript(CLIENT, { timeoutMs: 5000 })).resolves.toBe("unavailable");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * A script that arrives at 5.5 seconds must not contradict the answer already
+   * given. The gate caches the first outcome and never asks again, so a late
+   * "ready" would leave the context reporting "unavailable" for the rest of the
+   * session while Google's code was demonstrably resident and placing ads.
+   */
+  it("does not change its answer once it has given one", async () => {
+    vi.useFakeTimers();
+    try {
+      const loading = loadAdSenseScript(CLIENT, { timeoutMs: 5000 });
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(loading).resolves.toBe("unavailable");
+
+      injectedScript().dispatchEvent(new Event("load"));
+
+      await expect(loadAdSenseScript(CLIENT, { timeoutMs: 5000 })).resolves.toBe("unavailable");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("asks for nothing without a publisher id", async () => {
     await expect(loadAdSenseScript(null)).resolves.toBe("unavailable");
     await expect(loadAdSenseScript("")).resolves.toBe("unavailable");
     expect(injectedScript()).toBeNull();
+  });
+});
+
+/**
+ * Funding Choices on its own is the consent half of AdSense without the
+ * advertising half, which is what makes it safe to fetch on a page rendering
+ * somebody's comic — and fetching it there is the only way the footer's
+ * withdrawal control can work off the four ad-safe routes.
+ */
+describe("loading the consent platform by itself", () => {
+  it("asks for the publisher's consent script, not the advertising one", async () => {
+    const loading = loadConsentPlatform(CLIENT);
+
+    const script = document.getElementById(CMP_SCRIPT_ID);
+    expect(script.src).toContain("fundingchoicesmessages.google.com");
+    expect(script.src).toContain("pub-1234567890123456");
+    expect(document.getElementById(ADSENSE_SCRIPT_ID)).toBeNull();
+
+    script.dispatchEvent(new Event("load"));
+    await expect(loading).resolves.toBe("ready");
+  });
+
+  it("degrades to unavailable when it is blocked", async () => {
+    const loading = loadConsentPlatform(CLIENT);
+    document.getElementById(CMP_SCRIPT_ID).dispatchEvent(new Event("error"));
+
+    await expect(loading).resolves.toBe("unavailable");
+  });
+
+  it("asks for nothing without a publisher id", async () => {
+    await expect(loadConsentPlatform(null)).resolves.toBe("unavailable");
+    expect(document.getElementById(CMP_SCRIPT_ID)).toBeNull();
   });
 });
 
@@ -102,5 +181,72 @@ describe("taking placed advertising back off the page", () => {
 
     expect(removeInjectedAds()).toBe(0);
     expect(document.querySelectorAll("img")).toHaveLength(1);
+  });
+});
+
+/**
+ * The guarantee the whole feature rests on.
+ *
+ * Auto Ads insert on their own schedule, typically well after a navigation
+ * commits, so a single sweep at commit time finds an empty page and the
+ * advertisement that arrives afterwards stays beside the artwork for the rest
+ * of the visit.
+ */
+describe("keeping a route ad-free while the user is on it", () => {
+  it("removes advertising that arrives after the navigation settled", async () => {
+    document.body.innerHTML = `<article id="page">A comic page</article>`;
+
+    const stop = keepRouteAdFree();
+    try {
+      const late = document.createElement("ins");
+      late.className = "adsbygoogle";
+      document.body.appendChild(late);
+
+      await vi.waitFor(() => expect(document.querySelectorAll("ins.adsbygoogle")).toHaveLength(0));
+      expect(document.getElementById("page")).not.toBeNull();
+    } finally {
+      stop();
+    }
+  });
+
+  it("sweeps what is already there, without waiting for a mutation", () => {
+    document.body.innerHTML = `<ins class="adsbygoogle"></ins>`;
+
+    const stop = keepRouteAdFree();
+    try {
+      expect(document.querySelectorAll("ins.adsbygoogle")).toHaveLength(0);
+    } finally {
+      stop();
+    }
+  });
+
+  /**
+   * Auto Ads do not only insert: they also take over an element already on the
+   * page by stamping their own marker onto it, which an insertion-only watcher
+   * never sees.
+   */
+  it("removes an element Google takes over in place", async () => {
+    document.body.innerHTML = `<div id="slot"></div>`;
+
+    const stop = keepRouteAdFree();
+    try {
+      document.getElementById("slot").setAttribute("data-anchor-status", "displayed");
+
+      await vi.waitFor(() => expect(document.getElementById("slot")).toBeNull());
+    } finally {
+      stop();
+    }
+  });
+
+  it("stops watching when the route changes", async () => {
+    const stop = keepRouteAdFree();
+    stop();
+
+    const late = document.createElement("ins");
+    late.className = "adsbygoogle";
+    document.body.appendChild(late);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(document.querySelectorAll("ins.adsbygoogle")).toHaveLength(1);
   });
 });
