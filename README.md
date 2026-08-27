@@ -20,6 +20,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Administration for users, comics, shares, tags, Dropbox connections, cleanup, and audit history
 - Administrator notices warning one account about their activity, a comic, or something they shared, shown on their next visit and optionally emailed — see [administrator notices](docs/administrator-notices.md)
 - Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
+- Optional Google AdSense, off unless an operator turns it on, confined by an allowlist to pages that render no uploaded comic content, with consent left entirely to Google's certified platform and bulk upload optionally behind a rewarded advertisement that nothing depends on — see [advertising, consent, and the rewarded bulk-upload gate](docs/advertising.md)
 
 ## Technology
 
@@ -112,6 +113,13 @@ Important configuration variables:
 - `MAX_CONCURRENT_UPLOADS` — frontend upload concurrency returned by the application config endpoint
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REDIRECT_URI` — optional Dropbox OAuth settings
 - `DROPBOX_APP_FOLDER`, `DROPBOX_SYNC_LIMIT`, `DROPBOX_RATE_LIMIT` — optional Dropbox import settings
+- `ADSENSE_ENABLED`, `ADSENSE_CLIENT` — optional Google AdSense, off by default.
+  Advertising runs only when both are set and the client is a publisher id in
+  Google's form (`ca-pub-` and sixteen digits); anything else logs a warning and
+  leaves it off. There is deliberately no third setting — ad formats, page
+  exclusions and the Offerwall live in the AdSense account, not here. Enabling
+  it also requires widening the Content-Security-Policy and configuring the
+  account, both in [`docs/advertising.md`](docs/advertising.md).
 - `METRON_SHARED_ENABLED` — whether this server may spend its own Metron account
   on behalf of every user. Off unless set; a user's personal Metron token is
   unaffected by it.
@@ -300,6 +308,12 @@ Production releases are backup-gated and intentionally separate from CI:
 The release tooling builds the React application, installs optimized production Composer dependencies, consolidates Symfony's production environment, and excludes user uploads from deployment.
 
 Do not deploy only `frontend/dist`: frontend and backend changes may depend on each other.
+
+Deploying with advertising enabled has steps of its own, most of them in the
+AdSense account rather than in this repository — the release environment reads
+`PROD_ADSENSE_ENABLED` and `PROD_ADSENSE_CLIENT` at build time, so editing
+`backend/.env` on the host after `composer dump-env prod` changes nothing. See
+the production checklist in [`docs/advertising.md`](docs/advertising.md).
 
 ## Project layout
 
