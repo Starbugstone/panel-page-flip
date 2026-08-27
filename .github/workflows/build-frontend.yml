@@ -6,10 +6,16 @@ on:
   # the base branch, and a stack of four PRs runs its tests exactly once — on
   # the one at the bottom — leaving the rest reviewed by nothing until they are
   # retargeted.
+  #
+  # `develop` is an integration branch: work that wants manual testing on a real
+  # deployment lands there first and reaches main as one merge. It has to be a
+  # base here, or every PR into it is reviewed by nothing — and it has to be a
+  # push branch too, because what gets manually tested is the accumulated
+  # branch, not any single PR that went into it.
   pull_request:
-    branches: [main, 'feature/**', 'docs/**', 'fix/**', 'ci/**']
+    branches: [main, develop, 'feature/**', 'docs/**', 'fix/**', 'ci/**']
   push:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 permissions:
