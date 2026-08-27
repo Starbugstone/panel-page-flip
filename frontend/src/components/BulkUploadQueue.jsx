@@ -145,6 +145,30 @@ export default function BulkUploadQueue() {
     return failures;
   };
 
+  /**
+   * The batch is what a rewarded session covers, so it ends when the batch does
+   * — but only once there is nothing left to retry. Closing it while files are
+   * still failed would charge a second advertisement for finishing the batch
+   * the first one paid for, which issue #73 rules out explicitly. A session
+   * nobody closes expires on its own two hours later.
+   *
+   * Both ways a batch can settle come through here. A retry that rescues the
+   * last failure ends the batch exactly as a clean run does, and a session left
+   * open by that path would hand the *next* batch a free pass until it expired.
+   *
+   * Skipped where advertising is off, because the gate opens a session only on
+   * the offer path and the offer is only made where advertising is running —
+   * so there is nothing to close, and this would be an authenticated request to
+   * delete something that does not exist after every batch, for every
+   * self-hosted user. Nothing about uploading depended on the session, so
+   * nothing here checks whether it closed.
+   */
+  const endBatchIfSettled = async (outstanding) => {
+    if (outstanding === 0 && isAdvertisingActive(adSenseConfig)) {
+      await closeBulkUploadSession();
+    }
+  };
+
   const startAll = async () => {
     const pending = rows.filter((row) => ["idle", "error", "cancelled"].includes(row.status) && row.title.trim());
     if (!pending.length) return;
@@ -158,19 +182,7 @@ export default function BulkUploadQueue() {
     const failures = await runQueue(pending);
     setRunning(false);
 
-    // The batch is what a rewarded session covers, so it ends when the batch
-    // does — but only once there is nothing left to retry. Closing it while
-    // files are still failed would charge a second advertisement for finishing
-    // the batch the first one paid for, which issue #73 rules out explicitly.
-    // The session then expires on its own two hours later.
-    //
-    // Skipped entirely where advertising is off, because the gate never opened
-    // a session there and this would be an authenticated request to delete
-    // something that does not exist. Nothing about uploading depended on the
-    // session, so nothing here checks whether it closed.
-    if (failures === 0 && isAdvertisingActive(adSenseConfig)) {
-      await closeBulkUploadSession();
-    }
+    await endBatchIfSettled(failures);
   };
 
   return (
@@ -219,7 +231,16 @@ export default function BulkUploadQueue() {
                         <Button size="icon" variant="outline" onClick={() => controllers.current.get(row.id)?.abort()} aria-label={`Cancel ${row.file.name}`}><XIcon /></Button>
                       )}
                       {(row.status === "error" || row.status === "cancelled") && (
-                        <Button size="icon" variant="outline" disabled={running} onClick={async () => { setRunning(true); await uploadRow(row); setRunning(false); }} aria-label={`Retry ${row.file.name}`}><RotateCcw className="h-4 w-4" /></Button>
+                        <Button size="icon" variant="outline" disabled={running} onClick={async () => {
+                          setRunning(true);
+                          const uploaded = await uploadRow(row);
+                          setRunning(false);
+                          // Read off the rows this handler was rendered with:
+                          // a retry runs alone, so the only one of them whose
+                          // status this run changed is `row` itself.
+                          const others = rows.filter((other) => other.id !== row.id && other.status !== "done").length;
+                          await endBatchIfSettled(others + (uploaded ? 0 : 1));
+                        }} aria-label={`Retry ${row.file.name}`}><RotateCcw className="h-4 w-4" /></Button>
                       )}
                       {/* Anything not in flight and not already uploaded. A file
                           mid-upload is cancelled first, and an uploaded one is a

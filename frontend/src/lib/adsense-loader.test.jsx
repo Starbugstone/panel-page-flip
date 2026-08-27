@@ -238,6 +238,28 @@ describe("keeping a route ad-free while the user is on it", () => {
     }
   });
 
+  /**
+   * An iframe is matched by its URL, so one inserted blank matches nothing at
+   * the moment it arrives. If the `src` that turns it into an advertisement is
+   * not watched, the sweep has already had its only look at it.
+   */
+  it("removes an iframe pointed at Google after it was inserted", async () => {
+    const stop = keepRouteAdFree();
+    try {
+      const frame = document.createElement("iframe");
+      frame.id = "late-frame";
+      document.body.appendChild(frame);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(document.getElementById("late-frame")).not.toBeNull();
+
+      frame.setAttribute("src", "https://googleads.g.doubleclick.net/pagead/ads");
+
+      await vi.waitFor(() => expect(document.getElementById("late-frame")).toBeNull());
+    } finally {
+      stop();
+    }
+  });
+
   it("stops watching when the route changes", async () => {
     const stop = keepRouteAdFree();
     stop();

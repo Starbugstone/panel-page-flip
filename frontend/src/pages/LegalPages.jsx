@@ -202,7 +202,8 @@ export function PrivacyPolicy() {
             <button type="button" className="underline" onClick={reopenChoices}>
               privacy choices
             </button>
-            , which also appears in the footer of every page.
+            , which also appears in the footer of every page outside the comic
+            reader.
           </p>
           <p>
             Refusing advertising consent does not prevent you from registering,
@@ -390,7 +391,7 @@ export function CookieNoticePage() {
             <button type="button" className="underline" onClick={reopenChoices}>
               privacy choices
             </button>
-            , which is also in the footer of every page.
+            , which is also in the footer of every page outside the comic reader.
           </p>
           <p>
             Refusing does not sign you out, hide your library, or take away any feature. Comic

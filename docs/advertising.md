@@ -128,6 +128,7 @@ messaging), which the site code installs. This application:
   and, where advertising is on, says only what storage is used and points at the
   consent panel for the choice;
 - offers a permanent **Privacy choices** entry in the footer of every page
+  outside the reader, which has no footer
   (`googlefc.showRevocationMessage()`), so consent can be changed or withdrawn
   long after the banner is gone. It is absent where advertising is off, because
   there is then nothing to revisit.

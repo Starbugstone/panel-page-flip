@@ -12,6 +12,7 @@ import {
   publisherId,
   shouldOfferRewardedGate,
 } from "@/lib/advertising";
+import { BULK_UPLOAD_ROUTE } from "@/lib/bulk-upload-session";
 
 /**
  * The route policy is the application-side boundary between Google and
@@ -147,6 +148,17 @@ describe("the allowlist against the router", () => {
    */
   it("holds exactly the four pages that carry no user content", () => {
     expect([...AD_SAFE_ROUTES]).toEqual(["/", "/login", "/upload", "/upload/bulk"]);
+  });
+
+  /**
+   * The gate navigates to `BULK_UPLOAD_ROUTE` and App.jsx spells the same path
+   * again as a literal. The two are what put the batch screen on the ad-free
+   * side of the boundary, so a rename that reaches only one of them either
+   * dead-ends the gate or lands the batch on a path nothing has classified.
+   */
+  it("routes the batch screen at the path the gate sends people to", () => {
+    expect(reactRoutes).toContain(BULK_UPLOAD_ROUTE);
+    expect(isAdSafeRoute(BULK_UPLOAD_ROUTE)).toBe(false);
   });
 });
 

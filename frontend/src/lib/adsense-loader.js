@@ -221,14 +221,20 @@ export function keepRouteAdFree(root = typeof document === "undefined" ? null : 
 
   // Attributes as well as insertions, because Auto Ads also take over elements
   // that are already on the page by stamping their own markers onto them —
-  // childList alone never sees that. Filtered to the three markers rather than
-  // watching every attribute, which in the reader would fire on every class
-  // change a page turn makes.
+  // childList alone never sees that. Filtered rather than watching every
+  // attribute, which in the reader would fire on every class change a page turn
+  // makes.
+  //
+  // `src` is on the list because an iframe is matched by its URL: one inserted
+  // blank and pointed at Google afterwards matches nothing at insertion, and
+  // without this the mutation that makes it an advertisement is the one
+  // mutation not watched. It costs a `matches()` on each image the reader
+  // swaps, which is nothing beside an advertisement surviving on the page.
   observer.observe(target, {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["data-google-query-id", "data-anchor-status", "data-vignette-loaded"],
+    attributeFilter: ["src", "data-google-query-id", "data-anchor-status", "data-vignette-loaded"],
   });
 
   return () => observer.disconnect();

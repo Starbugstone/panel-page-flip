@@ -79,6 +79,49 @@ describe("ending the rewarded bulk-upload session", () => {
   });
 
   /**
+   * A retry that rescues the last failure ends the batch as surely as a clean
+   * run does. Leaving the session open here hands the *next* batch a free pass
+   * until it expires two hours later, which is one advertisement paying for
+   * two batches.
+   */
+  it("closes the session when a retry finishes the last outstanding file", async () => {
+    vi.mocked(uploadComicInChunks)
+      .mockResolvedValueOnce({ comic: { id: 1 } })
+      .mockRejectedValueOnce(new Error("Upload failed"))
+      .mockResolvedValueOnce({ comic: { id: 2 } });
+
+    const user = userEvent.setup();
+    renderQueue();
+
+    await runBatch(user, ["one.cbz", "two.cbz"]);
+    await waitFor(() => expect(screen.getByText("Failed")).toBeInTheDocument());
+    expect(closeBulkUploadSession).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /retry two\.cbz/i }));
+
+    await waitFor(() => expect(closeBulkUploadSession).toHaveBeenCalledOnce());
+  });
+
+  /** A retry that fails again leaves the batch unfinished, so the offer stands. */
+  it("keeps the session open when a retry fails again", async () => {
+    vi.mocked(uploadComicInChunks)
+      .mockResolvedValueOnce({ comic: { id: 1 } })
+      .mockRejectedValueOnce(new Error("Upload failed"))
+      .mockRejectedValueOnce(new Error("Upload failed again"));
+
+    const user = userEvent.setup();
+    renderQueue();
+
+    await runBatch(user, ["one.cbz", "two.cbz"]);
+    await waitFor(() => expect(screen.getByText("Failed")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /retry two\.cbz/i }));
+
+    await waitFor(() => expect(screen.getByText("Upload failed again")).toBeInTheDocument());
+    expect(closeBulkUploadSession).not.toHaveBeenCalled();
+  });
+
+  /**
    * The gate never opened a session on an installation with advertising off, so
    * this would be an authenticated request to delete something that does not
    * exist, after every batch, for every self-hosted user.

@@ -68,6 +68,20 @@ describe("the privacy policy", () => {
     expect(screen.queryByText(/google serves advertising/i)).not.toBeInTheDocument();
   });
 
+  /**
+   * `Footer` renders nothing on `/read/`, so a policy promising the control on
+   * "every page" documents a way to withdraw consent that is not there. The
+   * exception is the honest half of the sentence, and the half that rots first.
+   */
+  it("does not promise the consent control on pages that have no footer", async () => {
+    advertisingOn();
+
+    renderPage(<PrivacyPolicy />);
+
+    expect(await screen.findByText(/outside the comic reader/i)).toBeInTheDocument();
+    expect(screen.queryByText(/in the footer of every page\./i)).not.toBeInTheDocument();
+  });
+
   it("reopens the consent panel from inside the policy text", async () => {
     advertisingOn();
 

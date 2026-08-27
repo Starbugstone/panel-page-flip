@@ -6,8 +6,10 @@ import { reopenPrivacyChoices } from "@/lib/privacy-choices";
  * The permanent way back into the consent choices.
  *
  * Consent that can be given and never withdrawn is not consent, so this sits in
- * the footer of every page rather than inside the banner that collected it —
- * the banner is gone by the time somebody changes their mind.
+ * the site footer rather than inside the banner that collected it — the banner
+ * is gone by the time somebody changes their mind. The reader is the one place
+ * without a footer, and so the one place this cannot be reached; the legal
+ * pages say so rather than promising every page.
  *
  * Absent where advertising is off, and absent until the server has said which
  * it is: offering it on an installation that shows no advertising would imply
