@@ -58,6 +58,9 @@ security:
         - { path: '^/api/email-verification/verify/[A-Fa-f0-9]{64}$', methods: [GET], roles: PUBLIC_ACCESS }
         - { path: ^/api/email-verification/resend$, methods: [POST], roles: PUBLIC_ACCESS }
         - { path: ^/api/legal-config$, methods: [GET], roles: PUBLIC_ACCESS }
+        # Whether this installation shows advertising, needed by the landing and
+        # login pages before anybody has signed in. Nothing account-specific.
+        - { path: ^/api/public-config$, methods: [GET], roles: PUBLIC_ACCESS }
         - { path: ^/api/content-reports$, methods: [POST], roles: PUBLIC_ACCESS }
         # Reading an invitation is public so somebody who does not have an
         # account yet can see what they are being offered before creating one.

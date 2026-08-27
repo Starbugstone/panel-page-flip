@@ -10,6 +10,7 @@ import { useSharing } from "@/hooks/use-sharing.jsx";
 
 export function Header({ isLoggedIn, onLogout, isAdmin }) {
   const location = useLocation();
+  const inBulkUpload = location.pathname === "/upload/bulk" || location.pathname.startsWith("/upload/bulk/");
   const isReaderPage = location.pathname.includes("/read/");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const { summary } = useSharing();
@@ -77,7 +78,13 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
                 <span className="hidden md:inline">Upload Comic</span>
                 <Upload className="inline md:hidden h-5 w-5" />
               </Link>
-              <Link to="/upload/bulk" aria-label="Bulk Upload" className={`${location.pathname === "/upload/bulk" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+              {/* Bulk upload is two routes now — the gate at /upload/bulk and the
+                  batch at /upload/bulk/session — so the highlight has to cover
+                  both or it goes dark for the whole time the queue is on screen.
+                  The link points at wherever the user already is, because
+                  sending somebody mid-batch back through the gate unmounts the
+                  queue and loses every title, tag and progress bar in it. */}
+              <Link to={inBulkUpload ? location.pathname : "/upload/bulk"} aria-label="Bulk Upload" className={`${inBulkUpload ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
                 <span className="hidden lg:inline">Bulk Upload</span>
                 <Files className="inline lg:hidden h-5 w-5" />
               </Link>
