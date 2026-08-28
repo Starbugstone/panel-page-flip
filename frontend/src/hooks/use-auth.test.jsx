@@ -39,7 +39,7 @@ describe("useAuth isAdmin", () => {
   });
 
   it("is false before anybody has signed in", async () => {
-    api.get.mockRejectedValue(new Error("no session"));
+    api.get.mockResolvedValue({ user: null });
     const { result } = renderHook(() => useAuth(), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));

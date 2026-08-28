@@ -32,9 +32,18 @@ class MeControllerTest extends AbstractApiTestCase
         self::assertTrue($payload['user']['isAdmin']);
     }
 
-    public function testRequiresAuthentication(): void
+    public function testAnonymousGetReturnsAnEmptyUser(): void
     {
-        $this->getJson('/api/me');
+        $payload = $this->getJson('/api/me');
+
+        self::assertResponseIsSuccessful();
+        self::assertNull($payload['user']);
+        self::assertFalse($payload['sessionRefreshed']);
+    }
+
+    public function testAnonymousPostStillRequiresAuthentication(): void
+    {
+        $this->postJson('/api/me');
 
         self::assertResponseStatusCodeSame(401);
     }

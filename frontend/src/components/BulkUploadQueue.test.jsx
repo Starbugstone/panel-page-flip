@@ -8,7 +8,10 @@ import { uploadComicInChunks } from "@/hooks/use-chunked-upload";
 
 const mocks = vi.hoisted(() => ({ toast: vi.fn(), refreshSession: vi.fn().mockResolvedValue(true) }));
 
-vi.mock("@/hooks/use-chunked-upload", () => ({ uploadComicInChunks: vi.fn() }));
+vi.mock("@/hooks/use-chunked-upload", () => ({
+  createUploadRequestPool: vi.fn(() => (request) => request()),
+  uploadComicInChunks: vi.fn(),
+}));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ refreshSession: mocks.refreshSession }),
@@ -72,6 +75,23 @@ describe("taking a file back out of the bulk queue", () => {
     const uploaded = vi.mocked(uploadComicInChunks).mock.calls.map(([{ file }]) => file.name);
     expect(uploaded).not.toContain("three.cbz");
     expect(screen.queryByText("three.cbz")).not.toBeInTheDocument();
+  });
+
+  it("gives simultaneous files the same global request pool", async () => {
+    const user = userEvent.setup();
+    const release = [];
+    vi.mocked(uploadComicInChunks).mockImplementation(
+      () => new Promise((resolve) => release.push(() => resolve({ comic: { id: release.length } })))
+    );
+
+    renderQueue();
+    await addFiles(user, ["one.cbz", "two.cbz"]);
+    await user.click(screen.getByRole("button", { name: "Start all" }));
+    await waitFor(() => expect(uploadComicInChunks).toHaveBeenCalledTimes(2));
+
+    const [first, second] = vi.mocked(uploadComicInChunks).mock.calls.map(([options]) => options);
+    expect(first.requestPool).toBe(second.requestPool);
+    release.forEach((resolve) => resolve());
   });
 
   it("offers removal beside retry once a file has failed", async () => {

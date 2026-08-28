@@ -18,7 +18,17 @@ class MeController extends AbstractController
     #[Route('/api/me', name: 'api_me', methods: ['GET', 'POST'])]
     public function me(Request $request, SessionInterface $session, LoggerInterface $logger): JsonResponse
     {
-        $user = $this->requireUser();
+        // Public pages use GET to discover whether a session exists. Being
+        // signed out is expected there, so represent it as data rather than a
+        // failed request that browsers report as a console error. POST is the
+        // authenticated keep-alive route and is still protected by security.
+        $user = $request->isMethod('POST') ? $this->requireUser() : $this->currentUser();
+        if (null === $user) {
+            return $this->json([
+                'user' => null,
+                'sessionRefreshed' => false,
+            ]);
+        }
 
         $sessionRefreshed = false;
         if ($request->isMethod('POST')) {

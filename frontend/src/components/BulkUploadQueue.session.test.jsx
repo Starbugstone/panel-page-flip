@@ -10,7 +10,10 @@ import { closeBulkUploadSession } from "@/lib/bulk-upload-session";
 const mocks = vi.hoisted(() => ({ toast: vi.fn(), refreshSession: vi.fn().mockResolvedValue(true) }));
 const { adSense } = vi.hoisted(() => ({ adSense: { config: { enabled: false, client: null } } }));
 
-vi.mock("@/hooks/use-chunked-upload", () => ({ uploadComicInChunks: vi.fn() }));
+vi.mock("@/hooks/use-chunked-upload", () => ({
+  createUploadRequestPool: vi.fn(() => (request) => request()),
+  uploadComicInChunks: vi.fn(),
+}));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ refreshSession: mocks.refreshSession }) }));
 vi.mock("@/hooks/use-config", () => ({

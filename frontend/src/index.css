@@ -117,7 +117,7 @@
   /* A column, so the progress bar can sit above the buttons rather than beside
      them. The inner row keeps the original horizontal arrangement. */
   .reader-controls {
-    @apply fixed bottom-0 left-0 right-0 bg-gradient-to-t from-background/90 to-transparent p-4 opacity-100 flex flex-col gap-3 transition-opacity duration-300 motion-reduce:transition-none;
+    @apply fixed bottom-0 left-0 right-0 z-[30] bg-gradient-to-t from-background/90 to-transparent p-4 opacity-100 flex flex-col gap-3 transition-opacity duration-300 motion-reduce:transition-none;
     /* Clear of the home indicator and any rounded corner, so the last row of
        controls is not something you have to fight the gesture bar to press. */
     padding-bottom: calc(1rem + env(safe-area-inset-bottom));
@@ -176,6 +176,28 @@
      dragged across as well as over the page itself. */
   .zoomed-image {
     @apply max-h-none max-w-none;
+  }
+
+  /* Paged readers expose their page-turn targets instead of asking somebody
+     to guess where an invisible third begins. The edge remains understated
+     over artwork, then becomes explicit on hover or keyboard focus. */
+  .reader-paged-layout {
+    grid-template-columns: clamp(2.75rem, 4vw, 4.5rem) minmax(0, 1fr) clamp(2.75rem, 4vw, 4.5rem);
+    transition: grid-template-columns 200ms ease;
+  }
+
+  .reader-turn-zone {
+    @apply z-10 select-none text-foreground/70 outline-none transition-colors hover:text-foreground focus-visible:text-foreground disabled:opacity-20;
+  }
+
+  .reader-turn-zone-indicator {
+    @apply opacity-70 transition-all group-hover:opacity-100 group-focus-visible:opacity-100;
+  }
+
+  [data-reader-artwork="true"] {
+    -webkit-user-drag: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .fullscreen-controls {

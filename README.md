@@ -14,6 +14,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Protected comic-page streaming across supported source formats, fullscreen reading, keyboard navigation, and saved progress
 - Single and bulk chunked uploads with progress reporting
 - Search, custom tags, bulk tagging, and recoverable file cleanup
+- Private library folders that organise a collection without touching a file on disk — see [library folders](docs/library-folders.md)
 - Comic sharing that grants revocable read access without copying files, with a dedicated Sharing page and re-readable `C-`/`G-` codes — see [who may reach a comic](docs/comic-access.md)
 - One-way Dropbox imports with duplicate detection and folder-based tags
 - Responsive light and dark themes
@@ -26,7 +27,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 
 | Layer | Stack |
 | --- | --- |
-| Frontend | React 18, Vite 8, React Router, TanStack Query, Tailwind CSS, Radix UI |
+| Frontend | React 19, Vite 8, React Router 7, TanStack Query, Tailwind CSS, Radix UI |
 | Backend | PHP 8.2, Symfony 6.4, Doctrine ORM |
 | Data | MySQL 8 and filesystem-backed canonical comic-source storage |
 | Development | Docker Compose, Nginx, PHP-FPM, Mailpit, Adminer |
@@ -110,7 +111,7 @@ Important configuration variables:
 - `CORS_ALLOW_ORIGIN` — allowed browser origins
 - `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
 - `PRIVACY_OPERATOR`, `PRIVACY_EMAIL` — public data-controller name and privacy contact
-- `MAX_CONCURRENT_UPLOADS` — frontend upload concurrency returned by the application config endpoint
+- `MAX_CONCURRENT_UPLOADS` — concurrent upload HTTP requests shared across a batch; keep below the PHP-FPM worker count (the Docker default is 4 requests for 5 workers)
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REDIRECT_URI` — optional Dropbox OAuth settings
 - `DROPBOX_APP_FOLDER`, `DROPBOX_SYNC_LIMIT`, `DROPBOX_RATE_LIMIT` — optional Dropbox import settings
 - `ADSENSE_ENABLED`, `ADSENSE_CLIENT` — optional Google AdSense, off by default.
@@ -231,9 +232,31 @@ docker compose exec frontend_dev npm test
 docker compose exec frontend_dev npm run lint
 docker compose exec frontend_dev npm run build
 docker compose exec frontend_dev npm run audit:production
+docker compose exec frontend_dev npm run check:routes
+docker compose exec frontend_dev npm run check:seo
 ```
 
 Alternatively, run `npm ci` and the same scripts from `frontend/` with a local Node.js 22 installation.
+
+`lint` runs with `--max-warnings=0`, so a warning fails it. The `check:` scripts
+guard artefacts that are committed rather than rebuilt on the way to production
+— the nginx route manifest, the conversion-tool downloads and their checksums,
+and the generated sitemap, robots and canonical metadata. `check:seo` reads
+`APP_URL`, so run it after a build made with the same value CI uses.
+
+**`check:tools` must be run from the host, not from `frontend_dev`:**
+
+```bash
+npm run check:tools --prefix frontend
+```
+
+The container mounts only `scripts/generate-nginx-routes.mjs`, never the whole
+`scripts/` directory, because that directory can hold `scripts/.env.deploy` with
+production credentials. `check:tools` needs `scripts/comic-conversion/`, so
+inside the container it reports a missing source file — and
+`src/lib/conversion-tools.test.js`, which shells out to the same check, fails
+there for the same reason. Both pass on the host and in CI, where the whole
+repository is present.
 
 ### Backend
 
@@ -249,12 +272,30 @@ Then run:
 
 ```bash
 docker compose exec php php bin/phpunit
+docker compose exec php composer analyse
+docker compose exec php composer cs:check
 docker compose exec php composer validate --strict
+docker compose exec php composer audit --locked --no-dev
 docker compose exec php php bin/console lint:container --env=test
 docker compose exec php php bin/console doctrine:schema:validate --env=test
 ```
 
-GitHub Actions runs frontend linting, tests, dependency auditing, and a production build, plus backend tests, Composer auditing, migrations, and Symfony/Doctrine validation. CI validates releases but does not deploy them.
+`composer analyse` is PHPStan and `composer cs:check` is PHP-CS-Fixer in dry-run
+mode; both are CI gates, not optional local tooling. See
+[development tooling](docs/development-tooling.md) for the PHPStan baseline
+policy.
+
+### Continuous integration
+
+`.github/workflows/build-frontend.yml` ("Validate Application") runs everything
+above on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**`
+and `ci/**`, and on pushes to `main` and `develop`. A weekly
+`security-audit.yml` re-runs the frontend and backend dependency audits on their
+own schedule.
+
+CI validates releases and deliberately does not deploy them: frontend and
+backend must ship together through the backup-gated release scripts described
+under [Production deployment](#production-deployment).
 
 ## Dropbox integration
 
@@ -332,6 +373,7 @@ the production checklist in [`docs/advertising.md`](docs/advertising.md).
 │   │   └── Service/
 │   └── tests/
 ├── docker/                  PHP and Nginx development images
+├── docs/                    Per-feature documentation
 ├── frontend/                React application and frontend tests
 │   └── src/
 │       ├── components/

@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, LayoutGrid, Maximize, Minimize, RefreshCw, ZoomI
 
 import { ContinuousPageReader } from "@/components/reader/ContinuousPageReader";
 import { ReaderFitSuggestion } from "@/components/reader/ReaderFitSuggestion";
+import { ReaderPageTurnZones } from "@/components/reader/ReaderPageTurnZones";
 import { ReaderSettings } from "@/components/reader/ReaderSettings";
 import { ReaderThumbnailStrip } from "@/components/reader/ReaderThumbnailStrip";
 import { SinglePageReader } from "@/components/reader/SinglePageReader";
@@ -71,6 +72,7 @@ export default function ComicReader() {
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
   const [fallbackImages, setFallbackImages] = useState([]);
+  const [preferredZoomLevel, setPreferredZoomLevel] = useState(2);
 
   const readerRootRef = useRef(null);
   const imageContainerRef = useRef(null);
@@ -144,10 +146,15 @@ export default function ComicReader() {
     pinch,
     pan,
     doubleTapAt,
-    stepZoomBy,
+    setZoomLevel,
     zoomToFit,
+    resetPosition,
     resetTransform,
   } = useReaderTransform({ containerRef: imageContainerRef, imageRef });
+  const handleZoomLevelChange = useCallback((scale) => {
+    if (scale > 1) setPreferredZoomLevel(scale);
+    setZoomLevel(scale);
+  }, [setZoomLevel]);
   const basePageVariant = usePageVariant(imageContainerRef, { zoomLevel: 1 });
   const zoomPageVariant = usePageVariant(imageContainerRef, { zoomLevel: transform.scale });
   const preloadWindow = usePreloadWindow(profile);
@@ -393,10 +400,10 @@ export default function ComicReader() {
     if (effectiveMode !== "continuous") {
       const images = currentUnit.map((index) => imageCacheRef.current[index]);
       if (images.length > 0 && images.every(isUsableImage)) setFallbackImages(images);
-      resetTransform();
+      resetPosition();
     }
     return goToLogicalPage(pageIndex);
-  }, [currentUnit, effectiveMode, goToLogicalPage, resetTransform]);
+  }, [currentUnit, effectiveMode, goToLogicalPage, resetPosition]);
   const previousTarget = effectiveMode === "double"
     ? adjacentReadingPage(readingUnits, currentPage, "previous")
     : currentPage > 0 ? currentPage - 1 : null;
@@ -496,10 +503,8 @@ export default function ComicReader() {
   const handleWheel = useCallback((event) => {
     if (!isZoomed || effectiveMode === "continuous") return;
     event.preventDefault();
-    const rect = imageContainerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    pinch({ scale: Math.exp(event.deltaY * -0.002), focal: { x: event.clientX - rect.left, y: event.clientY - rect.top } });
-  }, [effectiveMode, isZoomed, pinch]);
+    pan({ dx: 0, dy: -event.deltaY });
+  }, [effectiveMode, isZoomed, pan]);
   useEffect(() => {
     const container = imageContainerRef.current;
     if (!container || !isZoomed || effectiveMode === "continuous") return undefined;
@@ -662,7 +667,7 @@ export default function ComicReader() {
       }}
       onPointerMove={(event) => { if (event.pointerType === "mouse") revealChrome(); }}
     >
-      <div className={`${effectiveMode === "continuous" || settings.fit === "width" || settings.fit === "original" ? "max-w-none" : "max-w-4xl"} ${isFullscreen ? "reader-stage-fullscreen" : "reader-stage"} ${effectiveMode !== "continuous" && !isChromeHidden ? "reader-stage-controls-visible" : ""} flex w-full items-center justify-center pt-4`}>
+      <div className={`${effectiveMode === "continuous" || settings.fit === "width" || settings.fit === "original" || isZoomed ? "max-w-none" : "max-w-4xl"} ${isFullscreen ? "reader-stage-fullscreen" : "reader-stage"} ${effectiveMode !== "continuous" && !isChromeHidden ? "reader-stage-controls-visible" : ""} flex w-full items-center justify-center pt-4`}>
         {pageCount === 0 ? (
           <div className="text-xl">This comic has no pages to display.</div>
         ) : effectiveMode === "continuous" ? (
@@ -674,40 +679,59 @@ export default function ComicReader() {
             title={comic.title}
             geometry={pageGeometry}
             resetToken={`${profile.orientation}:${effectiveMode}`}
+            zoomLevel={transform.scale}
             onCurrentPageChange={goToLogicalPage}
             onActivity={toggleChrome}
           />
         ) : effectiveMode === "double" ? (
-          <SpreadPageReader
-            containerRef={imageContainerRef}
-            contentRef={imageRef}
-            pages={orderedPageStates}
-            title={comic.title}
-            fit={settings.fit}
-            transform={transform}
-            swipeOffset={swipeOffset}
-            isSwiping={isSwiping}
-            gestures={gestures}
-            onSurfaceClick={handleMousePageClick}
-          />
+          <ReaderPageTurnZones
+            leftLabel={settings.direction === "rtl" ? "Left edge: next page" : "Left edge: previous page"}
+            rightLabel={settings.direction === "rtl" ? "Right edge: previous page" : "Right edge: next page"}
+            onLeft={physicalLeft}
+            onRight={physicalRight}
+            leftDisabled={settings.direction === "rtl" ? !canGoNext : !canGoPrevious}
+            rightDisabled={settings.direction === "rtl" ? !canGoPrevious : !canGoNext}
+          >
+            <SpreadPageReader
+              containerRef={imageContainerRef}
+              contentRef={imageRef}
+              pages={orderedPageStates}
+              title={comic.title}
+              fit={settings.fit}
+              transform={transform}
+              swipeOffset={swipeOffset}
+              isSwiping={isSwiping}
+              gestures={gestures}
+              onSurfaceClick={handleMousePageClick}
+            />
+          </ReaderPageTurnZones>
         ) : (
-          <SinglePageReader
-            containerRef={imageContainerRef}
-            imageRef={imageRef}
-            image={requestedImages[0]?.image}
-            isStale={requestedImages[0]?.isStale}
-            isLoading={requestedImages[0]?.isLoading}
-            hasFailed={requestedImages[0]?.hasFailed}
-            pageNumber={currentPage + 1}
-            title={comic.title}
-            fit={settings.fit}
-            transform={transform}
-            swipeOffset={swipeOffset}
-            isSwiping={isSwiping}
-            gestures={gestures}
-            onSurfaceClick={handleMousePageClick}
-            onRetry={() => retryPage(currentPage)}
-          />
+          <ReaderPageTurnZones
+            leftLabel={settings.direction === "rtl" ? "Left edge: next page" : "Left edge: previous page"}
+            rightLabel={settings.direction === "rtl" ? "Right edge: previous page" : "Right edge: next page"}
+            onLeft={physicalLeft}
+            onRight={physicalRight}
+            leftDisabled={settings.direction === "rtl" ? !canGoNext : !canGoPrevious}
+            rightDisabled={settings.direction === "rtl" ? !canGoPrevious : !canGoNext}
+          >
+            <SinglePageReader
+              containerRef={imageContainerRef}
+              imageRef={imageRef}
+              image={requestedImages[0]?.image}
+              isStale={requestedImages[0]?.isStale}
+              isLoading={requestedImages[0]?.isLoading}
+              hasFailed={requestedImages[0]?.hasFailed}
+              pageNumber={currentPage + 1}
+              title={comic.title}
+              fit={settings.fit}
+              transform={transform}
+              swipeOffset={swipeOffset}
+              isSwiping={isSwiping}
+              gestures={gestures}
+              onSurfaceClick={handleMousePageClick}
+              onRetry={() => retryPage(currentPage)}
+            />
+          </ReaderPageTurnZones>
         )}
       </div>
 
@@ -726,7 +750,11 @@ export default function ComicReader() {
           modeNotice={settings.mode === "double" && effectiveMode !== "double"
             ? "Two-page mode uses one page on narrow or portrait screens."
             : null}
+          zoomLevel={transform.scale}
+          canZoom={pageCount > 0}
+          continuousZoom={effectiveMode === "continuous"}
           onChange={handleReaderSettingsChange}
+          onZoomChange={handleZoomLevelChange}
           onOverrideChange={handleContextOverrideChange}
           onOpenChange={setIsSettingsOpen}
           onReset={handleResetReaderSettings}
@@ -737,7 +765,7 @@ export default function ComicReader() {
         {effectiveMode !== "continuous" && (isZoomed ? (
           <Button variant="outline" size="icon" className="bg-card/80 opacity-80 hover:opacity-100" onClick={zoomToFit} aria-label="Zoom out" title="Zoom out"><ZoomOut className="h-4 w-4" /></Button>
         ) : (
-          <Button variant="outline" size="icon" className="bg-card/80 opacity-80 hover:opacity-100" onClick={() => stepZoomBy(2)} aria-label="Zoom in" title="Zoom in"><ZoomIn className="h-4 w-4" /></Button>
+          <Button variant="outline" size="icon" className="bg-card/80 opacity-80 hover:opacity-100" onClick={() => setZoomLevel(preferredZoomLevel)} aria-label="Zoom in" title={`Zoom in to ${Math.round(preferredZoomLevel * 100)}%`}><ZoomIn className="h-4 w-4" /></Button>
         ))}
         <Button variant="outline" size="icon" className="bg-card/80 opacity-80 hover:opacity-100" onClick={() => setShowThumbnails((shown) => !shown)} aria-label={showThumbnails ? "Hide page thumbnails" : "Show page thumbnails"} aria-expanded={showThumbnails} aria-controls="reader-thumbnail-strip" title="Page thumbnails">
           <LayoutGrid className="h-4 w-4" />
@@ -760,15 +788,23 @@ export default function ComicReader() {
         )}
         <div className="flex w-full items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={handlePreviousPage} disabled={!canGoPrevious} aria-label="Previous page" className={isFullscreen ? "" : "bg-card"}>
-              <ArrowLeft className="h-4 w-4 min-[360px]:mr-2" /><span className="hidden min-[360px]:inline">Previous</span>
+            <Button
+              variant="outline"
+              onClick={handlePreviousPage}
+              disabled={!canGoPrevious}
+              aria-label="Previous page"
+              aria-keyshortcuts="ArrowLeft"
+              title="Previous page (Left arrow)"
+              className={`shrink-0 ${isFullscreen ? "" : "bg-card"}`}
+            >
+              <ArrowLeft className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Previous</span>
             </Button>
             {effectiveMode !== "continuous" && (
-              <Button variant="outline" size="icon" onClick={handleForceReload} aria-label="Force reload current page" title="Force reload current page" className={isFullscreen ? "" : "bg-card"}><RefreshCw className="h-4 w-4" /></Button>
+              <Button variant="outline" size="icon" onClick={handleForceReload} aria-label="Force reload current page" title="Force reload current page" className={`hidden shrink-0 min-[400px]:inline-flex ${isFullscreen ? "" : "bg-card"}`}><RefreshCw className="h-4 w-4" /></Button>
             )}
           </div>
           <div className="flex min-w-0 flex-col items-center gap-1">
-            <form className="flex items-center gap-1.5 text-sm" onSubmit={(event) => { event.preventDefault(); commitPageInput(); pageInputRef.current?.blur(); }}>
+            <form className="flex min-w-0 items-center justify-center gap-1.5 text-sm" onSubmit={(event) => { event.preventDefault(); commitPageInput(); pageInputRef.current?.blur(); }}>
               <label htmlFor="reader-page-input" className="sr-only">Go to page</label>
               <input
                 id="reader-page-input"
@@ -782,15 +818,26 @@ export default function ComicReader() {
                 onBlur={commitPageInput}
                 disabled={pageCount === 0}
                 title="Go to page"
-                className="h-8 w-14 rounded-md border border-input bg-background px-2 text-center text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+                className="h-8 w-12 shrink-0 rounded-md border border-input bg-background px-1 text-center text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 sm:w-14 sm:px-2"
               />
-              <span className="whitespace-nowrap">of {pageCount}</span>
+              <span className="shrink-0 whitespace-nowrap">of {pageCount}</span>
+              <Button type="submit" variant="outline" size="sm" disabled={pageCount === 0} aria-label="Go to typed page" className="h-8 shrink-0 px-2">
+                Go
+              </Button>
             </form>
             {currentUnit.length > 1 && <span className="text-xs text-muted-foreground">Showing pages {unitLabel}</span>}
             {isZoomed && <span className="rounded bg-primary/20 px-2 py-0.5 text-xs">{Math.round(transform.scale * 100)}% zoom</span>}
           </div>
-          <Button variant="outline" onClick={handleNextPage} disabled={!canGoNext} aria-label="Next page" className={isFullscreen ? "" : "bg-card"}>
-            <span className="hidden min-[360px]:inline">Next</span><ArrowRight className="h-4 w-4 min-[360px]:ml-2" />
+          <Button
+            variant="outline"
+            onClick={handleNextPage}
+            disabled={!canGoNext}
+            aria-label="Next page"
+              aria-keyshortcuts="ArrowRight"
+              title="Next page (Right arrow)"
+              className={`shrink-0 ${isFullscreen ? "" : "bg-card"}`}
+            >
+            <span className="hidden sm:inline">Next</span><ArrowRight className="h-4 w-4 sm:ml-2" />
           </Button>
         </div>
       </div>

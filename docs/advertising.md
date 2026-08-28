@@ -284,8 +284,8 @@ AdSense account side — most of the behaviour deliberately lives here:
 7. Configure Auto Ads conservatively: in-page/banner formats only; low density;
    vignette, anchor/sticky, side rails and ad-intent formats **off**.
 8. Add page exclusions for every ad-free route listed above — at minimum
-   `/dashboard`, `/read/*`, `/upload/bulk/session`, `/library/*`, `/share/*`,
-   `/settings`, `/admin/*`.
+   `/dashboard`, `/read/*`, `/upload/bulk/session`, `/sharing`, `/share/*`,
+   `/dropbox-sync`, `/settings`, `/admin/*`.
 9. Add excluded areas wherever Google proposes a placement close to a control.
 10. Create the Offerwall rewarded-ad message and target it at `/upload/bulk`
     only — **not** at `/upload/bulk/session`, which shows uploaded filenames.

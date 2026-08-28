@@ -28,7 +28,11 @@ export function ReaderSettings({
   contextLabel,
   hasOverride,
   modeNotice,
+  zoomLevel = 1,
+  canZoom = true,
+  continuousZoom = false,
   onChange,
+  onZoomChange,
   onOverrideChange,
   onOpenChange,
   onReset,
@@ -73,6 +77,37 @@ export function ReaderSettings({
           </div>
         </div>
         {modeNotice && <p className="text-xs text-muted-foreground">{modeNotice}</p>}
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="reader-zoom">Zoom level</Label>
+            <span className="min-w-12 text-right text-sm font-medium" aria-live="polite">
+              {Math.round(zoomLevel * 100)}%
+            </span>
+          </div>
+          <input
+            id="reader-zoom"
+            type="range"
+            min="100"
+            max="500"
+            step="25"
+            value={Math.round(zoomLevel * 100)}
+            onChange={(event) => onZoomChange?.(Number(event.target.value) / 100)}
+            disabled={!isLoaded || !canZoom}
+            aria-label="Zoom level"
+            aria-valuetext={`${Math.round(zoomLevel * 100)}%`}
+            className="h-2 w-full cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <p className="text-xs text-muted-foreground">
+            {canZoom
+              ? continuousZoom
+                ? "Adjust the width of every page while keeping continuous scrolling."
+                : "Adjust the page or spread. This zoom level stays when you turn pages."
+              : "Zoom is available in single-page and two-page modes."}
+          </p>
+        </div>
+
+        <Separator />
 
         <div className="space-y-2">
           <Label htmlFor="reader-fit">Page size</Label>

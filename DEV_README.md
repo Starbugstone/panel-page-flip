@@ -1,10 +1,31 @@
-# CBZ Comic Reader - Developer Documentation
+# Panel Page Flip - Developer Documentation
 
 ## Project Overview
 
-CBZ Comic Reader is a web application that allows users to read comic books in CBZ format. The application features a secure login system, a comic selection interface, and a reading progress tracker that remembers where you left off.
+Panel Page Flip is a self-hosted web application for managing and reading comic
+collections. Supported sources are CBZ, CBR, CB7, CBT and PDF; all reach the
+reader through one protected numbered-page endpoint, so nothing downstream of
+the source factory knows which format a comic came from.
 
-This document provides detailed information for developers working on the project, including current implementation status, architecture details, and next steps.
+This document is the developer's companion to [README.md](README.md), which
+covers installation, configuration and operation. Per-feature documentation
+lives in [`docs/`](docs/):
+
+| Page | Covers |
+|---|---|
+| [reader.md](docs/reader.md) | Reader settings, gestures, keyboard, extension contract |
+| [comic-formats.md](docs/comic-formats.md) | Source formats, runtime requirements, PDF handling |
+| [page-derivatives.md](docs/page-derivatives.md) | Page sizes, conversion, cache invalidation |
+| [comic-access.md](docs/comic-access.md) | Who may reach a comic, and how the voter decides |
+| [library-folders.md](docs/library-folders.md) | Private folder tree over the library |
+| [metadata-enrichment.md](docs/metadata-enrichment.md) | ComicInfo.xml, Metron, Comic Vine |
+| [storage-quota.md](docs/storage-quota.md) | Storage accounting and the per-user quota |
+| [security-logging.md](docs/security-logging.md) | Security/audit channels, retention, alerts |
+| [content-reporting.md](docs/content-reporting.md) | Illegal-content notices and restrictions |
+| [administrator-notices.md](docs/administrator-notices.md) | Warning one account about their activity |
+| [advertising.md](docs/advertising.md) | Optional AdSense, consent, rewarded bulk upload |
+| [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
+| [development-tooling.md](docs/development-tooling.md) | Package manager and quality gates |
 
 ## Current Implementation Status
 
@@ -71,6 +92,21 @@ This document provides detailed information for developers working on the projec
 - **TestApiEndpointsCommand**: Tests API endpoints for registration and login (`app:test-api-endpoints`)
 - **DropboxSyncCommand**: Syncs comics from Dropbox for all connected users (`app:dropbox-sync`)
 - **CleanupLogsCommand**: Deletes daily log files past their retention period (`app:cleanup-logs`)
+- **CleanupPersonalDataCommand**: Removes expired audit rows, spent tokens and unverified accounts (`app:cleanup-personal-data`)
+- **CleanupExpiredSharesCommand**: Removes unanswered invitations and long-dead sharing codes (`app:cleanup-expired-shares`)
+- **CleanupContentReportsCommand**: Removes closed/rejected reports past retention, never one on legal hold (`app:cleanup-content-reports`)
+- **ComicFormatsCheckCommand**: Reports which source formats this host can actually serve, and exits non-zero when an enabled one is unserviceable (`app:comic-formats:check`)
+- **PruneComicPagesCommand**: Drops generated page derivatives from the cache (`app:comic-pages:prune`)
+- **BackfillComicFileSizeCommand**: Fills `Comic.fileSize` for comics uploaded before quotas existed (`app:backfill-comic-file-size`)
+- **MigrateDropboxTokensCommand**: Re-encrypts legacy plaintext Dropbox tokens under `APP_DATA_KEY` (`app:migrate-dropbox-tokens`)
+- **ResetUserPasswordCommand**: Sets an account's password from the console (`app:reset-user-password`)
+- **TestEmailVerificationCommand**: Exercises the email-verification flow (`app:test-email-verification`)
+- **TestMailCommand**: Sends one test message through the configured mailer (`app:test-mail`)
+
+The three cleanup commands that a production instance **must** have scheduled —
+`app:cleanup-logs`, `app:cleanup-personal-data` and `app:cleanup-expired-shares`
+— are listed with what breaks if they never run in
+[README.md § Scheduled maintenance](README.md#scheduled-maintenance).
 
 #### ✅ Security and Audit Logging
 - **Dedicated channels**: `app_security` for refusals and suspected abuse, `app_audit` for successful state changes, both separate from `main`. They are not called `security`/`audit` because `security` is Symfony's own channel and its authenticator logs the submitted address there.
@@ -1032,8 +1068,8 @@ somebody who may never have had an account here.
   covers are served from the authorised cover endpoint, which asks the voter
   whether this viewer may see the comic at all
 - **Theme Persistence**: Switched from `localStorage` to client-side cookies for storing theme preferences (light/dark mode), managed by `ThemeProvider.jsx` and a new utility module `frontend/src/lib/cookies.js`. Includes a migration step from `localStorage`.
-- **Authentication Hook (`use-auth.jsx`)**: The `checkAuth` function updated to use `/api/users/me` for fetching comprehensive authenticated user details, including roles. The hook also includes a `refreshSession` method that forces an immediate session check.
-- **Session Management**: Consolidated session management to use a single endpoint (`/api/users/me`) for both session validation and session keep-alive functionality. The endpoint accepts both GET (for session checks) and POST (for explicit session refreshing) methods.
+- **Authentication Hook (`use-auth.jsx`)**: The `checkAuth` function updated to use `/api/me` for fetching comprehensive authenticated user details, including roles. The hook also includes a `refreshSession` method that forces an immediate session check.
+- **Session Management**: Consolidated session management to use a single endpoint (`/api/me`) for both session validation and session keep-alive functionality. GET is the public session check and answers `{"user": null}` when nobody is signed in; POST is the authenticated refresh. The session manager treats an anonymous GET as an expired session.
 - **Cookie Utility (`frontend/src/lib/cookies.js`)**: New module added with helper functions for managing browser cookies.
 
 ## Dropbox Integration System
@@ -1358,27 +1394,46 @@ php bin/console app:dropbox-sync --dry-run --user-id=1
 
 ```
 ./
-├── frontend/           # React frontend application (to be implemented)
+├── frontend/           # React frontend application
 │   ├── src/            # React source code
-│   │   ├── components/ # UI components
+│   │   ├── components/ # UI components, incl. reader/, library/ and ads/
 │   │   ├── hooks/      # Custom React hooks including authentication
 │   │   ├── pages/      # Page components
 │   │   └── lib/        # Utility functions
+│   ├── scripts/        # Build-time checks (SEO, audit, conversion tools)
 │   ├── public/         # Static assets for frontend
 │   └── package.json    # Frontend dependencies
 ├── backend/            # Symfony backend application
 │   ├── src/            # Symfony source code
+│   │   ├── ComicSource/# Per-format page providers
+│   │   ├── Command/    # CLI commands
 │   │   ├── Controller/ # API controllers
 │   │   ├── Entity/     # Database entities
-│   │   ├── Security/   # Authentication handlers
-│   │   └── Command/    # CLI commands
-│   └── ...             # Other Symfony files and folders
+│   │   ├── Monolog/    # Log handlers and redaction
+│   │   ├── Repository/ # Doctrine repositories
+│   │   ├── Security/   # Authentication handlers and voters
+│   │   └── Service/    # Application services
+│   ├── migrations/     # Doctrine migrations
+│   ├── templates/      # Twig email templates
+│   └── tests/          # PHPUnit unit and functional tests
+├── docs/               # Per-feature documentation
+├── scripts/            # Release, deployment, backup, and server scripts
 ├── docker/             # Docker configuration files
 ├── docker-compose.yml  # Docker Compose configuration for all services
 └── .env                # Main environment variables file
 ```
 
 ### Database Schema
+
+The four entities below are the core of the model. The sharing entities
+(`ComicShare`, `ShareInvitationToken`, `ShareClaimCode`,
+`ShareClaimCodeRedemption`) are described under
+[Comic Sharing System](#comic-sharing-system); the rest — `AdminAuditLog`,
+`ComicFormatConfiguration`, `ContentReport`, `EmailVerificationToken`,
+`LibraryFolder`, `LibraryFolderItem`, `MetadataProviderConfiguration`,
+`PendingFileDeletion`, `ResetPasswordToken`, `UserMetadataCredential`,
+`UserWarning` — are documented in their own feature pages under `docs/`.
+`backend/src/Entity/` is the authoritative list.
 
 #### User Entity
 - `id`: Primary key
@@ -1402,17 +1457,29 @@ php bin/console app:dropbox-sync --dry-run --user-id=1
   - One-to-Many with Tag (creator)
 
 #### Comic Entity
-- `id`: Primary key
-- `title`: Comic title
-- `filePath`: Path to the CBZ file
-- `coverImagePath`: Path to the cover image
-- `pageCount`: Number of pages in the comic
-- `description`: Comic description (optional)
-- `createdAt`: Timestamp of comic creation
-- `updatedAt`: Timestamp of last update
+
+The canonical source record. `Comic.php` is the authoritative field list; the
+groups below say what each part is for.
+
+- Identity and file: `id`, `title`, `filePath` (the canonical source, in any
+  enabled format — not necessarily a CBZ), `sourceType` (the `ComicSourceType`
+  enum that decides which page provider reads it), `originalFilename`,
+  `fileSize` (counted against the owner's quota), `coverImagePath`, `pageCount`
+- Timestamps: `uploadedAt`, `updatedAt`
+- Descriptive metadata, from `ComicInfo.xml`, a provider, or the filename:
+  `description`, `author`, `publisher`, `series`, `issueNumber`, `issueCount`,
+  `volume`, `publishedAt`, `languageCode`, `ageRating`, `readingDirection`,
+  `creators`, `pageMetadata`, `classification`
+- Enrichment provenance: `metadataProvider`, `metadataExternalId`,
+  `metadataFetchedAt` — see [metadata-enrichment.md](docs/metadata-enrichment.md)
+- Import origin: `dropboxPath`
+- Moderation and access: `explicitContent` (the 18+ gate),
+  `sharingRestrictedAt`, `quarantinedAt` — see
+  [content-reporting.md](docs/content-reporting.md)
 - Relationships:
   - Many-to-One with User (owner)
   - One-to-Many with ComicReadingProgress
+  - One-to-Many with ComicShare
   - Many-to-Many with Tag
 
 #### ComicReadingProgress Entity
@@ -1433,12 +1500,22 @@ php bin/console app:dropbox-sync --dry-run --user-id=1
 
 ### API Endpoints
 
+A representative subset, not an inventory: the application serves over a hundred
+API routes. `php bin/console debug:router` is the authoritative list, and the
+sharing, metadata, library-folder, admin and content-report endpoints are
+documented in their own pages under `docs/`.
+
 #### Authentication
 - `POST /api/login` - Login with email and password
 - `POST /api/register` - Register a new user
 - `POST /api/logout` - Logout the current user
 - `GET /api/login_check` - Check if the user is authenticated
-- `GET /api/users/me` - Get the current authenticated user's information, including roles. Primarily used by the frontend to check authentication status and retrieve user details.
+- `GET /api/me` - The session probe. Public, because every public page asks it
+  whether a session exists: signed out is answered as `{"user": null}` with a
+  `200` rather than a `401`, so being logged out is not reported to the browser
+  as a failed request.
+- `POST /api/me` - The authenticated keep-alive. Still behind
+  `IS_AUTHENTICATED_FULLY`; refreshes the session and returns the user.
 - `POST /api/forgot-password` - Request a password reset email
 - `GET /api/reset-password/validate/{token}` - Validate a password reset token
 - `POST /api/reset-password/reset/{token}` - Reset password with a valid token
@@ -1457,6 +1534,15 @@ php bin/console app:dropbox-sync --dry-run --user-id=1
 - `POST /api/tags` - Create a new tag
 - `PUT/PATCH /api/tags/{id}` - Update a tag
 - `DELETE /api/tags/{id}` - Delete a tag
+
+#### Library folders
+- `GET /api/library/folders` - The caller's folder tree
+- `POST /api/library/folders` - Create a folder, optionally under a parent
+- `PATCH /api/library/folders/{id}` - Rename or move a folder
+- `DELETE /api/library/folders/{id}` - Delete a folder; a two-step confirmation
+  when it is not empty
+- `POST /api/library/folders/move-comics` - Place up to 500 comics in a folder,
+  or back at the root
 
 #### User Management (Admin only)
 - `GET /api/users` - Get all users (admin only)
@@ -1511,22 +1597,45 @@ Symphony's Messenger component is used for handling emails. By default, Symfony 
    - Emails appear in Mailpit right away
    - This is ideal for development and testing
 
-2. **Production Configuration** (to be implemented):
-   - For production, uncomment the email routing line:
+2. **Queuing mail in production** (optional, and still not the default):
+   - Uncomment the mailer routing line:
      ```yaml
      routing:
          Symfony\Component\Mailer\Messenger\SendEmailMessage: async
          Symfony\Component\Notifier\Message\ChatMessage: async
          Symfony\Component\Notifier\Message\SmsMessage: async
      ```
-   - This queues emails in the database (`messenger_messages` table)
-   - You must run a Messenger consumer to process the queue:
+   - This queues mail in the database (`messenger_messages` table), and you
+     must then run a consumer or nothing is ever delivered:
      ```bash
-     # Run a consumer as a background service
      php bin/console messenger:consume async
      ```
-   - In production, set up a systemd service or supervisor process to keep the consumer running
-   - This approach is more resilient and prevents email sending from blocking web requests
+   - Keep it alive with a systemd service or supervisor process. Do not enable
+     this without one: an installation that queues mail with no worker sends
+     nothing and reports no error.
+
+#### The one transport this application actually routes to
+
+`share_notifications` carries `App\Message\ShareInvitationNotification` — the
+notice telling somebody about a share they have already been given. It is
+`sync://` by default, set through `SHARE_NOTIFICATION_TRANSPORT_DSN`.
+
+That default is deliberate. Nothing else in this application routes to a queue,
+so an installation that switched to a queued notice without also gaining a
+worker would create shares and silently never tell anybody — a worse failure
+than the one a queue fixes. The property the design relies on holds either way:
+the notice is dispatched **after** the shares commit, so a mail server having a
+bad minute costs a notification and never a share, and Resend recovers it.
+
+The message carries share ids and nothing else. The handler reloads the
+relationships and mints the invitation links as it writes the mail, so no
+plaintext invitation token is ever written to the queue, retried through it, or
+left in the failure transport for an operator to read.
+
+Switch it to `doctrine://default?auto_setup=0` once
+`messenger:consume share_notifications` runs as a service — see
+[SSH-deploy.md §7.3](SSH-deploy.md#73-symfony-messenger-consumer--optional).
+Tests pin both transports to `sync://` so the handler runs inline regardless.
 
 #### Debugging Email Issues
 
@@ -1624,89 +1733,43 @@ curl -X POST http://localhost:8080/api/register -H "Content-Type: application/js
 
 # Get Comics (requires authentication cookie from login)
 curl -X GET http://localhost:8080/api/comics -H "Content-Type: application/json" -b cookies.txt
+```
 
-## Recent Updates
+## Subsystem notes
 
-### Comic Reader Caching Improvements
+### The comic reader
 
-The comic reader component has been significantly optimized to improve performance and user experience:
+The reader is documented for its users in [docs/reader.md](docs/reader.md), which
+is the page to read first — it covers page sizing, reading modes and direction,
+touch and mouse rules, the page navigator, and the extension contract that keeps
+navigation on logical source page numbers.
 
-1. **Data URL Caching**: Comic pages are now stored as data URLs in memory to prevent unnecessary network requests
-   - Pages are converted to base64-encoded data URLs when loaded
-   - This prevents the browser from making new HTTP requests for previously loaded images
-   - Fallback to Image object caching if data URL conversion fails
+What matters here is where the code lives, because the reader is deliberately
+not one component:
 
-2. **Loading State Tracking**:
-   - Added a loading tracker to prevent duplicate requests for the same page
-   - Each page load is tracked with a Promise to ensure we don't start multiple loads for the same page
+- **Renderers** — `components/reader/SinglePageReader.jsx`,
+  `SpreadPageReader.jsx` and `ContinuousPageReader.jsx`. Continuous is the
+  default. All three consume the same logical navigation and never persist a
+  synthetic spread, viewport number or scroll percentage.
+- **Preloading** — `hooks/use-preload-window.js` decides how many pages are held
+  ready from what the device can afford (roughly five on a desktop, three on a
+  tablet, two on a phone, less again on a slow or data-saving connection). One
+  window governs both what is fetched early and what is released; there is no
+  setting and no fixed number.
+- **Input** — `lib/reader-gestures.js` with `hooks/use-reader-gestures.js` for
+  touch, `use-reader-mouse-pan.js` for the mouse, `use-reader-transform.js` for
+  the zoom transform, and `use-reader-navigation.js` for page movement.
+- **Layout and context** — `use-page-geometry.js`, `use-page-variant.js`,
+  `use-viewport-profile.js` and `use-reader-chrome.js`.
+- **Preferences** — `use-reader-preferences.jsx` against the versioned envelope
+  validated by `backend/src/Reader/ReaderPreferences.php`.
 
-3. **Memory Management**:
-   - Cache window limited to ±5 pages around the current page
-   - Pages outside this window are automatically removed from cache
-   - This prevents memory issues when reading large comics
+Pages are requested at one of a fixed set of sizes rather than at whatever the
+uploader exported, and are converted and cached server-side — see
+[docs/page-derivatives.md](docs/page-derivatives.md). The reader holds decoded
+images only inside the preload window; it does not build data URLs, and there is
+no debug panel.
 
-4. **Optimized Navigation**:
-   - Page state is updated immediately when navigating to a cached page
-   - No loading indicator shown for cached pages, creating a seamless experience
-   - Priority loading queue ensures the most likely-to-be-viewed pages load first
-
-5. **Debug Information**:
-   - Added comprehensive debug panel to monitor cache state
-   - Removed console logs to clean up browser console
-
-### Frontend Improvements
-
-#### 1. Authentication Pages
-- ✅ **Login Page**: Implemented with email and password fields
-- ✅ **Registration Page**: Implemented with email, password fields
-- ✅ **Password Reset Flow**: Fully implemented with:
-  - Forgot password request form
-  - Email delivery with frontend reset links
-  - Token validation
-  - Password reset form
-  - Success notifications and redirects
-  - Security notification emails
-- ✅ **Authentication State Management**: Implemented using React Context
-
-#### 2. Comic Library Interface
-- **Comic List Page**: Grid or list view of user's comics with cover images
-- **Comic Details Page**: Detailed view of a comic with metadata and reading progress
-- **Upload Comic Form**: Form for uploading new comics with title and tags
-
-#### 3. Comic Reader Interface
-- **Reader Page**: Page for reading comics with navigation controls
-- **Page Navigation**: Controls for moving between pages
-- **Reading Progress**: Automatic saving of reading progress
-- **Fullscreen Mode**: Toggle for fullscreen reading
-
-#### 4. Tag Management
-- **Tag List**: Interface for viewing and managing tags
-- **Add/Edit Tag Form**: Form for creating and editing tags
-- **Tag Assignment**: Interface for assigning tags to comics
-
-#### 5. User Profile
-- **Profile Page**: Page for viewing and editing user profile
-- ✅ **Password Change**: Implemented through password reset functionality
-
-#### 6. Dark Mode
-- **Theme Toggle**: Button for switching between light and dark themes
-- **Theme Implementation**: CSS variables or Tailwind dark mode
-
-### Backend Enhancements
-
-#### 1. CBZ Reader Implementation
-- Implement a proper CBZ reader to extract and process comic pages
-- Improve cover image extraction to always use the first page
-- Optimize image processing for better performance
-
-#### 2. Search and Filtering
-- Implement search functionality for comics
-- Add filtering by tags, upload date, reading progress, etc.
-
-#### 3. Performance Optimizations
-- Implement caching for frequently accessed data
-- Optimize database queries for better performance
-- Add pagination for large collections
 
 ### Email System Implementation
 
@@ -1744,21 +1807,32 @@ The comic reader component has been significantly optimized to improve performan
 1. Clone the repository
 2. Start the Docker containers:
    ```sh
-   docker compose up -d
+   docker compose up -d --build
    ```
-3. Set up the upload directories:
+3. Install backend dependencies and create the schema:
+   ```sh
+   docker compose exec php composer install
+   docker compose exec php php bin/console doctrine:database:create --if-not-exists
+   docker compose exec php php bin/console doctrine:migrations:migrate --no-interaction
+   ```
+4. Set up the upload directories:
    ```sh
    docker compose exec php bin/console app:setup-upload-directories
    ```
-4. Create test users:
+5. Create test users:
    ```sh
    docker compose exec php bin/console app:create-admin-user testadmin@example.com AdminPass123!
    docker compose exec php bin/console app:create-user testuser1@example.com UserPass123!
    ```
-5. Import comics (optional):
+6. Import comics (optional):
    ```sh
    docker compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com
    ```
+
+Only CBZ is enabled on a new installation. To read CBR, CB7, CBT or PDF, open
+**Admin → Formats** and enable what
+`docker compose exec php php bin/console app:comic-formats:check` reports as
+available — see [docs/comic-formats.md](docs/comic-formats.md).
 
 ### Frontend Development with Live Reload
 
@@ -1777,47 +1851,36 @@ To start developing the frontend:
 2.  Navigate to `http://localhost:3001` in your browser.
 3.  Begin editing files in the `./frontend` directory.
 
-## Recommended Next Steps
+## Design constraints worth knowing
 
-1. **Start Frontend Implementation**:
-   - Create the comic library browsing interface
+These are decisions that keep being rediscovered, not a backlog.
 
-2. **Implement CBZ Reader**:
-   - Develop the comic reading interface
-   - Implement page navigation controls
-   - Connect with the backend for reading progress tracking
+1. **Comic sources are attacker-controlled.** Anything read out of an archive,
+   a PDF object, XML or a filename is untrusted: bound it before allocating,
+   never let it reach a filesystem path or a subprocess argument without a
+   whitelist or an enum, and fail to a working page rather than a stack trace.
+   Limits and the reasoning are in
+   [docs/comic-formats.md](docs/comic-formats.md).
 
-3. **Add Tag Management**:
-   - Create the tag management interface
-   - Implement tag assignment to comics
-   - Add filtering by tags
+2. **Storage is the filesystem, deliberately.** Canonical sources live under
+   `backend/public/uploads/comics/{user_id}/` and are served only through
+   ownership-aware endpoints; generated pages live outside the web root in
+   `backend/var/page-cache/`. A backup that omits either the files or
+   `APP_DATA_KEY` is not a backup.
 
-4. **Implement Search and Filtering**:
-   - Add search functionality
-   - Implement filtering options
-   - Create a user-friendly search interface
+3. **Authentication is stateful sessions, on purpose.** Same-origin cookies with
+   CSRF checks, not JWTs: there is no third-party consumer of this API, and a
+   revocable server-side session is what lets a password change invalidate the
+   sessions opened before it.
 
-5. **Add User Profile Management**:
-   - Create the profile page
-   - Implement password change functionality
-   - Add user preferences
+4. **Access is the voter's decision, everywhere.** `ComicVoter` answers
+   `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE`, `COMIC_SHARE` and `COMIC_KNOW`.
+   No endpoint reimplements ownership; see
+   [docs/comic-access.md](docs/comic-access.md).
 
-6. **Implement Dark Mode**:
-   - Add theme toggle
-   - Implement dark mode styles
-   - Save user theme preference
-
-## Known Issues and Considerations
-
-1. **CBZ Reader Implementation**: The current implementation extracts the first image found in the CBZ file as the cover image. A proper CBZ reader should be implemented to always use the first page as the cover.
-
-2. **File Storage**: The current implementation stores files in the filesystem. For production, consider using a more robust storage solution like AWS S3 or similar.
-
-3. **Authentication**: The current implementation uses stateful authentication with sessions. For a more modern approach, consider implementing JWT-based authentication.
-
-4. **Error Handling**: The current implementation has basic error handling. More comprehensive error handling should be implemented for production.
-
-5. **Testing**: The current implementation has minimal testing. More comprehensive testing should be added for production.
+5. **Every change ships with tests.** See `CLAUDE.md` — this is a hard rule, and
+   the suites under [Automated Test Suites](#automated-test-suites) plus the CI
+   gates in [README.md](README.md#continuous-integration) are what enforce it.
 
 ## Troubleshooting
 
@@ -1879,79 +1942,71 @@ Key changes:
 
 ## Production Deployment
 
-### Current Deployment Strategy
+### CI does not deploy
 
-The project uses GitHub Actions for automated deployment with a focus on safety and efficiency.
+`.github/workflows/build-frontend.yml` is named **Validate Application** and is
+exactly that. It builds, lints, tests and audits both halves of the application
+on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**` and
+`ci/**`, and on pushes to `main` and `develop`. It uploads the frontend build as
+an artifact and stops there.
 
-#### Deployment Workflow
+This is deliberate, and the workflow says so at the bottom of the file: frontend
+and backend changes can depend on each other, so they ship together through the
+backup-gated release scripts rather than one half being FTP'd on merge. An
+earlier version of this project did deploy the frontend automatically, and
+`deploy.md` still carries the lessons from what that cost.
 
-**File**: `.github/workflows/build-frontend.yml`
+### How a release actually goes out
 
-**Trigger**: Automatic deployment when Pull Requests from `develop` to `main` are merged (not on direct pushes to main)
+Two supported paths, both driven from `scripts/` and both gated on a verified
+backup:
 
-**Process**:
-1. **Frontend Build**: React app built with Vite for production
-2. **Frontend Deployment**: Built assets deployed via FTP to `backend/public/`
-3. **Backend Deployment**: Currently manual (see TODO below)
+| Path | Guide | Use when |
+|---|---|---|
+| SSH + Git | [SSH-deploy.md](SSH-deploy.md) | The server has SSH and Git access — a VPS |
+| FTP/FTPS packages | [deploy.md](deploy.md) | Shared hosting with no shell |
 
-#### Safety Features Implemented
+The scripts are `build-release.sh`, `deploy-ssh.sh`, `deploy-ftp.sh` and
+`post-deploy.sh`, with `scripts/server/` holding the install and backup helpers.
+They build the React application, install optimized production Composer
+dependencies, consolidate Symfony's production environment, and exclude
+`public/uploads/` from every transfer.
 
-After experiencing a critical deployment failure that deleted user uploads and backend files, the following safety measures are now in place:
+Deployment configuration lives in `scripts/.env.deploy`, which is gitignored and
+never committed. The variables it holds — `PROD_*`, `SSH_*`, `FTP_*` and
+`POST_DEPLOY_TOKEN` — are documented in the two guides above rather than
+duplicated here, because they are the thing most likely to drift.
 
-- **Safe Mode Only**: `delete: false` - Never deletes anything on the server
-- **Force Upload**: `force-upload: true` - Ensures frontend assets are updated
-- **No Dangerous Options**: Removed `dangerous-clean-slate` which ignores exclude patterns
-- **Protected Directories**: User uploads and backend files are never touched by deployment
+Advertising is a build-time decision: `PROD_ADSENSE_ENABLED` and
+`PROD_ADSENSE_CLIENT` are read when the release is built, so editing
+`backend/.env` on the host after `composer dump-env prod` changes nothing. See
+the production checklist in [docs/advertising.md](docs/advertising.md).
 
-#### Current Limitations & Planned Improvements
+### Before every release
 
-**Backend Deployment TODO**: Currently requires manual SSH to production server:
+1. Verify a current database backup.
+2. Verify a current `backend/public/uploads/` backup.
+3. Confirm the backed-up `APP_DATA_KEY` matches production.
+4. Build and deploy frontend and backend as one release.
+5. Apply Doctrine migrations and any documented data-upgrade commands.
+6. Run `php bin/console app:comic-formats:check` on the server.
+7. Complete authenticated smoke tests.
 
-```bash
-cd /path/to/project
-git pull origin main
-composer install --no-dev --optimize-autoloader
-php bin/console cache:clear --env=prod
-php bin/console doctrine:migrations:migrate --no-interaction
-```
+Never deploy only `frontend/dist`.
 
-**Planned SSH Automation**: The workflow includes comprehensive TODO comments for implementing SSH-based backend deployment, which would be much more efficient than FTP uploading the entire backend codebase.
+### Branching
 
-#### Deployment Lessons Learned
+- Branch from `main`. Never commit to `main` directly.
+- `develop` is the integration branch: work that wants manual testing on a real
+  deployment lands there first and reaches `main` as one merge. CI validates
+  pull requests into it, and pushes to it, for exactly that reason.
+- `main` reflects the production state.
 
-1. **Never use `dangerous-clean-slate: true`** in production environments with mixed content
-2. **Always test deployment workflows** in staging environments first
-3. **Exclude patterns are ignored** by dangerous clean slate options
-4. **SSH + git pull is more efficient** than FTP uploading entire codebases
-5. **Separate frontend and backend deployment** strategies for better control
-6. **Always maintain backups** of user uploads and critical files
+### Scheduled maintenance
 
-#### Emergency Recovery
-
-An emergency restore workflow (`.github/workflows/emergency-backend-restore.yml`) is available for manual triggering to restore critical backend files in case of deployment issues.
-
-#### Required GitHub Secrets
-
-- `FTP_SERVER`: Production server hostname
-- `FTP_USERNAME`: FTP username for deployment  
-- `FTP_PASSWORD`: FTP password for deployment
-- `SSH_HOST`: (Future) SSH hostname for backend deployment
-- `SSH_USERNAME`: (Future) SSH username
-- `SSH_PASSWORD`: (Future) SSH password or private key
-
-### Development vs Production Workflow
-
-- **Development**: Direct commits to `develop` branch
-- **Production**: Pull Requests from `develop` to `main` trigger deployment
-- **No Direct Main Pushes**: Main branch reflects exact production state
-
-## Conclusion
-
-The CBZ Comic Reader project has a solid backend foundation with user authentication, comic management, and reading progress tracking. The deployment strategy has been hardened after learning from critical failures, prioritizing safety over convenience.
-
-The next major steps are:
-1. Implement SSH automation for backend deployment
-2. Complete any remaining frontend features
-3. Add comprehensive monitoring and alerting for production
-
-By following the recommended next steps and deployment practices, you can maintain a stable and secure comic reader application.
+Nothing in the application schedules itself, and retention settings are policy
+only — a command has to run for anything to be deleted. A production instance
+needs `app:cleanup-logs`, `app:cleanup-personal-data` and
+`app:cleanup-expired-shares` daily, plus `app:cleanup-content-reports`, and
+`app:dropbox-sync` if the instance uses Dropbox imports. Crontab examples are in
+[SSH-deploy.md §7](SSH-deploy.md#7-background-jobs-cron--systemd-timers).

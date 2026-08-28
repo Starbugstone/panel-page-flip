@@ -23,6 +23,25 @@ describe("spread sizing", () => {
     expect(content).toHaveClass("w-max", "max-w-none");
     [...content.children].forEach((slot) => expect(slot).toHaveClass("flex-none"));
   });
+
+  it("does not let either page image become selected or dragged", () => {
+    render(
+      <SpreadPageReader
+        containerRef={createRef()}
+        contentRef={createRef()}
+        fit="contain"
+        pages={[
+          { pageIndex: 1, image: { src: "/pages/2" } },
+          { pageIndex: 2, image: { src: "/pages/3" } },
+        ]}
+      />
+    );
+
+    screen.getAllByRole("img").forEach((image) => {
+      expect(image).toHaveClass("select-none");
+      expect(image).toHaveAttribute("draggable", "false");
+    });
+  });
 });
 
 /**

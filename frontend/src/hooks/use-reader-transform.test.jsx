@@ -103,6 +103,29 @@ describe("zoom that knows where the reader was", () => {
     expect(elements.containerRef.current.scrollTop).toBe(0);
   });
 
+  it("sets an absolute zoom level from the settings slider", () => {
+    const elements = refs({ content: { width: 400, height: 800 } });
+    const { result } = renderHook(() => useReaderTransform(elements));
+
+    act(() => result.current.setZoomLevel(2.5));
+    expect(result.current.transform.scale).toBe(2.5);
+
+    act(() => result.current.setZoomLevel(1.25));
+    expect(result.current.transform.scale).toBe(1.25);
+  });
+
+  it("keeps the zoom level while resetting position for a new page", () => {
+    const elements = refs({ content: { width: 400, height: 800 } });
+    const { result } = renderHook(() => useReaderTransform(elements));
+
+    act(() => result.current.setZoomLevel(2.5));
+    act(() => result.current.pan({ dx: -80, dy: -120 }));
+    act(() => result.current.resetPosition());
+
+    expect(result.current.transform).toEqual({ scale: 2.5, x: 0, y: 0 });
+    expect(elements.containerRef.current.scrollTop).toBe(0);
+  });
+
   it("survives being driven before anything has been laid out", () => {
     const { result } = renderHook(() => useReaderTransform({ containerRef: { current: null }, imageRef: { current: null } }));
 

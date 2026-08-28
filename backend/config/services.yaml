@@ -29,7 +29,7 @@ parameters:
     # config/packages/messenger.yaml for why that is the safe default.
     share_notification_transport_dsn_default: 'sync://'
     max_concurrent_uploads: '%env(int:default:max_concurrent_uploads_default:MAX_CONCURRENT_UPLOADS)%'
-    max_concurrent_uploads_default: 3
+    max_concurrent_uploads_default: 4
     upload_max_chunk_bytes: 2097152
     upload_max_total_bytes: 524288000
     upload_max_total_chunks: 600
@@ -195,6 +195,10 @@ services:
             $forgotPasswordLimiter: '@limiter.forgot_password'
             $verificationResendLimiter: '@limiter.verification_resend'
             $comicSearchLimiter: '@limiter.comic_search'
+
+    App\EventSubscriber\LoginRateLimitSubscriber:
+        arguments:
+            $environment: '%kernel.environment%'
 
     App\Service\ComicShareService:
         arguments:

@@ -56,4 +56,27 @@ describe("continuous page proximity", () => {
     expect(firstPage.querySelector("img")).toBeNull();
     expect(document.querySelector('[data-continuous-page="3"] img')).not.toBeNull();
   });
+
+  it("expands page layout for settings zoom without breaking vertical flow", () => {
+    const containerRef = createRef();
+    render(
+      <ContinuousPageReader
+        containerRef={containerRef}
+        comicId="42"
+        pageCount={2}
+        currentPage={0}
+        title="Sandman"
+        geometry={{}}
+        resetToken="portrait:continuous"
+        zoomLevel={1.5}
+      />
+    );
+
+    const reader = document.querySelector('[data-reader-mode="continuous"]');
+    const firstPage = document.querySelector('[data-continuous-page="0"]');
+    expect(reader).toHaveAttribute("data-continuous-zoom", "1.5");
+    expect(reader).toHaveClass("overflow-auto");
+    expect(firstPage).toHaveStyle({ width: "150%", maxWidth: "84rem", touchAction: "pan-x pan-y" });
+    expect(firstPage.querySelector("img")).toHaveClass("select-none");
+  });
 });

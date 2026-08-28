@@ -117,12 +117,33 @@ export function useReaderTransform({ containerRef, imageRef }) {
     settle(stepZoom(startingPoint(geometry), factor, geometry), geometry);
   }, [measure, settle, startingPoint]);
 
+  const setZoomLevel = useCallback((scale) => {
+    const geometry = measure();
+    const current = startingPoint(geometry);
+    const requested = Number(scale);
+    const factor = Number.isFinite(requested) && current.scale > 0
+      ? requested / current.scale
+      : 1;
+    settle(stepZoom(current, factor, geometry), geometry);
+  }, [measure, settle, startingPoint]);
+
   const zoomToFit = useCallback(() => {
     const geometry = measure();
     settle(zoomOut(startingPoint(geometry), geometry), geometry);
   }, [measure, settle, startingPoint]);
 
-  /** A new page, or a new fit, starts from the top at natural scale. */
+  /** Keep the chosen zoom, but put a newly selected page back at its origin. */
+  const resetPosition = useCallback(() => {
+    pendingScrollRef.current = null;
+    const container = containerRef.current;
+    if (container) {
+      container.scrollLeft = 0;
+      container.scrollTop = 0;
+    }
+    apply({ scale: transformRef.current.scale, x: 0, y: 0 });
+  }, [apply, containerRef]);
+
+  /** A new fit or reader layout starts from the top at natural scale. */
   const resetTransform = useCallback(() => {
     pendingScrollRef.current = null;
     const container = containerRef.current;
@@ -140,7 +161,9 @@ export function useReaderTransform({ containerRef, imageRef }) {
     pan,
     doubleTapAt,
     stepZoomBy,
+    setZoomLevel,
     zoomToFit,
+    resetPosition,
     resetTransform,
   };
 }

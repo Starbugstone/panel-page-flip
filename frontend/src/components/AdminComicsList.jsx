@@ -26,9 +26,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-// const mockComics = [ // Mock data removed
-
-
 /**
  * @param {object} props
  * @param {number} [props.ownerId] Restrict the list to one user's library. Passed

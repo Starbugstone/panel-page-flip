@@ -94,7 +94,7 @@ export function SinglePageReader({
           // A dragged image is the browser offering to copy a file, which under
           // a finger or a mouse is never what a page turn meant.
           draggable={false}
-          className={`${IMAGE_CLASSES[safeFit]} mx-auto block shadow-lg ${zoomed ? "zoomed-image" : ""} ${isSwiping || zoomed ? "" : "transition-transform duration-200 motion-reduce:transition-none"}`}
+          className={`${IMAGE_CLASSES[safeFit]} mx-auto block select-none shadow-lg ${zoomed ? "zoomed-image" : ""} ${isSwiping || zoomed ? "" : "transition-transform duration-200 motion-reduce:transition-none"}`}
           style={{
             transform: `translate3d(${transform.x + swipeOffset}px, ${transform.y}px, 0) scale(${transform.scale})`,
             transformOrigin: "center center",

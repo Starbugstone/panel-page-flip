@@ -46,6 +46,17 @@ describe("sessionManager", () => {
     expect(sessionManager.onSessionExpired).toBeNull();
   });
 
+  it("treats a successful anonymous response as an expired session", async () => {
+    const onSessionExpired = vi.fn();
+    sessionManager.isActive = true;
+    sessionManager.onSessionExpired = onSessionExpired;
+    api.get.mockResolvedValue({ user: null });
+
+    await expect(sessionManager.checkSession()).resolves.toBe(false);
+    expect(onSessionExpired).toHaveBeenCalledOnce();
+    expect(sessionManager.onSessionExpired).toBeNull();
+  });
+
   it("skips overlapping checks rather than stacking requests", async () => {
     sessionManager.checkInProgress = true;
 

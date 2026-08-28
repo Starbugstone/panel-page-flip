@@ -63,6 +63,13 @@ describe("the page surface", () => {
     expect(pageImage()).toHaveStyle({ transform: "translate3d(-40px, 0px, 0) scale(1)" });
   });
 
+  it("does not let the browser select or drag the comic artwork", () => {
+    renderPage();
+
+    expect(pageImage()).toHaveClass("select-none");
+    expect(pageImage()).toHaveAttribute("draggable", "false");
+  });
+
   it("reports a mouse click on the mat around the page", () => {
     const onSurfaceClick = vi.fn();
     renderPage({ onSurfaceClick });

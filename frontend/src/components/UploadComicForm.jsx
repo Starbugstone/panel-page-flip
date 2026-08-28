@@ -36,7 +36,7 @@ export default function UploadComicForm() {
   const { config } = useConfig();
   const { tags: availableTags, addTagToCache } = useTags();
   const { folders, isLoading: foldersLoading } = useLibraryFolders();
-  const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
+  const concurrentChunks = config.upload?.maxConcurrentUploads || 4;
   const comicFormats = config.upload?.comicFormats || DEFAULT_COMIC_FORMATS;
   const { start, cancel, status, progress } = useChunkedUpload({ concurrentChunks });
   const uploading = ["initialising", "uploading", "completing"].includes(status);

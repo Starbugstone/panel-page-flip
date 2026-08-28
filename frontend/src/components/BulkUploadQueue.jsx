@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, RotateCcw, Trash2, Upload } from "lucide-react";
-import { uploadComicInChunks } from "@/hooks/use-chunked-upload";
+import { createUploadRequestPool, uploadComicInChunks } from "@/hooks/use-chunked-upload";
 import { useAuth } from "@/hooks/use-auth";
 import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
@@ -44,7 +44,11 @@ export default function BulkUploadQueue() {
   const { config: adSenseConfig } = useAdSense();
   const [searchParams] = useSearchParams();
   const { folders, isLoading: foldersLoading } = useLibraryFolders();
-  const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
+  const concurrentChunks = config.upload?.maxConcurrentUploads || 4;
+  const requestPool = useMemo(
+    () => createUploadRequestPool(concurrentChunks),
+    [concurrentChunks]
+  );
   const comicFormats = config.upload?.comicFormats || ["cbz"];
   const [rows, setRows] = useState([]);
   const [tagsInput, setTagsInput] = useState("");
@@ -109,6 +113,7 @@ export default function BulkUploadQueue() {
         file: row.file,
         metadata: { title: row.title, tags, folderId: selectedFolderId },
         concurrentChunks,
+        requestPool,
         signal: controller.signal,
         onProgress: (progress) => updateRow(row.id, { progress }),
         onStatus: (status) => updateRow(row.id, { status }),

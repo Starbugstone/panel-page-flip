@@ -409,8 +409,8 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     public function eraseCredentials(): void
     {
-        // If you store any temporary, sensitive data on the user, clear it here
-        // $this->plainPassword = null;
+        // Nothing to erase: this entity never holds a plaintext password. The
+        // submitted one is hashed by the authenticator and never assigned here.
     }
     
     public function isEmailVerified(): bool

@@ -169,7 +169,15 @@ class SessionManager {
       this.checkInProgress = true;
       this.lastCheckTime = now;
       
-      await api.get(this.sessionEndpoint, { notifyUnauthorized: false });
+      const data = await api.get(this.sessionEndpoint, { notifyUnauthorized: false });
+      if (!data?.user) {
+        if (triggerExpiration && this.onSessionExpired && this.isActive) {
+          const callback = this.onSessionExpired;
+          this.onSessionExpired = null;
+          callback();
+        }
+        return false;
+      }
       this.consecutiveFailures = 0;
       return true;
     } catch (error) {
