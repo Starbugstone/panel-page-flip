@@ -24,7 +24,8 @@ describe("ReportContent", () => {
     fireEvent.change(screen.getByLabelText(/name or organization/i), { target: { value: "Example Rights Holder" } });
     fireEvent.change(screen.getByLabelText(/^email/i), { target: { value: "rights@example.com" } });
     await user.selectOptions(screen.getByLabelText(/report type/i), "copyright_ip");
-    fireEvent.change(screen.getByLabelText(/identify the material/i), { target: { value: "https://panel.example/share/example" } });
+    await user.selectOptions(screen.getByLabelText(/how can we identify it/i), "panel_url");
+    fireEvent.change(screen.getByLabelText(/panel page flip url/i), { target: { value: "https://panel.example/read/17" } });
     fireEvent.change(screen.getByLabelText(/explain the report/i), { target: { value: "I represent the publisher and this shared edition reproduces the protected work without authorization." } });
     await user.click(screen.getByRole("checkbox", { name: /submitting it in good faith/i }));
     await user.click(screen.getByRole("button", { name: /submit report/i }));
@@ -34,12 +35,24 @@ describe("ReportContent", () => {
       expect.objectContaining({
         reporterName: "Example Rights Holder",
         category: "copyright_ip",
+        referenceType: "panel_url",
+        reportedReference: "https://panel.example/read/17",
         goodFaithAcknowledged: true,
         website: "",
       }),
       { notifyUnauthorized: false }
     ));
     expect(await screen.findByText("CR-20260815-42")).toBeInTheDocument();
+  });
+
+  it("offers structured references without asking for internal IDs", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ReportContent /></MemoryRouter>);
+
+    expect(screen.getByText(/internal database IDs are never required/i)).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText(/how can we identify it/i), "sharing_code");
+    expect(screen.getByLabelText(/content sharing code/i)).toHaveAttribute("placeholder", "C-1234-5678-9ABC");
+    expect(screen.queryByLabelText(/linked .* id/i)).not.toBeInTheDocument();
   });
 
   it("shows field validation returned by the server", async () => {

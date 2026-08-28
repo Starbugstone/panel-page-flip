@@ -1,0 +1,25 @@
+Your content report has been received and will be reviewed.
+
+Case reference: {{ report.reference }}
+Submitted: {{ report.createdAt|date('c') }}
+Category: {{ report.category|replace({'_': ' '})|title }}
+Reporter: {{ report.reporterName }}
+{% if report.reporterOrganization %}Organization: {{ report.reporterOrganization }}
+{% endif %}{% if report.reporterRole %}Role / authority: {{ report.reporterRole }}
+{% endif %}
+How the material was identified: {{ report.referenceType|replace({'_': ' '})|title }}
+Submitted reference: {{ receiptReference }}
+{% if report.reportedContentTitle %}Content title: {{ report.reportedContentTitle }}
+{% endif %}{% if report.reportedAccountReference %}Account reference: {{ report.reportedAccountReference }}
+{% endif %}{% if report.sourceContext %}Source context:
+{{ report.sourceContext }}
+{% endif %}
+Explanation:
+{{ report.explanation }}
+
+Good-faith declaration: confirmed
+
+Invitation tokens and sharing codes are masked in this receipt so this email
+does not create another copy of an access capability. The complete submission
+remains in the durable case record. Keep the case reference if you contact the
+site operator. This acknowledgement does not promise a specific response time.

@@ -11,6 +11,23 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(name: 'IDX_CONTENT_REPORT_CATEGORY', columns: ['category'])]
 class ContentReport
 {
+    public const REFERENCE_INVITATION_URL = 'invitation_url';
+    public const REFERENCE_SHARING_CODE = 'sharing_code';
+    public const REFERENCE_USER_CODE = 'user_code';
+    public const REFERENCE_ACCOUNT = 'account_reference';
+    public const REFERENCE_COMIC = 'comic_reference';
+    public const REFERENCE_PANEL_URL = 'panel_url';
+    public const REFERENCE_OTHER = 'other';
+    public const REFERENCE_TYPES = [
+        self::REFERENCE_INVITATION_URL,
+        self::REFERENCE_SHARING_CODE,
+        self::REFERENCE_USER_CODE,
+        self::REFERENCE_ACCOUNT,
+        self::REFERENCE_COMIC,
+        self::REFERENCE_PANEL_URL,
+        self::REFERENCE_OTHER,
+    ];
+
     public const CATEGORY_COPYRIGHT = 'copyright_ip';
     public const CATEGORY_OTHER_ILLEGAL = 'other_illegal';
     public const CATEGORIES = [self::CATEGORY_COPYRIGHT, self::CATEGORY_OTHER_ILLEGAL];
@@ -54,6 +71,18 @@ class ContentReport
     #[ORM\Column(type: Types::TEXT)]
     private string $reportedReference;
 
+    #[ORM\Column(length: 32, options: ['default' => self::REFERENCE_OTHER])]
+    private string $referenceType = self::REFERENCE_OTHER;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $reportedContentTitle = null;
+
+    #[ORM\Column(length: 320, nullable: true)]
+    private ?string $reportedAccountReference = null;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $sourceContext = null;
+
     #[ORM\Column(type: Types::TEXT)]
     private string $explanation;
 
@@ -94,6 +123,21 @@ class ContentReport
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?ComicShare $linkedShare = null;
 
+    #[ORM\Column(nullable: true)]
+    private ?int $linkedUserIdSnapshot = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?int $linkedComicIdSnapshot = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?int $linkedShareIdSnapshot = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $linkedComicTitleSnapshot = null;
+
+    #[ORM\Column(length: 64, nullable: true)]
+    private ?string $resolutionMethod = null;
+
     #[ORM\Column(options: ['default' => false])]
     private bool $legalHold = false;
 
@@ -121,6 +165,10 @@ class ContentReport
     public function getReporterRole(): ?string { return $this->reporterRole; }
     public function getCategory(): string { return $this->category; }
     public function getReportedReference(): string { return $this->reportedReference; }
+    public function getReferenceType(): string { return $this->referenceType; }
+    public function getReportedContentTitle(): ?string { return $this->reportedContentTitle; }
+    public function getReportedAccountReference(): ?string { return $this->reportedAccountReference; }
+    public function getSourceContext(): ?string { return $this->sourceContext; }
     public function getExplanation(): string { return $this->explanation; }
     public function getGoodFaithAcknowledgedAt(): \DateTimeImmutable { return $this->goodFaithAcknowledgedAt; }
     public function getStatus(): string { return $this->status; }
@@ -133,6 +181,11 @@ class ContentReport
     public function getLinkedUser(): ?User { return $this->linkedUser; }
     public function getLinkedComic(): ?Comic { return $this->linkedComic; }
     public function getLinkedShare(): ?ComicShare { return $this->linkedShare; }
+    public function getLinkedUserIdSnapshot(): ?int { return $this->linkedUserIdSnapshot; }
+    public function getLinkedComicIdSnapshot(): ?int { return $this->linkedComicIdSnapshot; }
+    public function getLinkedShareIdSnapshot(): ?int { return $this->linkedShareIdSnapshot; }
+    public function getLinkedComicTitleSnapshot(): ?string { return $this->linkedComicTitleSnapshot; }
+    public function getResolutionMethod(): ?string { return $this->resolutionMethod; }
     public function isLegalHold(): bool { return $this->legalHold; }
 
     public function getReference(): string
@@ -149,6 +202,22 @@ class ContentReport
     public function setReporterRole(?string $role): self
     {
         $this->reporterRole = $role;
+        return $this;
+    }
+
+    public function identifyTarget(
+        string $referenceType,
+        ?string $contentTitle,
+        ?string $accountReference,
+        ?string $sourceContext,
+    ): self {
+        if (!in_array($referenceType, self::REFERENCE_TYPES, true)) {
+            throw new \DomainException('Invalid content report reference type.');
+        }
+        $this->referenceType = $referenceType;
+        $this->reportedContentTitle = $contentTitle;
+        $this->reportedAccountReference = $accountReference;
+        $this->sourceContext = $sourceContext;
         return $this;
     }
 
@@ -176,5 +245,16 @@ class ContentReport
     public function linkUser(?User $user): self { $this->linkedUser = $user; $this->updatedAt = new \DateTimeImmutable(); return $this; }
     public function linkComic(?Comic $comic): self { $this->linkedComic = $comic; $this->updatedAt = new \DateTimeImmutable(); return $this; }
     public function linkShare(?ComicShare $share): self { $this->linkedShare = $share; $this->updatedAt = new \DateTimeImmutable(); return $this; }
+    public function snapshotTarget(?string $method = null): self
+    {
+        $this->linkedUserIdSnapshot = $this->linkedUser?->getId();
+        $this->linkedComicIdSnapshot = $this->linkedComic?->getId();
+        $this->linkedShareIdSnapshot = $this->linkedShare?->getId();
+        $this->linkedComicTitleSnapshot = $this->linkedComic?->getTitle()
+            ?? $this->linkedShare?->getComicTitleSnapshot();
+        $this->resolutionMethod = $method;
+        $this->updatedAt = new \DateTimeImmutable();
+        return $this;
+    }
     public function setLegalHold(bool $legalHold): self { $this->legalHold = $legalHold; $this->updatedAt = new \DateTimeImmutable(); return $this; }
 }

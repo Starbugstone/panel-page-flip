@@ -109,6 +109,7 @@ class SecurityAuditLogger
     public const STORAGE_ORPHAN_QUARANTINE = 'audit.storage.orphan_quarantine';
     public const RETENTION_CLEANUP = 'audit.retention.cleanup';
     public const CONTENT_REPORT_RECEIVED = 'audit.content_report.received';
+    public const CONTENT_REPORT_TARGET_LINKED = 'audit.content_report.target_linked';
     public const CONTENT_REPORT_REVIEW_STARTED = 'audit.content_report.review_started';
     public const CONTENT_REPORT_SHARING_RESTRICTED = 'audit.content_report.sharing_restricted';
     public const CONTENT_REPORT_RESTRICTION_LIFTED = 'audit.content_report.restriction_lifted';
