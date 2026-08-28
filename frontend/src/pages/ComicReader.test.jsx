@@ -370,6 +370,26 @@ describe("ComicReader", () => {
       expect(document.querySelector('[data-continuous-page="0"]')).toHaveStyle({ width: "175%" });
     });
 
+    it("widens continuous pages without throwing away where the reader was", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? { preferences: savedPreferences({ mode: "continuous" }) }
+          : comic(12)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await waitFor(() => expect(document.querySelector('[data-reader-mode="continuous"]')).toBeInTheDocument());
+
+      const scroller = document.querySelector('[data-reader-mode="continuous"]');
+      scroller.scrollTop = 4000;
+
+      await user.click(screen.getByRole("button", { name: "Reader settings" }));
+      fireEvent.change(screen.getByRole("slider", { name: "Zoom level" }), { target: { value: "175" } });
+      await waitFor(() => expect(scroller).toHaveAttribute("data-continuous-zoom", "1.75"));
+
+      expect(scroller.scrollTop).toBe(4000);
+    });
+
     it("changes fit immediately, persists it, and resets naturally", async () => {
       const user = userEvent.setup();
       const { container } = renderReader();

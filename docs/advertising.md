@@ -200,6 +200,14 @@ is an audit note, and nothing treats it as permission:
 That is the specified design, not an oversight: bulk upload is a feature of this
 application, and an installation with no advertising has to reach it unchanged.
 
+**When the batch counts as finished.** Only when nothing in the queue is still
+waiting to be uploaded — failures to retry, and rows "Start all" left behind for
+having no title. A row without a title is not uploadable, so it is work the
+batch still owes; ending the session over it would charge a second
+advertisement to finish what the first one paid for. Titles are derived from the
+filename and fall back to the filename itself, so a row arrives titled and only
+becomes untitled if somebody clears it.
+
 ## Content Security Policy
 
 `docker/nginx_frontend/security-headers.conf` and `scripts/deploy/htaccess.dist`

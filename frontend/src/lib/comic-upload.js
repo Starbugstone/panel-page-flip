@@ -11,7 +11,7 @@ export const comicFileAccept = (extensions) => extensions.map((extension) => `.$
 const EXTENSION_SUFFIX = new RegExp(`\\.(${COMIC_EXTENSIONS.join("|")})$`, "i");
 
 export function generateTitleFromFilename(filename) {
-  return filename
+  const derived = filename
     .replace(EXTENSION_SUFFIX, "")
     .replace(/[_-]/g, " ")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -20,6 +20,11 @@ export function generateTitleFromFilename(filename) {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+  // A name that is all extension and separators — ".cbz", "___.cbz" — derives
+  // to nothing, and the queue will not upload a row without a title. The
+  // filename is then the only title there is, so it is a better one than none.
+  return derived || filename.trim();
 }
 
 export function isComicFile(file, extensions = COMIC_EXTENSIONS) {

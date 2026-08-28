@@ -12,7 +12,11 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState({ key: "", status: "loading" });
   const { transform, isZoomed, pinch, pan, doubleTapAt, resetTransform } = useReaderTransform({ containerRef, imageRef });
-  const variant = usePageVariant(containerRef, { zoomLevel: zoomLevel * transform.scale });
+  // The settings zoom is already in the measurement: it widens this page's own
+  // container rather than transforming it, so multiplying it in again would ask
+  // the server for a rung the page will never show. A pinch is not in the
+  // measurement — a CSS transform leaves layout size alone — so that one counts.
+  const variant = usePageVariant(containerRef, { zoomLevel: transform.scale });
   const baseUrl = createReaderPageUrl(comicId, pageIndex + 1, variant);
   const url = useMemo(() => retry > 0 ? withForcedReload(baseUrl) : baseUrl, [baseUrl, retry]);
   const status = result.key === url ? result.status : "loading";

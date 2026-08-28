@@ -20,6 +20,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 export const MAX_PARALLEL_FILES = 2;
 const ACTIVE_STATUSES = new Set(["initialising", "uploading", "completing"]);
+/** Not in flight and not uploaded: a row "Start all" would still pick up. */
+const RETRYABLE_STATUSES = ["idle", "error", "cancelled"];
 
 function rowId(file) {
   return `${file.name}-${file.size}-${file.lastModified}`;
@@ -175,7 +177,7 @@ export default function BulkUploadQueue() {
   };
 
   const startAll = async () => {
-    const pending = rows.filter((row) => ["idle", "error", "cancelled"].includes(row.status) && row.title.trim());
+    const pending = rows.filter((row) => RETRYABLE_STATUSES.includes(row.status) && row.title.trim());
     if (!pending.length) return;
     if (!await refreshSession()) {
       toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
@@ -187,7 +189,11 @@ export default function BulkUploadQueue() {
     const failures = await runQueue(pending);
     setRunning(false);
 
-    await endBatchIfSettled(failures);
+    // A row somebody cleared the title of is not uploadable and so was never in
+    // this run. It still needs doing, and a batch that ends with work left in it
+    // charges a second advertisement to finish what this one paid for.
+    const untitled = rows.filter((row) => RETRYABLE_STATUSES.includes(row.status) && !row.title.trim()).length;
+    await endBatchIfSettled(failures + untitled);
   };
 
   return (
@@ -268,7 +274,7 @@ export default function BulkUploadQueue() {
           </div>
           <div className="flex gap-2">
             {allFinished && <Button variant="outline" asChild><Link to="/dashboard">View library</Link></Button>}
-            <Button onClick={startAll} disabled={running || foldersLoading || !rows.some((row) => ["idle", "error", "cancelled"].includes(row.status) && row.title.trim())}>
+            <Button onClick={startAll} disabled={running || foldersLoading || !rows.some((row) => RETRYABLE_STATUSES.includes(row.status) && row.title.trim())}>
               {running ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</> : "Start all"}
             </Button>
           </div>

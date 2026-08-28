@@ -79,4 +79,37 @@ describe("continuous page proximity", () => {
     expect(firstPage).toHaveStyle({ width: "150%", maxWidth: "84rem", touchAction: "pan-x pan-y" });
     expect(firstPage.querySelector("img")).toHaveClass("select-none");
   });
+
+  it("asks for the size the widened page actually occupies, not the zoom counted twice", async () => {
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    // A zoomed page is laid out wider, so the width measured off its container
+    // already carries the zoom. 800 measured CSS pixels at a ratio of 1 are the
+    // small rung whatever the slider says; counting the zoom again would reach
+    // for the large one and download it on every page in the scroll.
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 800 });
+
+    try {
+      render(
+        <ContinuousPageReader
+          containerRef={createRef()}
+          comicId="42"
+          pageCount={2}
+          currentPage={0}
+          title="Sandman"
+          geometry={{}}
+          resetToken="portrait:continuous"
+          zoomLevel={3}
+        />
+      );
+
+      await waitFor(() => expect(document.querySelector('[data-continuous-page="0"] img')).toHaveAttribute(
+        "src",
+        expect.stringContaining("reader-small")
+      ));
+    } finally {
+      // jsdom defines clientWidth on Element, so the shadowing property added
+      // above is removed rather than restored.
+      delete HTMLElement.prototype.clientWidth;
+    }
+  });
 });

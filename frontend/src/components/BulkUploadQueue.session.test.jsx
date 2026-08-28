@@ -105,6 +105,25 @@ describe("ending the rewarded bulk-upload session", () => {
     await waitFor(() => expect(closeBulkUploadSession).toHaveBeenCalledOnce());
   });
 
+  /**
+   * A row whose title has been cleared is not uploadable, so "Start all" leaves
+   * it behind. That is still work outstanding in the batch: closing the session
+   * over it charges a second advertisement to upload the file the first one
+   * already paid for.
+   */
+  it("keeps the session open while a file is left behind for having no title", async () => {
+    const user = userEvent.setup();
+    renderQueue();
+
+    await user.upload(document.querySelector('input[type="file"]'), [comic("one.cbz"), comic("two.cbz")]);
+    await user.clear(screen.getByRole("textbox", { name: /title for two\.cbz/i }));
+    await user.click(screen.getByRole("button", { name: /start all/i }));
+
+    await waitFor(() => expect(screen.getByText("Complete")).toBeInTheDocument());
+    expect(uploadComicInChunks).toHaveBeenCalledOnce();
+    expect(closeBulkUploadSession).not.toHaveBeenCalled();
+  });
+
   /** A retry that fails again leaves the batch unfinished, so the offer stands. */
   it("keeps the session open when a retry fails again", async () => {
     vi.mocked(uploadComicInChunks)

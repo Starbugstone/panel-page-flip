@@ -140,6 +140,12 @@ export default function ComicReader() {
     [currentUnit, settings.direction]
   );
 
+  // Continuous mode scrolls natively and only borrows the zoom number to widen
+  // its pages. The transform owns the position of whatever container it is
+  // handed, so handing it that scroller lets a zoom change park a reader back at
+  // the top of the comic.
+  const detachedContainerRef = useRef(null);
+  const transformContainerRef = effectiveMode === "continuous" ? detachedContainerRef : imageContainerRef;
   const {
     transform,
     isZoomed,
@@ -150,7 +156,7 @@ export default function ComicReader() {
     zoomToFit,
     resetPosition,
     resetTransform,
-  } = useReaderTransform({ containerRef: imageContainerRef, imageRef });
+  } = useReaderTransform({ containerRef: transformContainerRef, imageRef });
   const handleZoomLevelChange = useCallback((scale) => {
     if (scale > 1) setPreferredZoomLevel(scale);
     setZoomLevel(scale);

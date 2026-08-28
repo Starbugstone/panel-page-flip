@@ -26,7 +26,10 @@ immediately clear.
 In single-page and two-page modes, pinch, double tap, the zoom button and the
 zoom slider enlarge the page that is on screen. Turning the page keeps that
 zoom and starts at the **top** of the new page (or spread), not the middle.
-Continuous mode widens every page instead and keeps native scrolling.
+Continuous mode widens every page instead and keeps native scrolling: zooming
+there changes the width of the column and nothing else, so it neither moves the
+reader nor touches reading progress. Each page is then requested at the size
+that widened column actually shows.
 
 ## Reading modes and direction
 
