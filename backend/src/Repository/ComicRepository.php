@@ -105,6 +105,26 @@ class ComicRepository extends ServiceEntityRepository
         return PaginatedResult::fromRequest($comics, $total, $request);
     }
 
+    /** @return list<Comic> */
+    public function searchForContentReport(string $query, int $limit = 10): array
+    {
+        $query = trim($query);
+        if (mb_strlen($query) < 2) {
+            return [];
+        }
+
+        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], mb_strtolower($query));
+        $pattern = '%'.$escaped.'%';
+        return $this->createQueryBuilder('c')
+            ->leftJoin('c.owner', 'o')->addSelect('o')
+            ->andWhere('LOWER(c.title) LIKE :search OR LOWER(c.author) LIKE :search OR LOWER(c.publisher) LIKE :search OR LOWER(c.description) LIKE :search OR LOWER(o.name) LIKE :search OR LOWER(o.email) LIKE :search')
+            ->setParameter('search', $pattern)
+            ->orderBy('c.id', 'DESC')
+            ->setMaxResults(max(1, min($limit, 20)))
+            ->getQuery()
+            ->getResult();
+    }
+
     /**
      * How many comics each of these owners has with a given description,
      * indexed by owner id.

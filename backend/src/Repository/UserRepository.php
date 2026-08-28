@@ -80,6 +80,25 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
         return PaginatedResult::fromRequest($users, $total, $request);
     }
 
+    /** @return list<User> */
+    public function searchForContentReport(string $query, int $limit = 10): array
+    {
+        $query = trim($query);
+        if (mb_strlen($query) < 2) {
+            return [];
+        }
+
+        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], mb_strtolower($query));
+        $pattern = '%'.$escaped.'%';
+        return $this->createQueryBuilder('u')
+            ->andWhere('LOWER(u.name) LIKE :search OR LOWER(u.email) LIKE :search')
+            ->setParameter('search', $pattern)
+            ->orderBy('u.id', 'DESC')
+            ->setMaxResults(max(1, min($limit, 20)))
+            ->getQuery()
+            ->getResult();
+    }
+
     /**
      * Owned-comic, storage and created-tag totals for the given users, keyed by
      * user id.

@@ -17,7 +17,11 @@ final class ContentRestrictionService
     public function apply(string $action, ContentReport $report, User $admin): void
     {
         $comic = $report->getLinkedComic();
-        $user = $report->getLinkedUser() ?? $comic?->getOwner();
+        $user = $report->getLinkedUser();
+        $impliedOwner = $report->getLinkedShare()?->getOwner() ?? $comic?->getOwner();
+        if ($impliedOwner !== null && $user?->getId() !== $impliedOwner->getId()) {
+            throw new \DomainException('The linked account is not the owner implied by the selected target.');
+        }
 
         match ($action) {
             'restrict_sharing' => $this->restrictSharing($this->requireComic($comic), $report, $admin),
