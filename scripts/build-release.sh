@@ -46,7 +46,10 @@ cd "$REPO_ROOT"
 ENV_FILE="$SCRIPT_DIR/.env.deploy"
 RELEASE_DIR="$REPO_ROOT/release"
 PHP_VERSION_DEFAULT="8.2"
-NODE_VERSION_DEFAULT="20"
+# Must satisfy frontend/package.json "engines": building the release on an
+# older runtime than the one the project declares is a difference nobody sees
+# until the built assets misbehave in production.
+NODE_VERSION_DEFAULT="22"
 
 # --- helpers ------------------------------------------------------------------
 log()  { printf "\033[1;36m[build]\033[0m %s\n" "$*"; }
@@ -250,8 +253,12 @@ if [ "$DO_BACKEND" = "1" ]; then
     # A mistyped publisher id is not a build error to Symfony — it logs a warning
     # and serves the site with advertising quietly off, which is an outage
     # nobody is watching for. Caught here instead, while somebody is looking.
+    # Trimmed first, because AdvertisingConfiguration trims before it validates:
+    # matching the raw value here would reject a publisher id the application
+    # would have accepted, and abort the release over surrounding whitespace.
+    PROD_ADSENSE_CLIENT="$(printf '%s' "${PROD_ADSENSE_CLIENT:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     if [ "${PROD_ADSENSE_ENABLED:-false}" = "true" ]; then
-        case "${PROD_ADSENSE_CLIENT:-}" in
+        case "$PROD_ADSENSE_CLIENT" in
             ca-pub-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
             *) fail "PROD_ADSENSE_CLIENT must be ca-pub- followed by 16 digits when PROD_ADSENSE_ENABLED is true." ;;
         esac
@@ -294,7 +301,7 @@ if [ "$DO_BACKEND" = "1" ]; then
     # Without these two lines an operator can edit .env on the server all day
     # and AdvertisingConfiguration still reports "off". See docs/advertising.md.
     write_dotenv ADSENSE_ENABLED "${PROD_ADSENSE_ENABLED:-false}"
-    write_dotenv ADSENSE_CLIENT "${PROD_ADSENSE_CLIENT:-}"
+    write_dotenv ADSENSE_CLIENT "$PROD_ADSENSE_CLIENT"
     write_dotenv DEPLOY_TOKEN "$POST_DEPLOY_TOKEN"
     chmod 600 "$PROD_ENV_FILE"
 

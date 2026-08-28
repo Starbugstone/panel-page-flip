@@ -208,6 +208,11 @@ advertisement to finish what the first one paid for. Titles are derived from the
 filename and fall back to the filename itself, so a row arrives titled and only
 becomes untitled if somebody clears it.
 
+Removing the last outstanding file settles the batch as surely as uploading it
+does, and closes the session for the same reason the retry path does: a session
+left open hands the *next* batch a free pass until it expires two hours later,
+which is one advertisement paying for two batches.
+
 ## Content Security Policy
 
 `docker/nginx_frontend/security-headers.conf` and `scripts/deploy/htaccess.dist`

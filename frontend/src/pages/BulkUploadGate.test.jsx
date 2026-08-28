@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -178,6 +179,30 @@ describe("the rewarded choice", () => {
     expect(api.post).not.toHaveBeenCalled();
     // The button has to come back, or the page is a dead end.
     expect(screen.getByRole("button", { name: "Watch ad and continue" })).toBeEnabled();
+  });
+
+  /**
+   * Strict Mode replays a committed effect as cleanup-then-setup while keeping
+   * the component's refs. A teardown that clears "am I still mounted" without
+   * the setup restoring it leaves the page believing it unmounted, and the
+   * navigation after a watched advertisement is skipped — the button goes quiet
+   * and the uploader never opens.
+   */
+  it("still opens the uploader when effects are replayed in Strict Mode", async () => {
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={["/upload/bulk"]}>
+          <Routes>
+            <Route path="/upload/bulk" element={<BulkUploadGate />} />
+            <Route path="/upload/bulk/session" element={<h1>Bulk upload comics</h1>} />
+          </Routes>
+        </MemoryRouter>
+      </StrictMode>
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Watch ad and continue" }));
+
+    expect(await screen.findByRole("heading", { name: "Bulk upload comics" })).toBeInTheDocument();
   });
 
   /**

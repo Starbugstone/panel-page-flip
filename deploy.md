@@ -225,7 +225,7 @@ For non-interactive releases (e.g. from CI):
 
 1. **`scripts/build-release.sh`**
    - Cleans `release/`
-   - Builds the React app inside `node:20-alpine` Docker image → `frontend/dist/`
+   - Builds the React app inside `node:22-alpine` Docker image → `frontend/dist/`
    - Copies `frontend/dist/*` into `release/backend/public/`
    - rsync's `backend/` into `release/backend/` (excluding tests, dev env,
      uploads/, error.php, etc.)
@@ -295,7 +295,7 @@ equivalent step list.
 docker run --rm \
   -v "$PWD/frontend":/app -w /app \
   -u "$(id -u):$(id -g)" \
-  node:20-alpine sh -c 'npm ci && npm run build'
+  node:22-alpine sh -c 'npm ci && npm run build'
 ```
 
 → produces `frontend/dist/`.

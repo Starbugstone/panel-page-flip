@@ -36,7 +36,14 @@ export default function BulkUploadGate() {
   const [adFailed, setAdFailed] = useState(false);
   const mounted = useRef(true);
 
-  useEffect(() => () => { mounted.current = false; }, []);
+  // Set on the way in as well as cleared on the way out: Strict Mode replays a
+  // committed effect as cleanup-then-setup while keeping the ref, so a teardown
+  // that never restores it leaves the page permanently believing it unmounted.
+  useEffect(() => {
+    mounted.current = true;
+
+    return () => { mounted.current = false; };
+  }, []);
 
   const folder = searchParams.get("folder");
   const uploaderPath = folder ? `${BULK_UPLOAD_ROUTE}?folder=${encodeURIComponent(folder)}` : BULK_UPLOAD_ROUTE;

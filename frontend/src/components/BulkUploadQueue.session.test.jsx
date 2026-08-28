@@ -124,6 +124,28 @@ describe("ending the rewarded bulk-upload session", () => {
     expect(closeBulkUploadSession).not.toHaveBeenCalled();
   });
 
+  /**
+   * Removing the last failed file settles the batch as surely as retrying it
+   * would. The mirror of the case above: left open, the session hands the next
+   * batch a free pass until it expires.
+   */
+  it("closes the session when the last outstanding file is removed instead of retried", async () => {
+    vi.mocked(uploadComicInChunks)
+      .mockResolvedValueOnce({ comic: { id: 1 } })
+      .mockRejectedValueOnce(new Error("Upload failed"));
+
+    const user = userEvent.setup();
+    renderQueue();
+
+    await runBatch(user, ["one.cbz", "two.cbz"]);
+    await waitFor(() => expect(screen.getByText("Failed")).toBeInTheDocument());
+    expect(closeBulkUploadSession).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /remove two\.cbz/i }));
+
+    await waitFor(() => expect(closeBulkUploadSession).toHaveBeenCalledOnce());
+  });
+
   /** A retry that fails again leaves the batch unfinished, so the offer stands. */
   it("keeps the session open when a retry fails again", async () => {
     vi.mocked(uploadComicInChunks)

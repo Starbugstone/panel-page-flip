@@ -64,6 +64,8 @@ export default function BulkUploadQueue() {
   // captured when the run began, so without this a file removed mid-run would
   // still be uploaded after it had left the screen.
   const removedRef = useRef(new Set());
+  /** Whether "Start all" has run: only then is there a batch to settle. */
+  const batchRanRef = useRef(false);
   const inputRef = useRef(null);
   const completed = rows.filter((row) => row.status === "done").length;
   const failed = rows.filter((row) => row.status === "error" || row.status === "cancelled").length;
@@ -83,7 +85,17 @@ export default function BulkUploadQueue() {
    */
   const removeRow = (id) => {
     removedRef.current.add(id);
-    setRows((current) => current.filter((row) => row.id !== id));
+    const remaining = rows.filter((row) => row.id !== id);
+    setRows(remaining);
+
+    // Removing the last file that still needed doing settles the batch as
+    // surely as uploading it would. A session left open here hands the *next*
+    // batch a free pass until it expires two hours later, which is one
+    // advertisement paying for two batches.
+    if (batchRanRef.current && remaining.every((row) => row.status === "done")) {
+      batchRanRef.current = false;
+      void endBatchIfSettled(0);
+    }
   };
 
   const addFiles = (files) => {
@@ -185,6 +197,7 @@ export default function BulkUploadQueue() {
     }
     // Only removals made during this run may cancel work in it.
     removedRef.current = new Set();
+    batchRanRef.current = true;
     setRunning(true);
     const failures = await runQueue(pending);
     setRunning(false);
