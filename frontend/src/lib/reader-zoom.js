@@ -66,6 +66,18 @@ export function clampTransform(transform, { viewport, content }) {
 }
 
 /**
+ * Keep this scale and show the top of the page.
+ *
+ * A page turn has no pan worth keeping: the middle of the last page is not
+ * where reading starts. Horizontal centre, because turning the page is not a
+ * sideways glance. Asking clampTransform for the top edge keeps the overflow
+ * arithmetic in one place.
+ */
+export function originAtTop(scale, geometry) {
+  return clampTransform({ scale, x: 0, y: Number.POSITIVE_INFINITY }, geometry);
+}
+
+/**
  * The scale at which the artwork fills the width it is read at — the zoom
  * somebody actually wants when they double-tap a page that is letterboxed to
  * fit on screen. A page already using the full width has no readable width to

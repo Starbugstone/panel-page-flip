@@ -102,7 +102,7 @@ export function ReaderSettings({
             {canZoom
               ? continuousZoom
                 ? "Adjust the width of every page while keeping continuous scrolling."
-                : "Adjust the page or spread. This zoom level stays when you turn pages."
+                : "Adjust the page or spread. This zoom stays when you turn pages, and each new page starts at the top."
               : "Zoom is available in single-page and two-page modes."}
           </p>
         </div>

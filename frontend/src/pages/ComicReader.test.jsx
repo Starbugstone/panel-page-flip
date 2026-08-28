@@ -952,6 +952,8 @@ describe("ComicReader", () => {
       const nextArtwork = await page(2);
       expect(surface()).toHaveAttribute("data-page-zoomed", "true");
       expect(nextArtwork.style.transform).toContain("scale(1.75)");
+      // 800 tall at 1.75x in a 400 viewport: the top of the page, not the middle.
+      expect(nextArtwork.style.transform).toContain("translate3d(0px, 500px, 0)");
       expect(screen.getByRole("button", { name: "Right edge: next page" })).toBeVisible();
     });
 

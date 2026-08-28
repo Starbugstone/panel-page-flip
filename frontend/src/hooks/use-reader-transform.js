@@ -5,6 +5,7 @@ import {
   clampTransform,
   doubleTapTransform,
   isZoomed,
+  originAtTop,
   panBy,
   scrollFromTransform,
   stepZoom,
@@ -132,7 +133,7 @@ export function useReaderTransform({ containerRef, imageRef }) {
     settle(zoomOut(startingPoint(geometry), geometry), geometry);
   }, [measure, settle, startingPoint]);
 
-  /** Keep the chosen zoom, but put a newly selected page back at its origin. */
+  /** Keep the chosen zoom, but show the top of a newly selected page. */
   const resetPosition = useCallback(() => {
     pendingScrollRef.current = null;
     const container = containerRef.current;
@@ -140,8 +141,9 @@ export function useReaderTransform({ containerRef, imageRef }) {
       container.scrollLeft = 0;
       container.scrollTop = 0;
     }
-    apply({ scale: transformRef.current.scale, x: 0, y: 0 });
-  }, [apply, containerRef]);
+    const scale = transformRef.current.scale;
+    apply(isZoomed({ scale }) ? originAtTop(scale, measure()) : IDENTITY_TRANSFORM);
+  }, [apply, containerRef, measure]);
 
   /** A new fit or reader layout starts from the top at natural scale. */
   const resetTransform = useCallback(() => {

@@ -114,7 +114,7 @@ describe("zoom that knows where the reader was", () => {
     expect(result.current.transform.scale).toBe(1.25);
   });
 
-  it("keeps the zoom level while resetting position for a new page", () => {
+  it("keeps the zoom and shows the top of a new page, not the middle", () => {
     const elements = refs({ content: { width: 400, height: 800 } });
     const { result } = renderHook(() => useReaderTransform(elements));
 
@@ -122,7 +122,8 @@ describe("zoom that knows where the reader was", () => {
     act(() => result.current.pan({ dx: -80, dy: -120 }));
     act(() => result.current.resetPosition());
 
-    expect(result.current.transform).toEqual({ scale: 2.5, x: 0, y: 0 });
+    // 800 tall at 2.5x in an 800 viewport: 600 of slack, and the top is +600.
+    expect(result.current.transform).toEqual({ scale: 2.5, x: 0, y: 600 });
     expect(elements.containerRef.current.scrollTop).toBe(0);
   });
 

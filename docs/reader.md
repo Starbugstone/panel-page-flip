@@ -21,6 +21,13 @@ Changing page size does not reload the comic or reset reading progress. Changing
 it while zoomed returns the page to its natural scale so the selected fit is
 immediately clear.
 
+## Zoom
+
+In single-page and two-page modes, pinch, double tap, the zoom button and the
+zoom slider enlarge the page that is on screen. Turning the page keeps that
+zoom and starts at the **top** of the new page (or spread), not the middle.
+Continuous mode widens every page instead and keeps native scrolling.
+
 ## Reading modes and direction
 
 | Setting | Behaviour |

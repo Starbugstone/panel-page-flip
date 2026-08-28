@@ -5,6 +5,7 @@ import {
   MAX_SCALE,
   clampTransform,
   doubleTapTransform,
+  originAtTop,
   isZoomed,
   panBy,
   readableWidthScale,
@@ -81,6 +82,20 @@ describe("keeping a panned page over the viewport", () => {
 
   it("keeps a pan that stays inside the artwork exactly as dragged", () => {
     expect(clampTransform({ scale: 2, x: -40, y: 25 }, geometry)).toEqual({ scale: 2, x: -40, y: 25 });
+  });
+});
+
+describe("the top of a zoomed page", () => {
+  it("is the pan that puts the artwork's top edge on the viewport's top edge", () => {
+    // 800 tall at 2x in an 800 viewport: 400 of slack each way, and the top is
+    // the positive one — the same edge a flick upward would stop at.
+    expect(originAtTop(2, geometry)).toEqual({ scale: 2, x: 0, y: 400 });
+  });
+
+  it("stays centred when the zoomed page still fits on screen", () => {
+    const fitted = { viewport, content: { width: 200, height: 400 } };
+
+    expect(originAtTop(1.5, fitted)).toEqual({ scale: 1.5, x: 0, y: 0 });
   });
 });
 
