@@ -127,6 +127,46 @@ describe("zoom that knows where the reader was", () => {
     expect(elements.containerRef.current.scrollTop).toBe(0);
   });
 
+  /**
+   * The turn is decided before the page turned to has rendered, so the only
+   * artwork measurable at that moment is the one being left. Under fit-to-width
+   * a taller next page has a top edge further out than the old page's, and
+   * clamping to the old one leaves the reader part way down the new page.
+   */
+  it("finds the top of the new page once it has a height of its own", () => {
+    const elements = refs({ content: { width: 400, height: 800 } });
+    const { result, rerender } = renderHook(() => useReaderTransform(elements));
+
+    act(() => result.current.pinch({ scale: 2, focal: { x: 200, y: 400 } }));
+    act(() => result.current.resetPosition());
+
+    // Still the outgoing page: 800 at 2x in an 800 viewport is 400 of slack.
+    expect(result.current.transform).toEqual({ scale: 2, x: 0, y: 400 });
+
+    // The next page lays out taller, as a page fitted to the width may.
+    elements.imageRef.current.offsetHeight = 1600;
+    act(() => rerender());
+
+    // 1600 at 2x in an 800 viewport: 1200 of slack, and the top is +1200.
+    expect(result.current.transform).toEqual({ scale: 2, x: 0, y: 1200 });
+  });
+
+  /** Settling must not outlive the turn: a reader who pans has chosen a place. */
+  it("stops chasing the top once the reader has moved the page themselves", () => {
+    const elements = refs({ content: { width: 400, height: 800 } });
+    const { result, rerender } = renderHook(() => useReaderTransform(elements));
+
+    act(() => result.current.pinch({ scale: 2, focal: { x: 200, y: 400 } }));
+    act(() => result.current.resetPosition());
+    act(() => result.current.pan({ dx: 0, dy: -150 }));
+
+    const chosen = result.current.transform;
+    elements.imageRef.current.offsetHeight = 1600;
+    act(() => rerender());
+
+    expect(result.current.transform).toEqual(chosen);
+  });
+
   it("survives being driven before anything has been laid out", () => {
     const { result } = renderHook(() => useReaderTransform({ containerRef: { current: null }, imageRef: { current: null } }));
 

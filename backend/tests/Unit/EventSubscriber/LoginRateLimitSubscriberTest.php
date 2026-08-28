@@ -14,25 +14,22 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 final class LoginRateLimitSubscriberTest extends TestCase
 {
-    /** @dataProvider nonProductionEnvironments */
-    public function testLoginLimitingIsDisabledOutsideProduction(string $environment): void
+    /**
+     * The switch exists for a developer signing the same account in all day
+     * from one address. Nothing else may turn it off.
+     */
+    public function testLoginLimitingIsDisabledOnlyWhenSwitchedOff(): void
     {
         $rateLimiter = $this->createMock(ApiRateLimiter::class);
         $rateLimiter->expects(self::never())->method('limit');
         $event = $this->requestEvent();
 
-        (new LoginRateLimitSubscriber($rateLimiter, $environment))->limitLogin($event);
+        (new LoginRateLimitSubscriber($rateLimiter, false))->limitLogin($event);
 
         self::assertNull($event->getResponse());
     }
 
-    public static function nonProductionEnvironments(): iterable
-    {
-        yield 'development' => ['dev'];
-        yield 'test' => ['test'];
-    }
-
-    public function testLoginLimitingRemainsActiveInProduction(): void
+    public function testLoginLimitingIsActiveWhenEnabled(): void
     {
         $response = new JsonResponse(['message' => 'Too many requests.'], 429);
         $rateLimiter = $this->createMock(ApiRateLimiter::class);
@@ -43,7 +40,7 @@ final class LoginRateLimitSubscriberTest extends TestCase
             ->willReturn($response);
         $event = $this->requestEvent();
 
-        (new LoginRateLimitSubscriber($rateLimiter, 'prod'))->limitLogin($event);
+        (new LoginRateLimitSubscriber($rateLimiter, true))->limitLogin($event);
 
         self::assertSame($response, $event->getResponse());
     }

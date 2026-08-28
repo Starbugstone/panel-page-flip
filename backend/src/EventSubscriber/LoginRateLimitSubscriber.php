@@ -11,7 +11,7 @@ class LoginRateLimitSubscriber implements EventSubscriberInterface
 {
     public function __construct(
         private readonly ApiRateLimiter $rateLimiter,
-        private readonly string $environment,
+        private readonly bool $enabled,
     ) {
     }
 
@@ -24,11 +24,14 @@ class LoginRateLimitSubscriber implements EventSubscriberInterface
 
     public function limitLogin(RequestEvent $event): void
     {
-        // Local development repeatedly signs the same test accounts in from
-        // one Docker IP, so a production brute-force control only blocks the
-        // developer it is supposed to help. Keep the protection at the HTTP
-        // boundary in production and do not consume its bucket elsewhere.
-        if ('prod' !== $this->environment) {
+        // Local development repeatedly signs the same test accounts in from one
+        // Docker IP, so this control only blocks the developer it is supposed
+        // to help — which is why there is a switch at all. It is its own
+        // setting rather than a reading of APP_ENV: every deployment that is
+        // not a developer's laptop is reachable from the internet whatever it
+        // calls its environment, and a staging host with brute-force protection
+        // silently off is the case this must not produce.
+        if (!$this->enabled) {
             return;
         }
 

@@ -26,6 +26,9 @@ export function useReaderTransform({ containerRef, imageRef }) {
   const [transform, setTransform] = useState(IDENTITY_TRANSFORM);
   const transformRef = useRef(IDENTITY_TRANSFORM);
   const pendingScrollRef = useRef(null);
+  // Set while the reader is being put at the top of a page that has not been
+  // laid out yet. See resetPosition and the layout effect that clears it.
+  const settlingAtTopRef = useRef(false);
 
   const apply = useCallback((next) => {
     transformRef.current = next;
@@ -93,6 +96,7 @@ export function useReaderTransform({ containerRef, imageRef }) {
   }, [transform, containerRef]);
 
   const pinch = useCallback(({ scale, focal, dx = 0, dy = 0 }) => {
+    settlingAtTopRef.current = false;
     const geometry = measure();
     // Zooming holds the point between the fingers still, which is right for the
     // scale and wrong for the fingers: two of them dragging across the glass is
@@ -104,21 +108,25 @@ export function useReaderTransform({ containerRef, imageRef }) {
   const pan = useCallback(({ dx, dy }) => {
     if (!isZoomed(transformRef.current)) return;
 
+    settlingAtTopRef.current = false;
     const geometry = measure();
     apply(clampTransform(panBy(transformRef.current, dx, dy), geometry));
   }, [apply, measure]);
 
   const doubleTapAt = useCallback((point) => {
+    settlingAtTopRef.current = false;
     const geometry = measure();
     settle(doubleTapTransform(startingPoint(geometry), point, geometry), geometry);
   }, [measure, settle, startingPoint]);
 
   const stepZoomBy = useCallback((factor) => {
+    settlingAtTopRef.current = false;
     const geometry = measure();
     settle(stepZoom(startingPoint(geometry), factor, geometry), geometry);
   }, [measure, settle, startingPoint]);
 
   const setZoomLevel = useCallback((scale) => {
+    settlingAtTopRef.current = false;
     const geometry = measure();
     const current = startingPoint(geometry);
     const requested = Number(scale);
@@ -129,11 +137,20 @@ export function useReaderTransform({ containerRef, imageRef }) {
   }, [measure, settle, startingPoint]);
 
   const zoomToFit = useCallback(() => {
+    settlingAtTopRef.current = false;
     const geometry = measure();
     settle(zoomOut(startingPoint(geometry), geometry), geometry);
   }, [measure, settle, startingPoint]);
 
-  /** Keep the chosen zoom, but show the top of a newly selected page. */
+  /**
+   * Keep the chosen zoom, but show the top of a newly selected page.
+   *
+   * The page being turned to has not rendered yet, so what can be measured here
+   * is the page being turned away from. Where the two differ in height — fit to
+   * width, a taller next page — its top edge is somewhere this cannot know, so
+   * the position is corrected by the layout effect below once the new artwork
+   * has a size.
+   */
   const resetPosition = useCallback(() => {
     pendingScrollRef.current = null;
     const container = containerRef.current;
@@ -142,11 +159,34 @@ export function useReaderTransform({ containerRef, imageRef }) {
       container.scrollTop = 0;
     }
     const scale = transformRef.current.scale;
-    apply(isZoomed({ scale }) ? originAtTop(scale, measure()) : IDENTITY_TRANSFORM);
+    if (!isZoomed({ scale })) {
+      settlingAtTopRef.current = false;
+      apply(IDENTITY_TRANSFORM);
+      return;
+    }
+
+    settlingAtTopRef.current = true;
+    apply(originAtTop(scale, measure()));
   }, [apply, containerRef, measure]);
+
+  // Runs after every render while a page turn is settling, because the artwork
+  // arrives at its size over several of them. Re-clamping to the top is what it
+  // already asked for, so this converges rather than fighting: once the value
+  // stops changing there is nothing left to apply. Any deliberate move by the
+  // reader clears the flag first — see pan, pinch and the zoom entry points.
+  useLayoutEffect(() => {
+    if (!settlingAtTopRef.current) return;
+
+    const geometry = measure();
+    if (!(geometry.content.height > 0)) return;
+
+    const next = originAtTop(transformRef.current.scale, geometry);
+    if (next.x !== transformRef.current.x || next.y !== transformRef.current.y) apply(next);
+  });
 
   /** A new fit or reader layout starts from the top at natural scale. */
   const resetTransform = useCallback(() => {
+    settlingAtTopRef.current = false;
     pendingScrollRef.current = null;
     const container = containerRef.current;
     if (container) {

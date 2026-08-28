@@ -68,6 +68,13 @@ services:
         arguments:
             $securityAlertCache: '@security.alert.cache'
 
+    # The suite signs the same accounts in over and over from one address, so
+    # the limiter would exhaust its allowance on setup rather than on anything
+    # being tested. The control itself is covered directly, by unit test.
+    App\EventSubscriber\LoginRateLimitSubscriber:
+        arguments:
+            $enabled: false
+
     App\Tests\:
         resource: '../tests/'
         exclude:

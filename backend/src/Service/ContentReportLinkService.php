@@ -54,6 +54,24 @@ final class ContentReportLinkService
         $report->linkUser($user)->snapshotTarget($method);
     }
 
+    /**
+     * Take the report back to having no target at all.
+     *
+     * The snapshot goes with it. A snapshot exists to remember a target that
+     * was deleted, so leaving one behind would keep the queue pointing at the
+     * record an admin has just said is the wrong one. Reports are auto-linked
+     * at submission from the reference the reporter typed, so being wrong is
+     * ordinary and has to be reversible.
+     */
+    public function unlink(ContentReport $report, string $method = 'admin_cleared'): void
+    {
+        $report
+            ->linkShare(null)
+            ->linkComic(null)
+            ->linkUser(null)
+            ->snapshotTarget($method);
+    }
+
     public function assertCanonical(ContentReport $report): void
     {
         $share = $report->getLinkedShare();

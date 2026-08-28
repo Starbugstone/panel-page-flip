@@ -1372,6 +1372,15 @@ composer dump-autoload
 
 **Enable Debug Mode**: Set `APP_ENV=dev` in `.env` for detailed error messages
 
+**Login rate limiting**: `POST /api/login` allows five attempts per fifteen
+minutes. It is controlled by `LOGIN_RATE_LIMIT_ENABLED`, which is on unless set
+to `0` — the committed `backend/.env` sets `0` because development signs the
+same accounts in repeatedly from one Docker IP. It is deliberately its own
+setting rather than a reading of `APP_ENV`: a staging host is reachable from the
+internet whatever it calls its environment. If a login appears to hang locally,
+clear the bucket with
+`docker compose exec php php bin/console cache:pool:clear cache.rate_limiter`.
+
 **Check Logs**: Monitor Symfony logs for detailed error information:
 ```bash
 tail -f var/log/dev.log

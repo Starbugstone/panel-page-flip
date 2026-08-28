@@ -27,6 +27,14 @@ php bin/console app:cleanup-content-reports
 
 Administrators use the **Content reports** tab. The queue carries summary fields only; reporter contact details, locators and allegations are fetched from the detail endpoint when **Review** is opened. Exact resolution and bounded title/account search produce human-readable candidates. Numeric IDs are diagnostic details after a candidate is shown, not something the administrator has to discover and type.
 
+A linked target can also be cleared, by sending `targetType` and `targetId` as
+null (or every `linked*Id` key it names as null). Reports are auto-linked at
+submission from the reference the reporter typed, so a wrong target is ordinary;
+an administrator who could swap one wrong record for another but never clear it
+would be stuck asserting that some comic is the subject of a legal notice.
+Clearing removes the snapshot too, because a snapshot exists to remember a
+target that was deleted, not one that was withdrawn.
+
 Target links are canonical. A share sets its comic and owner, a comic sets its owner and clears an incompatible share, and a user cannot contradict the owner implied by a comic/share. Restriction actions validate that invariant again before changing any account or content.
 
 The intentionally small status set is `received`, `under_review`, `awaiting_information`, `action_taken`, `rejected`, and `closed`. Available actions are:

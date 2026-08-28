@@ -281,6 +281,9 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv MESSENGER_TRANSPORT_DSN "${PROD_MESSENGER_TRANSPORT_DSN:-doctrine://default?auto_setup=0}"
     write_dotenv LOCK_DSN "${PROD_LOCK_DSN:-flock}"
     write_dotenv MAX_CONCURRENT_UPLOADS "${PROD_MAX_CONCURRENT_UPLOADS:-3}"
+    # Written explicitly so a release never inherits the development default
+    # from a stray .env; the application defaults it on in any case.
+    write_dotenv LOGIN_RATE_LIMIT_ENABLED "${PROD_LOGIN_RATE_LIMIT_ENABLED:-1}"
     write_dotenv APP_LOG_RETENTION_DAYS "${PROD_APP_LOG_RETENTION_DAYS:-30}"
     write_dotenv SECURITY_LOG_RETENTION_DAYS "${PROD_SECURITY_LOG_RETENTION_DAYS:-365}"
     write_dotenv AUDIT_LOG_RETENTION_DAYS "${PROD_AUDIT_LOG_RETENTION_DAYS:-365}"

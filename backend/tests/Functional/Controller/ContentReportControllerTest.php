@@ -350,6 +350,74 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         self::assertSame('Durable title', $stored->getLinkedComicTitleSnapshot());
     }
 
+    /**
+     * A report is linked automatically at submission from the reference the
+     * reporter typed, so a wrong target is ordinary. An admin who can swap one
+     * wrong record for another but never clear it is stuck asserting that some
+     * comic is the subject of a legal notice.
+     */
+    public function testAdminCanClearALinkedTarget(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 161', 'This allegation has enough information to support a review and a target that turns out to be wrong.');
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->persist($report);
+        $entityManager->flush();
+        $this->createAndLoginAdmin();
+
+        $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
+            'targetType' => 'comic',
+            'targetId' => $comic->getId(),
+            'action' => 'none',
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $payload = $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
+            'targetType' => null,
+            'targetId' => null,
+            'action' => 'none',
+        ]);
+        self::assertResponseIsSuccessful();
+        self::assertNull($payload['report']['linkedComic']);
+        self::assertNull($payload['report']['linkedUser']);
+        self::assertNull($payload['report']['linkedShare']);
+        // The snapshot goes too, or the queue still names the cleared record.
+        self::assertNull($payload['report']['targetSnapshot']['comicId']);
+        self::assertNull($payload['report']['targetSnapshot']['comicTitle']);
+
+        $entityManager->clear();
+        $stored = $entityManager->find(ContentReport::class, $report->getId());
+        self::assertNull($stored->getLinkedComic());
+        self::assertNull($stored->getLinkedComicIdSnapshot());
+    }
+
+    /** The legacy spelling of the same thing: every named id explicitly null. */
+    public function testAdminCanClearALinkedTargetWithLegacyKeys(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 162', 'This allegation has enough information to support a review and a target that turns out to be wrong.');
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->persist($report);
+        $entityManager->flush();
+        $this->createAndLoginAdmin();
+
+        $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
+            'linkedComicId' => $comic->getId(),
+            'action' => 'none',
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $payload = $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
+            'linkedComicId' => null,
+            'action' => 'none',
+        ]);
+        self::assertResponseIsSuccessful();
+        self::assertNull($payload['report']['linkedComic']);
+        self::assertNull($payload['report']['targetSnapshot']['comicId']);
+    }
+
     public function testAdminCanReviewLinkAndRestrictAReportedComic(): void
     {
         $owner = UserFactory::createOne()->object();

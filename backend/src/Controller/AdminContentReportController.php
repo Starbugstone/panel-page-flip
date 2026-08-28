@@ -72,10 +72,17 @@ final class AdminContentReportController extends AbstractController
         try {
             $previousTarget = $this->targetIds($report);
             if (array_key_exists('targetType', $data) || array_key_exists('targetId', $data)) {
-                if (!is_string($data['targetType'] ?? null) || !is_int($data['targetId'] ?? null)) {
+                // An explicit pair of nulls is how the queue says "this is not
+                // the right record". Without it a wrong target — including one
+                // linked automatically from the reference the reporter supplied
+                // — could be swapped for another but never cleared.
+                if (($data['targetType'] ?? null) === null && ($data['targetId'] ?? null) === null) {
+                    $linker->unlink($report);
+                } elseif (!is_string($data['targetType'] ?? null) || !is_int($data['targetId'] ?? null)) {
                     throw new \DomainException('A target type and integer target ID are required together.');
+                } else {
+                    $linker->select($report, $data['targetType'], $data['targetId'], 'admin_selection');
                 }
-                $linker->select($report, $data['targetType'], $data['targetId'], 'admin_selection');
             } elseif (array_intersect(['linkedUserId', 'linkedComicId', 'linkedShareId'], array_keys($data)) !== []) {
                 $this->applyLegacyTarget($report, $data, $entityManager, $linker);
             }
@@ -245,6 +252,15 @@ final class AdminContentReportController extends AbstractController
     /** @param array<string, mixed> $data */
     private function applyLegacyTarget(ContentReport $report, array $data, EntityManagerInterface $entityManager, ContentReportLinkService $linker): void
     {
+        // Every id the caller named is null: the legacy spelling of "clear it".
+        $named = array_intersect(['linkedUserId', 'linkedComicId', 'linkedShareId'], array_keys($data));
+        $stated = array_filter($named, static fn (string $key): bool => $data[$key] !== null);
+        if ($stated === []) {
+            $linker->unlink($report);
+
+            return;
+        }
+
         $share = array_key_exists('linkedShareId', $data) ? $this->findNullable($entityManager, ComicShare::class, $data['linkedShareId']) : null;
         $comic = array_key_exists('linkedComicId', $data) ? $this->findNullable($entityManager, Comic::class, $data['linkedComicId']) : null;
         $user = array_key_exists('linkedUserId', $data) ? $this->findNullable($entityManager, User::class, $data['linkedUserId']) : null;

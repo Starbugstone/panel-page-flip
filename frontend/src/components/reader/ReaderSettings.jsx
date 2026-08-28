@@ -29,6 +29,9 @@ export function ReaderSettings({
   hasOverride,
   modeNotice,
   zoomLevel = 1,
+  // Whether there is a comic to zoom at all. Every reading mode zooms — paged
+  // by transforming the page, continuous by widening the column — so this is
+  // not a mode gate, and the fallback copy below must not read like one.
   canZoom = true,
   continuousZoom = false,
   onChange,
@@ -103,7 +106,7 @@ export function ReaderSettings({
               ? continuousZoom
                 ? "Adjust the width of every page while keeping continuous scrolling."
                 : "Adjust the page or spread. This zoom stays when you turn pages, and each new page starts at the top."
-              : "Zoom is available in single-page and two-page modes."}
+              : "Zoom becomes available once the comic has pages."}
           </p>
         </div>
 
