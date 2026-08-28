@@ -48,6 +48,11 @@ final class Version20260828160000 extends AbstractMigration
 
     public function down(Schema $schema): void
     {
+        $this->abortIf(
+            !$this->connection->getDatabasePlatform() instanceof \Doctrine\DBAL\Platforms\AbstractMySQLPlatform,
+            'This migration targets MySQL.'
+        );
+
         $this->addSql(<<<'SQL'
             ALTER TABLE content_report
                 DROP reference_type,

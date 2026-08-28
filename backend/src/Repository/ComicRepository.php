@@ -113,7 +113,8 @@ class ComicRepository extends ServiceEntityRepository
             return [];
         }
 
-        $pattern = '%'.mb_strtolower(addcslashes($query, '%_')).'%';
+        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], mb_strtolower($query));
+        $pattern = '%'.$escaped.'%';
         return $this->createQueryBuilder('c')
             ->leftJoin('c.owner', 'o')->addSelect('o')
             ->andWhere('LOWER(c.title) LIKE :search OR LOWER(c.author) LIKE :search OR LOWER(c.publisher) LIKE :search OR LOWER(c.description) LIKE :search OR LOWER(o.name) LIKE :search OR LOWER(o.email) LIKE :search')

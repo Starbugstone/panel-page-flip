@@ -102,6 +102,7 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         $entityManager->persist($share);
         $entityManager->persist($token);
         $entityManager->flush();
+        $this->clearSecurityLog();
 
         $resolved = $this->postJson('/api/content-reports', array_replace($this->validReport(), [
             'referenceType' => ContentReport::REFERENCE_INVITATION_URL,
@@ -120,6 +121,16 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         self::assertSame($owner->getId(), $report->getLinkedUser()?->getId());
         self::assertSame($comic->getId(), $report->getLinkedComicIdSnapshot());
         self::assertSame('invitation_url', $report->getResolutionMethod());
+        $audit = $this->assertLoggedAuditEvent(SecurityAuditLogger::CONTENT_REPORT_TARGET_LINKED);
+        self::assertNull($audit->context['previous_linked_user_id']);
+        self::assertSame($owner->getId(), $audit->context['linked_user_id']);
+        self::assertNull($audit->context['previous_linked_comic_id']);
+        self::assertSame($comic->getId(), $audit->context['linked_comic_id']);
+        self::assertNull($audit->context['previous_linked_share_id']);
+        self::assertSame($share->getId(), $audit->context['linked_share_id']);
+        self::assertSame('share', $audit->context['resolved_target_type']);
+        self::assertSame($share->getId(), $audit->context['resolved_target_id']);
+        self::assertSame('invitation_url', $audit->context['resolution_method']);
     }
 
     public function testExactContentAndUserCodesResolveWhileGroupCodeOnlyOffersCandidates(): void
@@ -167,9 +178,13 @@ final class ContentReportControllerTest extends AbstractApiTestCase
     {
         $token = str_repeat('A', 64);
         $explanation = 'This exact invitation contains a protected edition and this sentence is the detailed allegation.';
+        $accountReference = 'account-secret-'.str_repeat('B', 24);
+        $sourceContext = 'Invitation https://panel.example/share/invitation/'.str_repeat('C', 64);
         $this->postJson('/api/content-reports', array_replace($this->validReport(), [
             'referenceType' => ContentReport::REFERENCE_INVITATION_URL,
             'reportedReference' => 'https://panel.example/share/invitation/'.$token,
+            'reportedAccountReference' => $accountReference,
+            'sourceContext' => $sourceContext,
             'explanation' => $explanation,
         ]));
 
@@ -181,11 +196,15 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         self::assertNotNull($receipt);
         self::assertSame('legal@example.test', $operator->getTo()[0]->getAddress());
         self::assertStringContainsString($token, (string) $operator->getTextBody());
+        self::assertStringContainsString($accountReference, (string) $operator->getTextBody());
+        self::assertStringContainsString($sourceContext, (string) $operator->getTextBody());
         self::assertStringContainsString($explanation, (string) $operator->getTextBody());
         self::assertSame('rights@example.com', $receipt->getTo()[0]->getAddress());
         self::assertStringContainsString('[masked-token]', (string) $receipt->getTextBody());
         self::assertStringNotContainsString($token, (string) $receipt->getTextBody());
-        self::assertStringContainsString($explanation, (string) $receipt->getTextBody());
+        self::assertStringNotContainsString($accountReference, (string) $receipt->getTextBody());
+        self::assertStringNotContainsString($sourceContext, (string) $receipt->getTextBody());
+        self::assertStringNotContainsString($explanation, (string) $receipt->getTextBody());
     }
 
     public function testMailFailureDoesNotRollBackTheDurableReport(): void

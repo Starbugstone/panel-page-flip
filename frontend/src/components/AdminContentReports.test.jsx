@@ -95,4 +95,43 @@ describe("AdminContentReports", () => {
     expect(screen.queryByText(report.explanation)).not.toBeInTheDocument();
     expect(api.get).toHaveBeenCalledTimes(1);
   });
+
+  it("clears a pending target when candidate search results are replaced", async () => {
+    const user = userEvent.setup();
+    const replacement = {
+      ...report,
+      targetResolution: {
+        status: "candidates",
+        method: "search",
+        candidates: [{ type: "user", id: 99, name: "Different owner", email: "different@example.com", source: "search" }],
+      },
+    };
+    vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+      path === "/api/admin/content-reports/42"
+        ? { report }
+        : path === "/api/admin/content-reports/42?q=different"
+          ? { report: replacement }
+          : {
+              reports: [summary],
+              statuses: ["received", "under_review", "action_taken", "rejected", "closed"],
+              categories: ["copyright_ip", "other_illegal"],
+            }
+    ));
+
+    render(<AdminContentReports />);
+    await user.click(await screen.findByRole("button", { name: /review CR-20260815-42/i }));
+    await user.click(await screen.findByRole("button", { name: /link to report/i }));
+    await user.selectOptions(screen.getByLabelText(/administrative action/i), "restrict_sharing");
+    await user.type(screen.getByLabelText(/search target candidates/i), "different");
+    await user.click(screen.getByRole("button", { name: /^search$/i }));
+
+    expect(await screen.findByText("Different owner")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Selected" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/administrative action/i)).toHaveValue("none");
+    await user.click(screen.getByRole("button", { name: /save review/i }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalled());
+    const payload = vi.mocked(api.patch).mock.calls.at(-1)[1];
+    expect(payload).not.toHaveProperty("targetType");
+    expect(payload).not.toHaveProperty("targetId");
+  });
 });

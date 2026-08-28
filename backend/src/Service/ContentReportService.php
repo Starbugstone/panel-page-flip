@@ -73,6 +73,20 @@ final class ContentReportService
             if ($target !== null) {
                 $this->linker->select($report, $target['type'], $target['id'], $target['method']);
                 $this->entityManager->flush();
+                $this->auditLogger->audit(SecurityAuditLogger::CONTENT_REPORT_TARGET_LINKED, [
+                    'target_type' => 'content_report',
+                    'target_id' => $report->getId(),
+                    'report_id' => $report->getId(),
+                    'previous_linked_user_id' => null,
+                    'linked_user_id' => $report->getLinkedUser()?->getId(),
+                    'previous_linked_comic_id' => null,
+                    'linked_comic_id' => $report->getLinkedComic()?->getId(),
+                    'previous_linked_share_id' => null,
+                    'linked_share_id' => $report->getLinkedShare()?->getId(),
+                    'resolved_target_type' => $target['type'],
+                    'resolved_target_id' => $target['id'],
+                    'resolution_method' => $target['method'],
+                ]);
             }
         } catch (\Throwable) {
             $this->auditLogger->security(SecurityAuditLogger::DATA_INTEGRITY_FAILURE, [

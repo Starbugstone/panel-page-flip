@@ -106,6 +106,7 @@ export function AdminContentReports() {
     try {
       const response = await api.get("/api/admin/content-reports/" + selected.id + "?q=" + encodeURIComponent(search.trim()));
       setSelected(response.report);
+      setReview((current) => ({ ...current, targetType: null, targetId: null, action: "none" }));
     } catch (loadError) {
       setError(loadError.message || "Target candidates could not be loaded.");
     } finally {

@@ -88,7 +88,8 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             return [];
         }
 
-        $pattern = '%'.mb_strtolower(addcslashes($query, '%_')).'%';
+        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], mb_strtolower($query));
+        $pattern = '%'.$escaped.'%';
         return $this->createQueryBuilder('u')
             ->andWhere('LOWER(u.name) LIKE :search OR LOWER(u.email) LIKE :search')
             ->setParameter('search', $pattern)
