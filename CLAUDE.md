@@ -16,7 +16,7 @@ a preference.
 
 The only work that ships without tests is documentation and comments.
 
-Run before every push — all of it, not a subset:
+Run before every push — all of it, not a subset, but only before a requested push. never during a normal code update unless necessary:
 
 ```bash
 docker compose exec -T php php bin/phpunit          # backend
