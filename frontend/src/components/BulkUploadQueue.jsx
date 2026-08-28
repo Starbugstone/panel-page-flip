@@ -85,17 +85,25 @@ export default function BulkUploadQueue() {
    */
   const removeRow = (id) => {
     removedRef.current.add(id);
-    const remaining = rows.filter((row) => row.id !== id);
-    setRows(remaining);
+    setRows((current) => {
+      const remaining = current.filter((row) => row.id !== id);
 
-    // Removing the last file that still needed doing settles the batch as
-    // surely as uploading it would. A session left open here hands the *next*
-    // batch a free pass until it expires two hours later, which is one
-    // advertisement paying for two batches.
-    if (batchRanRef.current && remaining.every((row) => row.status === "done")) {
-      batchRanRef.current = false;
-      void endBatchIfSettled(0);
-    }
+      // Removing the last file that still needed doing settles the batch as
+      // surely as uploading it would. A session left open here hands the *next*
+      // batch a free pass until it expires two hours later, which is one
+      // advertisement paying for two batches.
+      //
+      // Decided in here rather than from the rendered rows because a run in
+      // flight is writing progress into them and the closure can be a render
+      // behind. Clearing the flag before queueing is what makes that safe to
+      // run twice, which React is free to do.
+      if (batchRanRef.current && remaining.every((row) => row.status === "done")) {
+        batchRanRef.current = false;
+        queueMicrotask(() => { void endBatchIfSettled(0); });
+      }
+
+      return remaining;
+    });
   };
 
   const addFiles = (files) => {

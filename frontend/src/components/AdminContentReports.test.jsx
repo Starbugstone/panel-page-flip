@@ -88,6 +88,26 @@ describe("AdminContentReports", () => {
     ));
   });
 
+  /**
+   * The queue row is rebuilt from the saved detail rather than refetched, so it
+   * has to carry the same label the list endpoint sends. Without it a report
+   * that was just linked reads as "Unresolved" — the one state it is not.
+   */
+  it("shows the linked target in the queue after a review is saved", { timeout: 20000 }, async () => {
+    const user = userEvent.setup();
+    render(<AdminContentReports />);
+
+    await user.click(await screen.findByRole("button", { name: /review CR-20260815-42/i }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/admin/content-reports/42"));
+    await user.click(screen.getByRole("button", { name: /link to report/i }));
+    await user.selectOptions(screen.getByLabelText(/review status/i), "action_taken");
+    await user.click(screen.getByRole("button", { name: /save review/i }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("Unresolved")).not.toBeInTheDocument());
+    expect(screen.getAllByText("Linked comic").length).toBeGreaterThan(0);
+  });
+
   it("keeps allegation details out of the queue response until Review is opened", async () => {
     render(<AdminContentReports />);
 

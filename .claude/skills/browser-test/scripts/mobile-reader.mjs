@@ -143,6 +143,25 @@ try {
   if (reset < 400) ok('reader preferences reset to defaults');
   else bad(`could not reset reader preferences: ${reset}`);
 
+  // Defaults mean continuous scroll, which deliberately has no turn zones, no
+  // swipe paging and no data-page-fit. Everything below drives the *paged*
+  // reader, so ask for it explicitly rather than asserting paged gestures
+  // against the mode that does not have them.
+  const paged = await page.evaluate(async () => {
+    const token = document.cookie.split(';').map((c) => c.trim().split('=')).find(([k]) => k === 'XSRF-TOKEN')?.[1] || '';
+    const current = await (await fetch('/api/reader/preferences', { credentials: 'include' })).json();
+    const preferences = { ...current.preferences, settings: { ...current.preferences.settings, mode: 'single' } };
+    const r = await fetch('/api/reader/preferences', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': token },
+      body: JSON.stringify({ preferences }),
+    });
+    return r.status;
+  });
+  if (paged < 400) ok('reader set to single-page for the gesture assertions');
+  else bad(`could not select single-page mode: ${paged}`);
+
   await page.goto(`${BASE}/upload`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(800);
   await page.locator('input[type="file"]').first().setInputFiles('/fixtures/Navigator Test CBZ.cbz');

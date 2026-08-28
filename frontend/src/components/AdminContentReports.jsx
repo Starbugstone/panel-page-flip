@@ -273,11 +273,16 @@ export function AdminContentReports() {
   );
 }
 
+/**
+ * `label` is what the queue's own rows carry, and this rebuilds a row from a
+ * saved detail — so it has to carry one too, or a report that was just linked
+ * reads as "Unresolved" until the list is fetched again.
+ */
 function linkedTargetFromDetail(report) {
   if (!report) return null;
-  if (report.linkedShare) return { type: "share", id: report.linkedShare.id, title: report.linkedShare.title, owner: report.linkedComic?.owner || report.linkedUser };
-  if (report.linkedComic) return { type: "comic", id: report.linkedComic.id, title: report.linkedComic.title, owner: report.linkedComic.owner || report.linkedUser };
-  if (report.linkedUser) return { type: "user", id: report.linkedUser.id, name: report.linkedUser.name, email: report.linkedUser.email };
+  if (report.linkedShare) return { type: "share", id: report.linkedShare.id, label: report.linkedShare.title, title: report.linkedShare.title, owner: report.linkedComic?.owner || report.linkedUser };
+  if (report.linkedComic) return { type: "comic", id: report.linkedComic.id, label: report.linkedComic.title, title: report.linkedComic.title, owner: report.linkedComic.owner || report.linkedUser };
+  if (report.linkedUser) return { type: "user", id: report.linkedUser.id, label: report.linkedUser.name, name: report.linkedUser.name, email: report.linkedUser.email };
   return null;
 }
 

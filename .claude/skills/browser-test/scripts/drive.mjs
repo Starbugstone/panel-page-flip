@@ -211,7 +211,11 @@ try {
       // alone" only means anything in two-page mode and is disabled outside
       // it, so asserting on every switch reported a failure against a
       // perfectly healthy app on every single run.
-      const modeGated = ['reader-cover-alone'];
+      // "Different page size here" is gated the same way, to the mirror case:
+      // it keeps a per-viewport page size, and continuous mode — the shipped
+      // default, so the first comic of a run meets it — has no page size to
+      // keep. Both come back below.
+      const modeGated = ['reader-cover-alone', 'reader-context-override'];
       const disabled = [];
       for (const s of await page.locator('[role="switch"]').all()) {
         if (modeGated.includes(await s.getAttribute('id'))) continue;
@@ -235,6 +239,11 @@ try {
             await page.waitForTimeout(1200);
             if (!(await coverAlone.isDisabled())) ok(`${c.title}: cover-alone enables in two-page mode`);
             else bad(`${c.title}: cover-alone stays disabled even in two-page mode`);
+            const contextOverride = page.locator('#reader-context-override');
+            if (await contextOverride.count()) {
+              if (!(await contextOverride.isDisabled())) ok(`${c.title}: context override enables outside continuous mode`);
+              else bad(`${c.title}: context override stays disabled even in two-page mode`);
+            }
             // Put the mode back so the fit assertions below are unaffected.
             await modeCombo.click();
             await page.waitForTimeout(500);
