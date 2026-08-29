@@ -74,8 +74,15 @@ class ComicService
 
         $safeFilename = (string) $this->slugger->slug($originalFilename);
         $newFilename = $safeFilename . '-' . uniqid('', true) . '.' . $sourceType->value;
-        // TODO: Shard comic archives into nested directories before large
-        // libraries put enough files in one user directory to degrade OS/filesystem performance.
+        // One flat directory per account, bounded by the per-user quota: at
+        // 10 GiB it takes unusually small comics to reach five figures of
+        // files, which a hashed directory index handles. Serving a page is a
+        // lookup by exact name and never a listing; the only enumeration is
+        // ComicCleanupService's orphan sweep, which runs from a console command
+        // rather than a request. Raising the quota substantially is what would
+        // change that, and the answer then is sharding into nested directories
+        // — a migration of existing files, not a change to this line.
+        // See docs/storage-quota.md.
         $absolutePath = $userDirectory . '/' . $newFilename;
 
         try {

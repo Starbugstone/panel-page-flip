@@ -220,5 +220,9 @@ settings they made everywhere else.
 
 Gesture recognition, spread grouping, the zoom transform, viewport
 classification and preload policy are isolated modules with their own tests.
+So is the page image cache: `usePageImageCache` owns decoding, cancellation,
+the background queue and eviction, while the reader decides which pages are
+worth holding and hands over the order. Changing how pages are fetched and
+changing which pages are wanted are therefore separate edits.
 The paged and continuous renderers consume the same logical navigation and
 protected derivative sources without inventing a second progress model.

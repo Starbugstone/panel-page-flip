@@ -102,3 +102,23 @@ afterwards, its source file is genuinely missing — a data problem to investiga
 not a display bug. Serving `/api/users` will never stat those files to paper over
 it: one broken historical file must not make the admin user list expensive, or
 fail it entirely.
+
+## On-disk layout, and the ceiling it implies
+
+Comic sources live one flat directory per account,
+`public/uploads/comics/<userId>/`, with
+a slug and a uniqid in each filename. The quota is what bounds that directory:
+at 10 GiB an account reaches five figures of files only with unusually small
+comics, and a hashed directory index (ext4 `dir_index`, or any modern
+equivalent) answers exact-name lookups at that size without trouble.
+
+That holds because serving a page never lists the directory — it opens one file
+by name. The only enumeration is `ComicCleanupService`'s orphan sweep, and it
+runs from `app:cleanup-comics` rather than from a request, so its cost lands on
+a maintenance window instead of on a reader.
+
+Raising `upload_user_quota_bytes` substantially is the change that would move
+this ceiling. The answer at that point is sharding into nested directories
+(`<userId>/ab/cd/<file>`), which is a migration of existing files and a change
+to every path already stored in the database — not a one-line edit at the point
+of upload. Worth knowing before the quota is raised, rather than after.
