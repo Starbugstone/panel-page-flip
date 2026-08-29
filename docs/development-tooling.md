@@ -23,10 +23,39 @@ Three things in this repository are generated, committed, and never rebuilt on t
 ```bash
 npm run check:routes   # nginx SPA route manifest vs frontend/index.html
 npm run check:tools    # conversion-tool zips and their published checksums
-npm run check:seo      # generated sitemap, robots.txt and canonical metadata
+npm run check:seo      # sitemap, robots.txt, canonicals, crawlable landing copy
+npm run check:csp      # Content-Security-Policy across all three deployment targets
 ```
 
-`check:seo` reads `APP_URL` and inspects a build, so run `npm run build` with the same `APP_URL` first. `check:tools` is what stops an edit to a script under `scripts/comic-conversion/` shipping a download that no longer matches the checksum displayed beside it.
+`check:seo` reads `APP_URL` and inspects a build, so run `npm run build` with the same `APP_URL` first. It also requires the built `index.html` to contain the public landing copy from `src/lib/landing-copy.js`, because production serves that file to crawlers that never run the React tree. `check:tools` is what stops an edit to a script under `scripts/comic-conversion/` shipping a download that no longer matches the checksum displayed beside it.
+
+### Content-Security-Policy
+
+`backend/config/csp.json` is the policy. `scripts/generate-csp.mjs` emits it into
+the three places that actually serve it:
+
+| File | Form |
+| --- | --- |
+| `docker/nginx_frontend/security-headers.conf` | nginx `add_header`, production |
+| `scripts/deploy/htaccess.dist` | Apache `Header always set`, plus `frame-ancestors` |
+| `docker/nginx_frontend/nginx.dev.conf` | nginx, plus what the Vite dev server needs |
+
+Run `node scripts/generate-csp.mjs` after editing the manifest, and
+`npm run check:csp --prefix frontend` to verify — CI runs the check.
+
+Hand-editing three copies in two syntaxes fails in whichever target you are not
+testing, and fails silently: fix development only and production blocks
+advertising; fix nginx only and the Apache release — which is what
+`build-release.sh` ships — blocks it. Google adds origins periodically;
+`ep1`/`ep2.adtrafficquality.google` were recent arrivals.
+
+The generator also asserts that `script-src` permits the hosts
+`frontend/src/lib/advertising.js` actually loads scripts from, so the policy and
+the loader cannot drift apart either.
+
+### Crawlable landing page
+
+`/` is indexable. The words on that page live in `frontend/src/lib/landing-copy.js`. `Landing.jsx` renders them after JavaScript starts; `frontend/index.html` already contains them inside `#root` so a client that never executes the bundle still sees the library, sharing, and page-delivery copy. A unit test fails when the HTML first render drops a phrase, and `check:seo` fails when the production build does.
 
 ### `check:tools` does not run inside `frontend_dev`
 

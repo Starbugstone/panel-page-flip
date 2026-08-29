@@ -20,6 +20,18 @@ export const MAX_SCALE = 5;
 // "0px" — which is the difference between settling and settling twice.
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value)) + 0;
 
+/**
+ * A zoom level held to the reader's limits, with no geometry involved.
+ *
+ * Continuous mode has no transform — the number widens its pages — but the
+ * settings slider has to mean the same thing in both modes.
+ */
+export function clampScale(scale) {
+  const requested = Number(scale);
+
+  return clamp(Number.isFinite(requested) ? requested : MIN_SCALE, MIN_SCALE, MAX_SCALE);
+}
+
 export function isZoomed({ scale } = IDENTITY_TRANSFORM) {
   return scale > MIN_SCALE + 0.001;
 }

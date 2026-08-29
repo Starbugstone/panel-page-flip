@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Service;
 
+use App\Entity\ContentReport;
 use App\Service\PublicUrl;
 use PHPUnit\Framework\TestCase;
 
@@ -37,6 +38,32 @@ final class PublicUrlTest extends TestCase
         yield 'different port' => ['https://panel.example:444/read/17'];
         yield 'credentials' => ['https://user:pass@panel.example/read/17'];
         yield 'relative URL' => ['/read/17'];
+    }
+
+    public function testMatchPathReturnsCaptureGroupsForOurOwnUrls(): void
+    {
+        $url = new PublicUrl('https://panel.example');
+
+        self::assertSame('17', $url->matchPath('https://panel.example/read/17', ContentReport::PATH_PANEL_URL)[1] ?? null);
+        self::assertSame(
+            'abc123',
+            $url->matchPath('https://panel.example/share/invitation/abc123', ContentReport::PATH_INVITATION_URL)[1] ?? null,
+        );
+    }
+
+    /** @dataProvider unmatchedPathProvider */
+    public function testMatchPathReturnsNullForForeignOriginsAndOtherRoutes(string $candidate): void
+    {
+        self::assertNull((new PublicUrl('https://panel.example'))->matchPath($candidate, ContentReport::PATH_PANEL_URL));
+    }
+
+    public static function unmatchedPathProvider(): iterable
+    {
+        yield 'another origin serving the same path' => ['https://foreign.example/read/17'];
+        yield 'a different route on our origin' => ['https://panel.example/library/17'];
+        yield 'a trailing segment the route does not have' => ['https://panel.example/read/17/pages'];
+        yield 'a non-numeric comic id' => ['https://panel.example/read/seventeen'];
+        yield 'not a URL at all' => ['C-ABC123'];
     }
 
     public function testItHonoursANonDefaultConfiguredPort(): void

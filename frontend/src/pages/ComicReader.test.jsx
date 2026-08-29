@@ -367,7 +367,8 @@ describe("ComicReader", () => {
       fireEvent.change(slider, { target: { value: "175" } });
 
       await waitFor(() => expect(document.querySelector('[data-reader-mode="continuous"]')).toHaveAttribute("data-continuous-zoom", "1.75"));
-      expect(document.querySelector('[data-continuous-page="0"]')).toHaveStyle({ width: "175%" });
+      // CSS derives every page's width from this one property on the scroller.
+      expect(document.querySelector('[data-reader-mode="continuous"]').style.getPropertyValue("--reader-page-zoom")).toBe("1.75");
     });
 
     it("widens continuous pages without throwing away where the reader was", async () => {

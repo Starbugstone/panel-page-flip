@@ -4,13 +4,14 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CookieNotice } from "@/components/CookieNotice.jsx";
+import { isAdvertisingActive } from "@/lib/advertising";
 
 const { adSense } = vi.hoisted(() => ({
   adSense: { config: { enabled: false, client: null }, isLoading: false },
 }));
 
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
-  useAdSense: () => ({ config: adSense.config, isLoading: adSense.isLoading, scriptStatus: "idle" }),
+  useAdSense: () => ({ config: adSense.config, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";

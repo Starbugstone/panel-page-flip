@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, RotateCcw, Trash2, Upload } from "lucide-react";
 import { createUploadRequestPool, uploadComicInChunks } from "@/hooks/use-chunked-upload";
@@ -8,7 +8,6 @@ import { useToast } from "@/hooks/use-toast";
 import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile } from "@/lib/comic-upload";
 import { closeBulkUploadSession } from "@/lib/bulk-upload-session";
 import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
-import { isAdvertisingActive } from "@/lib/advertising";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,7 +42,7 @@ export default function BulkUploadQueue() {
   const { toast } = useToast();
   const { refreshSession } = useAuth();
   const { config } = useConfig();
-  const { config: adSenseConfig } = useAdSense();
+  const { isActive: advertisingActive } = useAdSense();
   const [searchParams] = useSearchParams();
   const { folders, isLoading: foldersLoading } = useLibraryFolders();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 4;
@@ -85,25 +84,7 @@ export default function BulkUploadQueue() {
    */
   const removeRow = (id) => {
     removedRef.current.add(id);
-    setRows((current) => {
-      const remaining = current.filter((row) => row.id !== id);
-
-      // Removing the last file that still needed doing settles the batch as
-      // surely as uploading it would. A session left open here hands the *next*
-      // batch a free pass until it expires two hours later, which is one
-      // advertisement paying for two batches.
-      //
-      // Decided in here rather than from the rendered rows because a run in
-      // flight is writing progress into them and the closure can be a render
-      // behind. Clearing the flag before queueing is what makes that safe to
-      // run twice, which React is free to do.
-      if (batchRanRef.current && remaining.every((row) => row.status === "done")) {
-        batchRanRef.current = false;
-        queueMicrotask(() => { void endBatchIfSettled(0); });
-      }
-
-      return remaining;
-    });
+    setRows((current) => current.filter((row) => row.id !== id));
   };
 
   const addFiles = (files) => {
@@ -141,35 +122,25 @@ export default function BulkUploadQueue() {
         onStatus: (status) => updateRow(row.id, { status }),
       });
       updateRow(row.id, { status: "done", progress: 100, comic: result.comic });
-
-      return true;
     } catch (error) {
       const cancelled = error.name === "AbortError" || controller.signal.aborted;
       updateRow(row.id, { status: cancelled ? "cancelled" : "error", error: cancelled ? "Upload cancelled" : error.message });
-
-      return false;
     } finally {
       controllers.current.delete(row.id);
     }
   };
 
-  /** @returns {Promise<number>} how many files in this run did not upload */
   const runQueue = async (selectedRows) => {
     let nextIndex = 0;
-    let failures = 0;
     const worker = async () => {
       while (nextIndex < selectedRows.length) {
         const row = selectedRows[nextIndex];
         nextIndex += 1;
         if (removedRef.current.has(row.id)) continue;
-        if (!await uploadRow(row)) failures += 1;
+        await uploadRow(row);
       }
     };
     await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_FILES, selectedRows.length) }, worker));
-
-    // Counted here rather than read off `rows` afterwards, because this function
-    // is awaited inside a closure that captured `rows` before the run started.
-    return failures;
   };
 
   /**
@@ -190,11 +161,18 @@ export default function BulkUploadQueue() {
    * self-hosted user. Nothing about uploading depended on the session, so
    * nothing here checks whether it closed.
    */
-  const endBatchIfSettled = async (outstanding) => {
-    if (outstanding === 0 && isAdvertisingActive(adSenseConfig)) {
-      await closeBulkUploadSession();
-    }
-  };
+  useEffect(() => {
+    if (!batchRanRef.current || running) return;
+    // Read off the rows themselves rather than a count each caller works out.
+    // Every way a batch can settle — a clean run, a retry that rescues the last
+    // failure, removing the last outstanding file — is the same question, and
+    // three separate answers to it disagreed about a row whose title was
+    // cleared. Rows are never stale here: an effect sees the render they are in.
+    if (rows.some((row) => row.status !== "done")) return;
+
+    batchRanRef.current = false;
+    if (advertisingActive) void closeBulkUploadSession();
+  }, [rows, running, advertisingActive]);
 
   const startAll = async () => {
     const pending = rows.filter((row) => RETRYABLE_STATUSES.includes(row.status) && row.title.trim());
@@ -207,14 +185,8 @@ export default function BulkUploadQueue() {
     removedRef.current = new Set();
     batchRanRef.current = true;
     setRunning(true);
-    const failures = await runQueue(pending);
+    await runQueue(pending);
     setRunning(false);
-
-    // A row somebody cleared the title of is not uploadable and so was never in
-    // this run. It still needs doing, and a batch that ends with work left in it
-    // charges a second advertisement to finish what this one paid for.
-    const untitled = rows.filter((row) => RETRYABLE_STATUSES.includes(row.status) && !row.title.trim()).length;
-    await endBatchIfSettled(failures + untitled);
   };
 
   return (
@@ -265,13 +237,8 @@ export default function BulkUploadQueue() {
                       {(row.status === "error" || row.status === "cancelled") && (
                         <Button size="icon" variant="outline" disabled={running} onClick={async () => {
                           setRunning(true);
-                          const uploaded = await uploadRow(row);
+                          await uploadRow(row);
                           setRunning(false);
-                          // Read off the rows this handler was rendered with:
-                          // a retry runs alone, so the only one of them whose
-                          // status this run changed is `row` itself.
-                          const others = rows.filter((other) => other.id !== row.id && other.status !== "done").length;
-                          await endBatchIfSettled(others + (uploaded ? 0 : 1));
                         }} aria-label={`Retry ${row.file.name}`}><RotateCcw className="h-4 w-4" /></Button>
                       )}
                       {/* Anything not in flight and not already uploaded. A file

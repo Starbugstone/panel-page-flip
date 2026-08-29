@@ -88,6 +88,9 @@ log "Verifying checkout matches origin/main"
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fail "Production releases must be built from a Git checkout."
 fi
+if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+    fail "Refusing production release: the checkout has modified, staged, or untracked files. Commit or remove them before building."
+fi
 if ! git remote get-url origin >/dev/null 2>&1; then
     fail "Git remote 'origin' is not configured."
 fi

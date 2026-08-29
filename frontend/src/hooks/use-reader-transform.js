@@ -4,6 +4,7 @@ import {
   IDENTITY_TRANSFORM,
   clampTransform,
   doubleTapTransform,
+  clampScale,
   isZoomed,
   originAtTop,
   panBy,
@@ -11,7 +12,6 @@ import {
   stepZoom,
   transformFromScroll,
   zoomAbout,
-  zoomOut,
 } from "@/lib/reader-zoom";
 
 /**
@@ -21,8 +21,14 @@ import {
  * A fitted page scrolls natively; a zoomed page is moved by its transform.
  * Every entry point here converts between the two, so a pinch that begins
  * partway down a tall page carries on from where the reader actually was.
+ *
+ * `enabled: false` is continuous mode, which has no transform at all: it scrolls
+ * natively and only borrows the zoom number to widen its pages. Disabled, this
+ * keeps the scale and touches no geometry and no DOM — it used to be handed a
+ * ref that was deliberately never attached, which worked only because the
+ * arithmetic happens to tolerate a zero-sized viewport.
  */
-export function useReaderTransform({ containerRef, imageRef }) {
+export function useReaderTransform({ containerRef, imageRef, enabled = true }) {
   const [transform, setTransform] = useState(IDENTITY_TRANSFORM);
   const transformRef = useRef(IDENTITY_TRANSFORM);
   const pendingScrollRef = useRef(null);
@@ -96,6 +102,8 @@ export function useReaderTransform({ containerRef, imageRef }) {
   }, [transform, containerRef]);
 
   const pinch = useCallback(({ scale, focal, dx = 0, dy = 0 }) => {
+    if (!enabled) return;
+
     settlingAtTopRef.current = false;
     const geometry = measure();
     // Zooming holds the point between the fingers still, which is right for the
@@ -103,30 +111,31 @@ export function useReaderTransform({ containerRef, imageRef }) {
     // a pan, and how far they went is what dx and dy say.
     const zoomed = zoomAbout(startingPoint(geometry), focal, scale, geometry.viewport);
     settle(panBy(zoomed, dx, dy), geometry);
-  }, [measure, settle, startingPoint]);
+  }, [enabled, measure, settle, startingPoint]);
 
   const pan = useCallback(({ dx, dy }) => {
-    if (!isZoomed(transformRef.current)) return;
+    if (!enabled || !isZoomed(transformRef.current)) return;
 
     settlingAtTopRef.current = false;
     const geometry = measure();
     apply(clampTransform(panBy(transformRef.current, dx, dy), geometry));
-  }, [apply, measure]);
+  }, [apply, enabled, measure]);
 
   const doubleTapAt = useCallback((point) => {
+    if (!enabled) return;
+
     settlingAtTopRef.current = false;
     const geometry = measure();
     settle(doubleTapTransform(startingPoint(geometry), point, geometry), geometry);
-  }, [measure, settle, startingPoint]);
-
-  const stepZoomBy = useCallback((factor) => {
-    settlingAtTopRef.current = false;
-    const geometry = measure();
-    settle(stepZoom(startingPoint(geometry), factor, geometry), geometry);
-  }, [measure, settle, startingPoint]);
+  }, [enabled, measure, settle, startingPoint]);
 
   const setZoomLevel = useCallback((scale) => {
     settlingAtTopRef.current = false;
+    if (!enabled) {
+      apply({ ...IDENTITY_TRANSFORM, scale: clampScale(scale) });
+      return;
+    }
+
     const geometry = measure();
     const current = startingPoint(geometry);
     const requested = Number(scale);
@@ -134,13 +143,21 @@ export function useReaderTransform({ containerRef, imageRef }) {
       ? requested / current.scale
       : 1;
     settle(stepZoom(current, factor, geometry), geometry);
-  }, [measure, settle, startingPoint]);
+  }, [apply, enabled, measure, settle, startingPoint]);
 
-  const zoomToFit = useCallback(() => {
+  const zoomToFit = useCallback(() => setZoomLevel(1), [setZoomLevel]);
+
+  /** A new fit or reader layout starts from the top at natural scale. */
+  const resetTransform = useCallback(() => {
     settlingAtTopRef.current = false;
-    const geometry = measure();
-    settle(zoomOut(startingPoint(geometry), geometry), geometry);
-  }, [measure, settle, startingPoint]);
+    pendingScrollRef.current = null;
+    const container = containerRef.current;
+    if (enabled && container) {
+      container.scrollLeft = 0;
+      container.scrollTop = 0;
+    }
+    apply(IDENTITY_TRANSFORM);
+  }, [apply, containerRef, enabled]);
 
   /**
    * Keep the chosen zoom, but show the top of a newly selected page.
@@ -152,22 +169,25 @@ export function useReaderTransform({ containerRef, imageRef }) {
    * has a size.
    */
   const resetPosition = useCallback(() => {
+    // Continuous mode owns its own scroll position; there is no page turn to
+    // put at the top and no container here to move.
+    if (!enabled) return;
+
+    const scale = transformRef.current.scale;
+    if (!isZoomed({ scale })) {
+      resetTransform();
+      return;
+    }
+
     pendingScrollRef.current = null;
     const container = containerRef.current;
     if (container) {
       container.scrollLeft = 0;
       container.scrollTop = 0;
     }
-    const scale = transformRef.current.scale;
-    if (!isZoomed({ scale })) {
-      settlingAtTopRef.current = false;
-      apply(IDENTITY_TRANSFORM);
-      return;
-    }
-
     settlingAtTopRef.current = true;
     apply(originAtTop(scale, measure()));
-  }, [apply, containerRef, measure]);
+  }, [apply, containerRef, enabled, measure, resetTransform]);
 
   // Runs after every render while a page turn is settling, because the artwork
   // arrives at its size over several of them. Re-clamping to the top is what it
@@ -175,7 +195,7 @@ export function useReaderTransform({ containerRef, imageRef }) {
   // stops changing there is nothing left to apply. Any deliberate move by the
   // reader clears the flag first — see pan, pinch and the zoom entry points.
   useLayoutEffect(() => {
-    if (!settlingAtTopRef.current) return;
+    if (!enabled || !settlingAtTopRef.current) return;
 
     const geometry = measure();
     if (!(geometry.content.height > 0)) return;
@@ -184,25 +204,12 @@ export function useReaderTransform({ containerRef, imageRef }) {
     if (next.x !== transformRef.current.x || next.y !== transformRef.current.y) apply(next);
   });
 
-  /** A new fit or reader layout starts from the top at natural scale. */
-  const resetTransform = useCallback(() => {
-    settlingAtTopRef.current = false;
-    pendingScrollRef.current = null;
-    const container = containerRef.current;
-    if (container) {
-      container.scrollLeft = 0;
-      container.scrollTop = 0;
-    }
-    apply(IDENTITY_TRANSFORM);
-  }, [apply, containerRef]);
-
   return {
     transform,
     isZoomed: isZoomed(transform),
     pinch,
     pan,
     doubleTapAt,
-    stepZoomBy,
     setZoomLevel,
     zoomToFit,
     resetPosition,

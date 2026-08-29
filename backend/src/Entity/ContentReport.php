@@ -2,6 +2,7 @@
 
 namespace App\Entity;
 
+use App\Enum\ReportedReferenceType;
 use App\Repository\ContentReportRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
@@ -11,22 +12,15 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(name: 'IDX_CONTENT_REPORT_CATEGORY', columns: ['category'])]
 class ContentReport
 {
-    public const REFERENCE_INVITATION_URL = 'invitation_url';
-    public const REFERENCE_SHARING_CODE = 'sharing_code';
-    public const REFERENCE_USER_CODE = 'user_code';
-    public const REFERENCE_ACCOUNT = 'account_reference';
-    public const REFERENCE_COMIC = 'comic_reference';
-    public const REFERENCE_PANEL_URL = 'panel_url';
-    public const REFERENCE_OTHER = 'other';
-    public const REFERENCE_TYPES = [
-        self::REFERENCE_INVITATION_URL,
-        self::REFERENCE_SHARING_CODE,
-        self::REFERENCE_USER_CODE,
-        self::REFERENCE_ACCOUNT,
-        self::REFERENCE_COMIC,
-        self::REFERENCE_PANEL_URL,
-        self::REFERENCE_OTHER,
-    ];
+    /**
+     * The two application routes a reporter may paste as a reference.
+     *
+     * Validation and target resolution read the same pattern, so renaming a
+     * route cannot leave the form accepting a URL the resolver has silently
+     * stopped being able to link.
+     */
+    public const PATH_INVITATION_URL = '#^/share/invitation/([A-Za-z0-9]+)$#';
+    public const PATH_PANEL_URL = '#^/read/(\d+)$#';
 
     public const CATEGORY_COPYRIGHT = 'copyright_ip';
     public const CATEGORY_OTHER_ILLEGAL = 'other_illegal';
@@ -71,8 +65,8 @@ class ContentReport
     #[ORM\Column(type: Types::TEXT)]
     private string $reportedReference;
 
-    #[ORM\Column(length: 32, options: ['default' => self::REFERENCE_OTHER])]
-    private string $referenceType = self::REFERENCE_OTHER;
+    #[ORM\Column(length: 32, options: ['default' => ReportedReferenceType::Other->value])]
+    private string $referenceType = ReportedReferenceType::Other->value;
 
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $reportedContentTitle = null;
@@ -167,6 +161,24 @@ class ContentReport
     public function getReportedReference(): string { return $this->reportedReference; }
     public function getReferenceType(): string { return $this->referenceType; }
     public function getReportedContentTitle(): ?string { return $this->reportedContentTitle; }
+
+    /**
+     * The reference type as behaviour rather than as a string.
+     *
+     * The column stays a string — no migration — but everything that branches
+     * on the kind of reference goes through the enum, where a `match` over the
+     * cases is checked for exhaustiveness.
+     *
+     * Deliberately not named `referenceType()`: Twig resolves `report.referenceType`
+     * to a method of that name in preference to `getReferenceType()`, so the
+     * email templates would silently receive an enum where they print a string —
+     * and the notifier catches its own render failures, so the only symptom
+     * would be mail that stopped arriving.
+     */
+    public function referenceKind(): ReportedReferenceType
+    {
+        return ReportedReferenceType::from($this->referenceType);
+    }
     public function getReportedAccountReference(): ?string { return $this->reportedAccountReference; }
     public function getSourceContext(): ?string { return $this->sourceContext; }
     public function getExplanation(): string { return $this->explanation; }
@@ -211,7 +223,7 @@ class ContentReport
         ?string $accountReference,
         ?string $sourceContext,
     ): self {
-        if (!in_array($referenceType, self::REFERENCE_TYPES, true)) {
+        if (ReportedReferenceType::tryFrom($referenceType) === null) {
             throw new \DomainException('Invalid content report reference type.');
         }
         $this->referenceType = $referenceType;

@@ -151,6 +151,21 @@ class SessionManager {
    * @param {boolean} triggerExpiration Whether to trigger the session expiration callback if session is invalid
    * @returns {Promise<boolean>} True if session is valid, false otherwise
    */
+  /**
+   * Tell the application the session has gone, at most once.
+   *
+   * Both the no-user response and the failed request reach this, and a second
+   * expiry callback would sign the user out of a session they had already been
+   * signed out of.
+   */
+  expireOnce() {
+    if (!this.onSessionExpired || !this.isActive) return;
+
+    const callback = this.onSessionExpired;
+    this.onSessionExpired = null;
+    callback();
+  }
+
   async checkSession(triggerExpiration = true) {
     // Prevent multiple simultaneous checks
     if (this.checkInProgress) {
@@ -171,11 +186,7 @@ class SessionManager {
       
       const data = await api.get(this.sessionEndpoint, { notifyUnauthorized: false });
       if (!data?.user) {
-        if (triggerExpiration && this.onSessionExpired && this.isActive) {
-          const callback = this.onSessionExpired;
-          this.onSessionExpired = null;
-          callback();
-        }
+        if (triggerExpiration) this.expireOnce();
         return false;
       }
       this.consecutiveFailures = 0;
@@ -187,10 +198,7 @@ class SessionManager {
         if (error.status !== 401 && this.consecutiveFailures < this.maxConsecutiveFailures) {
           return false;
         }
-        // Only trigger once
-        const callback = this.onSessionExpired;
-        this.onSessionExpired = null;
-        callback();
+        this.expireOnce();
       }
       return false;
     } finally {

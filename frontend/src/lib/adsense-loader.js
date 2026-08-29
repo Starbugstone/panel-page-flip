@@ -1,4 +1,4 @@
-import { adSenseScriptSrc, consentPlatformScriptSrc } from "@/lib/advertising";
+import { adSenseScriptSrc, consentPlatformScriptSrc, settleOnce } from "@/lib/advertising";
 import { logger } from "@/lib/logger";
 
 /**
@@ -31,6 +31,8 @@ const INJECTED_AD_SELECTORS = [
   "iframe[src*='doubleclick.net']",
 ];
 
+const INJECTED_AD_SELECTOR = INJECTED_AD_SELECTORS.join(",");
+
 /**
  * How long to wait for the site code before giving up on it.
  *
@@ -40,40 +42,37 @@ const INJECTED_AD_SELECTORS = [
  * advertisement can be offered. Five seconds is long enough for a slow
  * connection and short enough not to read as a broken page.
  */
-export const SCRIPT_TIMEOUT_MS = 5000;
+const SCRIPT_TIMEOUT_MS = 5000;
+
+/**
+ * The outcome of every script this module has asked for, by element id.
+ *
+ * The request is memoised rather than the element inspected, because "has this
+ * been asked for" is a question about this module's own history and the DOM is
+ * a poor place to keep it: a script the timeout gave up on looks exactly like
+ * one nothing ever waited for. Holding the promise means a second caller joins
+ * the first attempt instead of attaching another pair of listeners and another
+ * five-second timer to a node that lives for the whole session.
+ */
+const inFlight = new Map();
 
 /**
  * Attach the one set of handlers that decides a script tag's outcome.
  *
- * Every path — load, error, timeout — writes `dataset.status` and settles
- * exactly once. Both halves matter. Without the write, a script the timeout
- * gave up on is never memoised, so each later caller attaches another pair of
- * listeners and another timer to a node that lives for the whole session and
- * waits a further five seconds for an answer that already exists. Without the
- * settle-once guard, a script that arrives at 5.5s resolves "ready" after its
- * promise already said "unavailable", leaving the caller's cached answer
- * permanently contradicting the DOM.
+ * Settles exactly once: a script that arrives at 5.5s must not resolve "ready"
+ * after its promise already said "unavailable", or the caller's cached answer
+ * permanently contradicts the DOM.
  */
 function settleScript(script, timeoutMs, { onError } = {}) {
-  return new Promise((resolve) => {
-    let settled = false;
+  const { promise, settle } = settleOnce(timeoutMs);
 
-    const finish = (status) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      script.dataset.status = status;
-      resolve(status);
-    };
+  script.addEventListener("load", () => settle("ready"), { once: true });
+  script.addEventListener("error", () => {
+    onError?.();
+    settle("unavailable");
+  }, { once: true });
 
-    const timer = setTimeout(() => finish("unavailable"), timeoutMs);
-
-    script.addEventListener("load", () => finish("ready"), { once: true });
-    script.addEventListener("error", () => {
-      onError?.();
-      finish("unavailable");
-    }, { once: true });
-  });
+  return promise;
 }
 
 /**
@@ -82,16 +81,8 @@ function settleScript(script, timeoutMs, { onError } = {}) {
  * @returns {Promise<"ready" | "unavailable">}
  */
 function loadOnce({ doc, id, src, timeoutMs, onError }) {
-  const existing = doc.getElementById(id);
-  if (existing) {
-    // Already asked for. `dataset.status` is written by every settle path, so a
-    // second caller gets the first attempt's outcome instead of racing it or
-    // injecting a duplicate script.
-    if (existing.dataset.status === "ready") return Promise.resolve("ready");
-    if (existing.dataset.status === "unavailable") return Promise.resolve("unavailable");
-
-    return settleScript(existing, timeoutMs);
-  }
+  const asked = inFlight.get(id);
+  if (asked) return asked;
 
   const script = doc.createElement("script");
   script.id = id;
@@ -100,6 +91,7 @@ function loadOnce({ doc, id, src, timeoutMs, onError }) {
   script.src = src;
 
   const settled = settleScript(script, timeoutMs, { onError });
+  inFlight.set(id, settled);
   (doc.head || doc.documentElement).appendChild(script);
 
   return settled;
@@ -166,18 +158,20 @@ export function loadConsentPlatform(
 export function removeInjectedAds(root = typeof document === "undefined" ? null : document) {
   if (!root) return 0;
 
-  const injected = root.querySelectorAll(INJECTED_AD_SELECTORS.join(","));
+  const injected = root.querySelectorAll(INJECTED_AD_SELECTOR);
   injected.forEach((element) => element.remove());
 
   return injected.length;
 }
 
+function isAd(node) {
+  return node.nodeType === 1 && node.matches(INJECTED_AD_SELECTOR);
+}
+
 function isOrContainsAd(node) {
   if (node.nodeType !== 1) return false;
 
-  const selector = INJECTED_AD_SELECTORS.join(",");
-
-  return node.matches(selector) || node.querySelector(selector) !== null;
+  return node.matches(INJECTED_AD_SELECTOR) || node.querySelector(INJECTED_AD_SELECTOR) !== null;
 }
 
 /**
@@ -212,7 +206,11 @@ export function keepRouteAdFree(root = typeof document === "undefined" ? null : 
   const observer = new MutationObserver((records) => {
     const arrived = records.some((record) => (
       record.type === "attributes"
-        ? isOrContainsAd(record.target)
+        // The element itself, not its subtree: an attribute change cannot put a
+        // new node under it, and anything that did arrives as a childList
+        // record. Searching the subtree here would run a full query for every
+        // image the reader swaps.
+        ? isAd(record.target)
         : [...record.addedNodes].some(isOrContainsAd)
     ));
 
@@ -242,6 +240,7 @@ export function keepRouteAdFree(root = typeof document === "undefined" ? null : 
 
 /** Test seam: forget the loaded scripts so the next call starts over. */
 export function resetAdSenseScriptForTesting(doc = typeof document === "undefined" ? null : document) {
+  inFlight.clear();
   doc?.getElementById(SCRIPT_ID)?.remove();
   doc?.getElementById(CMP_SCRIPT_ID)?.remove();
 }

@@ -5,6 +5,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminContentReports } from "./AdminContentReports";
 import { api } from "@/lib/api";
 
+/** As `GET /api/admin/content-reports` serves them: the server owns which target each action needs. */
+const ADMIN_ACTIONS = [
+  { value: "none", label: "No content action", requires: null },
+  { value: "restrict_sharing", label: "Restrict sharing for comic", requires: "comic" },
+  { value: "lift_sharing_restriction", label: "Lift comic sharing restriction", requires: "comic" },
+  { value: "revoke_all_shares", label: "Revoke all shares", requires: "comic" },
+  { value: "quarantine_content", label: "Quarantine comic", requires: "comic" },
+  { value: "lift_quarantine", label: "Lift comic quarantine", requires: "comic" },
+  { value: "restrict_user_sharing", label: "Restrict account sharing", requires: "user" },
+  { value: "lift_user_sharing_restriction", label: "Lift account sharing restriction", requires: "user" },
+];
+
+
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), patch: vi.fn() } }));
 
 const summary = {
@@ -36,6 +49,7 @@ const report = {
   linkedUser: null,
   linkedComic: null,
   linkedShare: null,
+  linkedTarget: null,
   targetSnapshot: {},
   targetResolution: {
     status: "candidates",
@@ -53,10 +67,16 @@ describe("AdminContentReports", () => {
             reports: [summary],
             statuses: ["received", "under_review", "action_taken", "rejected", "closed"],
             categories: ["copyright_ip", "other_illegal"],
+            actions: ADMIN_ACTIONS,
           }
     ));
     vi.mocked(api.patch).mockReset().mockResolvedValue({
-      report: { ...report, status: "action_taken", linkedComic: { id: 17, title: "Linked comic", sharingRestricted: true, quarantined: false } },
+      report: {
+        ...report,
+        status: "action_taken",
+        linkedComic: { id: 17, title: "Linked comic", sharingRestricted: true, quarantined: false },
+        linkedTarget: { type: "comic", id: 17, label: "Linked comic", title: "Linked comic", owner: { id: 7, name: "Comic Owner" } },
+      },
     });
   });
 
@@ -135,6 +155,7 @@ describe("AdminContentReports", () => {
               reports: [summary],
               statuses: ["received", "under_review", "action_taken", "rejected", "closed"],
               categories: ["copyright_ip", "other_illegal"],
+              actions: ADMIN_ACTIONS,
             }
     ));
 
@@ -160,6 +181,7 @@ describe("AdminContentReports", () => {
     const linkedReport = {
       ...report,
       linkedComic: { id: 17, title: "Linked comic", owner: { id: 7, name: "Comic Owner" } },
+      linkedTarget: { type: "comic", id: 17, label: "Linked comic", title: "Linked comic", owner: { id: 7, name: "Comic Owner" } },
       targetSnapshot: { comicId: 17, comicTitle: "Linked comic" },
     };
     vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
@@ -169,6 +191,7 @@ describe("AdminContentReports", () => {
             reports: [{ ...summary, linkedTarget: { type: "comic", id: 17, label: "Linked comic" } }],
             statuses: ["received", "under_review", "action_taken", "rejected", "closed"],
             categories: ["copyright_ip", "other_illegal"],
+            actions: ADMIN_ACTIONS,
           }
     ));
     vi.mocked(api.patch).mockResolvedValue({
@@ -176,6 +199,7 @@ describe("AdminContentReports", () => {
         ...linkedReport,
         status: "under_review",
         linkedComic: null,
+        linkedTarget: null,
         targetSnapshot: {},
       },
     });
@@ -198,4 +222,29 @@ describe("AdminContentReports", () => {
       })
     ));
   });
+});
+
+/**
+ * The operator notification email links straight to one report. While that was
+ * a branch inside the list fetch, a link to a report the active filters
+ * excluded silently did nothing.
+ */
+it("opens the report a deep link names, even when the queue does not list it", async () => {
+  window.history.replaceState({}, "", "/admin?tab=content-reports&report=99");
+  vi.mocked(api.get).mockImplementation((url) => {
+    if (url.startsWith("/api/admin/content-reports/99")) {
+      return Promise.resolve({ report: { ...report, id: 99, reference: "CR-20260101-99" } });
+    }
+    return Promise.resolve({
+      reports: [],
+      statuses: ["received", "under_review", "action_taken", "rejected", "closed"],
+      categories: ["copyright_ip", "other_illegal"],
+      actions: ADMIN_ACTIONS,
+    });
+  });
+
+  render(<AdminContentReports />);
+
+  expect(await screen.findByText(/CR-20260101-99/)).toBeInTheDocument();
+  window.history.replaceState({}, "", "/admin");
 });

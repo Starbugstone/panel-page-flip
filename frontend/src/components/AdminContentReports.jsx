@@ -9,22 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 
-const ACTIONS = [
-  ["none", "No content action"],
-  ["restrict_sharing", "Restrict sharing for comic", "comic"],
-  ["lift_sharing_restriction", "Lift comic sharing restriction", "comic"],
-  ["revoke_all_shares", "Revoke all shares", "comic"],
-  ["quarantine_content", "Quarantine comic", "comic"],
-  ["lift_quarantine", "Lift comic quarantine", "comic"],
-  ["restrict_user_sharing", "Restrict account sharing", "user"],
-  ["lift_user_sharing_restriction", "Lift account sharing restriction", "user"],
-];
-
 const emptyReview = {
   status: "under_review",
-  targetType: null,
-  targetId: null,
-  targetChanged: false,
+  // Three states, not a flag plus two nullables: `undefined` is "the admin has
+  // not touched the target", `null` is "they cleared it", and an object is the
+  // record they chose. As three fields, every mutation had to remember to set
+  // all three and every reader had to consult the flag first.
+  pendingTarget: undefined,
   resolutionCode: "",
   resolutionNote: "",
   legalHold: false,
@@ -36,6 +27,11 @@ export function AdminContentReports() {
   const [reports, setReports] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [categories, setCategories] = useState([]);
+  // Served with the queue rather than held here: the server decides which
+  // target each action needs, and a second copy of that rule eventually offers
+  // an option that always fails.
+  const [actions, setActions] = useState([]);
+  const deepLinkOpened = useRef(false);
   const [filters, setFilters] = useState({ status: "", category: "", from: "", to: "" });
   const [selected, setSelected] = useState(null);
   const [review, setReview] = useState(emptyReview);
@@ -43,15 +39,12 @@ export function AdminContentReports() {
   const [error, setError] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [saving, setSaving] = useState(false);
-  const deepLinkOpened = useRef(false);
 
   const setDetail = useCallback((report) => {
     setSelected(report);
     setReview({
       status: report.status === "received" ? "under_review" : report.status,
-      targetType: null,
-      targetId: null,
-      targetChanged: false,
+      pendingTarget: undefined,
       resolutionCode: report.resolutionCode || "",
       resolutionNote: report.resolutionNote || "",
       legalHold: Boolean(report.legalHold),
@@ -60,38 +53,54 @@ export function AdminContentReports() {
     });
   }, []);
 
-  const open = useCallback(async (summary) => {
+  const loadDetail = useCallback(async (id, { query = "", failure }) => {
     setLoadingDetail(true);
     setError(null);
     try {
-      const response = await api.get("/api/admin/content-reports/" + summary.id);
-      setDetail(response.report);
-      setSearch("");
+      const suffix = query ? `?q=${encodeURIComponent(query)}` : "";
+      return (await api.get(`/api/admin/content-reports/${id}${suffix}`)).report;
     } catch (loadError) {
-      setError(loadError.message || "The report details could not be loaded.");
+      setError(loadError.message || failure);
+      return null;
     } finally {
       setLoadingDetail(false);
     }
-  }, [setDetail]);
+  }, []);
+
+  const open = useCallback(async (summary) => {
+    const report = await loadDetail(summary.id, { failure: "The report details could not be loaded." });
+    if (!report) return;
+    setDetail(report);
+    setSearch("");
+  }, [loadDetail, setDetail]);
 
   useEffect(() => {
     let cancelled = false;
     const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value));
-    api.get("/api/admin/content-reports" + (query.size ? "?" + query : ""))
+    api.get(`/api/admin/content-reports${query.size ? `?${query}` : ""}`)
       .then((data) => {
         if (cancelled) return;
         const loadedReports = data.reports || [];
         setReports(loadedReports);
         setStatuses(data.statuses || []);
         setCategories(data.categories || []);
+        setActions(data.actions || []);
         setError(null);
 
+        // The operator notification email links straight to one report. Opened
+        // by id rather than by finding it among the loaded rows: the detail
+        // endpoint does not care whether the active filters happen to include
+        // it, and while this searched the list, a link to a report they
+        // excluded silently did nothing.
+        //
+        // It lives inside this callback rather than in an effect of its own
+        // because opening a report sets state, and react-hooks forbids doing
+        // that synchronously in an effect body.
         if (!deepLinkOpened.current) {
           const requestedId = Number(new URLSearchParams(window.location.search).get("report"));
-          const requested = Number.isInteger(requestedId) ? loadedReports.find((report) => report.id === requestedId) : null;
-          if (requested) {
+          if (Number.isInteger(requestedId) && requestedId > 0) {
             deepLinkOpened.current = true;
-            void open(requested);
+            void open({ id: requestedId });
           }
         }
       })
@@ -103,32 +112,18 @@ export function AdminContentReports() {
 
   const searchCandidates = async () => {
     if (!selected) return;
-    setLoadingDetail(true);
-    setError(null);
-    try {
-      const response = await api.get("/api/admin/content-reports/" + selected.id + "?q=" + encodeURIComponent(search.trim()));
-      setSelected(response.report);
-      setReview((current) => ({ ...current, targetType: null, targetId: null, targetChanged: false, action: "none" }));
-    } catch (loadError) {
-      setError(loadError.message || "Target candidates could not be loaded.");
-    } finally {
-      setLoadingDetail(false);
-    }
+    const report = await loadDetail(selected.id, { query: search.trim(), failure: "Target candidates could not be loaded." });
+    if (!report) return;
+    setSelected(report);
+    setReview((current) => ({ ...current, pendingTarget: undefined, action: "none" }));
   };
 
   const chooseTarget = (candidate) => {
-    setReview((current) => ({ ...current, targetType: candidate.type, targetId: candidate.id, targetChanged: true, action: "none" }));
+    setReview((current) => ({ ...current, pendingTarget: { type: candidate.type, id: candidate.id }, action: "none" }));
   };
 
   const unlinkTarget = () => {
-    setReview((current) => ({
-      ...current,
-      targetType: null,
-      targetId: null,
-      targetChanged: true,
-      action: "none",
-      notifyOwner: false,
-    }));
+    setReview((current) => ({ ...current, pendingTarget: null, action: "none", notifyOwner: false }));
   };
 
   const save = async () => {
@@ -142,15 +137,17 @@ export function AdminContentReports() {
         legalHold: review.legalHold,
         action: review.action,
         notifyOwner: review.notifyOwner,
-        ...(review.targetChanged ? { targetType: review.targetType, targetId: review.targetId } : {}),
+        ...(review.pendingTarget !== undefined
+          ? { targetType: review.pendingTarget?.type ?? null, targetId: review.pendingTarget?.id ?? null }
+          : {}),
       };
-      const response = await api.patch("/api/admin/content-reports/" + selected.id, payload);
+      const response = await api.patch(`/api/admin/content-reports/${selected.id}`, payload);
       setDetail(response.report);
       setReports((current) => current.map((item) => item.id === response.report.id ? {
         ...item,
         status: response.report.status,
         reviewedAt: response.report.reviewedAt,
-        linkedTarget: linkedTargetFromDetail(response.report),
+        linkedTarget: response.report.linkedTarget,
       } : item));
     } catch (saveError) {
       setError(saveError.message || "The review could not be saved.");
@@ -160,11 +157,13 @@ export function AdminContentReports() {
   };
 
   const candidates = selected?.targetResolution?.candidates || [];
-  const chosen = candidates.find((candidate) => candidate.type === review.targetType && candidate.id === review.targetId) || null;
-  const effectiveTarget = review.targetChanged ? chosen : linkedTargetFromDetail(selected);
-  const retainedSnapshot = review.targetChanged && !chosen ? null : selected?.targetSnapshot;
-  const canUnlinkTarget = Boolean(effectiveTarget || (!review.targetChanged && hasTargetSnapshot(selected?.targetSnapshot)));
-  const incompatibleAction = actionRequirement(review.action) && !supportsAction(effectiveTarget, actionRequirement(review.action));
+  const untouched = review.pendingTarget === undefined;
+  const chosen = candidates.find((candidate) => candidate.type === review.pendingTarget?.type && candidate.id === review.pendingTarget?.id) || null;
+  const effectiveTarget = untouched ? (selected?.linkedTarget ?? null) : chosen;
+  const retainedSnapshot = !untouched && !chosen ? null : selected?.targetSnapshot;
+  const canUnlinkTarget = Boolean(effectiveTarget || (untouched && hasTargetSnapshot(selected?.targetSnapshot)));
+  const requirement = actions.find((action) => action.value === review.action)?.requires || null;
+  const incompatibleAction = requirement && !supportsAction(effectiveTarget, requirement);
 
   return (
     <div className="space-y-6">
@@ -193,7 +192,7 @@ export function AdminContentReports() {
                     <td className="p-2">{new Date(report.createdAt).toLocaleDateString()}</td>
                     <td className="p-2">{report.linkedTarget?.label || "Unresolved"}</td>
                     <td className="p-2"><Badge variant="outline">{label(report.status)}</Badge></td>
-                    <td className="p-2"><Button size="sm" variant="outline" disabled={loadingDetail} onClick={() => open(report)} aria-label={"Review " + report.reference}>Review</Button></td>
+                    <td className="p-2"><Button size="sm" variant="outline" disabled={loadingDetail} onClick={() => open(report)} aria-label={`Review ${report.reference}`}>Review</Button></td>
                   </tr>
                 ))}
                 {reports.length === 0 && <tr><td className="p-4 text-muted-foreground" colSpan={7}>No reports match these filters.</td></tr>}
@@ -237,7 +236,7 @@ export function AdminContentReports() {
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 {candidates.map((candidate) => (
-                  <article key={candidate.type + ":" + candidate.id} className={"rounded-md border p-3 " + (chosen?.type === candidate.type && chosen?.id === candidate.id ? "border-primary bg-primary/5" : "")}>
+                  <article key={`${candidate.type}:${candidate.id}`} className={`rounded-md border p-3 ${chosen?.type === candidate.type && chosen?.id === candidate.id ? "border-primary bg-primary/5" : ""}`}>
                     <Candidate candidate={candidate} />
                     <Button className="mt-3" size="sm" variant={chosen?.type === candidate.type && chosen?.id === candidate.id ? "default" : "outline"} onClick={() => chooseTarget(candidate)}>
                       {chosen?.type === candidate.type && chosen?.id === candidate.id ? "Selected" : "Link to report"}
@@ -264,7 +263,7 @@ export function AdminContentReports() {
               </Field>
               <Field label="Administrative action">
                 <select id="reviewAction" className="h-10 w-full rounded-md border bg-background px-3" value={review.action} onChange={(event) => setReview((current) => ({ ...current, action: event.target.value }))}>
-                  {ACTIONS.map(([value, text, requirement]) => <option key={value} value={value} disabled={requirement ? !supportsAction(effectiveTarget, requirement) : false}>{text}</option>)}
+                  {actions.map((action) => <option key={action.value} value={action.value} disabled={action.requires ? !supportsAction(effectiveTarget, action.requires) : false}>{action.label}</option>)}
                 </select>
               </Field>
               <Field label="Resolution code"><Input id="resolutionCode" value={review.resolutionCode} onChange={(event) => setReview((current) => ({ ...current, resolutionCode: event.target.value }))} maxLength={64} /></Field>
@@ -273,7 +272,7 @@ export function AdminContentReports() {
 
             {review.action !== "none" && effectiveTarget && (
               <p className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
-                This action will affect <strong>{effectiveTargetLabel(effectiveTarget, actionRequirement(review.action))}</strong>.
+                This action will affect <strong>{effectiveTargetLabel(effectiveTarget, requirement)}</strong>.
               </p>
             )}
             {incompatibleAction && <p role="alert" className="text-sm text-destructive">Choose a compatible canonical target before applying this action.</p>}
@@ -296,20 +295,8 @@ export function AdminContentReports() {
  * saved detail — so it has to carry one too, or a report that was just linked
  * reads as "Unresolved" until the list is fetched again.
  */
-function linkedTargetFromDetail(report) {
-  if (!report) return null;
-  if (report.linkedShare) return { type: "share", id: report.linkedShare.id, label: report.linkedShare.title, title: report.linkedShare.title, owner: report.linkedComic?.owner || report.linkedUser };
-  if (report.linkedComic) return { type: "comic", id: report.linkedComic.id, label: report.linkedComic.title, title: report.linkedComic.title, owner: report.linkedComic.owner || report.linkedUser };
-  if (report.linkedUser) return { type: "user", id: report.linkedUser.id, label: report.linkedUser.name, name: report.linkedUser.name, email: report.linkedUser.email };
-  return null;
-}
-
 function hasTargetSnapshot(snapshot) {
   return Boolean(snapshot?.userId || snapshot?.comicId || snapshot?.shareId);
-}
-
-function actionRequirement(action) {
-  return ACTIONS.find(([value]) => value === action)?.[2] || null;
 }
 
 function supportsAction(target, requirement) {
@@ -321,7 +308,7 @@ function supportsAction(target, requirement) {
 
 function effectiveTargetLabel(target, requirement) {
   if (requirement === "user") return target.type === "user" ? (target.name || target.email || "selected account") : (target.owner?.name || "the selected content owner");
-  return target.title || target.name || (label(target.type) + " #" + target.id);
+  return target.title || target.name || `${label(target.type)} #${target.id}`;
 }
 
 function resolutionMessage(resolution) {
@@ -334,7 +321,7 @@ function Candidate({ candidate }) {
   return (
     <div className="space-y-1 text-sm">
       <Badge variant="outline">{label(candidate.type)}</Badge>
-      <p className="font-medium">{candidate.title || candidate.name || ("Record #" + candidate.id)}</p>
+      <p className="font-medium">{candidate.title || candidate.name || `Record #${candidate.id}`}</p>
       {candidate.owner && <p className="text-muted-foreground">Owner: {candidate.owner.name}</p>}
       {candidate.email && <p className="text-muted-foreground">{candidate.email}</p>}
       {candidate.status && <p className="text-muted-foreground">Share status: {label(candidate.status)}</p>}
@@ -345,9 +332,9 @@ function Candidate({ candidate }) {
 
 function TargetSummary({ target, snapshot }) {
   if (target) {
-    return <div><p className="font-medium">{effectiveTargetLabel(target, target.type === "user" ? "user" : "comic")}</p><p className="text-sm text-muted-foreground">{label(target.type)} #{target.id}{target.owner ? " · owner " + target.owner.name : ""}</p></div>;
+    return <div><p className="font-medium">{effectiveTargetLabel(target, target.type === "user" ? "user" : "comic")}</p><p className="text-sm text-muted-foreground">{label(target.type)} #{target.id}{target.owner ? ` · owner ${target.owner.name}` : ""}</p></div>;
   }
-  if (snapshot?.userId || snapshot?.comicId || snapshot?.shareId) {
+  if (hasTargetSnapshot(snapshot)) {
     return <div><p className="font-medium">{snapshot.comicTitle || "Previously linked record"}</p><p className="text-sm text-muted-foreground">Live record deleted; retained IDs: user {snapshot.userId || "—"}, comic {snapshot.comicId || "—"}, share {snapshot.shareId || "—"}.</p></div>;
   }
   return <p className="text-sm text-muted-foreground">No target has been confirmed.</p>;
@@ -362,7 +349,7 @@ function Field({ label: text, children }) {
 }
 
 function FilterSelect({ label: text, value, onChange, options }) {
-  const id = "filter-" + text.toLowerCase();
+  const id = `filter-${text.toLowerCase()}`;
   return <Field label={text}><select id={id} className="h-10 rounded-md border bg-background px-3" value={value} onChange={(event) => onChange(event.target.value)}><option value="">All</option>{options.map((option) => <option key={option} value={option}>{label(option)}</option>)}</select></Field>;
 }
 

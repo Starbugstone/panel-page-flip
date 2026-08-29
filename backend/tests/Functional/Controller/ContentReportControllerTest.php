@@ -6,6 +6,7 @@ use App\Entity\ComicShare;
 use App\Entity\ContentReport;
 use App\Entity\ShareClaimCode;
 use App\Entity\ShareInvitationToken;
+use App\Enum\ReportedReferenceType;
 use App\Enum\ShareCodeType;
 use App\Service\SecurityAuditLogger;
 use App\Service\SharingCodeFormat;
@@ -21,6 +22,28 @@ final class ContentReportControllerTest extends AbstractApiTestCase
     use SecurityLogAssertions;
 
     private const APP_URL = 'http://localhost:8080';
+
+    /**
+     * The reporter's receipt and the operator's notice are sent from
+     * kernel.terminate rather than inline, so that two SMTP round trips are not
+     * part of the response time of a public, unauthenticated endpoint. They
+     * still have to be sent.
+     */
+    public function testSubmittingAReportSendsBothNotificationsAfterTheResponse(): void
+    {
+        $this->postJson('/api/content-reports', [
+            'reporterName' => 'Example Rights Holder',
+            'reporterEmail' => 'deferred@example.com',
+            'category' => ContentReport::CATEGORY_COPYRIGHT,
+            'reportedReference' => 'https://panel.example/share/invitation/example-reference',
+            'explanation' => 'I represent the publisher and this specific shared edition reproduces our protected work without authorization.',
+            'goodFaithAcknowledged' => true,
+            'website' => '',
+        ]);
+
+        self::assertResponseStatusCodeSame(201);
+        self::assertEmailCount(2);
+    }
 
     public function testAnonymousVisitorCanSubmitAnActionableReport(): void
     {
@@ -46,7 +69,7 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
         self::assertInstanceOf(ContentReport::class, $report);
         self::assertSame(ContentReport::STATUS_RECEIVED, $report->getStatus());
-        self::assertSame(ContentReport::REFERENCE_OTHER, $report->getReferenceType());
+        self::assertSame(ReportedReferenceType::Other->value, $report->getReferenceType());
     }
 
     /** @dataProvider structuredLocatorProvider */
@@ -64,13 +87,13 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function structuredLocatorProvider(): iterable
     {
-        yield 'invitation URL' => [ContentReport::REFERENCE_INVITATION_URL, self::APP_URL.'/share/invitation/ABC123'];
-        yield 'content code' => [ContentReport::REFERENCE_SHARING_CODE, 'C-1234-5678-9ABC'];
-        yield 'user code' => [ContentReport::REFERENCE_USER_CODE, 'U-1234-5678-9ABC'];
-        yield 'account' => [ContentReport::REFERENCE_ACCOUNT, 'known-account'];
-        yield 'comic metadata' => [ContentReport::REFERENCE_COMIC, 'Issue 17, Example Publishing', ['reportedContentTitle' => 'The Example #17']];
-        yield 'panel URL' => [ContentReport::REFERENCE_PANEL_URL, self::APP_URL.'/read/123'];
-        yield 'other' => [ContentReport::REFERENCE_OTHER, 'External evidence reference EX-153'];
+        yield 'invitation URL' => [ReportedReferenceType::InvitationUrl->value, self::APP_URL.'/share/invitation/ABC123'];
+        yield 'content code' => [ReportedReferenceType::SharingCode->value, 'C-1234-5678-9ABC'];
+        yield 'user code' => [ReportedReferenceType::UserCode->value, 'U-1234-5678-9ABC'];
+        yield 'account' => [ReportedReferenceType::Account->value, 'known-account'];
+        yield 'comic metadata' => [ReportedReferenceType::Comic->value, 'Issue 17, Example Publishing', ['reportedContentTitle' => 'The Example #17']];
+        yield 'panel URL' => [ReportedReferenceType::PanelUrl->value, self::APP_URL.'/read/123'];
+        yield 'other' => [ReportedReferenceType::Other->value, 'External evidence reference EX-153'];
     }
 
     /** @dataProvider malformedStructuredLocatorProvider */
@@ -86,13 +109,13 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function malformedStructuredLocatorProvider(): iterable
     {
-        yield 'unsafe invitation scheme' => [ContentReport::REFERENCE_INVITATION_URL, 'file:///share/invitation/ABC'];
-        yield 'wrong invitation path' => [ContentReport::REFERENCE_INVITATION_URL, 'https://panel.example/admin/ABC'];
-        yield 'credentials in URL' => [ContentReport::REFERENCE_PANEL_URL, 'https://user:pass@panel.example/read/1'];
-        yield 'foreign invitation origin' => [ContentReport::REFERENCE_INVITATION_URL, 'https://foreign.example/share/invitation/ABC'];
-        yield 'foreign panel origin' => [ContentReport::REFERENCE_PANEL_URL, 'https://foreign.example/read/1'];
-        yield 'invalid content code' => [ContentReport::REFERENCE_SHARING_CODE, 'C-not-a-code'];
-        yield 'wrong code type' => [ContentReport::REFERENCE_USER_CODE, 'G-1234-5678-9ABC'];
+        yield 'unsafe invitation scheme' => [ReportedReferenceType::InvitationUrl->value, 'file:///share/invitation/ABC'];
+        yield 'wrong invitation path' => [ReportedReferenceType::InvitationUrl->value, 'https://panel.example/admin/ABC'];
+        yield 'credentials in URL' => [ReportedReferenceType::PanelUrl->value, 'https://user:pass@panel.example/read/1'];
+        yield 'foreign invitation origin' => [ReportedReferenceType::InvitationUrl->value, 'https://foreign.example/share/invitation/ABC'];
+        yield 'foreign panel origin' => [ReportedReferenceType::PanelUrl->value, 'https://foreign.example/read/1'];
+        yield 'invalid content code' => [ReportedReferenceType::SharingCode->value, 'C-not-a-code'];
+        yield 'wrong code type' => [ReportedReferenceType::UserCode->value, 'G-1234-5678-9ABC'];
     }
 
     public function testInvitationResolvesPrivatelyButPublicResponsesStayGeneric(): void
@@ -109,12 +132,12 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         $this->clearSecurityLog();
 
         $resolved = $this->postJson('/api/content-reports', array_replace($this->validReport(), [
-            'referenceType' => ContentReport::REFERENCE_INVITATION_URL,
+            'referenceType' => ReportedReferenceType::InvitationUrl->value,
             'reportedReference' => self::APP_URL.'/share/invitation/'.$plaintext,
         ]));
         $unresolved = $this->postJson('/api/content-reports', array_replace($this->validReport(), [
             'reporterEmail' => 'second@example.com',
-            'referenceType' => ContentReport::REFERENCE_INVITATION_URL,
+            'referenceType' => ReportedReferenceType::InvitationUrl->value,
             'reportedReference' => self::APP_URL.'/share/invitation/'.str_repeat('0', 64),
         ]));
 
@@ -152,17 +175,17 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
         $this->postJson('/api/content-reports', array_replace($this->validReport(), [
             'reporterEmail' => 'comic-code@example.com',
-            'referenceType' => ContentReport::REFERENCE_SHARING_CODE,
+            'referenceType' => ReportedReferenceType::SharingCode->value,
             'reportedReference' => SharingCodeFormat::forDisplay(ShareCodeType::COMIC, $comicToken),
         ]));
         $this->postJson('/api/content-reports', array_replace($this->validReport(), [
             'reporterEmail' => 'user-code@example.com',
-            'referenceType' => ContentReport::REFERENCE_USER_CODE,
+            'referenceType' => ReportedReferenceType::UserCode->value,
             'reportedReference' => SharingCodeFormat::forDisplay(ShareCodeType::USER, $owner->getUserCode()),
         ]));
         $this->postJson('/api/content-reports', array_replace($this->validReport(), [
             'reporterEmail' => 'group-code@example.com',
-            'referenceType' => ContentReport::REFERENCE_SHARING_CODE,
+            'referenceType' => ReportedReferenceType::SharingCode->value,
             'reportedReference' => SharingCodeFormat::forDisplay(ShareCodeType::GROUP, $groupToken),
         ]));
 
@@ -185,7 +208,7 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         $accountReference = 'account-secret-'.str_repeat('B', 24);
         $sourceContext = 'Invitation https://panel.example/share/invitation/'.str_repeat('C', 64);
         $this->postJson('/api/content-reports', array_replace($this->validReport(), [
-            'referenceType' => ContentReport::REFERENCE_INVITATION_URL,
+            'referenceType' => ReportedReferenceType::InvitationUrl->value,
             'reportedReference' => self::APP_URL.'/share/invitation/'.$token,
             'reportedAccountReference' => $accountReference,
             'sourceContext' => $sourceContext,
@@ -396,6 +419,37 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         self::assertNull($stored->getLinkedComicIdSnapshot());
     }
 
+    /** @dataProvider incompleteCanonicalTargetProvider */
+    public function testCanonicalTargetTypeAndIdMustAlwaysBeSentTogether(array $selection): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 161B', 'This allegation has enough information to verify that an incomplete update cannot clear its target.');
+        $report->linkComic($comic)->linkUser($owner)->snapshotTarget('test');
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->persist($report);
+        $entityManager->flush();
+        $reportId = $report->getId();
+        $comicId = $comic->getId();
+        $this->createAndLoginAdmin();
+
+        $payload = $this->patchJson('/api/admin/content-reports/'.$reportId, $selection + ['action' => 'none']);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('A target type and integer target ID are required together.', $payload['message']);
+        $entityManager->clear();
+        self::assertSame($comicId, $entityManager->find(ContentReport::class, $reportId)?->getLinkedComic()?->getId());
+    }
+
+    /** @return iterable<string, array{array<string, int|string|null>}> */
+    public static function incompleteCanonicalTargetProvider(): iterable
+    {
+        yield 'null type without id' => [['targetType' => null]];
+        yield 'null id without type' => [['targetId' => null]];
+        yield 'type without id' => [['targetType' => 'comic']];
+        yield 'id without type' => [['targetId' => 123]];
+    }
+
     /** The legacy spelling of the same thing: every named id explicitly null. */
     public function testAdminCanClearALinkedTargetWithLegacyKeys(): void
     {
@@ -420,6 +474,62 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
         self::assertNull($payload['report']['linkedComic']);
         self::assertNull($payload['report']['targetSnapshot']['comicId']);
+    }
+
+    /**
+     * The legacy keys are translated into one target selection, so ids that
+     * describe more than one record are still refused rather than silently
+     * resolving to whichever one the caller happened to name first.
+     */
+    public function testLegacyKeysNamingRecordsThatDisagreeAreRejected(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $stranger = UserFactory::createOne()->object();
+        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 163', 'This allegation has enough information to support a review of a comic and an unrelated account.');
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->persist($report);
+        $entityManager->flush();
+        $this->createAndLoginAdmin();
+
+        $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
+            'linkedComicId' => $comic->getId(),
+            'linkedUserId' => $stranger->getId(),
+            'action' => 'none',
+        ]);
+
+        self::assertResponseStatusCodeSame(400);
+        $entityManager->clear();
+        self::assertNull($entityManager->getRepository(ContentReport::class)->find($report->getId())?->getLinkedComic());
+    }
+
+    /**
+     * Saving a review is not a search. Re-resolving would spend six
+     * leading-wildcard scans over the comic and user tables to re-answer the
+     * question the administrator has just answered by hand.
+     */
+    public function testSavingAReviewAnswersWithTheChosenTargetRatherThanASearch(): void
+    {
+        $owner = UserFactory::createOne()->object();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'The Reported Work'])->object();
+        $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 164', 'This allegation names a work by title so that a candidate search would return several rows.');
+        $report->identifyTarget(ReportedReferenceType::Comic->value, 'The Reported Work', null, null);
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->persist($report);
+        $entityManager->flush();
+        $this->createAndLoginAdmin();
+
+        $payload = $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
+            'targetType' => 'comic',
+            'targetId' => $comic->getId(),
+            'action' => 'none',
+        ]);
+
+        self::assertResponseIsSuccessful();
+        self::assertSame('exact', $payload['report']['targetResolution']['status']);
+        self::assertCount(1, $payload['report']['targetResolution']['candidates']);
+        self::assertSame($comic->getId(), $payload['report']['targetResolution']['candidates'][0]['id']);
+        self::assertSame('comic', $payload['report']['targetResolution']['candidates'][0]['type']);
     }
 
     public function testAdminCanReviewLinkAndRestrictAReportedComic(): void
@@ -549,7 +659,7 @@ final class ContentReportControllerTest extends AbstractApiTestCase
             'reporterRole' => 'Authorized representative',
             'reporterEmail' => 'rights@example.com',
             'category' => ContentReport::CATEGORY_COPYRIGHT,
-            'referenceType' => ContentReport::REFERENCE_OTHER,
+            'referenceType' => ReportedReferenceType::Other->value,
             'reportedReference' => 'External evidence reference EX-153',
             'reportedContentTitle' => '',
             'reportedAccountReference' => '',

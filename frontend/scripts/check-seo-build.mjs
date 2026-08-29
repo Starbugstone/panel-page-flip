@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { landingCopy, landingPhrases } from "../src/lib/landing-copy.js";
+
 const frontendDir = resolve(import.meta.dirname, "..");
 // Same resolution order as vite.config.js and scripts/generate-nginx-routes.mjs,
 // so a container that relocates the manifest only has to set it in one place.
@@ -21,6 +23,13 @@ const locations = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => m
 const expected = routes.indexable.map(({ path }) => `${appUrl}${path === "/" ? "/" : path}`);
 if (JSON.stringify(locations) !== JSON.stringify(expected)) {
   throw new Error(`Sitemap locations differ from the route manifest: ${JSON.stringify(locations)}`);
+}
+
+const missingLandingCopy = landingPhrases(landingCopy).filter((phrase) => !index.includes(phrase));
+if (missingLandingCopy.length > 0) {
+  throw new Error(
+    `The built index is missing crawlable landing copy: ${JSON.stringify(missingLandingCopy)}`,
+  );
 }
 
 console.log(`SEO build metadata is complete for ${locations.length} indexable routes.`);

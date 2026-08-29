@@ -28,6 +28,7 @@ npm run build --prefix frontend
 npm run check:routes --prefix frontend              # committed artefacts
 npm run check:tools --prefix frontend               # host only, see below
 npm run check:seo --prefix frontend                 # after build, same APP_URL
+npm run check:csp --prefix frontend                 # CSP across deployment targets
 ```
 
 CI gates on all of these. `lint` fails on a single warning, and the `check:`

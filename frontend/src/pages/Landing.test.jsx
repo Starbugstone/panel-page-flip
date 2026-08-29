@@ -2,9 +2,23 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
+import { landingCopy, landingPhrases } from "@/lib/landing-copy.js";
 import Landing from "./Landing";
 
 describe("Landing", () => {
+  it("renders every public phrase from the shared landing copy", () => {
+    render(
+      <MemoryRouter>
+        <Landing />
+      </MemoryRouter>
+    );
+
+    const text = document.body.textContent ?? "";
+    for (const phrase of landingPhrases(landingCopy)) {
+      expect(text).toContain(phrase);
+    }
+  });
+
   it("explains the library, sharing, and page delivery experience", () => {
     render(
       <MemoryRouter>

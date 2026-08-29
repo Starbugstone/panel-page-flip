@@ -1,5 +1,4 @@
 import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
-import { isAdvertisingActive } from "@/lib/advertising";
 import { reopenPrivacyChoices } from "@/lib/privacy-choices";
 
 /**
@@ -15,10 +14,10 @@ import { reopenPrivacyChoices } from "@/lib/privacy-choices";
  * it is: offering it on an installation that shows no advertising would imply
  * this deployment collected a consent it never asked for.
  */
-export function PrivacyChoicesButton({ className }) {
-  const { config, isLoading } = useAdSense();
+export function PrivacyChoicesButton({ className, children = "Privacy choices" }) {
+  const { config, isLoading, isActive } = useAdSense();
 
-  if (isLoading || !isAdvertisingActive(config)) return null;
+  if (isLoading || !isActive) return null;
 
   return (
     <button
@@ -26,7 +25,7 @@ export function PrivacyChoicesButton({ className }) {
       className={className}
       onClick={() => reopenPrivacyChoices({ client: config.client })}
     >
-      Privacy choices
+      {children}
     </button>
   );
 }

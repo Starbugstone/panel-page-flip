@@ -42,6 +42,7 @@ final class BulkUploadSessionService
     public function __construct(
         private readonly AdvertisingConfiguration $advertising,
         private readonly CacheItemPoolInterface $bulkUploadSessionCache,
+        private readonly SecurityAuditLogger $auditLogger,
     ) {
     }
 
@@ -87,12 +88,18 @@ final class BulkUploadSessionService
         $item->expiresAfter(self::LIFETIME_SECONDS);
         $this->bulkUploadSessionCache->save($item);
 
-        return [
-            'active' => true,
-            'gateRequired' => $this->isGateRequired(),
-            'expiresAt' => $expiresAt->format(\DateTimeInterface::ATOM),
+        // Written to the audit log, not just echoed back on the session: the
+        // class comment calls $rewarded an audit note, and a value that expires
+        // with the cache entry an hour later is not one.
+        $this->auditLogger->audit(SecurityAuditLogger::BULK_UPLOAD_SESSION_OPENED, [
+            'actor_user_id' => $user->getId(),
+            'target_type' => 'user',
+            'target_id' => $user->getId(),
             'rewarded' => $rewarded,
-        ];
+            'expires_at' => $expiresAt->format(\DateTimeInterface::ATOM),
+        ]);
+
+        return $this->describe($user, $now);
     }
 
     /** The batch is finished; the next one asks again. */

@@ -18,6 +18,7 @@ vi.mock("@/lib/rewarded-ad", () => ({ requestRewardedAd: vi.fn() }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
   useAdSense: () => ({
     config: { enabled: true, client: "ca-pub-1234567890123456" },
+    isActive: true,
     isLoading: adSense.isLoading,
     scriptStatus: adSense.scriptStatus,
   }),

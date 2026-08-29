@@ -4,18 +4,22 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CookieNoticePage, PrivacyPolicy, TermsOfService } from "@/pages/LegalPages.jsx";
-import { api } from "@/lib/api";
 import { reopenPrivacyChoices } from "@/lib/privacy-choices";
+import { isAdvertisingActive } from "@/lib/advertising";
 
 const { adSense } = vi.hoisted(() => ({
-  adSense: { config: { enabled: false, client: null }, isLoading: false },
+  adSense: {
+    config: { enabled: false, client: null },
+    legal: { operator: "Test operator", privacyEmail: null, legalEmail: null },
+    isLoading: false,
+  },
 }));
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(() => Promise.resolve({})) } }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), log: vi.fn() } }));
 vi.mock("@/lib/privacy-choices", () => ({ reopenPrivacyChoices: vi.fn(() => Promise.resolve(true)) }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
-  useAdSense: () => ({ config: adSense.config, isLoading: adSense.isLoading, scriptStatus: "idle" }),
+  useAdSense: () => ({ config: adSense.config, legal: adSense.legal, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";
@@ -26,7 +30,7 @@ const renderPage = (page) => render(<MemoryRouter initialEntries={["/privacy"]}>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(api.get).mockResolvedValue({ operator: "Test operator", privacyEmail: null, legalEmail: null });
+  adSense.legal = { operator: "Test operator", privacyEmail: null, legalEmail: null };
   adSense.config = { enabled: false, client: null };
   adSense.isLoading = false;
 });
@@ -133,7 +137,9 @@ describe("the terms", () => {
   it("says nothing about advertising where there is none", async () => {
     renderPage(<TermsOfService />);
 
-    await waitFor(() => expect(api.get).toHaveBeenCalled());
+    // The operator's name comes from the same settled context as the
+    // advertising state, so seeing it means the page is not still deciding.
+    expect(await screen.findByText(/Test operator/)).toBeInTheDocument();
     expect(screen.queryByText(/advertising is not an endorsement/i)).not.toBeInTheDocument();
   });
 });

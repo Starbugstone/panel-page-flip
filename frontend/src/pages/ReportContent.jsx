@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
 import { api } from "@/lib/api";
 
 const EMPTY = {
@@ -29,14 +30,15 @@ export default function ReportContent() {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [result, setResult] = useState(null);
-  const [legalEmail, setLegalEmail] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const referenceCopy = REFERENCE_COPY[form.referenceType];
+  // From the one public-config request the application makes on startup, rather
+  // than a second anonymous round trip for one address.
+  const { legal } = useAdSense();
+  const legalEmail = legal.legalEmail;
 
   useEffect(() => {
     document.title = "Report illegal content | Panel Page Flip";
-    api.get("/api/legal-config", { notifyUnauthorized: false })
-      .then((config) => setLegalEmail(config.legalEmail || null))
-      .catch(() => {});
   }, []);
 
   const change = (field) => (event) => setForm((current) => ({
@@ -131,10 +133,10 @@ export default function ReportContent() {
                 <option value="other">Other reference or external evidence</option>
               </select>
             </Field>
-            <Field label={referenceCopy(form.referenceType).label} error={errors.reportedReference} required hint={referenceCopy(form.referenceType).hint}>
-              <Textarea id="reportedReference" value={form.reportedReference} onChange={change("reportedReference")} maxLength={2000} rows={3} placeholder={referenceCopy(form.referenceType).placeholder} />
+            <Field label={referenceCopy.label} error={errors.reportedReference} required hint={referenceCopy.hint}>
+              <Textarea id="reportedReference" value={form.reportedReference} onChange={change("reportedReference")} maxLength={2000} rows={3} placeholder={referenceCopy.placeholder} />
             </Field>
-            <Field label={"Content title" + (form.referenceType === "comic_reference" ? "" : " (optional)")} error={errors.reportedContentTitle} required={form.referenceType === "comic_reference"}>
+            <Field label={`Content title${form.referenceType === "comic_reference" ? "" : " (optional)"}`} error={errors.reportedContentTitle} required={form.referenceType === "comic_reference"}>
               <Input id="reportedContentTitle" value={form.reportedContentTitle} onChange={change("reportedContentTitle")} maxLength={255} placeholder="Title, issue, edition, or collection" />
             </Field>
             <Field label="Reported account (optional)" error={errors.reportedAccountReference} hint="A username, display name, or email only if you genuinely know it.">
@@ -184,17 +186,15 @@ export default function ReportContent() {
   );
 }
 
-function referenceCopy(type) {
-  return {
-    invitation_url: { label: "Invitation URL", hint: "Paste the full HTTP(S) invitation link ending in /share/invitation/…", placeholder: "https://…/share/invitation/…" },
-    sharing_code: { label: "Content sharing code", hint: "Enter the C- comic code or G- group code.", placeholder: "C-1234-5678-9ABC" },
-    user_code: { label: "Public user code", hint: "Enter the U- code shown by the account.", placeholder: "U-1234-5678-9ABC" },
-    account_reference: { label: "Account reference", hint: "Enter a username, display name, or known account email.", placeholder: "Account name or email" },
-    comic_reference: { label: "Publication details", hint: "Include issue, author, publisher, edition, or other details that distinguish the work.", placeholder: "Publisher, author, issue, edition…" },
-    panel_url: { label: "Panel Page Flip URL", hint: "Paste the HTTP(S) /read/{id} URL you legitimately received.", placeholder: "https://…/read/123" },
-    other: { label: "Reference or evidence", hint: "Provide a useful external reference or any identifying information that does not fit above.", placeholder: "Reference, correspondence number, or evidence details" },
-  }[type] || { label: "Reference", hint: "", placeholder: "" };
-}
+const REFERENCE_COPY = {
+  invitation_url: { label: "Invitation URL", hint: "Paste the full HTTP(S) invitation link ending in /share/invitation/…", placeholder: "https://…/share/invitation/…" },
+  sharing_code: { label: "Content sharing code", hint: "Enter the C- comic code or G- group code.", placeholder: "C-1234-5678-9ABC" },
+  user_code: { label: "Public user code", hint: "Enter the U- code shown by the account.", placeholder: "U-1234-5678-9ABC" },
+  account_reference: { label: "Account reference", hint: "Enter a username, display name, or known account email.", placeholder: "Account name or email" },
+  comic_reference: { label: "Publication details", hint: "Include issue, author, publisher, edition, or other details that distinguish the work.", placeholder: "Publisher, author, issue, edition…" },
+  panel_url: { label: "Panel Page Flip URL", hint: "Paste the HTTP(S) /read/{id} URL you legitimately received.", placeholder: "https://…/read/123" },
+  other: { label: "Reference or evidence", hint: "Provide a useful external reference or any identifying information that does not fit above.", placeholder: "Reference, correspondence number, or evidence details" },
+};
 
 function Field({ label, hint, error, required = false, children }) {
   const id = children.props.id;

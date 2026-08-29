@@ -76,7 +76,11 @@ describe("continuous page proximity", () => {
     const firstPage = document.querySelector('[data-continuous-page="0"]');
     expect(reader).toHaveAttribute("data-continuous-zoom", "1.5");
     expect(reader).toHaveClass("overflow-auto");
-    expect(firstPage).toHaveStyle({ width: "150%", maxWidth: "84rem", touchAction: "pan-x pan-y" });
+    // The zoom is written once on the scroller as a custom property and every
+    // page derives its width from it in CSS, rather than each page carrying the
+    // arithmetic in an inline style that a slider drag rewrites.
+    expect(reader.style.getPropertyValue("--reader-page-zoom")).toBe("1.5");
+    expect(firstPage.getAttribute("style")).not.toMatch(/width/);
     expect(firstPage.querySelector("img")).toHaveClass("select-none");
   });
 

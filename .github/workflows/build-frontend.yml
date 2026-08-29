@@ -59,6 +59,12 @@ jobs:
       - name: Validate shared frontend route manifest
         run: npm run check:routes
 
+      # The policy is emitted into three files in two syntaxes. Left to hand
+      # editing, a missed origin blocks advertising only on the target nobody
+      # tested — and blocks it silently.
+      - name: Validate Content-Security-Policy across deployment targets
+        run: npm run check:csp
+
       # The tool zips and their checksums are committed, so nothing rebuilds
       # them on the way to production. Without this, editing a script under
       # scripts/comic-conversion/ would ship a download that no longer matches

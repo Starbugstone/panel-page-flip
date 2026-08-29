@@ -83,13 +83,6 @@ final class ContentReportNotifier
 
     private function receiptReference(ContentReport $report): string
     {
-        $reference = $report->getReportedReference();
-        if ($report->getReferenceType() === ContentReport::REFERENCE_INVITATION_URL) {
-            return preg_replace('~(/share/invitation/)[^/?#]+~', '$1[masked-token]', $reference) ?? '[masked invitation link]';
-        }
-        if (in_array($report->getReferenceType(), [ContentReport::REFERENCE_SHARING_CODE, ContentReport::REFERENCE_USER_CODE], true)) {
-            return preg_replace('/^([CGU])-.+$/i', '$1-[masked-code]', $reference) ?? '[masked sharing code]';
-        }
-        return $reference;
+        return $report->referenceKind()->maskForReceipt($report->getReportedReference());
     }
 }

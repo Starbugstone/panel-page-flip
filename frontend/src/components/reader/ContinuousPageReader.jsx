@@ -7,7 +7,7 @@ import { useReaderMousePan } from "@/hooks/use-reader-mouse-pan";
 import { useReaderTransform } from "@/hooks/use-reader-transform";
 import { createReaderPageUrl, withForcedReload } from "@/lib/reader-pages";
 
-function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetToken, zoomLevel, onActivity }) {
+function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetToken, onActivity }) {
   const imageRef = useRef(null);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState({ key: "", status: "loading" });
@@ -58,7 +58,7 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
         style={{
           transform: `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`,
           transformOrigin: "center center",
-          touchAction: isZoomed ? "none" : zoomLevel > 1 ? "pan-x pan-y" : "pan-y",
+          touchAction: isZoomed ? "none" : undefined,
         }}
       />
       {status === "loading" && !hasPreviousImage && <div className="pointer-events-none absolute inset-0 animate-pulse bg-muted" aria-hidden="true" />}
@@ -71,7 +71,7 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
   );
 }
 
-function ContinuousPage({ comicId, pageIndex, title, geometry, shouldLoad, resetToken, zoomLevel, onActivity }) {
+function ContinuousPage({ comicId, pageIndex, title, geometry, shouldLoad, resetToken, onActivity }) {
   const containerRef = useRef(null);
   const aspectRatio = Number.isFinite(geometry?.aspectRatio) && geometry.aspectRatio > 0 ? geometry.aspectRatio : 2 / 3;
 
@@ -81,12 +81,7 @@ function ContinuousPage({ comicId, pageIndex, title, geometry, shouldLoad, reset
       data-continuous-page={pageIndex}
       aria-label={`Page ${pageIndex + 1} of ${title || "comic"}`}
       className="relative mx-auto flex max-w-none items-center justify-center overflow-hidden bg-muted/20"
-      style={{
-        aspectRatio: String(aspectRatio),
-        touchAction: zoomLevel > 1 ? "pan-x pan-y" : "pan-y",
-        width: `${zoomLevel * 100}%`,
-        maxWidth: `${zoomLevel * 56}rem`,
-      }}
+      style={{ aspectRatio: String(aspectRatio) }}
     >
       {shouldLoad ? (
         <ContinuousPageContent
@@ -95,7 +90,6 @@ function ContinuousPage({ comicId, pageIndex, title, geometry, shouldLoad, reset
           pageIndex={pageIndex}
           title={title}
           resetToken={resetToken}
-          zoomLevel={zoomLevel}
           onActivity={onActivity}
         />
       ) : (
@@ -185,7 +179,16 @@ export function ContinuousPageReader({
   }, [containerRef, currentPage]);
 
   return (
-    <div ref={containerRef} data-reader-mode="continuous" data-continuous-zoom={zoomLevel} className="reader-continuous h-full w-full overflow-auto overscroll-contain" style={{ touchAction: "pan-x pan-y" }}>
+    <div
+      ref={containerRef}
+      data-reader-mode="continuous"
+      data-continuous-zoom={zoomLevel}
+      className="reader-continuous h-full w-full overflow-auto overscroll-contain"
+      // One custom property per zoom change instead of two inline style writes
+      // on every page: a 200-page comic re-laid out the whole scroller on each
+      // of the sixteen steps a slider drag fires.
+      style={{ "--reader-page-zoom": zoomLevel, touchAction: "pan-x pan-y" }}
+    >
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 py-4">
         {Array.from({ length: pageCount }, (_, pageIndex) => (
           <ContinuousPage
@@ -196,7 +199,6 @@ export function ContinuousPageReader({
             geometry={geometry[pageIndex + 1]}
             shouldLoad={shouldLoadPage(pageIndex)}
             resetToken={resetToken}
-            zoomLevel={zoomLevel}
             onActivity={onActivity}
           />
         ))}

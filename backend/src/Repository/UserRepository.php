@@ -5,6 +5,7 @@ namespace App\Repository;
 use App\Entity\Tag;
 use App\Entity\User;
 use App\Service\Pagination\PaginatedResult;
+use App\Service\Pagination\LikePattern;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\DBAL\LockMode;
@@ -84,12 +85,11 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
     public function searchForContentReport(string $query, int $limit = 10): array
     {
         $query = trim($query);
-        if (mb_strlen($query) < 2) {
+        if (mb_strlen($query) < LikePattern::MIN_TERM_LENGTH) {
             return [];
         }
 
-        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], mb_strtolower($query));
-        $pattern = '%'.$escaped.'%';
+        $pattern = LikePattern::contains($query);
         return $this->createQueryBuilder('u')
             ->andWhere('LOWER(u.name) LIKE :search OR LOWER(u.email) LIKE :search')
             ->setParameter('search', $pattern)

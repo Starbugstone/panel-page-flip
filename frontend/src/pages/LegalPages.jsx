@@ -1,27 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
-import { api } from "@/lib/api";
-import { logger } from "@/lib/logger";
 import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
-import { isAdvertisingActive } from "@/lib/advertising";
-import { reopenPrivacyChoices } from "@/lib/privacy-choices";
+import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
+import { adSafeRouteSentence } from "@/lib/advertising";
 
 const LAST_UPDATED = "22 August 2026";
 
+/**
+ * The operator's contact details, from the one public-config request the
+ * application already makes on startup.
+ *
+ * These used to have an endpoint and a fetch of their own, which meant the
+ * privacy and cookie pages made two anonymous round trips on the same render
+ * for two halves of the same answer.
+ */
 function useLegalConfig() {
-  const [config, setConfig] = useState({
-    operator: "Panel Page Flip site operator",
-    privacyEmail: null,
-    legalEmail: null,
-  });
-
-  useEffect(() => {
-    api.get("/api/legal-config", { notifyUnauthorized: false })
-      .then(setConfig)
-      .catch((error) => logger.warn("Could not load legal contact details:", error.message));
-  }, []);
-
-  return config;
+  return useAdSense().legal;
 }
 
 /**
@@ -33,27 +27,14 @@ function useLegalConfig() {
  * that omits a processor they do.
  */
 function useAdvertisingInUse() {
-  const { config, isLoading } = useAdSense();
+  const { isLoading, isActive } = useAdSense();
 
   // Null, not false, until the answer arrives. These pages carry absolute
   // claims in both directions — "we do not use advertising networks" is a
   // statement of fact on an indexable page — and defaulting to the negative one
   // for the length of a round trip publishes the wrong fact on every load of an
   // installation that does show advertising. Unknown renders neither claim.
-  return isLoading ? null : isAdvertisingActive(config);
-}
-
-/**
- * Reopening the consent message from inside the policy text.
- *
- * The publisher id has to be passed through because the consent platform is
- * fetched on demand: these pages are ad-free, so nothing Google-owned has been
- * loaded by the time somebody reads them and decides to change their mind.
- */
-function useReopenPrivacyChoices() {
-  const { config } = useAdSense();
-
-  return () => reopenPrivacyChoices({ client: config.client });
+  return isLoading ? null : isActive;
 }
 
 function Contact({ email }) {
@@ -105,7 +86,6 @@ export function PrivacyPolicy() {
   const { operator, privacyEmail } = useLegalConfig();
 
   const advertising = useAdvertisingInUse();
-  const reopenChoices = useReopenPrivacyChoices();
 
   return (
     <LegalLayout title="Privacy Policy">
@@ -178,8 +158,7 @@ export function PrivacyPolicy() {
           <p>
             This installation shows Google AdSense advertising to help finance its
             hosting and running costs. Advertising appears only on pages this
-            application owns — the landing page, the login page, the single-comic
-            upload form and the bulk-upload information page. It is never shown on
+            application owns — {adSafeRouteSentence()}. It is never shown on
             the reader, on your library, beside a cover or a page image, or beside
             anything read out of a comic you uploaded.
           </p>
@@ -199,9 +178,7 @@ export function PrivacyPolicy() {
             accept all, reject all, or choose individually; rejecting is as easy
             as accepting; and you can change or withdraw your choices at any time
             using{" "}
-            <button type="button" className="underline" onClick={reopenChoices}>
-              privacy choices
-            </button>
+            <PrivacyChoicesButton className="underline">privacy choices</PrivacyChoicesButton>
             , which also appears in the footer of every page outside the comic
             reader.
           </p>
@@ -342,7 +319,6 @@ export function TermsOfService() {
 
 export function CookieNoticePage() {
   const advertising = useAdvertisingInUse();
-  const reopenChoices = useReopenPrivacyChoices();
 
   return (
     <LegalLayout title="Cookie Notice">
@@ -388,9 +364,7 @@ export function CookieNoticePage() {
             EEA, UK or Swiss rules apply, the consent panel appears before any non-essential
             advertising storage is used; rejecting is as easy as accepting. Reopen it at any time
             through{" "}
-            <button type="button" className="underline" onClick={reopenChoices}>
-              privacy choices
-            </button>
+            <PrivacyChoicesButton className="underline">privacy choices</PrivacyChoicesButton>
             , which is also in the footer of every page outside the comic reader.
           </p>
           <p>

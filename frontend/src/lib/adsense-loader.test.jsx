@@ -272,3 +272,43 @@ describe("keeping a route ad-free while the user is on it", () => {
     expect(document.querySelectorAll("ins.adsbygoogle")).toHaveLength(1);
   });
 });
+
+/**
+ * The reader mutates constantly as pages turn, and this observer is live for
+ * the whole reading session. An attribute change cannot put a node underneath
+ * the element it changed — anything that did arrives as an insertion — so
+ * searching the subtree there is work paid on every page swap to find something
+ * that cannot be there.
+ */
+describe("what an attribute mutation costs on the reader's hot path", () => {
+  it("still catches an iframe pointed at Google after it was inserted blank", async () => {
+    document.body.innerHTML = `<iframe id="frame"></iframe>`;
+
+    const stop = keepRouteAdFree();
+    try {
+      document.getElementById("frame").setAttribute("src", "https://googlesyndication.com/pagead/ads");
+
+      await vi.waitFor(() => expect(document.getElementById("frame")).toBeNull());
+    } finally {
+      stop();
+    }
+  });
+
+  it("does not search the subtree of an element whose attribute changed", async () => {
+    document.body.innerHTML = `<img id="page" alt="" />`;
+
+    const stop = keepRouteAdFree();
+    try {
+      const page = document.getElementById("page");
+      const querySelector = vi.spyOn(page, "querySelector");
+
+      page.setAttribute("src", "/api/comics/1/pages/2");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(querySelector).not.toHaveBeenCalled();
+      expect(document.getElementById("page")).not.toBeNull();
+    } finally {
+      stop();
+    }
+  });
+});

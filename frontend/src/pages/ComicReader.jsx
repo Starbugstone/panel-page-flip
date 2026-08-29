@@ -141,11 +141,8 @@ export default function ComicReader() {
   );
 
   // Continuous mode scrolls natively and only borrows the zoom number to widen
-  // its pages. The transform owns the position of whatever container it is
-  // handed, so handing it that scroller lets a zoom change park a reader back at
-  // the top of the comic.
-  const detachedContainerRef = useRef(null);
-  const transformContainerRef = effectiveMode === "continuous" ? detachedContainerRef : imageContainerRef;
+  // its pages, so the transform is switched off there rather than handed a
+  // container it must not move.
   const {
     transform,
     isZoomed,
@@ -156,7 +153,7 @@ export default function ComicReader() {
     zoomToFit,
     resetPosition,
     resetTransform,
-  } = useReaderTransform({ containerRef: transformContainerRef, imageRef });
+  } = useReaderTransform({ containerRef: imageContainerRef, imageRef, enabled: effectiveMode !== "continuous" });
   const handleZoomLevelChange = useCallback((scale) => {
     if (scale > 1) setPreferredZoomLevel(scale);
     setZoomLevel(scale);
@@ -573,6 +570,14 @@ export default function ComicReader() {
   const isChromeHidden = autoHideChrome && !chromeVisible;
   const physicalLeft = settings.direction === "rtl" ? handleNextPage : handlePreviousPage;
   const physicalRight = settings.direction === "rtl" ? handlePreviousPage : handleNextPage;
+  const turnZones = {
+    leftLabel: settings.direction === "rtl" ? "Left edge: next page" : "Left edge: previous page",
+    rightLabel: settings.direction === "rtl" ? "Right edge: previous page" : "Right edge: next page",
+    onLeft: physicalLeft,
+    onRight: physicalRight,
+    leftDisabled: settings.direction === "rtl" ? !canGoNext : !canGoPrevious,
+    rightDisabled: settings.direction === "rtl" ? !canGoPrevious : !canGoNext,
+  };
   const gestures = useMemo(() => ({
     onTap: ({ x }) => {
       const zone = tapZone(x, imageContainerRef.current?.clientWidth ?? 0);
@@ -689,54 +694,40 @@ export default function ComicReader() {
             onCurrentPageChange={goToLogicalPage}
             onActivity={toggleChrome}
           />
-        ) : effectiveMode === "double" ? (
-          <ReaderPageTurnZones
-            leftLabel={settings.direction === "rtl" ? "Left edge: next page" : "Left edge: previous page"}
-            rightLabel={settings.direction === "rtl" ? "Right edge: previous page" : "Right edge: next page"}
-            onLeft={physicalLeft}
-            onRight={physicalRight}
-            leftDisabled={settings.direction === "rtl" ? !canGoNext : !canGoPrevious}
-            rightDisabled={settings.direction === "rtl" ? !canGoPrevious : !canGoNext}
-          >
-            <SpreadPageReader
-              containerRef={imageContainerRef}
-              contentRef={imageRef}
-              pages={orderedPageStates}
-              title={comic.title}
-              fit={settings.fit}
-              transform={transform}
-              swipeOffset={swipeOffset}
-              isSwiping={isSwiping}
-              gestures={gestures}
-              onSurfaceClick={handleMousePageClick}
-            />
-          </ReaderPageTurnZones>
         ) : (
-          <ReaderPageTurnZones
-            leftLabel={settings.direction === "rtl" ? "Left edge: next page" : "Left edge: previous page"}
-            rightLabel={settings.direction === "rtl" ? "Right edge: previous page" : "Right edge: next page"}
-            onLeft={physicalLeft}
-            onRight={physicalRight}
-            leftDisabled={settings.direction === "rtl" ? !canGoNext : !canGoPrevious}
-            rightDisabled={settings.direction === "rtl" ? !canGoPrevious : !canGoNext}
-          >
-            <SinglePageReader
-              containerRef={imageContainerRef}
-              imageRef={imageRef}
-              image={requestedImages[0]?.image}
-              isStale={requestedImages[0]?.isStale}
-              isLoading={requestedImages[0]?.isLoading}
-              hasFailed={requestedImages[0]?.hasFailed}
-              pageNumber={currentPage + 1}
-              title={comic.title}
-              fit={settings.fit}
-              transform={transform}
-              swipeOffset={swipeOffset}
-              isSwiping={isSwiping}
-              gestures={gestures}
-              onSurfaceClick={handleMousePageClick}
-              onRetry={() => retryPage(currentPage)}
-            />
+          <ReaderPageTurnZones {...turnZones}>
+            {effectiveMode === "double" ? (
+              <SpreadPageReader
+                containerRef={imageContainerRef}
+                contentRef={imageRef}
+                pages={orderedPageStates}
+                title={comic.title}
+                fit={settings.fit}
+                transform={transform}
+                swipeOffset={swipeOffset}
+                isSwiping={isSwiping}
+                gestures={gestures}
+                onSurfaceClick={handleMousePageClick}
+              />
+            ) : (
+              <SinglePageReader
+                containerRef={imageContainerRef}
+                imageRef={imageRef}
+                image={requestedImages[0]?.image}
+                isStale={requestedImages[0]?.isStale}
+                isLoading={requestedImages[0]?.isLoading}
+                hasFailed={requestedImages[0]?.hasFailed}
+                pageNumber={currentPage + 1}
+                title={comic.title}
+                fit={settings.fit}
+                transform={transform}
+                swipeOffset={swipeOffset}
+                isSwiping={isSwiping}
+                gestures={gestures}
+                onSurfaceClick={handleMousePageClick}
+                onRetry={() => retryPage(currentPage)}
+              />
+            )}
           </ReaderPageTurnZones>
         )}
       </div>

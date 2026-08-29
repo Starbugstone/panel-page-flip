@@ -10,7 +10,7 @@ vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn() } }));
 
 describe("ReportContent", () => {
   beforeEach(() => {
-    vi.mocked(api.get).mockReset().mockResolvedValue({ legalEmail: "legal@example.test" });
+    vi.mocked(api.get).mockReset().mockResolvedValue({});
     vi.mocked(api.post).mockReset().mockResolvedValue({
       message: "Your report has been received and will be reviewed.",
       reference: "CR-20260815-42",

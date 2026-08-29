@@ -6,12 +6,13 @@ use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\ContentReport;
 use App\Entity\User;
+use App\Enum\ReportedReferenceType;
 use App\Enum\ShareCodeType;
 use App\Repository\ComicRepository;
-use App\Repository\ComicShareRepository;
 use App\Repository\ShareClaimCodeRepository;
 use App\Repository\ShareInvitationTokenRepository;
 use App\Repository\UserRepository;
+use App\Service\Pagination\LikePattern;
 
 /**
  * Privately identifies possible case targets. It performs no network requests,
@@ -23,22 +24,44 @@ final class ContentReportTargetResolver
         private readonly ShareInvitationTokenRepository $invitationTokens,
         private readonly ShareClaimCodeRepository $claimCodes,
         private readonly ComicRepository $comics,
-        private readonly ComicShareRepository $shares,
         private readonly UserRepository $users,
         private readonly PublicUrl $publicUrl,
+        private readonly ContentReportTargetPresenter $presenter,
     ) {
     }
 
     /** @return array{type: string, id: int, method: string}|null */
     public function exactTarget(ContentReport $report): ?array
     {
+        $match = $this->exactMatch($report);
+        if ($match === null) {
+            return null;
+        }
+
+        return ['type' => $this->presenter->type($match['entity']), 'id' => (int) $match['entity']->getId(), 'method' => $match['method']];
+    }
+
+    /**
+     * The record the reporter's own reference identifies, if it identifies one.
+     *
+     * Carries the entity rather than its id, because every caller needs the
+     * record itself and looking it up again by the id it was just read from is
+     * a round trip to answer a question already answered.
+     *
+     * @return array{entity: Comic|User|ComicShare, method: string}|null
+     */
+    private function exactMatch(ContentReport $report): ?array
+    {
         $reference = $report->getReportedReference();
-        return match ($report->getReferenceType()) {
-            ContentReport::REFERENCE_INVITATION_URL => $this->invitationTarget($reference),
-            ContentReport::REFERENCE_SHARING_CODE => $this->contentCodeTarget($reference),
-            ContentReport::REFERENCE_USER_CODE => $this->userCodeTarget($reference),
-            ContentReport::REFERENCE_PANEL_URL => $this->panelUrlTarget($reference),
-            default => null,
+        // No default arm: a new reference type has to say here whether it can be
+        // resolved, or PHPStan fails the build. Silently returning null would
+        // file every report of that kind permanently unlinked.
+        return match ($report->referenceKind()) {
+            ReportedReferenceType::InvitationUrl => $this->invitationTarget($reference),
+            ReportedReferenceType::SharingCode => $this->contentCodeTarget($reference),
+            ReportedReferenceType::UserCode => $this->userCodeTarget($reference),
+            ReportedReferenceType::PanelUrl => $this->panelUrlTarget($reference),
+            ReportedReferenceType::Account, ReportedReferenceType::Comic, ReportedReferenceType::Other => null,
         };
     }
 
@@ -47,18 +70,17 @@ final class ContentReportTargetResolver
      */
     public function resolve(ContentReport $report, ?string $adminQuery = null): array
     {
-        $exact = $this->exactTarget($report);
+        $exact = $this->exactMatch($report);
         if ($exact !== null && trim((string) $adminQuery) === '') {
-            return ['status' => 'exact', 'method' => $exact['method'], 'candidates' => [$this->candidate($exact['type'], $exact['id'])]];
+            return ['status' => 'exact', 'method' => $exact['method'], 'candidates' => [$this->presenter->candidate($exact['entity'], 'exact')]];
         }
 
-        $candidates = $exact !== null ? [$this->candidate($exact['type'], $exact['id'])] : [];
-        if ($report->getReferenceType() === ContentReport::REFERENCE_SHARING_CODE) {
+        $candidates = $exact !== null ? [$this->presenter->candidate($exact['entity'], 'exact')] : [];
+        if ($report->referenceKind() === ReportedReferenceType::SharingCode) {
             $parsed = SharingCodeFormat::parse($report->getReportedReference());
-            $code = $parsed?->type->isContentCode() === true ? $this->claimCodes->findByParsedCode($parsed) : null;
-            if ($code !== null && $parsed?->type === ShareCodeType::GROUP) {
-                foreach ($code->getComics() as $comic) {
-                    $candidates[] = $this->comicCandidate($comic, 'group_code');
+            if ($parsed?->type === ShareCodeType::GROUP) {
+                foreach ($this->claimCodes->findByParsedCode($parsed)?->getComics() ?? [] as $comic) {
+                    $candidates[] = $this->presenter->candidate($comic, 'group_code');
                 }
             }
         }
@@ -67,16 +89,15 @@ final class ContentReportTargetResolver
             trim((string) $adminQuery),
             trim((string) $report->getReportedContentTitle()),
             trim((string) $report->getReportedAccountReference()),
-            in_array($report->getReferenceType(), [ContentReport::REFERENCE_COMIC, ContentReport::REFERENCE_ACCOUNT], true)
-                ? trim($report->getReportedReference()) : '',
-        ]), static fn (string $value): bool => mb_strlen($value) >= 2);
+            $report->referenceKind()->isSearchableText() ? trim($report->getReportedReference()) : '',
+        ]), static fn (string $value): bool => mb_strlen($value) >= LikePattern::MIN_TERM_LENGTH);
 
         foreach ($queries as $query) {
             foreach ($this->comics->searchForContentReport($query, 10) as $comic) {
-                $candidates[] = $this->comicCandidate($comic, 'search');
+                $candidates[] = $this->presenter->candidate($comic, 'search');
             }
             foreach ($this->users->searchForContentReport($query, 10) as $user) {
-                $candidates[] = $this->userCandidate($user, 'search');
+                $candidates[] = $this->presenter->candidate($user, 'search');
             }
         }
 
@@ -92,80 +113,44 @@ final class ContentReportTargetResolver
         ];
     }
 
-    /** @return array{type: string, id: int, method: string}|null */
+    /** @return array{entity: ComicShare, method: string}|null */
     private function invitationTarget(string $reference): ?array
     {
-        $parts = parse_url($reference);
-        if (!is_array($parts) || !$this->publicUrl->hasSameOrigin($reference)) return null;
-        if (!preg_match('#^/share/invitation/([A-Za-z0-9]+)$#', (string) ($parts['path'] ?? ''), $matches)) return null;
+        $matches = $this->publicUrl->matchPath($reference, ContentReport::PATH_INVITATION_URL);
+        if ($matches === null) return null;
         $share = $this->invitationTokens->findByPlaintext($matches[1])?->getComicShare();
-        return $share?->getId() === null ? null : ['type' => 'share', 'id' => $share->getId(), 'method' => 'invitation_url'];
+        return $share?->getId() === null ? null : ['entity' => $share, 'method' => 'invitation_url'];
     }
 
-    /** @return array{type: string, id: int, method: string}|null */
+    /** @return array{entity: Comic, method: string}|null */
     private function contentCodeTarget(string $reference): ?array
     {
         $parsed = SharingCodeFormat::parse($reference);
-        if ($parsed === null || !$parsed->type->isContentCode()) return null;
+        if ($parsed?->type !== ShareCodeType::COMIC) return null;
         $code = $this->claimCodes->findByParsedCode($parsed);
-        if ($code === null || $parsed->type !== ShareCodeType::COMIC || $code->getComics()->count() !== 1) return null;
+        if ($code === null || $code->getComics()->count() !== 1) return null;
         $comic = $code->getComics()->first();
         return $comic instanceof Comic && $comic->getId() !== null
-            ? ['type' => 'comic', 'id' => $comic->getId(), 'method' => 'comic_code']
+            ? ['entity' => $comic, 'method' => 'comic_code']
             : null;
     }
 
-    /** @return array{type: string, id: int, method: string}|null */
+    /** @return array{entity: User, method: string}|null */
     private function userCodeTarget(string $reference): ?array
     {
         $parsed = SharingCodeFormat::parse($reference);
         if ($parsed === null || $parsed->type !== ShareCodeType::USER) return null;
         $user = $this->users->findOneBy(['userCode' => $parsed->token]);
-        return $user?->getId() === null ? null : ['type' => 'user', 'id' => $user->getId(), 'method' => 'user_code'];
+        return $user?->getId() === null ? null : ['entity' => $user, 'method' => 'user_code'];
     }
 
-    /** @return array{type: string, id: int, method: string}|null */
+    /** @return array{entity: Comic, method: string}|null */
     private function panelUrlTarget(string $reference): ?array
     {
-        $parts = parse_url($reference);
-        if (!is_array($parts) || !$this->publicUrl->hasSameOrigin($reference)) return null;
-        if (!preg_match('#^/read/(\d+)$#', (string) ($parts['path'] ?? ''), $matches)) return null;
+        $matches = $this->publicUrl->matchPath($reference, ContentReport::PATH_PANEL_URL);
+        if ($matches === null) return null;
         $comic = $this->comics->find((int) $matches[1]);
-        return $comic?->getId() === null ? null : ['type' => 'comic', 'id' => $comic->getId(), 'method' => 'panel_url'];
+        return $comic?->getId() === null ? null : ['entity' => $comic, 'method' => 'panel_url'];
     }
 
-    /** @return array<string, mixed> */
-    private function candidate(string $type, int $id): array
-    {
-        return match ($type) {
-            'comic' => $this->comicCandidate($this->comics->find($id) ?? throw new \LogicException(), 'exact'),
-            'user' => $this->userCandidate($this->users->find($id) ?? throw new \LogicException(), 'exact'),
-            'share' => $this->shareCandidate($this->shares->find($id) ?? throw new \LogicException(), 'exact'),
-            default => throw new \LogicException(),
-        };
-    }
-
-    /** @return array<string, mixed> */
-    private function comicCandidate(Comic $comic, string $source): array
-    {
-        return ['type' => 'comic', 'id' => $comic->getId(), 'source' => $source, 'title' => $comic->getTitle(), 'owner' => $this->owner($comic->getOwner())];
-    }
-
-    /** @return array<string, mixed> */
-    private function userCandidate(User $user, string $source): array
-    {
-        return ['type' => 'user', 'id' => $user->getId(), 'source' => $source, 'name' => $user->getName(), 'email' => $user->getEmail()];
-    }
-
-    /** @return array<string, mixed> */
-    private function shareCandidate(ComicShare $share, string $source): array
-    {
-        return ['type' => 'share', 'id' => $share->getId(), 'source' => $source, 'status' => $share->getStatus(), 'title' => $share->getComic()?->getTitle() ?? $share->getComicTitleSnapshot(), 'owner' => $this->owner($share->getOwner())];
-    }
-
-    /** @return array{id: int|null, name: string}|null */
-    private function owner(?User $owner): ?array
-    {
-        return $owner ? ['id' => $owner->getId(), 'name' => $owner->getName()] : null;
-    }
 }

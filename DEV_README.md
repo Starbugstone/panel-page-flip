@@ -25,7 +25,7 @@ lives in [`docs/`](docs/):
 | [administrator-notices.md](docs/administrator-notices.md) | Warning one account about their activity |
 | [advertising.md](docs/advertising.md) | Optional AdSense, consent, rewarded bulk upload |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
-| [development-tooling.md](docs/development-tooling.md) | Package manager and quality gates |
+| [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
 
 ## Current Implementation Status
 
@@ -1996,10 +1996,11 @@ the production checklist in [docs/advertising.md](docs/advertising.md).
 1. Verify a current database backup.
 2. Verify a current `backend/public/uploads/` backup.
 3. Confirm the backed-up `APP_DATA_KEY` matches production.
-4. Build and deploy frontend and backend as one release.
-5. Apply Doctrine migrations and any documented data-upgrade commands.
-6. Run `php bin/console app:comic-formats:check` on the server.
-7. Complete authenticated smoke tests.
+4. Confirm the release checkout is clean, committed, and matches `origin/main`.
+5. Build and deploy frontend and backend as one release.
+6. Apply Doctrine migrations and any documented data-upgrade commands.
+7. Run `php bin/console app:comic-formats:check` on the server.
+8. Complete authenticated smoke tests.
 
 Never deploy only `frontend/dist`.
 

@@ -2,17 +2,16 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
-import { isAdvertisingActive } from "@/lib/advertising";
 import { persistCookieNoticeDismissal, wasCookieNoticeDismissed } from "@/lib/cookie-notice-storage";
 import { NOTIFICATION_LAYER_CLASSES } from "@/lib/overlay-layers";
 import { cn } from "@/lib/utils";
 
 export function CookieNotice() {
   const { pathname } = useLocation();
-  const { config, isLoading } = useAdSense();
+  const { isLoading, isActive } = useAdSense();
   const [visible, setVisible] = useState(() => !wasCookieNoticeDismissed());
   const isReaderPage = pathname.startsWith("/read/");
-  const advertising = isAdvertisingActive(config);
+  const advertising = isActive;
 
   const dismiss = () => {
     persistCookieNoticeDismissal();

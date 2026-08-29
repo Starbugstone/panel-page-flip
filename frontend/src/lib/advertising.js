@@ -27,11 +27,33 @@
  */
 export const AD_SAFE_ROUTES = Object.freeze(["/", "/login", "/upload", "/upload/bulk"]);
 
+/**
+ * How each ad-safe route is described in the legal pages.
+ *
+ * The privacy policy names these pages in prose and states that advertising
+ * appears nowhere else. That is a published claim of fact, so the wording lives
+ * beside the list it describes: widening the allowlist without saying so is
+ * then a failing test rather than a false statement on an indexable page.
+ */
+export const AD_SAFE_ROUTE_LABELS = Object.freeze({
+  "/": "the landing page",
+  "/login": "the login page",
+  "/upload": "the single-comic upload form",
+  "/upload/bulk": "the bulk-upload information page",
+});
+
+/** The ad-safe pages as a prose list, for the legal pages to drop into a sentence. */
+export function adSafeRouteSentence() {
+  const labels = AD_SAFE_ROUTES.map((path) => AD_SAFE_ROUTE_LABELS[path]);
+
+  return `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
+}
+
 /** Google's AdSense site code, which also installs the Google CMP. */
-export const ADSENSE_SCRIPT_HOST = "https://pagead2.googlesyndication.com";
+const ADSENSE_SCRIPT_HOST = "https://pagead2.googlesyndication.com";
 
 /** Google's consent platform on its own, with no advertising attached. */
-export const CONSENT_PLATFORM_HOST = "https://fundingchoicesmessages.google.com";
+const CONSENT_PLATFORM_HOST = "https://fundingchoicesmessages.google.com";
 
 export function adSenseScriptSrc(client) {
   return `${ADSENSE_SCRIPT_HOST}/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`;
@@ -75,14 +97,37 @@ export function isAdvertisingActive(config) {
 }
 
 /**
- * Whether entering bulk upload should present the rewarded-advertisement
- * choice, or open the uploader.
+ * A promise that settles exactly once, and resolves `"unavailable"` if nothing
+ * answers within the timeout.
  *
- * Every uncertainty resolves to "open". A blocked script, a CMP that never
- * answered, no rewarded inventory, a failed configuration request — none of
- * them are reasons to keep somebody from uploading their own files, and an
- * offer nobody can accept is a dead end rather than a choice.
+ * Both the script loader and the rewarded-ad request need this, for the same
+ * reason: Google's callbacks can arrive late, more than once, or never. A
+ * second settle would leave a cached answer permanently contradicting what
+ * actually happened, so the rule lives in one place.
+ *
+ * `holdOpen` stops the timeout without settling — for the point where Google
+ * has confirmed it has something to show and the wait is over, but the outcome
+ * is not known yet.
+ *
+ * @param {number} timeoutMs
+ * @param {{ onSettle?: (outcome: string) => void }} [options]
  */
-export function shouldOfferRewardedGate({ gateRequired, scriptStatus }) {
-  return gateRequired === true && scriptStatus === "ready";
+export function settleOnce(timeoutMs, { onSettle } = {}) {
+  let settled = false;
+  let timer;
+  let settle;
+
+  const promise = new Promise((resolve) => {
+    settle = (outcome) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      onSettle?.(outcome);
+      resolve(outcome);
+    };
+  });
+
+  timer = setTimeout(() => settle("unavailable"), timeoutMs);
+
+  return { promise, settle, holdOpen: () => clearTimeout(timer) };
 }

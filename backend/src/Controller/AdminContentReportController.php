@@ -2,14 +2,12 @@
 
 namespace App\Controller;
 
-use App\Entity\Comic;
-use App\Entity\ComicShare;
 use App\Entity\ContentReport;
 use App\Entity\User;
 use App\Repository\ContentReportRepository;
-use App\Service\ContentReportNotifier;
 use App\Service\ContentReportLinkService;
-use App\Service\ContentReportTargetResolver;
+use App\Service\ContentReportNotifier;
+use App\Service\ContentReportPresenter;
 use App\Service\ContentRestrictionService;
 use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -24,8 +22,14 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[IsGranted('ROLE_ADMIN')]
 final class AdminContentReportController extends AbstractController
 {
+    /**
+     * Legacy target key by target type, most specific first, matching the
+     * order ContentReportLinkService::select() resolves them in.
+     */
+    private const LEGACY_TARGET_KEYS = ['share' => 'linkedShareId', 'comic' => 'linkedComicId', 'user' => 'linkedUserId'];
+
     #[Route('', name: 'list', methods: ['GET'])]
-    public function list(Request $request, ContentReportRepository $reports): JsonResponse
+    public function list(Request $request, ContentReportRepository $reports, ContentReportPresenter $presenter): JsonResponse
     {
         try {
             $from = $this->date($request->query->get('from'));
@@ -35,7 +39,7 @@ final class AdminContentReportController extends AbstractController
         }
 
         return $this->json([
-            'reports' => array_map($this->serializeSummary(...), $reports->findForAdmin(
+            'reports' => array_map($presenter->summary(...), $reports->findForAdmin(
                 $request->query->get('status'),
                 $request->query->get('category'),
                 $from,
@@ -43,13 +47,14 @@ final class AdminContentReportController extends AbstractController
             )),
             'statuses' => ContentReport::STATUSES,
             'categories' => ContentReport::CATEGORIES,
+            'actions' => ContentRestrictionService::ACTIONS,
         ]);
     }
 
     #[Route('/{id}', name: 'detail', methods: ['GET'], requirements: ['id' => '\d+'])]
-    public function detail(ContentReport $report, Request $request, ContentReportTargetResolver $resolver): JsonResponse
+    public function detail(ContentReport $report, Request $request, ContentReportPresenter $presenter): JsonResponse
     {
-        return $this->json(['report' => $this->serializeDetail($report, $resolver, $request->query->get('q'))]);
+        return $this->json(['report' => $presenter->detail($report, $request->query->get('q'))]);
     }
 
     #[Route('/{id}', name: 'update', methods: ['PATCH'], requirements: ['id' => '\d+'])]
@@ -59,7 +64,7 @@ final class AdminContentReportController extends AbstractController
         EntityManagerInterface $entityManager,
         ContentRestrictionService $restrictions,
         ContentReportLinkService $linker,
-        ContentReportTargetResolver $resolver,
+        ContentReportPresenter $presenter,
         ContentReportNotifier $notifier,
         SecurityAuditLogger $auditLogger,
     ): JsonResponse {
@@ -72,19 +77,22 @@ final class AdminContentReportController extends AbstractController
         try {
             $previousTarget = $this->targetIds($report);
             if (array_key_exists('targetType', $data) || array_key_exists('targetId', $data)) {
+                if (!array_key_exists('targetType', $data) || !array_key_exists('targetId', $data)) {
+                    throw new \DomainException('A target type and integer target ID are required together.');
+                }
                 // An explicit pair of nulls is how the queue says "this is not
                 // the right record". Without it a wrong target — including one
                 // linked automatically from the reference the reporter supplied
                 // — could be swapped for another but never cleared.
-                if (($data['targetType'] ?? null) === null && ($data['targetId'] ?? null) === null) {
+                if ($data['targetType'] === null && $data['targetId'] === null) {
                     $linker->unlink($report);
                 } elseif (!is_string($data['targetType'] ?? null) || !is_int($data['targetId'] ?? null)) {
                     throw new \DomainException('A target type and integer target ID are required together.');
                 } else {
                     $linker->select($report, $data['targetType'], $data['targetId'], 'admin_selection');
                 }
-            } elseif (array_intersect(['linkedUserId', 'linkedComicId', 'linkedShareId'], array_keys($data)) !== []) {
-                $this->applyLegacyTarget($report, $data, $entityManager, $linker);
+            } elseif (array_intersect(self::LEGACY_TARGET_KEYS, array_keys($data)) !== []) {
+                $this->applyLegacyTarget($report, $data, $linker);
             }
             $linker->assertCanonical($report);
 
@@ -118,19 +126,10 @@ final class AdminContentReportController extends AbstractController
         ]);
         $linkedTarget = $this->targetIds($report);
         if ($linkedTarget !== $previousTarget) {
-            $auditLogger->audit(SecurityAuditLogger::CONTENT_REPORT_TARGET_LINKED, [
-                'actor_user_id' => $admin->getId(),
-                'target_type' => 'content_report',
-                'target_id' => $report->getId(),
-                'report_id' => $report->getId(),
-                'previous_linked_user_id' => $previousTarget['user'],
-                'linked_user_id' => $linkedTarget['user'],
-                'previous_linked_comic_id' => $previousTarget['comic'],
-                'linked_comic_id' => $linkedTarget['comic'],
-                'previous_linked_share_id' => $previousTarget['share'],
-                'linked_share_id' => $linkedTarget['share'],
-                'resolution_method' => $report->getResolutionMethod(),
-            ]);
+            $auditLogger->audit(
+                SecurityAuditLogger::CONTENT_REPORT_TARGET_LINKED,
+                ContentReportLinkService::targetLinkedPayload($report, $previousTarget) + ['actor_user_id' => $admin->getId()],
+            );
         }
 
         $owner = $report->getLinkedComic()?->getOwner() ?? $report->getLinkedUser();
@@ -144,103 +143,11 @@ final class AdminContentReportController extends AbstractController
             ]);
         }
 
-        return $this->json(['report' => $this->serializeDetail($report, $resolver)]);
-    }
-
-    /** @return array<string, mixed> */
-    private function serializeSummary(ContentReport $report): array
-    {
-        return [
-            'id' => $report->getId(),
-            'reference' => $report->getReference(),
-            'status' => $report->getStatus(),
-            'category' => $report->getCategory(),
-            'reporterDisplay' => $report->getReporterOrganization() ?: $report->getReporterName(),
-            'createdAt' => $report->getCreatedAt()->format(DATE_ATOM),
-            'reviewedAt' => $report->getReviewedAt()?->format(DATE_ATOM),
-            'linkedTarget' => $this->linkedTargetSummary($report),
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function serializeDetail(ContentReport $report, ContentReportTargetResolver $resolver, ?string $query = null): array
-    {
-        $comic = $report->getLinkedComic();
-        $share = $report->getLinkedShare();
-        $user = $report->getLinkedUser();
-        $reviewer = $report->getReviewedByAdmin();
-
-        return [
-            'id' => $report->getId(),
-            'reference' => $report->getReference(),
-            'status' => $report->getStatus(),
-            'category' => $report->getCategory(),
-            'reporterName' => $report->getReporterName(),
-            'reporterOrganization' => $report->getReporterOrganization(),
-            'reporterRole' => $report->getReporterRole(),
-            'reporterEmail' => $report->getReporterEmail(),
-            'referenceType' => $report->getReferenceType(),
-            'reportedReference' => $report->getReportedReference(),
-            'reportedContentTitle' => $report->getReportedContentTitle(),
-            'reportedAccountReference' => $report->getReportedAccountReference(),
-            'sourceContext' => $report->getSourceContext(),
-            'explanation' => $report->getExplanation(),
-            'goodFaithAcknowledgedAt' => $report->getGoodFaithAcknowledgedAt()->format(DATE_ATOM),
-            'createdAt' => $report->getCreatedAt()->format(DATE_ATOM),
-            'updatedAt' => $report->getUpdatedAt()->format(DATE_ATOM),
-            'reviewedAt' => $report->getReviewedAt()?->format(DATE_ATOM),
-            'reviewedBy' => $reviewer ? [
-                'id' => $reviewer->getId(),
-                'name' => $reviewer->getName(),
-            ] : null,
-            'resolutionCode' => $report->getResolutionCode(),
-            'resolutionNote' => $report->getResolutionNote(),
-            'legalHold' => $report->isLegalHold(),
-            'resolutionMethod' => $report->getResolutionMethod(),
-            'targetSnapshot' => [
-                'userId' => $report->getLinkedUserIdSnapshot(),
-                'comicId' => $report->getLinkedComicIdSnapshot(),
-                'shareId' => $report->getLinkedShareIdSnapshot(),
-                'comicTitle' => $report->getLinkedComicTitleSnapshot(),
-            ],
-            'targetResolution' => $resolver->resolve($report, $query),
-            'linkedUser' => $user ? [
-                'id' => $user->getId(),
-                'name' => $user->getName(),
-                'email' => $user->getEmail(),
-                'sharingRestricted' => $user->isSharingRestricted(),
-            ] : null,
-            'linkedComic' => $comic ? [
-                'id' => $comic->getId(),
-                'title' => $comic->getTitle(),
-                'owner' => $comic->getOwner() ? ['id' => $comic->getOwner()->getId(), 'name' => $comic->getOwner()->getName()] : null,
-                'sharingRestricted' => $comic->isSharingRestricted(),
-                'quarantined' => $comic->isQuarantined(),
-            ] : null,
-            'linkedShare' => $share ? [
-                'id' => $share->getId(),
-                'status' => $share->getStatus(),
-                'title' => $share->getComic()?->getTitle() ?? $share->getComicTitleSnapshot(),
-            ] : null,
-        ];
-    }
-
-    /** @return array<string, mixed>|null */
-    private function linkedTargetSummary(ContentReport $report): ?array
-    {
-        if ($report->getLinkedShare() !== null) {
-            return ['type' => 'share', 'id' => $report->getLinkedShare()->getId(), 'label' => $report->getLinkedShare()->getComic()?->getTitle() ?? $report->getLinkedShare()->getComicTitleSnapshot()];
-        }
-        if ($report->getLinkedComic() !== null) {
-            return ['type' => 'comic', 'id' => $report->getLinkedComic()->getId(), 'label' => $report->getLinkedComic()->getTitle()];
-        }
-        if ($report->getLinkedUser() !== null) {
-            return ['type' => 'user', 'id' => $report->getLinkedUser()->getId(), 'label' => $report->getLinkedUser()->getName()];
-        }
-        if ($report->getLinkedComicIdSnapshot() !== null || $report->getLinkedUserIdSnapshot() !== null || $report->getLinkedShareIdSnapshot() !== null) {
-            return ['type' => 'snapshot', 'id' => $report->getLinkedShareIdSnapshot() ?? $report->getLinkedComicIdSnapshot() ?? $report->getLinkedUserIdSnapshot(), 'label' => $report->getLinkedComicTitleSnapshot() ?: 'Deleted linked record'];
-        }
-        return null;
+        // No candidate search on the way out. The admin has just chosen the
+        // target, so re-running it would spend six leading-wildcard scans over
+        // the comic and user tables to answer a question that has been settled
+        // — and would throw away the search they were looking at.
+        return $this->json(['report' => $presenter->detail($report, resolveCandidates: false)]);
     }
 
     /** @return array{user: int|null, comic: int|null, share: int|null} */
@@ -249,32 +156,54 @@ final class AdminContentReportController extends AbstractController
         return ['user' => $report->getLinkedUser()?->getId(), 'comic' => $report->getLinkedComic()?->getId(), 'share' => $report->getLinkedShare()?->getId()];
     }
 
-    /** @param array<string, mixed> $data */
-    private function applyLegacyTarget(ContentReport $report, array $data, EntityManagerInterface $entityManager, ContentReportLinkService $linker): void
+    /**
+     * The superseded {linkedUserId, linkedComicId, linkedShareId} payload.
+     *
+     * It is translated into the single target the queue now sends rather than
+     * linking anything itself, so both spellings go through
+     * ContentReportLinkService and are held to its invariants instead of to a
+     * second copy of them living here.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function applyLegacyTarget(ContentReport $report, array $data, ContentReportLinkService $linker): void
     {
+        $stated = [];
+        foreach (self::LEGACY_TARGET_KEYS as $type => $key) {
+            $stated[$type] = array_key_exists($key, $data) ? $this->legacyTargetId($data[$key]) : null;
+        }
+
         // Every id the caller named is null: the legacy spelling of "clear it".
-        $named = array_intersect(['linkedUserId', 'linkedComicId', 'linkedShareId'], array_keys($data));
-        $stated = array_filter($named, static fn (string $key): bool => $data[$key] !== null);
-        if ($stated === []) {
+        $selected = array_filter($stated, static fn (?int $id): bool => $id !== null);
+        if ($selected === []) {
             $linker->unlink($report);
 
             return;
         }
 
-        $share = array_key_exists('linkedShareId', $data) ? $this->findNullable($entityManager, ComicShare::class, $data['linkedShareId']) : null;
-        $comic = array_key_exists('linkedComicId', $data) ? $this->findNullable($entityManager, Comic::class, $data['linkedComicId']) : null;
-        $user = array_key_exists('linkedUserId', $data) ? $this->findNullable($entityManager, User::class, $data['linkedUserId']) : null;
+        $type = array_key_first($selected);
+        $linker->select($report, $type, $selected[$type], 'legacy_admin_selection');
 
-        if ($share instanceof ComicShare) {
-            if ($comic instanceof Comic && $share->getComic()?->getId() !== $comic->getId()) throw new \DomainException('The selected share does not belong to the selected comic.');
-            if ($user instanceof User && $share->getOwner()?->getId() !== $user->getId()) throw new \DomainException('The selected user does not own the selected share.');
-            $linker->linkShare($report, $share, 'legacy_admin_selection');
-        } elseif ($comic instanceof Comic) {
-            if ($user instanceof User && $comic->getOwner()?->getId() !== $user->getId()) throw new \DomainException('The selected user does not own the selected comic.');
-            $linker->linkComic($report, $comic, 'legacy_admin_selection');
-        } elseif ($user instanceof User) {
-            $linker->linkUser($report, $user, 'legacy_admin_selection');
+        // Anything else the caller named has to agree with what linking chose,
+        // or the three ids described more than one record.
+        $linked = $this->targetIds($report);
+        foreach ($stated as $statedType => $id) {
+            if ($id !== null && $id !== $linked[$statedType]) {
+                throw new \DomainException('The selected report target records do not belong together.');
+            }
         }
+    }
+
+    private function legacyTargetId(mixed $id): ?int
+    {
+        if ($id === null || $id === '') {
+            return null;
+        }
+        if (!is_int($id) && !(is_string($id) && ctype_digit($id))) {
+            throw new \DomainException('Linked record identifiers must be integers or null.');
+        }
+
+        return (int) $id;
     }
 
     private function admin(): User
@@ -284,23 +213,6 @@ final class AdminContentReportController extends AbstractController
             throw $this->createAccessDeniedException();
         }
         return $user;
-    }
-
-    /**
-     * @template T of object
-     * @param class-string<T> $class
-     * @return T|null
-     */
-    private function findNullable(EntityManagerInterface $entityManager, string $class, mixed $id): ?object
-    {
-        if ($id === null || $id === '') {
-            return null;
-        }
-        if (!is_int($id) && !(is_string($id) && ctype_digit($id))) {
-            throw new \DomainException('Linked record identifiers must be integers or null.');
-        }
-        return $entityManager->getRepository($class)->find((int) $id)
-            ?? throw new \DomainException('A linked record could not be found.');
     }
 
     private function nullableBoundedString(mixed $value, int $max, string $label): ?string

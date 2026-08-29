@@ -51,4 +51,22 @@ describe("what happens when somebody asks for bulk upload", () => {
 
     await expect(resolveBulkUploadAccess({ scriptStatus: "ready" })).resolves.toBe("open");
   });
+
+  it("offers the advertisement only when advertising is on and Google's code loaded", async () => {
+    serverSays({ active: false, gateRequired: true });
+
+    await expect(resolveBulkUploadAccess({ scriptStatus: "ready" })).resolves.toBe("offer");
+  });
+
+  it.each([
+    ["advertising is off", { active: false, gateRequired: false }, "ready"],
+    ["the script was blocked", { active: false, gateRequired: true }, "unavailable"],
+    ["the script never answered", { active: false, gateRequired: true }, "loading"],
+    ["nothing was ever asked for", { active: false, gateRequired: true }, "idle"],
+    ["the server said nothing about the gate", { active: false }, "ready"],
+  ])("opens the uploader directly when %s", async (_reason, session, scriptStatus) => {
+    serverSays(session);
+
+    await expect(resolveBulkUploadAccess({ scriptStatus })).resolves.toBe("open");
+  });
 });

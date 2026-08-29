@@ -224,6 +224,8 @@ For non-interactive releases (e.g. from CI):
 ### What the wrapper does
 
 1. **`scripts/build-release.sh`**
+   - Refuses to build unless the checkout is clean and HEAD matches current
+     `origin/main`, so the package contains only reviewed, reproducible files
    - Cleans `release/`
    - Builds the React app inside `node:22-alpine` Docker image → `frontend/dist/`
    - Copies `frontend/dist/*` into `release/backend/public/`

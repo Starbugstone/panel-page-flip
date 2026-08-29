@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Service;
 use App\Entity\User;
 use App\Service\AdvertisingConfiguration;
 use App\Service\BulkUploadSessionService;
+use App\Service\SecurityAuditLogger;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
@@ -98,7 +99,23 @@ final class BulkUploadSessionServiceTest extends TestCase
         self::assertFalse($opened['rewarded']);
     }
 
-    private function service(bool $advertisingEnabled = false): BulkUploadSessionService
+    /**
+     * The rewarded flag is documented as an audit note, so it has to reach the
+     * audit log. Echoing it back on a cache entry that expires within the hour
+     * records nothing.
+     */
+    public function testOpeningASessionRecordsWhatTheBrowserReported(): void
+    {
+        $auditLogger = $this->createMock(SecurityAuditLogger::class);
+        $auditLogger->expects(self::once())->method('audit')->with(
+            SecurityAuditLogger::BULK_UPLOAD_SESSION_OPENED,
+            self::callback(static fn (array $context): bool => $context['rewarded'] === true && $context['actor_user_id'] === 7),
+        );
+
+        $this->service(advertisingEnabled: true, auditLogger: $auditLogger)->open($this->user(7), rewarded: true);
+    }
+
+    private function service(bool $advertisingEnabled = false, ?SecurityAuditLogger $auditLogger = null): BulkUploadSessionService
     {
         $advertising = new AdvertisingConfiguration(
             $advertisingEnabled,
@@ -106,7 +123,11 @@ final class BulkUploadSessionServiceTest extends TestCase
             new NullLogger()
         );
 
-        return new BulkUploadSessionService($advertising, new ArrayAdapter());
+        return new BulkUploadSessionService(
+            $advertising,
+            new ArrayAdapter(),
+            $auditLogger ?? $this->createMock(SecurityAuditLogger::class),
+        );
     }
 
     private function user(int $id): User

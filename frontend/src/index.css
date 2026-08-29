@@ -165,6 +165,19 @@
     padding-bottom: calc(7rem + env(safe-area-inset-bottom));
   }
 
+  /* Zoom is set once on the scroller as --reader-page-zoom; every page derives
+     its width from it. Threading the number into each page's inline style meant
+     two style writes per page per slider step. */
+  .reader-continuous [data-continuous-page] {
+    width: calc(var(--reader-page-zoom, 1) * 100%);
+    max-width: calc(var(--reader-page-zoom, 1) * 56rem);
+    touch-action: pan-y;
+  }
+
+  .reader-continuous[data-continuous-zoom]:not([data-continuous-zoom="1"]) [data-continuous-page] {
+    touch-action: pan-x pan-y;
+  }
+
   /* Chrome that has taken itself off screen. Not just transparent: a control
      faded out must not still be the thing under a tap on the artwork. */
   .reader-chrome-hidden {
@@ -183,7 +196,6 @@
      over artwork, then becomes explicit on hover or keyboard focus. */
   .reader-paged-layout {
     grid-template-columns: clamp(2.75rem, 4vw, 4.5rem) minmax(0, 1fr) clamp(2.75rem, 4vw, 4.5rem);
-    transition: grid-template-columns 200ms ease;
   }
 
   .reader-turn-zone {

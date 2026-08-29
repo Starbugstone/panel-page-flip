@@ -23,6 +23,22 @@ final class PublicUrl
         return $this->baseUrl.'/'.ltrim($path, '/');
     }
 
+    /**
+     * The capture groups from $pathPattern when $url is one of this
+     * installation's own URLs, or null when it is not ours or does not match.
+     *
+     * @return list<string>|null
+     */
+    public function matchPath(string $url, string $pathPattern): ?array
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts) || !$this->hasSameOrigin($url)) {
+            return null;
+        }
+
+        return preg_match($pathPattern, (string) ($parts['path'] ?? ''), $matches) === 1 ? $matches : null;
+    }
+
     public function hasSameOrigin(string $url): bool
     {
         $expected = parse_url($this->baseUrl);

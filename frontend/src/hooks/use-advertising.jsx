@@ -22,8 +22,15 @@ import { logger } from "@/lib/logger";
 
 export const ADVERTISING_OFF = Object.freeze({ enabled: false, client: null });
 
+/** What the legal pages fall back to before the one request answers. */
+export const LEGAL_CONTACT_UNKNOWN = Object.freeze({
+  operator: "Panel Page Flip site operator",
+  privacyEmail: null,
+  legalEmail: null,
+});
+
 export function useAdvertisingConfig() {
-  const [state, setState] = useState({ config: ADVERTISING_OFF, isLoading: true });
+  const [state, setState] = useState({ config: ADVERTISING_OFF, legal: LEGAL_CONTACT_UNKNOWN, isLoading: true });
 
   useEffect(() => {
     let ignore = false;
@@ -32,11 +39,21 @@ export function useAdvertisingConfig() {
     // nobody is signed in and a session prompt would be nonsense.
     api.get("/api/public-config", { notifyUnauthorized: false })
       .then((data) => {
-        if (!ignore) setState({ config: data?.adsense ?? ADVERTISING_OFF, isLoading: false });
+        if (!ignore) {
+          setState({
+            config: data?.adsense ?? ADVERTISING_OFF,
+            legal: {
+              operator: data?.operator || LEGAL_CONTACT_UNKNOWN.operator,
+              privacyEmail: data?.privacyEmail ?? null,
+              legalEmail: data?.legalEmail ?? null,
+            },
+            isLoading: false,
+          });
+        }
       })
       .catch((error) => {
-        logger.warn("Could not load the advertising configuration:", error.message);
-        if (!ignore) setState({ config: ADVERTISING_OFF, isLoading: false });
+        logger.warn("Could not load the public configuration:", error.message);
+        if (!ignore) setState({ config: ADVERTISING_OFF, legal: LEGAL_CONTACT_UNKNOWN, isLoading: false });
       });
 
     return () => { ignore = true; };

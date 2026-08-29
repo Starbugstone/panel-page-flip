@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Footer } from "@/components/Footer.jsx";
 import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
 import { reopenPrivacyChoices } from "@/lib/privacy-choices";
+import { isAdvertisingActive } from "@/lib/advertising";
 
 const { adSense } = vi.hoisted(() => ({
   adSense: { config: { enabled: false, client: null }, isLoading: false },
@@ -13,7 +14,7 @@ const { adSense } = vi.hoisted(() => ({
 
 vi.mock("@/lib/privacy-choices", () => ({ reopenPrivacyChoices: vi.fn(() => Promise.resolve(true)) }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
-  useAdSense: () => ({ config: adSense.config, isLoading: adSense.isLoading, scriptStatus: "idle" }),
+  useAdSense: () => ({ config: adSense.config, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";

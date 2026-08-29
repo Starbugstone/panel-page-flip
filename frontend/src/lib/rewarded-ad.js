@@ -1,3 +1,4 @@
+import { settleOnce } from "@/lib/advertising";
 import { logger } from "@/lib/logger";
 
 /**
@@ -27,7 +28,7 @@ import { logger } from "@/lib/logger";
  * advertisement lasts — cutting that short would abandon a user midway through
  * something they agreed to watch and then deny them the reward for it.
  */
-export const REWARDED_AVAILABILITY_TIMEOUT_MS = 8000;
+const REWARDED_AVAILABILITY_TIMEOUT_MS = 8000;
 
 /**
  * @returns {Promise<"viewed" | "dismissed" | "unavailable">}
@@ -43,39 +44,30 @@ export function requestRewardedAd({
     return Promise.resolve("unavailable");
   }
 
-  return new Promise((resolve) => {
-    let settled = false;
+  const { promise, settle, holdOpen } = settleOnce(timeoutMs);
 
-    const finish = (outcome) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(availabilityTimer);
-      resolve(outcome);
-    };
+  try {
+    adBreak({
+      type: "reward",
+      name: "bulk-upload",
+      beforeReward: (showAdFn) => {
+        // Google has an advertisement. The user has already asked for it by
+        // pressing the button, so it is shown straight away rather than
+        // behind a second confirmation they did not ask for.
+        holdOpen();
+        showAdFn();
+      },
+      adViewed: () => settle("viewed"),
+      adDismissed: () => settle("dismissed"),
+      // Always called, including when no advertisement was ever shown. It runs
+      // after the outcome callbacks, so by this point a watched or dismissed
+      // ad has already settled and this only catches "there was nothing".
+      adBreakDone: () => settle("unavailable"),
+    });
+  } catch (error) {
+    logger.warn("The rewarded advertisement could not be requested:", error.message);
+    settle("unavailable");
+  }
 
-    const availabilityTimer = setTimeout(() => finish("unavailable"), timeoutMs);
-
-    try {
-      adBreak({
-        type: "reward",
-        name: "bulk-upload",
-        beforeReward: (showAdFn) => {
-          // Google has an advertisement. The user has already asked for it by
-          // pressing the button, so it is shown straight away rather than
-          // behind a second confirmation they did not ask for.
-          clearTimeout(availabilityTimer);
-          showAdFn();
-        },
-        adViewed: () => finish("viewed"),
-        adDismissed: () => finish("dismissed"),
-        // Always called, including when no advertisement was ever shown. It runs
-        // after the outcome callbacks, so by this point a watched or dismissed
-        // ad has already settled and this only catches "there was nothing".
-        adBreakDone: () => finish("unavailable"),
-      });
-    } catch (error) {
-      logger.warn("The rewarded advertisement could not be requested:", error.message);
-      finish("unavailable");
-    }
-  });
+  return promise;
 }

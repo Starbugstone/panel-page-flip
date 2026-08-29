@@ -57,7 +57,6 @@ security:
         - { path: '^/api/reset-password/reset/[A-Fa-f0-9]{64}$', methods: [POST], roles: PUBLIC_ACCESS }
         - { path: '^/api/email-verification/verify/[A-Fa-f0-9]{64}$', methods: [GET], roles: PUBLIC_ACCESS }
         - { path: ^/api/email-verification/resend$, methods: [POST], roles: PUBLIC_ACCESS }
-        - { path: ^/api/legal-config$, methods: [GET], roles: PUBLIC_ACCESS }
         # Whether this installation shows advertising, needed by the landing and
         # login pages before anybody has signed in. Nothing account-specific.
         - { path: ^/api/public-config$, methods: [GET], roles: PUBLIC_ACCESS }

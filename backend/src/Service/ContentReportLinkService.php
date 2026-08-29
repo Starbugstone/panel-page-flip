@@ -24,7 +24,7 @@ final class ContentReportLinkService
         };
     }
 
-    public function linkShare(ContentReport $report, ComicShare $share, string $method): void
+    private function linkShare(ContentReport $report, ComicShare $share, string $method): void
     {
         $report
             ->linkShare($share)
@@ -33,7 +33,7 @@ final class ContentReportLinkService
             ->snapshotTarget($method);
     }
 
-    public function linkComic(ContentReport $report, Comic $comic, string $method): void
+    private function linkComic(ContentReport $report, Comic $comic, string $method): void
     {
         $share = $report->getLinkedShare();
         if ($share !== null && $share->getComic()?->getId() !== $comic->getId()) {
@@ -45,13 +45,39 @@ final class ContentReportLinkService
             ->snapshotTarget($method);
     }
 
-    public function linkUser(ContentReport $report, User $user, string $method): void
+    private function linkUser(ContentReport $report, User $user, string $method): void
     {
         $impliedOwner = $report->getLinkedShare()?->getOwner() ?? $report->getLinkedComic()?->getOwner();
         if ($impliedOwner !== null && $impliedOwner->getId() !== $user->getId()) {
             throw new \DomainException('The selected user does not own the linked comic or share.');
         }
         $report->linkUser($user)->snapshotTarget($method);
+    }
+
+    /**
+     * The audit payload for a change of target.
+     *
+     * Both the submission path and the admin review path record one, and an
+     * audit entry whose shape depends on which path wrote it is not much of an
+     * audit entry.
+     *
+     * @param array{user: int|null, comic: int|null, share: int|null} $previous
+     * @return array<string, mixed>
+     */
+    public static function targetLinkedPayload(ContentReport $report, array $previous): array
+    {
+        return [
+            'target_type' => 'content_report',
+            'target_id' => $report->getId(),
+            'report_id' => $report->getId(),
+            'previous_linked_user_id' => $previous['user'],
+            'linked_user_id' => $report->getLinkedUser()?->getId(),
+            'previous_linked_comic_id' => $previous['comic'],
+            'linked_comic_id' => $report->getLinkedComic()?->getId(),
+            'previous_linked_share_id' => $previous['share'],
+            'linked_share_id' => $report->getLinkedShare()?->getId(),
+            'resolution_method' => $report->getResolutionMethod(),
+        ];
     }
 
     /**

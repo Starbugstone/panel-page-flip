@@ -241,7 +241,8 @@ Alternatively, run `npm ci` and the same scripts from `frontend/` with a local N
 `lint` runs with `--max-warnings=0`, so a warning fails it. The `check:` scripts
 guard artefacts that are committed rather than rebuilt on the way to production
 — the nginx route manifest, the conversion-tool downloads and their checksums,
-and the generated sitemap, robots and canonical metadata. `check:seo` reads
+the generated sitemap, robots and canonical metadata, and the crawlable
+landing copy inside the built `index.html`. `check:seo` reads
 `APP_URL`, so run it after a build made with the same value CI uses.
 
 **`check:tools` must be run from the host, not from `frontend_dev`:**

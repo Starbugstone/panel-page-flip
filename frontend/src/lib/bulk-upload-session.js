@@ -1,6 +1,5 @@
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
-import { shouldOfferRewardedGate } from "@/lib/advertising";
 
 export const BULK_UPLOAD_ROUTE = "/upload/bulk/session";
 export const SINGLE_UPLOAD_ROUTE = "/upload";
@@ -18,7 +17,7 @@ const SESSION_ENDPOINT = "/api/upload/bulk/session";
  * reported, and nothing downstream treats it as permission.
  */
 
-export function readBulkUploadSession() {
+function readBulkUploadSession() {
   return api.get(SESSION_ENDPOINT);
 }
 
@@ -58,9 +57,7 @@ export function resolveBulkUploadAccess({ scriptStatus }) {
     .then((session) => {
       if (session?.active) return "open";
 
-      return shouldOfferRewardedGate({ gateRequired: session?.gateRequired, scriptStatus })
-        ? "offer"
-        : "open";
+      return session?.gateRequired === true && scriptStatus === "ready" ? "offer" : "open";
     })
     .catch((error) => {
       logger.warn("Could not read the bulk upload session; opening bulk upload:", error.message);

@@ -96,7 +96,7 @@ describe("zoom that knows where the reader was", () => {
     const elements = refs({ scrollTop: 500 });
     const { result } = renderHook(() => useReaderTransform(elements));
 
-    act(() => result.current.stepZoomBy(3));
+    act(() => result.current.setZoomLevel(3));
     act(() => result.current.resetTransform());
 
     expect(result.current.transform).toEqual({ scale: 1, x: 0, y: 0 });
@@ -174,5 +174,63 @@ describe("zoom that knows where the reader was", () => {
 
     expect(Number.isFinite(result.current.transform.x)).toBe(true);
     expect(Number.isFinite(result.current.transform.y)).toBe(true);
+  });
+});
+
+/**
+ * Continuous mode has no transform: it scrolls natively and only borrows the
+ * zoom number to widen its pages. It used to be switched off by handing the
+ * hook a ref that was never attached, which worked only because the arithmetic
+ * tolerates a zero-sized viewport — a clamp against measured geometry, or an
+ * early return on a missing container, would have silently stopped the zoom
+ * slider working with nothing to show for it.
+ */
+describe("with the transform switched off", () => {
+  it("keeps the zoom level and leaves the scroller alone", () => {
+    const elements = refs({ scrollTop: 500 });
+    const { result } = renderHook(() => useReaderTransform({ ...elements, enabled: false }));
+
+    act(() => result.current.setZoomLevel(2.5));
+
+    expect(result.current.transform).toEqual({ scale: 2.5, x: 0, y: 0 });
+    expect(elements.containerRef.current.scrollTop).toBe(500);
+  });
+
+  it("holds the zoom level to the reader's limits", () => {
+    const elements = refs();
+    const { result } = renderHook(() => useReaderTransform({ ...elements, enabled: false }));
+
+    act(() => result.current.setZoomLevel(99));
+    expect(result.current.transform.scale).toBe(5);
+
+    act(() => result.current.setZoomLevel(0.1));
+    expect(result.current.transform.scale).toBe(1);
+
+    act(() => result.current.setZoomLevel("not a number"));
+    expect(result.current.transform.scale).toBe(1);
+  });
+
+  it("ignores the gestures that belong to a paged reader", () => {
+    const elements = refs();
+    const { result } = renderHook(() => useReaderTransform({ ...elements, enabled: false }));
+
+    act(() => result.current.setZoomLevel(2));
+    act(() => result.current.pinch({ scale: 2, focal: { x: 200, y: 400 } }));
+    act(() => result.current.pan({ dx: 50, dy: 50 }));
+    act(() => result.current.doubleTapAt({ x: 100, y: 100 }));
+
+    expect(result.current.transform).toEqual({ scale: 2, x: 0, y: 0 });
+    expect(elements.containerRef.current.scrollTop).toBe(0);
+  });
+
+  it("does not move the scroller when a page turn asks for the top", () => {
+    const elements = refs({ scrollTop: 900 });
+    const { result } = renderHook(() => useReaderTransform({ ...elements, enabled: false }));
+
+    act(() => result.current.setZoomLevel(3));
+    act(() => result.current.resetPosition());
+
+    expect(elements.containerRef.current.scrollTop).toBe(900);
+    expect(result.current.transform.scale).toBe(3);
   });
 });

@@ -45,12 +45,23 @@ place this is decided; the browser is told the outcome and never the inputs.
 anybody has signed in):
 
 ```json
-{ "adsense": { "enabled": true, "client": "ca-pub-1234567890123456" } }
+{
+  "adsense": { "enabled": true, "client": "ca-pub-1234567890123456" },
+  "operator": "Example Operator",
+  "privacyEmail": "privacy@example.com",
+  "legalEmail": "legal@example.com"
+}
 ```
 
 The publisher id is public by design; it appears in the page code Google issues.
 Nothing else about the account is exposed, and the frontend parses no
 environment variables of its own.
+
+This is the only public configuration endpoint. The operator contact details
+used to have their own (`/api/legal-config`), which meant the privacy and cookie
+pages made two anonymous round trips on the same render for two halves of the
+same public answer. A functional test pins the exact key list, so adding a field
+here is a deliberate decision to publish it.
 
 ### `ads.txt`
 
@@ -215,13 +226,19 @@ which is one advertisement paying for two batches.
 
 ## Content Security Policy
 
-`docker/nginx_frontend/security-headers.conf` and `scripts/deploy/htaccess.dist`
-list the Google origins AdSense and the CMP fetch from, in `script-src`,
-`frame-src`, `img-src` and `connect-src`. The two must stay in step — the second
-is what the released Apache deployment actually serves, and a policy widened
-only in the first leaves advertising blocked on the real host. Named origins, no
-wildcards. They cost nothing on an installation
-with advertising off, because nothing ever reaches for them.
+`backend/config/csp.json` lists the Google origins AdSense and the CMP fetch
+from, in `script-src`, `frame-src`, `img-src` and `connect-src`. Named origins,
+no wildcards. They cost nothing on an installation with advertising off, because
+nothing ever reaches for them.
+
+`scripts/generate-csp.mjs` emits that manifest into the three files that serve
+it — `docker/nginx_frontend/security-headers.conf`,
+`scripts/deploy/htaccess.dist` (the released Apache deployment) and
+`docker/nginx_frontend/nginx.dev.conf`. Edit the manifest, run the generator,
+and `npm run check:csp --prefix frontend` keeps them in step; CI runs the check.
+They used to be hand-maintained, and a policy widened in only one of them left
+advertising blocked on whichever host nobody tested. See
+`docs/development-tooling.md`.
 
 **What is deliberately not shipped is `script-src 'unsafe-inline'`.** Auto Ads
 and the CMP inject inline scripts, so an installation that turns advertising on
@@ -229,9 +246,10 @@ will need either that or a per-response nonce — and neither belongs in a heade
 that every self-hosted, ad-free deployment inherits. An operator enabling
 advertising adds it themselves:
 
-```nginx
-# In security-headers.conf, extend script-src:
-#   script-src 'self' 'unsafe-inline' https://pagead2.googlesyndication.com ...
+```jsonc
+// In backend/config/csp.json, extend script-src, then run
+// node scripts/generate-csp.mjs
+"script-src": ["'self'", "'unsafe-inline'", "https://pagead2.googlesyndication.com", ...]
 ```
 
 Verify with the browser console after enabling: blocked-script CSP violations are
@@ -283,10 +301,10 @@ Application side:
    editing `.env` on the host afterwards changes nothing. The build refuses a
    malformed publisher id rather than shipping advertising quietly switched off.
 2. Confirm `https://<your-domain>/ads.txt` returns the record, not HTML.
-3. Extend `script-src` with `'unsafe-inline'` or a nonce — in
-   `docker/nginx_frontend/security-headers.conf` for the Docker deployment, or
-   `scripts/deploy/htaccess.dist` for the Apache release. Both ship the same
-   Google origins and both omit `'unsafe-inline'`.
+3. Extend `script-src` with `'unsafe-inline'` or a nonce in
+   `backend/config/csp.json`, then run `node scripts/generate-csp.mjs` so every
+   deployment target gets it. All three ship the same Google origins and all
+   three omit `'unsafe-inline'`.
 4. Confirm the startup log carries no `ADSENSE_CLIENT is missing or invalid`
    warning.
 

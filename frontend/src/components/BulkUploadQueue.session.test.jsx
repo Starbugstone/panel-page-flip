@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import BulkUploadQueue from "./BulkUploadQueue";
 import { uploadComicInChunks } from "@/hooks/use-chunked-upload";
 import { closeBulkUploadSession } from "@/lib/bulk-upload-session";
+import { isAdvertisingActive } from "@/lib/advertising";
 
 const mocks = vi.hoisted(() => ({ toast: vi.fn(), refreshSession: vi.fn().mockResolvedValue(true) }));
 const { adSense } = vi.hoisted(() => ({ adSense: { config: { enabled: false, client: null } } }));
@@ -26,7 +27,7 @@ vi.mock("@/lib/bulk-upload-session", () => ({
   closeBulkUploadSession: vi.fn(() => Promise.resolve(null)),
 }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
-  useAdSense: () => ({ config: adSense.config, isLoading: false, scriptStatus: "idle" }),
+  useAdSense: () => ({ config: adSense.config, isActive: isAdvertisingActive(adSense.config), isLoading: false, scriptStatus: "idle" }),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";

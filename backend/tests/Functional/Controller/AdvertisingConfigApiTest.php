@@ -35,14 +35,17 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
     }
 
     /**
-     * The publisher id is public by design; nothing else about the account is.
-     * This guards the endpoint against growing a field that is not.
+     * The publisher id and the operator's published contact details are public
+     * by design; nothing else here is. Deliberately brittle: this endpoint
+     * answers anyone who asks, so a field added to it is a decision to publish
+     * that field, and it should not be possible to make without editing a test
+     * that says so.
      */
-    public function testNothingButTheEffectiveAdvertisingStateIsExposed(): void
+    public function testNothingButThePubliclyPublishedFactsAreExposed(): void
     {
         $payload = $this->getJson('/api/public-config');
 
-        self::assertSame(['adsense'], array_keys($payload));
+        self::assertSame(['adsense', 'operator', 'privacyEmail', 'legalEmail'], array_keys($payload));
         self::assertSame(['enabled', 'client'], array_keys($payload['adsense']));
     }
 
@@ -85,4 +88,20 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
             new AdvertisingConfiguration(true, $client, new NullLogger())
         );
     }
+
+    /**
+     * The legal contact details used to have an endpoint of their own, which
+     * meant the privacy and cookie pages made two anonymous round trips on the
+     * same render for two halves of the same public answer.
+     */
+    public function testItAlsoCarriesTheOperatorContactDetails(): void
+    {
+        $payload = $this->getJson('/api/public-config');
+
+        self::assertArrayHasKey('operator', $payload);
+        self::assertArrayHasKey('privacyEmail', $payload);
+        self::assertArrayHasKey('legalEmail', $payload);
+        self::assertResponseIsSuccessful();
+    }
+
 }
