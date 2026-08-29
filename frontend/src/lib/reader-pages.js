@@ -107,6 +107,48 @@ export function isPageAtVariant(cacheEntry, loadedVariant, wantedVariant) {
   return isUsableImage(cacheEntry) && isPageVariantAtLeast(loadedVariant, wantedVariant);
 }
 
+/**
+ * What the reader should draw for each page of the visible unit.
+ *
+ * Old artwork is useful while a request is unresolved, but once the target has
+ * definitively failed it becomes misleading: the retry state is shown on its
+ * own rather than the previous page behind an error belonging to this one. The
+ * stale flag is what tells the renderer the image is a stand-in, so it is not
+ * announced as the page it is standing in for.
+ *
+ * @param {object} args
+ * @param {number[]} args.unit Pages making up the reading unit on screen.
+ * @param {Record<number, unknown>} args.imageCache Cache entry per page.
+ * @param {unknown[]} args.fallbackImages Artwork held over, per slot in `unit`.
+ * @param {Record<number, string>} args.loadedVariants Variant each page holds.
+ * @param {(pageIndex: number) => string} args.variantFor Variant each page wants.
+ * @param {(pageIndex: number) => void} args.onRetry
+ */
+export function readerPageStates({ unit, imageCache, fallbackImages, loadedVariants, variantFor, onRetry }) {
+  return unit.map((pageIndex, slot) => {
+    const exact = imageCache[pageIndex];
+    const fallback = fallbackImages[slot];
+    const image = isUsableImage(exact)
+      ? exact
+      : exact !== "failed" && isUsableImage(fallback) ? fallback : null;
+
+    return {
+      pageIndex,
+      image,
+      isStale: !isUsableImage(exact) && Boolean(image),
+      isLoading: exact !== "failed" && !isPageAtVariant(exact, loadedVariants[pageIndex], variantFor(pageIndex)),
+      hasFailed: exact === "failed",
+      onRetry: () => onRetry(pageIndex),
+    };
+  });
+}
+
+/** The unit's page states in the order this reading direction shows them. */
+export function orderPageStates(states, displayOrder) {
+  const byIndex = new Map(states.map((state) => [state.pageIndex, state]));
+  return displayOrder.map((pageIndex) => byIndex.get(pageIndex));
+}
+
 export function createPageManifestUrl(comicId, from = 1) {
   if (!comicId) return null;
 

@@ -22,6 +22,7 @@ Run before every push — all of it, not a subset, but only before a requested p
 docker compose exec -T php php bin/phpunit          # backend
 docker compose exec -T php composer analyse         # PHPStan
 docker compose exec -T php composer cs:check        # PHP-CS-Fixer
+docker compose exec -T php php bin/console lint:twig templates   # email templates
 npm test --prefix frontend                          # frontend
 npm run lint --prefix frontend                      # --max-warnings=0
 npm run build --prefix frontend

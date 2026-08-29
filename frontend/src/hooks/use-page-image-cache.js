@@ -31,6 +31,70 @@ import {
  * `onload` will still fire; without the `isCurrent()` guard the last one to
  * arrive wins rather than the one that was asked for.
  */
+/**
+ * The three things done to the cache once pages are in it: filling it ahead of
+ * the reader, emptying what has been read past, and forcing one page back.
+ *
+ * Background fetches drain one at a time. A queue that started every page at
+ * once would put the whole preload window in front of the page somebody is
+ * actually waiting for.
+ */
+function usePageCacheMaintenance({
+  isPageReady, loadPage, loadingPagesRef, loadQueueRef, isDrainingRef,
+  loadedVariantsRef, updateImageCache, updateLoadedVariants,
+}) {
+  const queuePages = useCallback((orderedPageIndexes, variant) => {
+    loadQueueRef.current = orderedPageIndexes.filter((pageIndex) => (
+      !isPageReady(pageIndex, variant) && !loadingPagesRef.current[pageIndex]
+    ));
+
+    const drain = () => {
+      if (isDrainingRef.current || loadQueueRef.current.length === 0) return;
+      isDrainingRef.current = true;
+      const pageIndex = loadQueueRef.current.shift();
+      loadPage(pageIndex, variant).finally(() => {
+        isDrainingRef.current = false;
+        drain();
+      });
+    };
+    drain();
+  }, [isDrainingRef, isPageReady, loadPage, loadQueueRef, loadingPagesRef]);
+
+  /** Drop decoded pages outside the window, so a long comic does not grow without bound. */
+  const evictOutside = useCallback((start, end) => {
+    const isOutside = (key) => Number(key) < start || Number(key) > end;
+    const without = (previous) => {
+      const next = { ...previous };
+      const removed = Object.keys(next).filter(isOutside);
+      removed.forEach((key) => { delete next[key]; });
+      return removed.length > 0 ? next : previous;
+    };
+
+    updateImageCache((previous) => {
+      Object.keys(previous).filter(isOutside).forEach((key) => { delete loadedVariantsRef.current[key]; });
+      return without(previous);
+    });
+    updateLoadedVariants(without);
+  }, [loadedVariantsRef, updateImageCache, updateLoadedVariants]);
+
+  /** Throw one page away and fetch it again from the server rather than the cache. */
+  const retryPage = useCallback((pageIndex, variant) => {
+    loadingPagesRef.current[pageIndex]?.cancel?.();
+    delete loadedVariantsRef.current[pageIndex];
+    const withoutPage = (previous) => {
+      const next = { ...previous };
+      delete next[pageIndex];
+      return next;
+    };
+    updateLoadedVariants(withoutPage);
+    updateImageCache(withoutPage);
+
+    return loadPage(pageIndex, variant, { force: true });
+  }, [loadPage, loadedVariantsRef, loadingPagesRef, updateImageCache, updateLoadedVariants]);
+
+  return { queuePages, evictOutside, retryPage };
+}
+
 export function usePageImageCache({ comicId, pageCount }) {
   const [imageCache, setImageCache] = useState({});
   const [loadedVariants, setLoadedVariants] = useState({});
@@ -134,54 +198,10 @@ export function usePageImageCache({ comicId, pageCount }) {
    * a dozen of them race the page the reader is actually waiting for is how
    * preloading makes a reader feel slower.
    */
-  const queuePages = useCallback((orderedPageIndexes, variant) => {
-    loadQueueRef.current = orderedPageIndexes.filter((pageIndex) => (
-      !isPageReady(pageIndex, variant) && !loadingPagesRef.current[pageIndex]
-    ));
-
-    const drain = () => {
-      if (isDrainingRef.current || loadQueueRef.current.length === 0) return;
-      isDrainingRef.current = true;
-      const pageIndex = loadQueueRef.current.shift();
-      loadPage(pageIndex, variant).finally(() => {
-        isDrainingRef.current = false;
-        drain();
-      });
-    };
-    drain();
-  }, [isPageReady, loadPage]);
-
-  /** Drop decoded pages outside the window, so a long comic does not grow without bound. */
-  const evictOutside = useCallback((start, end) => {
-    const isOutside = (key) => Number(key) < start || Number(key) > end;
-    const without = (previous) => {
-      const next = { ...previous };
-      const removed = Object.keys(next).filter(isOutside);
-      removed.forEach((key) => { delete next[key]; });
-      return removed.length > 0 ? next : previous;
-    };
-
-    updateImageCache((previous) => {
-      Object.keys(previous).filter(isOutside).forEach((key) => { delete loadedVariantsRef.current[key]; });
-      return without(previous);
-    });
-    updateLoadedVariants(without);
-  }, [updateImageCache, updateLoadedVariants]);
-
-  /** Throw one page away and fetch it again from the server rather than the cache. */
-  const retryPage = useCallback((pageIndex, variant) => {
-    loadingPagesRef.current[pageIndex]?.cancel?.();
-    delete loadedVariantsRef.current[pageIndex];
-    const withoutPage = (previous) => {
-      const next = { ...previous };
-      delete next[pageIndex];
-      return next;
-    };
-    updateLoadedVariants(withoutPage);
-    updateImageCache(withoutPage);
-
-    return loadPage(pageIndex, variant, { force: true });
-  }, [loadPage, updateImageCache, updateLoadedVariants]);
+  const { queuePages, evictOutside, retryPage } = usePageCacheMaintenance({
+    isPageReady, loadPage, loadingPagesRef, loadQueueRef, isDrainingRef,
+    loadedVariantsRef, updateImageCache, updateLoadedVariants,
+  });
 
   return {
     imageCache,

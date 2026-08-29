@@ -34,24 +34,74 @@ const FIELDS = [
  * "Configured" and nothing more. An empty box means "leave whatever is stored
  * alone" rather than "clear it" — clearing is its own button.
  */
-export function UserMetadataCredentials() {
-  const { toast } = useToast();
-  const [state, setState] = useState(null);
-  const [values, setValues] = useState({});
-  const [engaged, setEngaged] = useState({});
-  const [result, setResult] = useState(null);
-  const [busy, setBusy] = useState(true);
-  const [loadError, setLoadError] = useState(null);
+/**
+ * One provider's token: what is stored, a box to replace it, and the two things
+ * that can be done with it.
+ *
+ * The box opens read-only and asks for a "new-password": nothing autofills a
+ * field it cannot write to, and Chrome ignores autocomplete="off" on anything
+ * that looks like a login.
+ */
+function CredentialField({
+  field, configured, engaged, setEngaged, values, setValues, busy, accepted, result, test, remove,
+}) {
+  return (
+          <div key={field.name} className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor={`me-${field.name}`}>{field.label}</Label>
+              <span className={configured[field.provider] ? "text-xs text-green-600" : "text-xs text-muted-foreground"}>
+                {configured[field.provider] ? "Configured" : "Not configured"}
+              </span>
+            </div>
 
-  useEffect(() => {
-    let cancelled = false;
-    api.get("/api/me/metadata-credentials")
-      .then((response) => { if (!cancelled) { setState(response); setLoadError(null); } })
-      .catch((error) => { if (!cancelled) setLoadError(error.message); })
-      .finally(() => { if (!cancelled) setBusy(false); });
-    return () => { cancelled = true; };
-  }, []);
+            {/* Opens read-only and asks for a "new-password": nothing autofills
+                a field it cannot write to, and Chrome ignores autocomplete="off"
+                on anything that looks like a login. */}
+            <Input
+              id={`me-${field.name}`}
+              name={`personal-${field.name}`}
+              type="password"
+              autoComplete="new-password"
+              readOnly={!engaged[field.name]}
+              onFocus={() => setEngaged((current) => ({ ...current, [field.name]: true }))}
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore="true"
+              data-form-type="other"
+              value={values[field.name] ?? ""}
+              disabled={busy || !accepted}
+              placeholder={configured[field.provider] ? "Stored — enter a new value to replace it" : ""}
+              onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
+            />
 
+            <p className="text-xs text-muted-foreground">{field.hint}</p>
+
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={busy || !accepted} onClick={() => test(field.name, field.provider)}>
+                Test
+              </Button>
+              {configured[field.provider] && (
+                <Button variant="ghost" size="sm" disabled={busy} onClick={() => remove(field.name)}>
+                  Remove
+                </Button>
+              )}
+            </div>
+
+            {result?.provider === field.provider && (
+              <p className={`text-sm ${providerStatusStyle(result.status)}`}>{result.message}</p>
+            )}
+          </div>
+  );
+}
+
+/**
+ * Saving, removing and testing a provider token.
+ *
+ * Only fields actually typed in are ever sent: a browser will fill a saved site
+ * login into anything that looks like a credential box, and a token nobody
+ * chose would go straight to the provider.
+ */
+function useCredentialActions({ values, engaged, setState, setValues, setEngaged, setResult, setBusy, toast }) {
   /**
    * Only fields actually typed in. A browser will fill a saved site login into
    * anything that looks like a credential box, and a token nobody chose would
@@ -121,6 +171,31 @@ export function UserMetadataCredentials() {
     }
   };
 
+  return { save, remove, test };
+}
+
+export function UserMetadataCredentials() {
+  const { toast } = useToast();
+  const [state, setState] = useState(null);
+  const [values, setValues] = useState({});
+  const [engaged, setEngaged] = useState({});
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/api/me/metadata-credentials")
+      .then((response) => { if (!cancelled) { setState(response); setLoadError(null); } })
+      .catch((error) => { if (!cancelled) setLoadError(error.message); })
+      .finally(() => { if (!cancelled) setBusy(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const { save, remove, test } = useCredentialActions({
+    values, engaged, setState, setValues, setEngaged, setResult, setBusy, toast,
+  });
+
   const configured = state?.configured ?? {};
   const providers = state?.providers ?? [];
   // Switched off, the panel still shows what is stored and still lets it be
@@ -156,51 +231,20 @@ export function UserMetadataCredentials() {
         )}
 
         {FIELDS.map((field) => (
-          <div key={field.name} className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor={`me-${field.name}`}>{field.label}</Label>
-              <span className={configured[field.provider] ? "text-xs text-green-600" : "text-xs text-muted-foreground"}>
-                {configured[field.provider] ? "Configured" : "Not configured"}
-              </span>
-            </div>
-
-            {/* Opens read-only and asks for a "new-password": nothing autofills
-                a field it cannot write to, and Chrome ignores autocomplete="off"
-                on anything that looks like a login. */}
-            <Input
-              id={`me-${field.name}`}
-              name={`personal-${field.name}`}
-              type="password"
-              autoComplete="new-password"
-              readOnly={!engaged[field.name]}
-              onFocus={() => setEngaged((current) => ({ ...current, [field.name]: true }))}
-              data-1p-ignore
-              data-lpignore="true"
-              data-bwignore="true"
-              data-form-type="other"
-              value={values[field.name] ?? ""}
-              disabled={busy || !accepted}
-              placeholder={configured[field.provider] ? "Stored — enter a new value to replace it" : ""}
-              onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
-            />
-
-            <p className="text-xs text-muted-foreground">{field.hint}</p>
-
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" disabled={busy || !accepted} onClick={() => test(field.name, field.provider)}>
-                Test
-              </Button>
-              {configured[field.provider] && (
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => remove(field.name)}>
-                  Remove
-                </Button>
-              )}
-            </div>
-
-            {result?.provider === field.provider && (
-              <p className={`text-sm ${providerStatusStyle(result.status)}`}>{result.message}</p>
-            )}
-          </div>
+          <CredentialField
+            key={field.name}
+            field={field}
+            configured={configured}
+            engaged={engaged}
+            setEngaged={setEngaged}
+            values={values}
+            setValues={setValues}
+            busy={busy}
+            accepted={accepted}
+            result={result}
+            test={test}
+            remove={remove}
+          />
         ))}
 
         {/* Whether a provider will answer them. Deliberately not which

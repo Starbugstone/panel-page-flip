@@ -127,6 +127,7 @@ REQUIRED_PROD_VARS=(
     PROD_APP_SECRET
     PROD_APP_DATA_KEY
     PROD_DATABASE_URL
+    PROD_CORS_ALLOW_ORIGIN
     PUBLIC_URL
     POST_DEPLOY_TOKEN
 )
@@ -135,6 +136,15 @@ for v in "${REQUIRED_PROD_VARS[@]}"; do
         fail "Missing $v in $ENV_FILE."
     fi
 done
+
+# Required rather than defaulted, and the old default refused by name. The
+# deployment is same-origin, so this regex exists to name that one origin; the
+# fallback it replaces was ^https://.*$ — every site on the internet, baked into
+# production by a variable nobody had to set. Asked for explicitly because the
+# escaping is easy to get wrong and a derived regex would get it wrong quietly.
+if [ "$PROD_CORS_ALLOW_ORIGIN" = '^https://.*$' ]; then
+    fail "PROD_CORS_ALLOW_ORIGIN must match this deployment's own origin, not every HTTPS site. See scripts/.env.deploy.example."
+fi
 
 # --- clean ---------------------------------------------------------------------
 log "Cleaning $RELEASE_DIR"
@@ -273,7 +283,7 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv APP_DATA_KEY "$PROD_APP_DATA_KEY"
     write_dotenv APP_URL "${PUBLIC_URL%/}"
     write_dotenv DATABASE_URL "$PROD_DATABASE_URL"
-    write_dotenv CORS_ALLOW_ORIGIN "${PROD_CORS_ALLOW_ORIGIN:-^https://.*$}"
+    write_dotenv CORS_ALLOW_ORIGIN "$PROD_CORS_ALLOW_ORIGIN"
     write_dotenv TRUSTED_PROXIES "${PROD_TRUSTED_PROXIES:-}"
     write_dotenv MAILER_DSN "${PROD_MAILER_DSN:-null://null}"
     write_dotenv MAILER_FROM_ADDRESS "${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}"

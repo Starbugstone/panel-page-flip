@@ -1221,6 +1221,38 @@ describe("ComicReader", () => {
     });
   });
 
+  describe("keeping the page clear of the bottom controls", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    /**
+     * The bar is not one fixed height — a zoom badge, a spread's page range and
+     * a coarse pointer's larger buttons all grow it — so the stage reserves what
+     * it measures. Reserving a constant is what buried the foot of the page.
+     */
+    const withMeasuredControls = (height) => vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function measured() {
+        const box = this.classList?.contains("reader-controls") ? height : 0;
+        return { height: box, width: 0, top: 0, right: 0, bottom: box, left: 0, x: 0, y: 0 };
+      });
+
+    it("reserves the height the controls actually take", async () => {
+      withMeasuredControls(104);
+      renderReader();
+      await page(1);
+
+      await waitFor(() => expect(document.querySelector(".reader-root"))
+        .toHaveStyle({ "--reader-controls-height": "104px" }));
+    });
+
+    it("leaves the fallback reservation standing when nothing can be measured", async () => {
+      withMeasuredControls(0);
+      renderReader();
+      await page(1);
+
+      expect(document.querySelector(".reader-root").style.getPropertyValue("--reader-controls-height")).toBe("");
+    });
+  });
+
   describe("handing a screen back to the account default", () => {
     it("does not leave a zoom behind that was measured against the old fit", async () => {
       const user = userEvent.setup();

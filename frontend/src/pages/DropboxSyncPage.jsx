@@ -1,331 +1,18 @@
-import { useCallback, useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { useToast } from '@/hooks/use-toast.js';
-import { Button } from '@/components/ui/button.jsx';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
-import { Badge } from '@/components/ui/badge.jsx';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog.jsx';
-import { Loader2, Cloud, Download, AlertCircle, CheckCircle, RefreshCw, Info, FolderOpen, Tag } from 'lucide-react';
-import { api } from '@/lib/api';
-import { logger } from '@/lib/logger';
+import { Link } from "react-router-dom";
+import { Cloud, Info, Loader2 } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card.jsx";
+import { DropboxConnectionPanel } from "@/components/dropbox/DropboxConnectionPanel";
+import { DropboxOrganizationGuide } from "@/components/dropbox/DropboxOrganizationGuide";
+import { APP_FOLDER } from "@/components/dropbox/dropbox-guide-content";
+import { useDropboxSync } from "@/hooks/use-dropbox-sync";
 
-// Organization Guide Component
-const OrganizationGuide = () => {
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="flex items-center gap-2">
-          <Info className="h-4 w-4" />
-          How to organize files
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FolderOpen className="h-5 w-5" />
-            Dropbox File Organization Guide
-          </DialogTitle>
-          <DialogDescription>
-            Learn how to organize supported comic files in Dropbox for automatic tagging
-          </DialogDescription>
-        </DialogHeader>
-        
-        <div className="space-y-6">
-          {/* Quick Summary */}
-          <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
-            <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Quick Summary</h3>
-            <p className="text-blue-800 dark:text-blue-200 text-sm">
-              Create folders in your <code className="bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">Apps/StarbugStoneComics</code> directory.
-              Each folder becomes a tag automatically! Supports nested folders and smart naming conversion.
-            </p>
-          </div>
+const inlineCode = "rounded bg-amber-100 px-1 py-0.5 text-xs dark:bg-amber-900";
 
-          {/* Folder Structure Examples */}
-          <div>
-            <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <FolderOpen className="h-4 w-4" />
-              Folder Structure Examples
-            </h3>
-            <div className="bg-muted p-4 rounded-lg font-mono text-sm">
-              <div className="space-y-1">
-                <div>📁 Apps/StarbugStoneComics/</div>
-                <div className="ml-4">📄 Superman.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox</Badge></div>
-                <div className="ml-4">📁 superHero/</div>
-                <div className="ml-8">📄 Batman.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox, Super Hero</Badge></div>
-                <div className="ml-8">📄 WonderWoman.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox, Super Hero</Badge></div>
-                <div className="ml-4">📁 Manga/</div>
-                <div className="ml-8">📄 naruto.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox, Manga</Badge></div>
-                <div className="ml-8">📁 Anime/</div>
-                <div className="ml-12">📄 blackCat.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox, Manga, Anime</Badge></div>
-                <div className="ml-4">📁 sci-fi/</div>
-                <div className="ml-8">📁 space_opera/</div>
-                <div className="ml-12">📄 Foundation.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox, Sci Fi, Space Opera</Badge></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Naming Conventions */}
-          <div>
-            <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <Tag className="h-4 w-4" />
-              Supported Naming Conventions
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-3">
-                <div className="p-3 border rounded-lg">
-                  <div className="font-medium text-sm">camelCase</div>
-                  <div className="text-xs text-muted-foreground">superHero → "Super Hero"</div>
-                </div>
-                <div className="p-3 border rounded-lg">
-                  <div className="font-medium text-sm">snake_case</div>
-                  <div className="text-xs text-muted-foreground">space_opera → "Space Opera"</div>
-                </div>
-                <div className="p-3 border rounded-lg">
-                  <div className="font-medium text-sm">kebab-case</div>
-                  <div className="text-xs text-muted-foreground">sci-fi → "Sci Fi"</div>
-                </div>
-              </div>
-              <div className="space-y-3">
-                <div className="p-3 border rounded-lg">
-                  <div className="font-medium text-sm">UPPERCASE</div>
-                  <div className="text-xs text-muted-foreground">MANGA → "Manga"</div>
-                </div>
-                <div className="p-3 border rounded-lg">
-                  <div className="font-medium text-sm">PascalCase</div>
-                  <div className="text-xs text-muted-foreground">ActionAdventure → "Action Adventure"</div>
-                </div>
-                <div className="p-3 border rounded-lg">
-                  <div className="font-medium text-sm">Mixed</div>
-                  <div className="text-xs text-muted-foreground">Any combination works!</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Best Practices */}
-          <div>
-            <h3 className="font-semibold mb-3">Best Practices</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-start gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-                <div>Use descriptive folder names that make sense as tags</div>
-              </div>
-              <div className="flex items-start gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-                <div>Nest folders for hierarchical organization (Genre → Subgenre)</div>
-              </div>
-              <div className="flex items-start gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-                <div>Keep folder names concise but meaningful</div>
-              </div>
-              <div className="flex items-start gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-                <div>Use consistent naming conventions within your collection</div>
-              </div>
-              <div className="flex items-start gap-2">
-                <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                <div>Files in the root folder only get the "Dropbox" tag</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Common Examples */}
-          <div>
-            <h3 className="font-semibold mb-3">Common Organization Examples</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div className="space-y-2">
-                <div className="font-medium">By Genre:</div>
-                <div className="pl-4 space-y-1 text-muted-foreground">
-                  <div>📁 Action/</div>
-                  <div>📁 Comedy/</div>
-                  <div>📁 Drama/</div>
-                  <div>📁 Fantasy/</div>
-                  <div>📁 Horror/</div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="font-medium">By Publisher:</div>
-                <div className="pl-4 space-y-1 text-muted-foreground">
-                  <div>📁 Marvel/</div>
-                  <div>📁 DC_Comics/</div>
-                  <div>📁 Image/</div>
-                  <div>📁 Dark_Horse/</div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="font-medium">By Series:</div>
-                <div className="pl-4 space-y-1 text-muted-foreground">
-                  <div>📁 Batman/</div>
-                  <div>📁 Spider-Man/</div>
-                  <div>📁 X-Men/</div>
-                  <div>📁 Walking_Dead/</div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="font-medium">Mixed Approach:</div>
-                <div className="pl-4 space-y-1 text-muted-foreground">
-                  <div>📁 Marvel/superHero/</div>
-                  <div>📁 Manga/Action/</div>
-                  <div>📁 Indie/sci-fi/</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
+/** Importing comics from the Dropbox app folder, and the tagging that comes with it. */
 function DropboxSyncPage() {
-  const { toast } = useToast();
-  const [isConnected, setIsConnected] = useState(false);
-  const [dropboxUser, setDropboxUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState(null);
-  const [lastSync, setLastSync] = useState(null);
-  const [dropboxFiles, setDropboxFiles] = useState([]);
-  const [importingFiles, setImportingFiles] = useState(new Set());
-  const [refreshingFiles, setRefreshingFiles] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [connecting, setConnecting] = useState(false);
+  const dropbox = useDropboxSync();
 
-  const fetchDropboxFiles = useCallback(async (showToast = true) => {
-    setRefreshingFiles(true);
-    try {
-      const data = await api.get('/api/dropbox/files');
-      setDropboxFiles(data.files || []);
-      if (showToast) {
-        toast({
-          title: "Files Refreshed",
-          description: `Found ${data.files?.length || 0} comics in your Dropbox folder.`,
-        });
-      }
-    } catch (error) {
-      logger.error('Error fetching Dropbox files:', error);
-      toast({
-        title: "Refresh Failed",
-        description: error.message || "Could not refresh Dropbox files. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setRefreshingFiles(false);
-    }
-  }, [toast]);
-
-  // The connection is checked once, and a reply that arrives after leaving the
-  // page is dropped rather than applied to a component that has gone.
-  useEffect(() => {
-    let ignore = false;
-    api.get('/api/dropbox/status')
-      .then(async (data) => {
-        if (ignore) return;
-        setIsConnected(data.connected);
-        setDropboxUser(data.user);
-        setLastSync(data.lastSync);
-        if (data.connected) await fetchDropboxFiles(false);
-      })
-      .catch((error) => {
-        logger.error('Error checking Dropbox status:', error);
-      })
-      .finally(() => { if (!ignore) setLoading(false); });
-
-    return () => { ignore = true; };
-  }, [fetchDropboxFiles]);
-
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('status') === 'connected') {
-      toast({ title: "Dropbox Connected!", description: "Your Dropbox account has been successfully connected." });
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [toast]);
-
-  const handleConnectDropbox = () => {
-    setConnecting(true);
-    // Add a small delay to show the loading state before redirect
-    setTimeout(() => {
-      window.location.href = '/api/dropbox/connect';
-    }, 100);
-  };
-
-  const handleDisconnectDropbox = async () => {
-    setDisconnecting(true);
-    try {
-      await api.post('/api/dropbox/disconnect', {});
-      setIsConnected(false);
-      setDropboxUser(null);
-      setDropboxFiles([]);
-      toast({
-        title: "Dropbox Disconnected",
-        description: "Your Dropbox account has been disconnected.",
-      });
-    } catch (error) {
-      toast({
-        title: "Disconnect Failed",
-        description: error.message || "Could not disconnect Dropbox.",
-        variant: "destructive"
-      });
-    } finally {
-      setDisconnecting(false);
-    }
-  };
-
-  // Keyed on the path rather than the name: the same file name can appear in
-  // several Dropbox folders, and each is a separate row here.
-  const handleImportSingle = async (file) => {
-    const { name: fileName, path } = file;
-    setImportingFiles(prev => new Set([...prev, path]));
-
-    try {
-      const data = await api.post('/api/dropbox/import', { path, fileName });
-      toast({
-        title: "Import Successful",
-        description: `${data.comic?.title || fileName} has been imported successfully.`,
-      });
-      fetchDropboxFiles(false);
-    } catch (error) {
-      toast({
-        title: "Import Failed",
-        description: error.message || "Could not import this comic.",
-        variant: "destructive"
-      });
-    } finally {
-      setImportingFiles(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(path);
-        return newSet;
-      });
-    }
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
-    setSyncStatus('Importing...');
-    
-    try {
-      const data = await api.post('/api/dropbox/sync', {});
-      setSyncStatus(`Import completed: ${data.newFiles || 0} new comics added`);
-      setLastSync(new Date().toISOString());
-      toast({
-        title: "Import Complete",
-        description: `${data.newFiles || 0} new comics have been imported from Dropbox.`,
-      });
-      fetchDropboxFiles();
-    } catch (error) {
-      setSyncStatus(`Import failed: ${error.message || "Could not import comics from Dropbox."}`);
-      toast({
-        title: "Import Failed",
-        description: error.message || "Could not import comics from Dropbox.",
-        variant: "destructive"
-      });
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  if (loading) {
+  if (dropbox.loading) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="flex items-center justify-center">
@@ -338,11 +25,10 @@ function DropboxSyncPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Organization Guide Header */}
-        <div className="flex items-center justify-between mb-4">
+      <div className="mx-auto max-w-4xl space-y-6">
+        <div className="mb-4 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Dropbox Import</h1>
+            <h1 className="mb-2 text-3xl font-bold">Dropbox Import</h1>
             <p className="text-muted-foreground">
               Import comics from your Dropbox app folder into Panel Page Flip.
             </p>
@@ -353,18 +39,17 @@ function DropboxSyncPage() {
               <Link className="underline" to="/privacy">Privacy information</Link>
             </p>
           </div>
-          <OrganizationGuide />
+          <DropboxOrganizationGuide />
         </div>
-        
-        {/* Quick Organization Tip */}
-        <div className="p-3 bg-amber-50 dark:bg-amber-950 rounded-lg border border-amber-200 dark:border-amber-800 mb-6">
+
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
           <div className="flex items-start gap-2">
-            <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+            <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
             <div className="text-sm">
               <span className="font-medium text-amber-800 dark:text-amber-200">Pro Tip:</span>
-              <span className="text-amber-700 dark:text-amber-300 ml-1">
-                Add supported comic files to your <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Apps/StarbugStoneComics</code> folder.
-                Organize in subfolders like <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">superHero/</code> or <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Manga/Action/</code> for automatic tagging!
+              <span className="ml-1 text-amber-700 dark:text-amber-300">
+                Add supported comic files to your <code className={inlineCode}>{APP_FOLDER}</code> folder.
+                Organize in subfolders like <code className={inlineCode}>superHero/</code> or <code className={inlineCode}>Manga/Action/</code> for automatic tagging!
               </span>
             </div>
           </div>
@@ -376,169 +61,10 @@ function DropboxSyncPage() {
               <Cloud className="h-6 w-6" />
               Connection Status
             </CardTitle>
-            <CardDescription>
-              Manage your Dropbox connection and imports
-            </CardDescription>
+            <CardDescription>Manage your Dropbox connection and imports</CardDescription>
           </CardHeader>
           <CardContent>
-            {isConnected ? (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="font-semibold">Connected to Dropbox</span>
-                    </div>
-                    {dropboxUser && (
-                      <p className="text-sm text-muted-foreground">
-                        Account: {dropboxUser}
-                      </p>
-                    )}
-                    {lastSync && (
-                      <p className="text-sm text-muted-foreground">
-                        Last import: {new Date(lastSync).toLocaleString()}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button onClick={handleSync} disabled={syncing} className="flex items-center gap-2">
-                      <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-                      {syncing ? 'Importing...' : 'Import new comics'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={fetchDropboxFiles}
-                      disabled={refreshingFiles}
-                      className="flex items-center gap-2"
-                    >
-                      <RefreshCw className={`h-4 w-4 ${refreshingFiles ? 'animate-spin' : ''}`} />
-                      {refreshingFiles ? 'Refreshing...' : 'Refresh Files'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={handleDisconnectDropbox}
-                      disabled={disconnecting}
-                      className="text-red-600 hover:text-red-700 disabled:text-red-400"
-                    >
-                      {disconnecting ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Disconnecting...
-                        </>
-                      ) : (
-                        'Disconnect'
-                      )}
-                    </Button>
-                  </div>
-                </div>
-
-                {syncStatus && (
-                  <div className="p-3 bg-muted rounded-lg">
-                    <p className="text-sm">{syncStatus}</p>
-                  </div>
-                )}
-
-                <div>
-                  <h3 className="text-lg font-semibold mb-3">Dropbox Comics</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Comics found in your <code className="bg-muted px-1 py-0.5 rounded">Apps/StarbugStoneComics</code> folder
-                  </p>
-                  
-                  {dropboxFiles.length > 0 ? (
-                    <div className="grid gap-2">
-                      {dropboxFiles.map((file, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <p className="font-medium">{file.name}</p>
-                              <Badge variant={file.synced ? "default" : "secondary"}>
-                                {file.synced ? "Imported" : "Available"}
-                              </Badge>
-                            </div>
-                            {file.path && file.path !== `/${file.name}` && (
-                              <p className="text-xs text-muted-foreground mb-1">
-                                📁 {file.path}
-                              </p>
-                            )}
-                            <p className="text-sm text-muted-foreground">
-                              {file.size} • Modified: {new Date(file.modified).toLocaleDateString()}
-                            </p>
-                            {file.tags && file.tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-2">
-                                {file.tags.map((tag, tagIndex) => (
-                                  <Badge key={tagIndex} variant="outline" className="text-xs">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          {!file.synced && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleImportSingle(file)}
-                              disabled={importingFiles.has(file.path)}
-                              className="ml-3 text-blue-600 border-blue-600 hover:bg-blue-50"
-                            >
-                              {importingFiles.has(file.path) ? (
-                                <>
-                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                  Importing...
-                                </>
-                              ) : (
-                                <>
-                                  <Download className="w-3 h-3 mr-1" />
-                                  Import
-                                </>
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <Cloud className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                      <p>No comics found in your Dropbox folder</p>
-                      <p className="text-sm">
-                        Add an enabled comic format to the <code>Apps/StarbugStoneComics</code> folder in your Dropbox
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="text-center space-y-4">
-                <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                  <AlertCircle className="h-5 w-5" />
-                  <span>Not connected to Dropbox</span>
-                </div>
-                <p className="text-muted-foreground">
-                  Connect your Dropbox account to import comics from Dropbox.
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Your comics should be placed in the <code className="bg-muted px-1 py-0.5 rounded">Apps/StarbugStoneComics</code> folder in your Dropbox.
-                </p>
-                <Button 
-                  onClick={handleConnectDropbox} 
-                  disabled={connecting}
-                  className="flex items-center gap-2"
-                >
-                  {connecting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <Cloud className="h-4 w-4" />
-                      Connect to Dropbox
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
+            <DropboxConnectionPanel dropbox={dropbox} />
           </CardContent>
         </Card>
       </div>

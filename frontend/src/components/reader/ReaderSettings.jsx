@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ReaderSettingToggles } from "@/components/reader/ReaderSettingToggles";
+import { ReaderZoomSlider } from "@/components/reader/ReaderZoomSlider";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { READER_DIRECTIONS, READER_FITS, READER_MODES } from "@/lib/reader-preferences";
@@ -81,34 +83,13 @@ export function ReaderSettings({
         </div>
         {modeNotice && <p className="text-xs text-muted-foreground">{modeNotice}</p>}
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="reader-zoom">Zoom level</Label>
-            <span className="min-w-12 text-right text-sm font-medium" aria-live="polite">
-              {Math.round(zoomLevel * 100)}%
-            </span>
-          </div>
-          <input
-            id="reader-zoom"
-            type="range"
-            min="100"
-            max="500"
-            step="25"
-            value={Math.round(zoomLevel * 100)}
-            onChange={(event) => onZoomChange?.(Number(event.target.value) / 100)}
-            disabled={!isLoaded || !canZoom}
-            aria-label="Zoom level"
-            aria-valuetext={`${Math.round(zoomLevel * 100)}%`}
-            className="h-2 w-full cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-50"
-          />
-          <p className="text-xs text-muted-foreground">
-            {canZoom
-              ? continuousZoom
-                ? "Adjust the width of every page while keeping continuous scrolling."
-                : "Adjust the page or spread. This zoom stays when you turn pages, and each new page starts at the top."
-              : "Zoom becomes available once the comic has pages."}
-          </p>
-        </div>
+        <ReaderZoomSlider
+          zoomLevel={zoomLevel}
+          canZoom={canZoom}
+          continuousZoom={continuousZoom}
+          isLoaded={isLoaded}
+          onZoomChange={onZoomChange}
+        />
 
         <Separator />
 
@@ -150,43 +131,7 @@ export function ReaderSettings({
 
         <Separator />
 
-        {/* Every control stays inert until the saved values have arrived. A
-            change made against the placeholder defaults would be sent as the
-            user's whole preference set and overwrite what is on the server. */}
-        <div className="space-y-4">
-          <SettingSwitch
-            id="reader-cover-alone"
-            label="Show first page alone"
-            description="Keep a cover separate when using two-page mode."
-            checked={settings.coverAlone}
-            onCheckedChange={(coverAlone) => onChange({ coverAlone })}
-            disabled={!isLoaded || settings.mode !== "double"}
-          />
-          <SettingSwitch
-            id="reader-show-progress"
-            label="Show progress bar"
-            description="Keep a slim page progress indicator above navigation."
-            checked={settings.showProgress}
-            onCheckedChange={(showProgress) => onChange({ showProgress })}
-            disabled={!isLoaded}
-          />
-          <SettingSwitch
-            id="reader-auto-hide"
-            label="Auto-hide reader controls"
-            description="Controls return on a centre tap, pointer movement, or keyboard use."
-            checked={settings.autoHideControls}
-            onCheckedChange={(autoHideControls) => onChange({ autoHideControls })}
-            disabled={!isLoaded}
-          />
-          <SettingSwitch
-            id="reader-wake-lock"
-            label="Keep screen awake"
-            description="Prevent screen sleep while the reader is open, when supported."
-            checked={settings.wakeLock}
-            onCheckedChange={(wakeLock) => onChange({ wakeLock })}
-            disabled={!isLoaded}
-          />
-        </div>
+        <ReaderSettingToggles settings={settings} isLoaded={isLoaded} onChange={onChange} />
 
         <Separator />
 

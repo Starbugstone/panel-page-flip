@@ -26,6 +26,78 @@ const EMPTY = {
   website: "",
 };
 
+/**
+ * What is being reported, and how a reader can find it again.
+ *
+ * The reference kind decides the wording of the field beneath it, because
+ * "paste the link" and "name the comic" are different requests and asking for
+ * both at once is how a report arrives with neither.
+ */
+function NoticeDetails({ form, errors, change, setForm, referenceCopy }) {
+  return (
+        <Card>
+          <CardHeader>
+            <CardTitle>Notice details</CardTitle>
+            <CardDescription>Provide enough detail for an administrator to locate and assess the specific material.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <Field label="Report type" error={errors.category} required>
+              <select id="category" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.category} onChange={change("category")}>
+                <option value="">Select a category</option>
+                <option value="copyright_ip">Copyright / intellectual-property infringement</option>
+                <option value="other_illegal">Other illegal content</option>
+              </select>
+            </Field>
+            <Field label="How can we identify it?" error={errors.referenceType} required hint="Choose a reference you can realistically know. Internal database IDs are never required.">
+              <select id="referenceType" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.referenceType} onChange={change("referenceType")}>
+                <option value="invitation_url">Panel Page Flip invitation link</option>
+                <option value="sharing_code">C- / G- content sharing code</option>
+                <option value="user_code">U- public user code</option>
+                <option value="account_reference">Username, display name, or known account email</option>
+                <option value="comic_reference">Comic or publication details</option>
+                <option value="panel_url">Other Panel Page Flip reading URL</option>
+                <option value="other">Other reference or external evidence</option>
+              </select>
+            </Field>
+            <Field label={referenceCopy.label} error={errors.reportedReference} required hint={referenceCopy.hint}>
+              <Textarea id="reportedReference" value={form.reportedReference} onChange={change("reportedReference")} maxLength={2000} rows={3} placeholder={referenceCopy.placeholder} />
+            </Field>
+            <Field label={`Content title${form.referenceType === "comic_reference" ? "" : " (optional)"}`} error={errors.reportedContentTitle} required={form.referenceType === "comic_reference"}>
+              <Input id="reportedContentTitle" value={form.reportedContentTitle} onChange={change("reportedContentTitle")} maxLength={255} placeholder="Title, issue, edition, or collection" />
+            </Field>
+            <Field label="Reported account (optional)" error={errors.reportedAccountReference} hint="A username, display name, or email only if you genuinely know it.">
+              <Input id="reportedAccountReference" value={form.reportedAccountReference} onChange={change("reportedAccountReference")} maxLength={320} />
+            </Field>
+            <Field label="Where you encountered it (optional)" error={errors.sourceContext} hint="Describe where or how you encountered the material. Do not include passwords or private credentials.">
+              <Textarea id="sourceContext" value={form.sourceContext} onChange={change("sourceContext")} maxLength={2000} rows={3} />
+            </Field>
+            <Field label="Explain the report" error={errors.explanation} required hint="Explain what you believe is illegal, the right involved, your authority to report it, and supporting context.">
+              <Textarea id="explanation" value={form.explanation} onChange={change("explanation")} maxLength={10000} rows={8} />
+            </Field>
+
+            <div className="hidden" aria-hidden="true">
+              <Label htmlFor="website">Website</Label>
+              <Input id="website" tabIndex={-1} autoComplete="off" value={form.website} onChange={change("website")} />
+            </div>
+
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="goodFaithAcknowledged"
+                checked={form.goodFaithAcknowledged}
+                onCheckedChange={(checked) => setForm((current) => ({ ...current, goodFaithAcknowledged: checked === true }))}
+              />
+              <div>
+                <Label htmlFor="goodFaithAcknowledged">
+                  I confirm that the information in this report is accurate to the best of my knowledge and that I am submitting it in good faith.
+                </Label>
+                {errors.goodFaithAcknowledged && <p role="alert" className="mt-1 text-sm text-destructive">{errors.goodFaithAcknowledged}</p>}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+  );
+}
+
 export default function ReportContent() {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
@@ -109,66 +181,7 @@ export default function ReportContent() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Notice details</CardTitle>
-            <CardDescription>Provide enough detail for an administrator to locate and assess the specific material.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <Field label="Report type" error={errors.category} required>
-              <select id="category" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.category} onChange={change("category")}>
-                <option value="">Select a category</option>
-                <option value="copyright_ip">Copyright / intellectual-property infringement</option>
-                <option value="other_illegal">Other illegal content</option>
-              </select>
-            </Field>
-            <Field label="How can we identify it?" error={errors.referenceType} required hint="Choose a reference you can realistically know. Internal database IDs are never required.">
-              <select id="referenceType" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.referenceType} onChange={change("referenceType")}>
-                <option value="invitation_url">Panel Page Flip invitation link</option>
-                <option value="sharing_code">C- / G- content sharing code</option>
-                <option value="user_code">U- public user code</option>
-                <option value="account_reference">Username, display name, or known account email</option>
-                <option value="comic_reference">Comic or publication details</option>
-                <option value="panel_url">Other Panel Page Flip reading URL</option>
-                <option value="other">Other reference or external evidence</option>
-              </select>
-            </Field>
-            <Field label={referenceCopy.label} error={errors.reportedReference} required hint={referenceCopy.hint}>
-              <Textarea id="reportedReference" value={form.reportedReference} onChange={change("reportedReference")} maxLength={2000} rows={3} placeholder={referenceCopy.placeholder} />
-            </Field>
-            <Field label={`Content title${form.referenceType === "comic_reference" ? "" : " (optional)"}`} error={errors.reportedContentTitle} required={form.referenceType === "comic_reference"}>
-              <Input id="reportedContentTitle" value={form.reportedContentTitle} onChange={change("reportedContentTitle")} maxLength={255} placeholder="Title, issue, edition, or collection" />
-            </Field>
-            <Field label="Reported account (optional)" error={errors.reportedAccountReference} hint="A username, display name, or email only if you genuinely know it.">
-              <Input id="reportedAccountReference" value={form.reportedAccountReference} onChange={change("reportedAccountReference")} maxLength={320} />
-            </Field>
-            <Field label="Where you encountered it (optional)" error={errors.sourceContext} hint="Describe where or how you encountered the material. Do not include passwords or private credentials.">
-              <Textarea id="sourceContext" value={form.sourceContext} onChange={change("sourceContext")} maxLength={2000} rows={3} />
-            </Field>
-            <Field label="Explain the report" error={errors.explanation} required hint="Explain what you believe is illegal, the right involved, your authority to report it, and supporting context.">
-              <Textarea id="explanation" value={form.explanation} onChange={change("explanation")} maxLength={10000} rows={8} />
-            </Field>
-
-            <div className="hidden" aria-hidden="true">
-              <Label htmlFor="website">Website</Label>
-              <Input id="website" tabIndex={-1} autoComplete="off" value={form.website} onChange={change("website")} />
-            </div>
-
-            <div className="flex items-start gap-3">
-              <Checkbox
-                id="goodFaithAcknowledged"
-                checked={form.goodFaithAcknowledged}
-                onCheckedChange={(checked) => setForm((current) => ({ ...current, goodFaithAcknowledged: checked === true }))}
-              />
-              <div>
-                <Label htmlFor="goodFaithAcknowledged">
-                  I confirm that the information in this report is accurate to the best of my knowledge and that I am submitting it in good faith.
-                </Label>
-                {errors.goodFaithAcknowledged && <p role="alert" className="mt-1 text-sm text-destructive">{errors.goodFaithAcknowledged}</p>}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <NoticeDetails form={form} errors={errors} change={change} setForm={setForm} referenceCopy={referenceCopy} />
 
         <Button type="submit" disabled={submitting}>{submitting ? "Submitting…" : "Submit report"}</Button>
         <p className="text-sm text-muted-foreground">The legal operator may contact you if more identifying information is needed.</p>

@@ -8,6 +8,52 @@ import { Label } from "@/components/ui/label";
 
 const LABELS = { cbz: "CBZ (ZIP)", cbr: "CBR (RAR)", cb7: "CB7 (7z)", cbt: "CBT (tar)", pdf: "PDF" };
 
+/**
+ * One format: whether it is switched on, whether this server can actually
+ * serve it, and what to install if it cannot.
+ *
+ * CBZ can never be switched off — it is the format everything else converts
+ * to — and a format that is unavailable and off cannot be switched on, because
+ * doing so would only queue up failing uploads.
+ */
+function FormatRow({ name, status, busy, onToggle }) {
+  return (
+          <div key={name} className="rounded-md border p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id={`format-${name}`}
+                  checked={status.enabled}
+                  disabled={name === "cbz" || busy || (!status.available && !status.enabled)}
+                  onCheckedChange={(checked) => onToggle(name, checked === true)}
+                />
+                <div>
+                  <Label htmlFor={`format-${name}`}>{LABELS[name]}</Label>
+                  <p className="text-sm text-muted-foreground">Requires {status.requirements.join(" + ")}</p>
+                </div>
+              </div>
+              <span className={status.available ? "text-sm text-green-600 whitespace-nowrap" : "text-sm text-destructive whitespace-nowrap"}>
+                {status.available ? "Available" : "Unavailable"}
+              </span>
+            </div>
+            {!status.available && status.hint && (
+              <p className="mt-3 rounded bg-muted p-3 text-sm text-muted-foreground">{status.hint}</p>
+            )}
+            {/* Works, but could do more — currently only PDF, which reads
+                image-based comics natively and needs Poppler for the rest. */}
+            {status.available && status.note && (
+              <p className="mt-3 rounded bg-muted p-3 text-sm text-muted-foreground">{status.note}</p>
+            )}
+            {status.enabled && !status.available && (
+              <p className="mt-3 text-sm text-destructive">
+                This format is switched on but cannot be served right now. Uploads and reads for it will fail until the
+                tools above are installed, or turn it off here.
+              </p>
+            )}
+          </div>
+  );
+}
+
 export function AdminComicFormats() {
   const { toast } = useToast();
   const [formats, setFormats] = useState(null);
@@ -97,40 +143,9 @@ export function AdminComicFormats() {
           </div>
         )}
         {!formats ? <p>Checking format support…</p> : Object.entries(formats).map(([name, status]) => (
-          <div key={name} className="rounded-md border p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <Checkbox
-                  id={`format-${name}`}
-                  checked={status.enabled}
-                  disabled={name === "cbz" || busy || (!status.available && !status.enabled)}
-                  onCheckedChange={(checked) => toggle(name, checked === true)}
-                />
-                <div>
-                  <Label htmlFor={`format-${name}`}>{LABELS[name]}</Label>
-                  <p className="text-sm text-muted-foreground">Requires {status.requirements.join(" + ")}</p>
-                </div>
-              </div>
-              <span className={status.available ? "text-sm text-green-600 whitespace-nowrap" : "text-sm text-destructive whitespace-nowrap"}>
-                {status.available ? "Available" : "Unavailable"}
-              </span>
-            </div>
-            {!status.available && status.hint && (
-              <p className="mt-3 rounded bg-muted p-3 text-sm text-muted-foreground">{status.hint}</p>
-            )}
-            {/* Works, but could do more — currently only PDF, which reads
-                image-based comics natively and needs Poppler for the rest. */}
-            {status.available && status.note && (
-              <p className="mt-3 rounded bg-muted p-3 text-sm text-muted-foreground">{status.note}</p>
-            )}
-            {status.enabled && !status.available && (
-              <p className="mt-3 text-sm text-destructive">
-                This format is switched on but cannot be served right now. Uploads and reads for it will fail until the
-                tools above are installed, or turn it off here.
-              </p>
-            )}
-          </div>
+          <FormatRow key={name} name={name} status={status} busy={busy} onToggle={toggle} />
         ))}
+
         {/* Independent of which formats are on: how pages leave the server is
             the same question for every comic in the library. */}
         {delivery && (

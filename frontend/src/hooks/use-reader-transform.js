@@ -28,19 +28,16 @@ import {
  * ref that was deliberately never attached, which worked only because the
  * arithmetic happens to tolerate a zero-sized viewport.
  */
-export function useReaderTransform({ containerRef, imageRef, enabled = true }) {
-  const [transform, setTransform] = useState(IDENTITY_TRANSFORM);
-  const transformRef = useRef(IDENTITY_TRANSFORM);
-  const pendingScrollRef = useRef(null);
-  // Set while the reader is being put at the top of a page that has not been
-  // laid out yet. See resetPosition and the layout effect that clears it.
-  const settlingAtTopRef = useRef(false);
-
-  const apply = useCallback((next) => {
-    transformRef.current = next;
-    setTransform(next);
-  }, []);
-
+/**
+ * Reading the page's geometry, and handing the position between the two things
+ * that can own it.
+ *
+ * While zoomed the transform owns the position and the scroller must be at
+ * rest, or its offset would add itself to every pan. Back at natural scale the
+ * scroller owns it again — but it cannot be told until it can scroll, which is
+ * a render away, so the offset is parked and applied in a layout effect.
+ */
+function useTransformGeometry({ containerRef, imageRef, transformRef, pendingScrollRef, transform, apply }) {
   const measure = useCallback(() => {
     const container = containerRef.current;
     const image = imageRef.current;
@@ -62,7 +59,7 @@ export function useReaderTransform({ containerRef, imageRef, enabled = true }) {
       scrollLeft: container?.scrollLeft ?? 0,
       scrollTop: container?.scrollTop ?? 0,
     });
-  }, [containerRef]);
+  }, [containerRef, transformRef]);
 
   const settle = useCallback((next, geometry) => {
     const container = containerRef.current;
@@ -84,7 +81,7 @@ export function useReaderTransform({ containerRef, imageRef, enabled = true }) {
     // clipped while the page is zoomed.
     pendingScrollRef.current = scrollFromTransform(next, geometry);
     apply({ ...IDENTITY_TRANSFORM });
-  }, [apply, containerRef]);
+  }, [apply, containerRef, pendingScrollRef, transformRef]);
 
   // Layout, not passive: the container only becomes scrollable in this render,
   // and a passive effect would let the browser paint the page at the top before
@@ -99,7 +96,27 @@ export function useReaderTransform({ containerRef, imageRef, enabled = true }) {
 
     container.scrollLeft = pending.scrollLeft;
     container.scrollTop = pending.scrollTop;
-  }, [transform, containerRef]);
+  }, [transform, containerRef, pendingScrollRef]);
+
+  return { measure, startingPoint, settle };
+}
+
+export function useReaderTransform({ containerRef, imageRef, enabled = true }) {
+  const [transform, setTransform] = useState(IDENTITY_TRANSFORM);
+  const transformRef = useRef(IDENTITY_TRANSFORM);
+  const pendingScrollRef = useRef(null);
+  // Set while the reader is being put at the top of a page that has not been
+  // laid out yet. See resetPosition and the layout effect that clears it.
+  const settlingAtTopRef = useRef(false);
+
+  const apply = useCallback((next) => {
+    transformRef.current = next;
+    setTransform(next);
+  }, []);
+
+  const { measure, startingPoint, settle } = useTransformGeometry({
+    containerRef, imageRef, transformRef, pendingScrollRef, transform, apply,
+  });
 
   const pinch = useCallback(({ scale, focal, dx = 0, dy = 0 }) => {
     if (!enabled) return;

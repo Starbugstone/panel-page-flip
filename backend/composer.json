@@ -22,7 +22,6 @@
         "symfony/dotenv": "6.4.*",
         "symfony/expression-language": "6.4.*",
         "symfony/flex": "^2",
-        "symfony/form": "6.4.*",
         "symfony/framework-bundle": "6.4.*",
         "symfony/intl": "6.4.*",
         "symfony/lock": "^6.4",

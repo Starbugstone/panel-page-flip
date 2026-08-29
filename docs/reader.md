@@ -152,6 +152,13 @@ Reader controls stay clear of browser chrome, notches and the home indicator,
 and the reading area follows the browser's chrome as it grows and shrinks rather
 than assuming one fixed height.
 
+The page stays clear of the controls in return. The reading area reserves the
+height the control bar actually has rather than a fixed allowance, so the foot
+of a page is visible whatever makes the bar taller — the zoom percentage, a
+spread's page range, the larger hit targets a touchscreen gets, or a window
+narrow enough to wrap the row. Where auto-hide is in effect, faded controls give
+that space back to the page.
+
 ## Page navigator
 
 The grid button at the top-right opens a strip of page thumbnails along the

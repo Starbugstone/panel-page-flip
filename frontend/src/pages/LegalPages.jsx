@@ -82,43 +82,13 @@ function LegalLayout({ title, children }) {
   );
 }
 
-export function PrivacyPolicy() {
-  const { operator, privacyEmail } = useLegalConfig();
-
-  const advertising = useAdvertisingInUse();
-
+/**
+ * Who else sees the data, including the advertising disclosures that only
+ * apply where the operator has actually turned advertising on.
+ */
+function PrivacyRecipients({ advertising }) {
   return (
-    <LegalLayout title="Privacy Policy">
-      <p>
-        This policy explains how {operator} (“we”, “us”) processes personal data
-        when you use Panel Page Flip.
-      </p>
-
-      <h2>Data controller and contact</h2>
-      <p>
-        The data controller is {operator}. For privacy questions or to exercise
-        your rights, contact <Contact email={privacyEmail} />.
-      </p>
-
-      <h2>Data we process</h2>
-      <ul>
-        <li>Account information: email address, display name, password hash, roles, verification status, and account timestamps.</li>
-        <li>Library data: uploaded comic files and metadata, tags, and ownership records.</li>
-        <li>Reading activity: current page, completion status, and last-read time.</li>
-        <li>Sharing data: usernames, recipient email addresses, sharing-code records, invitation and redemption records, and the identities of the people sharing and receiving comics.</li>
-        <li>Dropbox data, when connected: encrypted OAuth credentials, import paths, and last-sync time.</li>
-        <li>Metadata-provider credentials, when you add your own: an encrypted API token, write-only after saving and removable at any time.</li>
-        <li>Security and operations data: session identifiers, IP-based rate-limit entries, access logs, and administrator audit records.</li>
-        <li>Content reports: reporter contact details, the supplied allegation and references, review notes, linked internal records, and action history.</li>
-      </ul>
-
-      <h2>Why we process it</h2>
-      <ul>
-        <li><strong>Contract:</strong> to create your account and provide the library, reader, sharing, and optional Dropbox features you request.</li>
-        <li><strong>Legitimate interests:</strong> to secure, troubleshoot, and administer the service, prevent abuse, and keep proportionate audit records.</li>
-        <li><strong>Legal obligations:</strong> where records must be retained or disclosed under applicable law.</li>
-      </ul>
-
+    <>
       <h2>Who receives data</h2>
       <p>
         We use the hosting and database infrastructure selected by the operator.
@@ -192,6 +162,48 @@ export function PrivacyPolicy() {
           </p>
         </>
       )}
+    </>
+  );
+}
+
+export function PrivacyPolicy() {
+  const { operator, privacyEmail } = useLegalConfig();
+
+  const advertising = useAdvertisingInUse();
+
+  return (
+    <LegalLayout title="Privacy Policy">
+      <p>
+        This policy explains how {operator} (“we”, “us”) processes personal data
+        when you use Panel Page Flip.
+      </p>
+
+      <h2>Data controller and contact</h2>
+      <p>
+        The data controller is {operator}. For privacy questions or to exercise
+        your rights, contact <Contact email={privacyEmail} />.
+      </p>
+
+      <h2>Data we process</h2>
+      <ul>
+        <li>Account information: email address, display name, password hash, roles, verification status, and account timestamps.</li>
+        <li>Library data: uploaded comic files and metadata, tags, and ownership records.</li>
+        <li>Reading activity: current page, completion status, and last-read time.</li>
+        <li>Sharing data: usernames, recipient email addresses, sharing-code records, invitation and redemption records, and the identities of the people sharing and receiving comics.</li>
+        <li>Dropbox data, when connected: encrypted OAuth credentials, import paths, and last-sync time.</li>
+        <li>Metadata-provider credentials, when you add your own: an encrypted API token, write-only after saving and removable at any time.</li>
+        <li>Security and operations data: session identifiers, IP-based rate-limit entries, access logs, and administrator audit records.</li>
+        <li>Content reports: reporter contact details, the supplied allegation and references, review notes, linked internal records, and action history.</li>
+      </ul>
+
+      <h2>Why we process it</h2>
+      <ul>
+        <li><strong>Contract:</strong> to create your account and provide the library, reader, sharing, and optional Dropbox features you request.</li>
+        <li><strong>Legitimate interests:</strong> to secure, troubleshoot, and administer the service, prevent abuse, and keep proportionate audit records.</li>
+        <li><strong>Legal obligations:</strong> where records must be retained or disclosed under applicable law.</li>
+      </ul>
+
+      <PrivacyRecipients advertising={advertising} />
 
       <h2>Retention</h2>
       <ul>

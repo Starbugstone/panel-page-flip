@@ -118,19 +118,57 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         self::assertSame([], $this->getJson('/api/shares/shared-by-me')['sharedByMe']);
     }
 
-    public function testBulkShareUsesTheSameSelfShareMessageForAnEmailAddress(): void
+    /**
+     * One rule, one status, one sentence — whichever of the three forms the
+     * sender used to name themselves.
+     *
+     * They are asserted together because they used to disagree: a copy of the
+     * rule in the controller answered 409 for a resolved username or user code
+     * while the service answered 400 for an address, so the same refusal read
+     * as two different failures depending on how the recipient was typed.
+     *
+     * @dataProvider selfRecipientProvider
+     *
+     * @param callable(self, User): array<string, string> $nameSelf
+     */
+    public function testNamingYourselfAnyWayIsRefusedIdentically(callable $nameSelf): void
     {
         $owner = $this->createAndLoginUser(['email' => 'self@example.com']);
         $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
 
-        $payload = $this->postJson('/api/shares/invitations/bulk', [
+        $payload = $this->postJson('/api/shares/invitations/bulk', array_merge([
             'comicIds' => [$comic->getId()],
-            'email' => 'self@example.com',
             'senderResponsibilityAccepted' => true,
-        ]);
+        ], $nameSelf($this, $owner)));
 
         self::assertResponseStatusCodeSame(400);
         self::assertSame('You cannot share a comic with yourself.', $payload['message']);
+    }
+
+    /**
+     * @return iterable<string, array{callable(self, User): array<string, string>}>
+     */
+    public static function selfRecipientProvider(): iterable
+    {
+        yield 'email address' => [
+            static fn (self $test, User $owner): array => ['email' => (string) $owner->getEmail()],
+        ];
+
+        // Spelled differently on purpose: the address is normalised before the
+        // comparison, so a shouted one must be refused just the same.
+        yield 'email address in another case' => [
+            static fn (self $test, User $owner): array => ['email' => strtoupper((string) $owner->getEmail())],
+        ];
+
+        yield 'username' => [
+            static fn (self $test, User $owner): array => ['username' => (string) $owner->getUsername()],
+        ];
+
+        yield 'user code' => [
+            static fn (self $test, User $owner): array => [
+                'userCode' => $test->getJson('/api/shares/user-code')['userCode'],
+            ],
+        ];
     }
 
     public function testBulkShareStillRequiresTheSenderResponsibilityAcknowledgement(): void

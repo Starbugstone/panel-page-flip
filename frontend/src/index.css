@@ -109,9 +109,15 @@
   }
 
   /* Keep fit-to-page artwork wholly visible while the bottom controls are on
-     screen. Touch readers regain the space as soon as auto-hide fades them. */
+     screen. Touch readers regain the space as soon as auto-hide fades them.
+
+     --reader-controls-height is the bar measured, not guessed: a zoom badge, a
+     spread's page range or a coarse pointer's larger buttons all make it taller
+     than the constant that stands in until the first measurement lands, and
+     every one of those used to bury the foot of the page. Its own bottom
+     padding already clears the home indicator, so the inset is in the number. */
   .reader-stage-controls-visible {
-    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+    padding-bottom: var(--reader-controls-height, calc(5.5rem + env(safe-area-inset-bottom)));
   }
 
   /* A column, so the progress bar can sit above the buttons rather than beside
@@ -161,8 +167,10 @@
     scroll-padding-top: 1rem;
   }
 
+  /* The same bar, plus a gap: a continuous scroll ends under the controls
+     otherwise, and its last page deserves the same clearance as a paged one. */
   .reader-continuous > div {
-    padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(1.5rem + var(--reader-controls-height, calc(5.5rem + env(safe-area-inset-bottom))));
   }
 
   /* Zoom is set once on the scroller as --reader-page-zoom; every page derives

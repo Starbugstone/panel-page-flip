@@ -127,6 +127,10 @@ jobs:
           docker compose exec -T php composer validate --strict
           docker compose exec -T php composer audit --locked --no-dev
           docker compose exec -T php php bin/console lint:container --env=test
+          # Nothing renders a template on a request, so a broken one shows up
+          # only in the mail that failed to send. A dead base template sat here
+          # calling importmap() long after the asset mapper went.
+          docker compose exec -T php php bin/console lint:twig templates
           docker compose exec -T php php bin/console doctrine:schema:validate --env=test
 
       - name: Static analysis and code style

@@ -218,6 +218,17 @@ final class UsernameIdentityTest extends AbstractApiTestCase
         self::assertSame($recipient->getUsername(), $payload['recipient']['username']);
     }
 
+    /**
+     * Two different refusals, deliberately answered differently.
+     *
+     * Looking your own name up is a conflict in the lookup: nothing was asked
+     * for yet, and 409 with "your own username" is what tells the box which
+     * name it just resolved. Actually offering yourself a comic is the sharing
+     * rule, and ComicShareService owns that one for every recipient form —
+     * address, username or user code — so it answers 400 and one sentence.
+     * A copy of it lived in the controller and gave a username a 409 while the
+     * same refusal for an address was a 400.
+     */
     public function testYouCannotShareWithYourself(): void
     {
         $me = $this->createAndLoginUser(['email' => 'solo@example.com']);
@@ -226,12 +237,13 @@ final class UsernameIdentityTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(409);
 
         $comic = ComicFactory::new()->ownedBy($me)->create()->object();
-        $this->postJson('/api/shares/invitations/bulk', [
+        $payload = $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
             'username' => $me->getUsername(),
             'senderResponsibilityAccepted' => true,
         ]);
-        self::assertResponseStatusCodeSame(409);
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('You cannot share a comic with yourself.', $payload['message']);
     }
 
     /**

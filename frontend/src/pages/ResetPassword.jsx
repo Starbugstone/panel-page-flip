@@ -12,6 +12,141 @@ import { api } from "@/lib/api";
 const INVALID_TOKEN_MESSAGE = "Invalid or expired token";
 const VALIDATION_ERROR_FALLBACK = "The reset link could not be checked. Please try again.";
 
+/** The new password, twice, with the rules it still fails listed as you type. */
+function ResetPasswordForm({
+  password, setPassword, confirmPassword, setConfirmPassword, passwordErrors, loading, onSubmit,
+}) {
+  return (
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="password">New Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={12}
+              />
+              {password && passwordErrors.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Password must include: {passwordErrors.join(", ")}.
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirm New Password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                minLength={12}
+              />
+            </div>
+            <Button
+              type="submit"
+              className="w-full bg-comic-purple hover:bg-comic-purple-dark"
+              disabled={loading}
+            >
+              {loading ? "Resetting..." : "Reset Password"}
+            </Button>
+          </form>
+  );
+}
+
+/**
+ * Every state a reset link can be in before there is a form to fill.
+ *
+ * Checking, a link that could not be checked, a link that is no longer good,
+ * and a password already changed — each says which one it is, because "try
+ * again" and "ask for a new link" are different next steps.
+ */
+function resetPasswordStatus({ validatingToken, validation, tokenValid, resetComplete, validationError }) {
+  if (validatingToken) {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
+        <Card className="max-w-md w-full text-center p-6">
+          <CardHeader>
+            <CardTitle>Validating Reset Link</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="animate-pulse">Please wait while we validate your reset link...</div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (validation === "error") {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
+            <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
+            <CardTitle className="mt-4 font-comic text-2xl">Could Not Validate Reset Link</CardTitle>
+            <CardDescription>{validationError}</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!tokenValid) {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
+            <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
+            <CardTitle className="mt-4 font-comic text-2xl">Invalid Reset Link</CardTitle>
+            <CardDescription>
+              This password reset link is invalid or has expired.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="flex justify-center">
+            <Link
+              to="/forgot-password"
+              className="text-comic-purple hover:underline"
+            >
+              Request New Reset Link
+            </Link>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  if (resetComplete) {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
+            <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
+            <CardTitle className="mt-4 font-comic text-2xl">Password Reset Complete</CardTitle>
+            <CardDescription>
+              Your password has been reset successfully.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center">
+            <p>You can now log in with your new password.</p>
+          </CardContent>
+          <CardFooter className="flex justify-center">
+            <Link
+              to="/login"
+              className="text-comic-purple hover:underline"
+            >
+              Go to Login
+            </Link>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export default function ResetPassword() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -103,85 +238,10 @@ export default function ResetPassword() {
     }
   };
 
-  if (validatingToken) {
-    return (
-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
-        <Card className="max-w-md w-full text-center p-6">
-          <CardHeader>
-            <CardTitle>Validating Reset Link</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="animate-pulse">Please wait while we validate your reset link...</div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (validation === "error") {
-    return (
-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
-        <Card className="max-w-md w-full">
-          <CardHeader className="text-center">
-            <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
-            <CardTitle className="mt-4 font-comic text-2xl">Could Not Validate Reset Link</CardTitle>
-            <CardDescription>{validationError}</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!tokenValid) {
-    return (
-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
-        <Card className="max-w-md w-full">
-          <CardHeader className="text-center">
-            <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
-            <CardTitle className="mt-4 font-comic text-2xl">Invalid Reset Link</CardTitle>
-            <CardDescription>
-              This password reset link is invalid or has expired.
-            </CardDescription>
-          </CardHeader>
-          <CardFooter className="flex justify-center">
-            <Link 
-              to="/forgot-password"
-              className="text-comic-purple hover:underline"
-            >
-              Request New Reset Link
-            </Link>
-          </CardFooter>
-        </Card>
-      </div>
-    );
-  }
-
-  if (resetComplete) {
-    return (
-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
-        <Card className="max-w-md w-full">
-          <CardHeader className="text-center">
-            <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
-            <CardTitle className="mt-4 font-comic text-2xl">Password Reset Complete</CardTitle>
-            <CardDescription>
-              Your password has been reset successfully.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-center">
-            <p>You can now log in with your new password.</p>
-          </CardContent>
-          <CardFooter className="flex justify-center">
-            <Link 
-              to="/login"
-              className="text-comic-purple hover:underline"
-            >
-              Go to Login
-            </Link>
-          </CardFooter>
-        </Card>
-      </div>
-    );
-  }
+  // Null once the link is good and the password has not been changed yet,
+  // which is the only state with a form to show.
+  const status = resetPasswordStatus({ validatingToken, validation, tokenValid, resetComplete, validationError });
+  if (status) return status;
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
@@ -194,42 +254,15 @@ export default function ResetPassword() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="password">New Password</Label>
-              <Input 
-                id="password" 
-                type="password" 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={12}
-              />
-              {password && passwordErrors.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Password must include: {passwordErrors.join(", ")}.
-                </p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm New Password</Label>
-              <Input 
-                id="confirm-password" 
-                type="password" 
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                minLength={12}
-              />
-            </div>
-            <Button 
-              type="submit" 
-              className="w-full bg-comic-purple hover:bg-comic-purple-dark"
-              disabled={loading}
-            >
-              {loading ? "Resetting..." : "Reset Password"}
-            </Button>
-          </form>
+          <ResetPasswordForm
+            password={password}
+            setPassword={setPassword}
+            confirmPassword={confirmPassword}
+            setConfirmPassword={setConfirmPassword}
+            passwordErrors={passwordErrors}
+            loading={loading}
+            onSubmit={handleSubmit}
+          />
         </CardContent>
       </Card>
     </div>

@@ -3,6 +3,15 @@ import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
 /**
+ * React 19 will not accept `act()` from a runtime that has not declared itself
+ * a test environment. Testing Library sets this around its own helpers and puts
+ * it back afterwards, so a test that reaches for `act` from `react` directly —
+ * to deliver a matchMedia change to real listeners, say — lands in the gap and
+ * is told the environment is not configured to support it.
+ */
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+/**
  * What jsdom has to be told about before Radix will render.
  *
  * These are not conveniences. Radix's dialog, checkbox and popover primitives

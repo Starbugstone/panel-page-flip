@@ -12,85 +12,10 @@ import {
 } from "lucide-react";
 import { landingCopy, landingPreviewCopy } from "@/lib/landing-copy.js";
 
-export default function Landing() {
+/** The middle of the page: what it does, and who it is for. */
+function LandingFeatures() {
   return (
-    <div className="overflow-hidden">
-      <section className="relative border-b px-4 py-16 sm:py-20 lg:py-28">
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 top-0 -z-10 h-[34rem] bg-[radial-gradient(circle_at_75%_20%,rgba(155,135,245,0.22),transparent_38%),radial-gradient(circle_at_15%_40%,rgba(214,188,250,0.25),transparent_32%)]"
-        />
-        <div className="mx-auto grid max-w-6xl items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
-          <div>
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border bg-background/80 px-3 py-1.5 text-sm font-medium shadow-sm backdrop-blur">
-              <Sparkles className="h-4 w-4 text-comic-purple-dark" />
-              {landingCopy.badge}
-            </div>
-            <h1 className="max-w-3xl text-4xl font-black tracking-tight sm:text-6xl lg:text-7xl">
-              {landingCopy.headlineLead}
-              <span className="block text-comic-purple-dark dark:text-comic-purple-light">
-                {landingCopy.headlineEmphasis}
-              </span>
-            </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl">
-              {landingCopy.intro}
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Button asChild size="lg" className="bg-comic-purple-dark text-white hover:bg-comic-purple-dark/90">
-                <Link to="/login?signup=true">
-                  {landingCopy.startLibrary}
-                  <ArrowRight />
-                </Link>
-              </Button>
-              <Button asChild size="lg" variant="outline">
-                <Link to="/login">{landingCopy.logIn}</Link>
-              </Button>
-            </div>
-            <p className="mt-6 text-sm text-muted-foreground">
-              {landingCopy.formats}
-            </p>
-          </div>
-
-          <div aria-hidden="true" className="relative mx-auto w-full max-w-lg">
-            <div className="absolute -inset-5 -z-10 rotate-3 rounded-[2rem] bg-comic-purple-soft/70 blur-sm dark:bg-comic-purple-dark/20" />
-            <div className="overflow-hidden rounded-2xl border bg-card shadow-2xl">
-              <div className="flex items-center justify-between border-b px-5 py-3">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <BookOpen className="h-4 w-4 text-comic-purple-dark" />
-                  {landingPreviewCopy.nowReading}
-                </div>
-                <span className="rounded-full bg-comic-purple-soft px-2.5 py-1 text-xs font-semibold text-comic-purple-dark">
-                  {landingPreviewCopy.pageStatus}
-                </span>
-              </div>
-              <div className="grid aspect-[4/3] grid-cols-[1.15fr_0.85fr] gap-2 bg-slate-950 p-3">
-                <div className="grid grid-rows-[1fr_0.65fr] gap-2">
-                  <div className="rounded-md bg-gradient-to-br from-violet-300 via-comic-purple to-violet-900" />
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-md bg-gradient-to-tr from-amber-200 to-orange-500" />
-                    <div className="rounded-md bg-gradient-to-br from-sky-300 to-indigo-700" />
-                  </div>
-                </div>
-                <div className="grid grid-rows-[0.6fr_1fr] gap-2">
-                  <div className="rounded-md bg-gradient-to-bl from-fuchsia-300 to-violet-700" />
-                  <div className="rounded-md bg-gradient-to-tr from-slate-200 via-violet-200 to-comic-purple" />
-                </div>
-              </div>
-              <div className="flex items-center gap-3 px-5 py-4">
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full w-3/4 rounded-full bg-comic-purple-dark" />
-                </div>
-                <span className="text-xs font-medium text-muted-foreground">{landingPreviewCopy.progress}</span>
-              </div>
-            </div>
-            <div className="absolute -bottom-6 -left-3 flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium shadow-lg sm:-left-8">
-              <Gauge className="h-4 w-4 text-comic-purple-dark" />
-              {landingPreviewCopy.cachedBadge}
-            </div>
-          </div>
-        </div>
-      </section>
-
+    <>
       <section className="px-4 py-20 sm:py-28">
         <div className="mx-auto max-w-6xl">
           <div className="mx-auto max-w-2xl text-center">
@@ -176,6 +101,90 @@ export default function Landing() {
           </ol>
         </div>
       </section>
+    </>
+  );
+}
+
+export default function Landing() {
+  return (
+    <div className="overflow-hidden">
+      <section className="relative border-b px-4 py-16 sm:py-20 lg:py-28">
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 -z-10 h-[34rem] bg-[radial-gradient(circle_at_75%_20%,rgba(155,135,245,0.22),transparent_38%),radial-gradient(circle_at_15%_40%,rgba(214,188,250,0.25),transparent_32%)]"
+        />
+        <div className="mx-auto grid max-w-6xl items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
+          <div>
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border bg-background/80 px-3 py-1.5 text-sm font-medium shadow-sm backdrop-blur">
+              <Sparkles className="h-4 w-4 text-comic-purple-dark" />
+              {landingCopy.badge}
+            </div>
+            <h1 className="max-w-3xl text-4xl font-black tracking-tight sm:text-6xl lg:text-7xl">
+              {landingCopy.headlineLead}
+              <span className="block text-comic-purple-dark dark:text-comic-purple-light">
+                {landingCopy.headlineEmphasis}
+              </span>
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl">
+              {landingCopy.intro}
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Button asChild size="lg" className="bg-comic-purple-dark text-white hover:bg-comic-purple-dark/90">
+                <Link to="/login?signup=true">
+                  {landingCopy.startLibrary}
+                  <ArrowRight />
+                </Link>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <Link to="/login">{landingCopy.logIn}</Link>
+              </Button>
+            </div>
+            <p className="mt-6 text-sm text-muted-foreground">
+              {landingCopy.formats}
+            </p>
+          </div>
+
+          <div aria-hidden="true" className="relative mx-auto w-full max-w-lg">
+            <div className="absolute -inset-5 -z-10 rotate-3 rounded-[2rem] bg-comic-purple-soft/70 blur-sm dark:bg-comic-purple-dark/20" />
+            <div className="overflow-hidden rounded-2xl border bg-card shadow-2xl">
+              <div className="flex items-center justify-between border-b px-5 py-3">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <BookOpen className="h-4 w-4 text-comic-purple-dark" />
+                  {landingPreviewCopy.nowReading}
+                </div>
+                <span className="rounded-full bg-comic-purple-soft px-2.5 py-1 text-xs font-semibold text-comic-purple-dark">
+                  {landingPreviewCopy.pageStatus}
+                </span>
+              </div>
+              <div className="grid aspect-[4/3] grid-cols-[1.15fr_0.85fr] gap-2 bg-slate-950 p-3">
+                <div className="grid grid-rows-[1fr_0.65fr] gap-2">
+                  <div className="rounded-md bg-gradient-to-br from-violet-300 via-comic-purple to-violet-900" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-md bg-gradient-to-tr from-amber-200 to-orange-500" />
+                    <div className="rounded-md bg-gradient-to-br from-sky-300 to-indigo-700" />
+                  </div>
+                </div>
+                <div className="grid grid-rows-[0.6fr_1fr] gap-2">
+                  <div className="rounded-md bg-gradient-to-bl from-fuchsia-300 to-violet-700" />
+                  <div className="rounded-md bg-gradient-to-tr from-slate-200 via-violet-200 to-comic-purple" />
+                </div>
+              </div>
+              <div className="flex items-center gap-3 px-5 py-4">
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full w-3/4 rounded-full bg-comic-purple-dark" />
+                </div>
+                <span className="text-xs font-medium text-muted-foreground">{landingPreviewCopy.progress}</span>
+              </div>
+            </div>
+            <div className="absolute -bottom-6 -left-3 flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium shadow-lg sm:-left-8">
+              <Gauge className="h-4 w-4 text-comic-purple-dark" />
+              {landingPreviewCopy.cachedBadge}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <LandingFeatures />
 
       <section className="px-4 py-20 sm:py-24">
         <div className="mx-auto max-w-5xl rounded-3xl bg-slate-950 px-6 py-12 text-center text-white shadow-xl sm:px-12 sm:py-16">
