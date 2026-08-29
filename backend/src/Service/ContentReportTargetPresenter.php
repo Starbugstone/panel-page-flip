@@ -84,6 +84,34 @@ final class ContentReportTargetPresenter
         ];
     }
 
+    /**
+     * The same projection with the moderation state a reviewer acts on.
+     *
+     * The detail view needs to know whether the record it is about to restrict
+     * is already restricted, which the queue and the candidate list have no use
+     * for. It is the same record described for a different reader, so it starts
+     * from {@see entity()} rather than from a second literal — the drift this
+     * class exists to prevent is exactly a `linkedComic` that grew a field the
+     * candidate beside it never got.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function detailed(Comic|User|ComicShare|null $entity): ?array
+    {
+        if ($entity === null) {
+            return null;
+        }
+
+        return $this->entity($entity) + match (true) {
+            $entity instanceof Comic => [
+                'sharingRestricted' => $entity->isSharingRestricted(),
+                'quarantined' => $entity->isQuarantined(),
+            ],
+            $entity instanceof User => ['sharingRestricted' => $entity->isSharingRestricted()],
+            $entity instanceof ComicShare => [],
+        };
+    }
+
     /** @return array<string, mixed> */
     private function entity(Comic|User|ComicShare $entity): array
     {

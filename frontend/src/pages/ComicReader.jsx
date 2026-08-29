@@ -14,6 +14,7 @@ import { Progress } from "@/components/ui/progress.jsx";
 import { Skeleton } from "@/components/ui/skeleton.jsx";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 import { usePageGeometry } from "@/hooks/use-page-geometry";
+import { usePageImageCache } from "@/hooks/use-page-image-cache";
 import { usePageVariant } from "@/hooks/use-page-variant";
 import { usePreloadWindow } from "@/hooks/use-preload-window";
 import { useReaderChrome } from "@/hooks/use-reader-chrome";
@@ -36,11 +37,7 @@ import {
   pageRangeLabel,
   readingUnitForPage,
 } from "@/lib/reader-layout";
-import {
-  createReaderPageUrl,
-  isPageVariantAtLeast,
-  withForcedReload,
-} from "@/lib/reader-pages";
+import { isPageAtVariant, isUsableImage } from "@/lib/reader-pages";
 import {
   DEFAULT_READER_PREFERENCES,
   OVERRIDABLE_SETTINGS,
@@ -52,7 +49,6 @@ import { describeViewportContext, suggestedFitFor, viewportContextKey } from "@/
 
 const SWIPE_FOLLOW = 0.35;
 const MODE_SUGGESTION_ID = "mode:tablet:landscape";
-const isUsableImage = (value) => Boolean(value) && value !== "loading" && value !== "failed";
 
 export default function ComicReader() {
   const { comicId } = useParams();
@@ -63,8 +59,6 @@ export default function ComicReader() {
   const [pageCount, setPageCount] = useState(0);
   const [loadError, setLoadError] = useState(null);
   const [isFetchingComic, setIsFetchingComic] = useState(true);
-  const [imageCache, setImageCache] = useState({});
-  const [loadedVariants, setLoadedVariants] = useState({});
   const [showThumbnails, setShowThumbnails] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -77,26 +71,23 @@ export default function ComicReader() {
   const readerRootRef = useRef(null);
   const imageContainerRef = useRef(null);
   const imageRef = useRef(null);
-  const imageCacheRef = useRef({});
   const pageInputRef = useRef(null);
   const progressAbortController = useRef(null);
   const progressRevisionRef = useRef(0);
   const lastSavedPage = useRef(null);
   const isMountedRef = useRef(true);
-  const loadedVariantsRef = useRef({});
-  const loadingPagesRef = useRef({});
-  const loadQueueRef = useRef([]);
-  const isLoadingBackgroundRef = useRef(false);
-  const updateImageCache = useCallback((update) => {
-    setImageCache((previous) => {
-      const next = typeof update === "function" ? update(previous) : update;
-      imageCacheRef.current = next;
-      return next;
-    });
-  }, []);
-  const updateLoadedVariants = useCallback((update) => {
-    setLoadedVariants((previous) => typeof update === "function" ? update(previous) : update);
-  }, []);
+
+  const {
+    imageCache,
+    imageCacheRef,
+    loadedVariants,
+    loadPage,
+    cancelLoadsExcept,
+    queuePages,
+    evictOutside,
+    retryPage: retryCachedPage,
+    reset: resetPageCache,
+  } = usePageImageCache({ comicId, pageCount });
 
   const profile = useViewportProfile();
   const viewportContext = useMemo(
@@ -167,11 +158,6 @@ export default function ComicReader() {
     (pageIndex) => isZoomed && currentUnit.includes(pageIndex) ? zoomPageVariant : basePageVariant,
     [basePageVariant, currentUnit, isZoomed, zoomPageVariant]
   );
-  const isPageReady = useCallback((pageIndex, variant = desiredVariantFor(pageIndex)) => (
-    isUsableImage(imageCacheRef.current[pageIndex])
-      && isPageVariantAtLeast(loadedVariantsRef.current[pageIndex], variant)
-  ), [desiredVariantFor]);
-
   const updateReadingProgress = useCallback(async (pageToSave) => {
     if (!comicId || !comic) return;
     progressAbortController.current?.abort();
@@ -205,11 +191,7 @@ export default function ComicReader() {
 
   useEffect(() => {
     isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      loadQueueRef.current = [];
-      Object.values(loadingPagesRef.current).forEach((entry) => entry.cancel?.());
-    };
+    return () => { isMountedRef.current = false; };
   }, []);
 
   useEffect(() => {
@@ -221,12 +203,7 @@ export default function ComicReader() {
       setPageCount(0);
       lastSavedPage.current = null;
       resetPage(0, 0);
-      updateImageCache({});
-      loadedVariantsRef.current = {};
-      updateLoadedVariants({});
-      Object.values(loadingPagesRef.current).forEach((entry) => entry.cancel?.());
-      loadingPagesRef.current = {};
-      loadQueueRef.current = [];
+      resetPageCache();
       try {
         const data = await api.get(`/api/comics/${comicId}`);
         if (!active) return;
@@ -256,72 +233,7 @@ export default function ComicReader() {
     if (comicId) void loadComic();
     else navigate("/dashboard");
     return () => { active = false; };
-  }, [comicId, navigate, resetPage, toast, updateImageCache, updateLoadedVariants]);
-
-  const cancelLoadsExcept = useCallback((keepPages) => {
-    const keep = new Set(keepPages);
-    Object.entries(loadingPagesRef.current).forEach(([key, entry]) => {
-      if (!keep.has(Number(key))) entry.cancel?.();
-    });
-  }, []);
-
-  const loadPageIntoCache = useCallback((pageIndex, variant = desiredVariantFor(pageIndex), { force = false } = {}) => {
-    if (pageIndex < 0 || pageIndex >= pageCount) return Promise.resolve(null);
-    if (!force && isPageReady(pageIndex, variant)) return Promise.resolve(imageCacheRef.current[pageIndex]);
-    const existing = loadingPagesRef.current[pageIndex];
-    if (existing?.variant === variant && !force) return existing.promise;
-    existing?.cancel?.();
-
-    let settle = () => {};
-    const img = new Image();
-    const entry = {
-      variant,
-      img,
-      promise: null,
-      cancel: () => {
-        if (loadingPagesRef.current[pageIndex] !== entry) return;
-        img.onload = null;
-        img.onerror = null;
-        try { img.src = ""; } catch { /* Some image shims expose a read-only src. */ }
-        delete loadingPagesRef.current[pageIndex];
-        settle(null);
-      },
-    };
-    const isCurrent = () => loadingPagesRef.current[pageIndex] === entry;
-    entry.promise = new Promise((resolve) => { settle = resolve; });
-    loadingPagesRef.current[pageIndex] = entry;
-    updateImageCache((previous) => isUsableImage(previous[pageIndex]) ? previous : { ...previous, [pageIndex]: "loading" });
-    img.onload = () => {
-      if (!isCurrent()) return settle(null);
-      loadedVariantsRef.current[pageIndex] = variant;
-      updateLoadedVariants((previous) => ({ ...previous, [pageIndex]: variant }));
-      updateImageCache((previous) => ({ ...previous, [pageIndex]: img }));
-      delete loadingPagesRef.current[pageIndex];
-      settle(img);
-    };
-    img.onerror = () => {
-      if (!isCurrent()) return settle(null);
-      updateImageCache((previous) => isUsableImage(previous[pageIndex]) ? previous : { ...previous, [pageIndex]: "failed" });
-      delete loadingPagesRef.current[pageIndex];
-      settle(null);
-    };
-    const stableUrl = createReaderPageUrl(comicId, pageIndex + 1, variant);
-    img.src = force ? withForcedReload(stableUrl) : stableUrl;
-    return entry.promise;
-  }, [comicId, desiredVariantFor, isPageReady, pageCount, updateImageCache, updateLoadedVariants]);
-
-  const processBackgroundQueue = useCallback(() => {
-    const drain = () => {
-      if (isLoadingBackgroundRef.current || loadQueueRef.current.length === 0) return;
-      isLoadingBackgroundRef.current = true;
-      const pageIndex = loadQueueRef.current.shift();
-      loadPageIntoCache(pageIndex, basePageVariant).finally(() => {
-        isLoadingBackgroundRef.current = false;
-        drain();
-      });
-    };
-    drain();
-  }, [basePageVariant, loadPageIntoCache]);
+  }, [comicId, navigate, resetPage, resetPageCache, toast]);
 
   const queueBackgroundPages = useCallback(() => {
     const anchor = currentPageRef.current;
@@ -337,61 +249,32 @@ export default function ComicReader() {
       if (anchor + distance <= end && !ordered.includes(anchor + distance)) ordered.push(anchor + distance);
       if (anchor - distance >= start && !ordered.includes(anchor - distance)) ordered.push(anchor - distance);
     }
-    loadQueueRef.current = ordered.filter((pageIndex) => !visible.has(pageIndex)
-      && !isPageReady(pageIndex, basePageVariant)
-      && !loadingPagesRef.current[pageIndex]);
-    processBackgroundQueue();
-  }, [basePageVariant, currentPageRef, currentUnit, effectiveMode, isPageReady, pageCount, preloadWindow, processBackgroundQueue, readingUnits]);
+    queuePages(ordered.filter((pageIndex) => !visible.has(pageIndex)), basePageVariant);
+  }, [basePageVariant, currentPageRef, currentUnit, effectiveMode, pageCount, preloadWindow, queuePages, readingUnits]);
 
   useEffect(() => {
     if (effectiveMode === "continuous" || pageCount <= 0) return undefined;
     cancelLoadsExcept(currentUnit);
     let cancelled = false;
-    Promise.all(currentUnit.map((pageIndex) => loadPageIntoCache(pageIndex, desiredVariantFor(pageIndex))))
+    Promise.all(currentUnit.map((pageIndex) => loadPage(pageIndex, desiredVariantFor(pageIndex))))
       .then(() => { if (!cancelled) queueBackgroundPages(); });
-    const cleanupTimer = setTimeout(() => {
-      const start = Math.max(0, currentPageRef.current - preloadWindow.backward);
-      const end = Math.min(pageCount - 1, currentPageRef.current + preloadWindow.forward);
-      updateImageCache((previous) => {
-        const next = { ...previous };
-        let changed = false;
-        Object.keys(next).forEach((key) => {
-          const pageIndex = Number(key);
-          if (pageIndex < start || pageIndex > end) {
-            delete next[key];
-            delete loadedVariantsRef.current[key];
-            changed = true;
-          }
-        });
-        return changed ? next : previous;
-      });
-      updateLoadedVariants((previous) => {
-        const next = { ...previous };
-        let changed = false;
-        Object.keys(next).forEach((key) => {
-          const pageIndex = Number(key);
-          if (pageIndex < start || pageIndex > end) {
-            delete next[key];
-            changed = true;
-          }
-        });
-        return changed ? next : previous;
-      });
-    }, 1500);
+    // Deferred, because the pages just turned away from are the ones most
+    // likely to be turned back to.
+    const cleanupTimer = setTimeout(() => evictOutside(
+      Math.max(0, currentPageRef.current - preloadWindow.backward),
+      Math.min(pageCount - 1, currentPageRef.current + preloadWindow.forward)
+    ), 1500);
     return () => {
       cancelled = true;
       clearTimeout(cleanupTimer);
     };
-  }, [cancelLoadsExcept, currentPage, currentPageRef, currentUnit, desiredVariantFor, effectiveMode, loadPageIntoCache, pageCount, preloadWindow, queueBackgroundPages, updateImageCache, updateLoadedVariants]);
+  }, [cancelLoadsExcept, currentPage, currentPageRef, currentUnit, desiredVariantFor, effectiveMode, evictOutside, loadPage, pageCount, preloadWindow, queueBackgroundPages]);
 
+  // Continuous mode renders its own <img> per page, so nothing this cache holds
+  // is on screen and holding it would be a second copy of the whole comic.
   useEffect(() => {
-    if (effectiveMode === "continuous") {
-      cancelLoadsExcept([]);
-      loadQueueRef.current = [];
-      updateImageCache({});
-      loadedVariantsRef.current = {};
-    }
-  }, [cancelLoadsExcept, effectiveMode, updateImageCache, updateLoadedVariants]);
+    if (effectiveMode === "continuous") resetPageCache();
+  }, [effectiveMode, resetPageCache]);
 
   useEffect(() => {
     if (comic && comicId && pageCount > 0 && lastSavedPage.current !== currentPage) {
@@ -406,7 +289,7 @@ export default function ComicReader() {
       resetPosition();
     }
     return goToLogicalPage(pageIndex);
-  }, [currentUnit, effectiveMode, goToLogicalPage, resetPosition]);
+  }, [currentUnit, effectiveMode, goToLogicalPage, imageCacheRef, resetPosition]);
   const previousTarget = effectiveMode === "double"
     ? adjacentReadingPage(readingUnits, currentPage, "previous")
     : currentPage > 0 ? currentPage - 1 : null;
@@ -435,38 +318,24 @@ export default function ComicReader() {
     if (requestedPage !== currentPageRef.current) goToReaderPage(requestedPage);
   }, [currentPageRef, goToReaderPage, pageCount, pageInput, setPageInput]);
 
-  const retryPage = useCallback((pageIndex) => {
-    loadingPagesRef.current[pageIndex]?.cancel?.();
-    delete loadedVariantsRef.current[pageIndex];
-    updateLoadedVariants((previous) => {
-      const next = { ...previous };
-      delete next[pageIndex];
-      return next;
-    });
-    updateImageCache((previous) => {
-      const next = { ...previous };
-      delete next[pageIndex];
-      return next;
-    });
-    void loadPageIntoCache(pageIndex, desiredVariantFor(pageIndex), { force: true });
-  }, [desiredVariantFor, loadPageIntoCache, updateImageCache, updateLoadedVariants]);
+  const retryPage = useCallback(
+    (pageIndex) => { void retryCachedPage(pageIndex, desiredVariantFor(pageIndex)); },
+    [desiredVariantFor, retryCachedPage]
+  );
+
   const handleForceReload = useCallback(() => {
     if (currentPage < 0 || currentPage >= pageCount) return;
     const pageToReload = currentPage;
-    loadingPagesRef.current[pageToReload]?.cancel?.();
-    updateImageCache((previous) => {
-      const next = { ...previous };
-      delete next[pageToReload];
-      return next;
-    });
     toast({ title: "Reloading page", description: `Forcing reload of page ${pageToReload + 1}` });
-    loadPageIntoCache(pageToReload, desiredVariantFor(pageToReload), { force: true }).then((image) => {
+    retryCachedPage(pageToReload, desiredVariantFor(pageToReload)).then((image) => {
+      // The reader may have moved on while the server was answering; a toast
+      // about a page they have left is noise about something they no longer see.
       if (currentPageRef.current !== pageToReload) return;
       toast(image
         ? { title: "Page reloaded", description: `Successfully reloaded page ${pageToReload + 1}`, variant: "success" }
         : { title: "Reload failed", description: "Could not reload the page. Please try again later.", variant: "destructive" });
     });
-  }, [currentPage, currentPageRef, desiredVariantFor, loadPageIntoCache, pageCount, toast, updateImageCache]);
+  }, [currentPage, currentPageRef, desiredVariantFor, pageCount, retryCachedPage, toast]);
 
   useEffect(() => {
     const handleKeyPress = (event) => {
@@ -650,8 +519,8 @@ export default function ComicReader() {
       pageIndex,
       image,
       isStale: !isUsableImage(exact) && Boolean(image),
-      isLoading: exact !== "failed" && !(isUsableImage(exact)
-        && isPageVariantAtLeast(loadedVariants[pageIndex], desiredVariantFor(pageIndex))),
+      isLoading: exact !== "failed"
+        && !isPageAtVariant(exact, loadedVariants[pageIndex], desiredVariantFor(pageIndex)),
       hasFailed: exact === "failed",
       onRetry: () => retryPage(pageIndex),
     };

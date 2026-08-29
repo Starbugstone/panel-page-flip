@@ -22,12 +22,6 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[IsGranted('ROLE_ADMIN')]
 final class AdminContentReportController extends AbstractController
 {
-    /**
-     * Legacy target key by target type, most specific first, matching the
-     * order ContentReportLinkService::select() resolves them in.
-     */
-    private const LEGACY_TARGET_KEYS = ['share' => 'linkedShareId', 'comic' => 'linkedComicId', 'user' => 'linkedUserId'];
-
     #[Route('', name: 'list', methods: ['GET'])]
     public function list(Request $request, ContentReportRepository $reports, ContentReportPresenter $presenter): JsonResponse
     {
@@ -91,8 +85,6 @@ final class AdminContentReportController extends AbstractController
                 } else {
                     $linker->select($report, $data['targetType'], $data['targetId'], 'admin_selection');
                 }
-            } elseif (array_intersect(self::LEGACY_TARGET_KEYS, array_keys($data)) !== []) {
-                $this->applyLegacyTarget($report, $data, $linker);
             }
             $linker->assertCanonical($report);
 
@@ -154,56 +146,6 @@ final class AdminContentReportController extends AbstractController
     private function targetIds(ContentReport $report): array
     {
         return ['user' => $report->getLinkedUser()?->getId(), 'comic' => $report->getLinkedComic()?->getId(), 'share' => $report->getLinkedShare()?->getId()];
-    }
-
-    /**
-     * The superseded {linkedUserId, linkedComicId, linkedShareId} payload.
-     *
-     * It is translated into the single target the queue now sends rather than
-     * linking anything itself, so both spellings go through
-     * ContentReportLinkService and are held to its invariants instead of to a
-     * second copy of them living here.
-     *
-     * @param array<string, mixed> $data
-     */
-    private function applyLegacyTarget(ContentReport $report, array $data, ContentReportLinkService $linker): void
-    {
-        $stated = [];
-        foreach (self::LEGACY_TARGET_KEYS as $type => $key) {
-            $stated[$type] = array_key_exists($key, $data) ? $this->legacyTargetId($data[$key]) : null;
-        }
-
-        // Every id the caller named is null: the legacy spelling of "clear it".
-        $selected = array_filter($stated, static fn (?int $id): bool => $id !== null);
-        if ($selected === []) {
-            $linker->unlink($report);
-
-            return;
-        }
-
-        $type = array_key_first($selected);
-        $linker->select($report, $type, $selected[$type], 'legacy_admin_selection');
-
-        // Anything else the caller named has to agree with what linking chose,
-        // or the three ids described more than one record.
-        $linked = $this->targetIds($report);
-        foreach ($stated as $statedType => $id) {
-            if ($id !== null && $id !== $linked[$statedType]) {
-                throw new \DomainException('The selected report target records do not belong together.');
-            }
-        }
-    }
-
-    private function legacyTargetId(mixed $id): ?int
-    {
-        if ($id === null || $id === '') {
-            return null;
-        }
-        if (!is_int($id) && !(is_string($id) && ctype_digit($id))) {
-            throw new \DomainException('Linked record identifiers must be integers or null.');
-        }
-
-        return (int) $id;
     }
 
     private function admin(): User

@@ -319,7 +319,7 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         self::assertSame('private reference', $detail['report']['reportedReference']);
     }
 
-    public function testContradictoryLegacyTargetsAndStaleUserActionsAreRejected(): void
+    public function testContradictoryTargetsAndStaleUserActionsAreRejected(): void
     {
         $firstOwner = UserFactory::createOne()->object();
         $secondOwner = UserFactory::createOne()->object();
@@ -338,9 +338,11 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(400);
         self::assertFalse($firstOwner->isSharingRestricted());
 
+        // Naming an account that does not own the linked comic is refused
+        // rather than quietly relinking the report to a stranger.
         $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
-            'linkedComicId' => $comic->getId(),
-            'linkedUserId' => $firstOwner->getId(),
+            'targetType' => 'user',
+            'targetId' => $firstOwner->getId(),
             'action' => 'none',
         ]);
         self::assertResponseStatusCodeSame(400);
@@ -450,38 +452,15 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         yield 'id without type' => [['targetId' => 123]];
     }
 
-    /** The legacy spelling of the same thing: every named id explicitly null. */
-    public function testAdminCanClearALinkedTargetWithLegacyKeys(): void
-    {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
-        $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 162', 'This allegation has enough information to support a review and a target that turns out to be wrong.');
-        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
-        $entityManager->persist($report);
-        $entityManager->flush();
-        $this->createAndLoginAdmin();
-
-        $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
-            'linkedComicId' => $comic->getId(),
-            'action' => 'none',
-        ]);
-        self::assertResponseIsSuccessful();
-
-        $payload = $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
-            'linkedComicId' => null,
-            'action' => 'none',
-        ]);
-        self::assertResponseIsSuccessful();
-        self::assertNull($payload['report']['linkedComic']);
-        self::assertNull($payload['report']['targetSnapshot']['comicId']);
-    }
-
     /**
-     * The legacy keys are translated into one target selection, so ids that
-     * describe more than one record are still refused rather than silently
-     * resolving to whichever one the caller happened to name first.
+     * A refused selection leaves the report exactly as it was.
+     *
+     * The rejection happens partway through building the new target, so the
+     * risk is a half-applied one: a report pointing at a stranger's account, or
+     * at nothing, because the request that was supposed to fail wrote some of
+     * itself first.
      */
-    public function testLegacyKeysNamingRecordsThatDisagreeAreRejected(): void
+    public function testARefusedTargetSelectionLeavesTheEarlierTargetIntact(): void
     {
         $owner = UserFactory::createOne()->object();
         $stranger = UserFactory::createOne()->object();
@@ -493,14 +472,23 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         $this->createAndLoginAdmin();
 
         $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
-            'linkedComicId' => $comic->getId(),
-            'linkedUserId' => $stranger->getId(),
+            'targetType' => 'comic',
+            'targetId' => $comic->getId(),
             'action' => 'none',
         ]);
+        self::assertResponseIsSuccessful();
 
+        $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
+            'targetType' => 'user',
+            'targetId' => $stranger->getId(),
+            'action' => 'none',
+        ]);
         self::assertResponseStatusCodeSame(400);
+
         $entityManager->clear();
-        self::assertNull($entityManager->getRepository(ContentReport::class)->find($report->getId())?->getLinkedComic());
+        $saved = $entityManager->getRepository(ContentReport::class)->find($report->getId());
+        self::assertSame($comic->getId(), $saved?->getLinkedComic()?->getId());
+        self::assertSame($owner->getId(), $saved?->getLinkedUser()?->getId());
     }
 
     /**
@@ -555,7 +543,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         $this->createAndLoginAdmin();
         $payload = $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
             'status' => ContentReport::STATUS_ACTION_TAKEN,
-            'linkedComicId' => $comic->getId(),
+            'targetType' => 'comic',
+            'targetId' => $comic->getId(),
             'resolutionCode' => 'sharing_restricted',
             'resolutionNote' => 'Sharing disabled while the rights claim is assessed.',
             'action' => 'restrict_sharing',
@@ -633,7 +622,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         $admin = $this->createAndLoginAdmin();
         $payload = $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
             'status' => ContentReport::STATUS_ACTION_TAKEN,
-            'linkedComicId' => $comic->getId(),
+            'targetType' => 'comic',
+            'targetId' => $comic->getId(),
             'action' => 'quarantine_content',
             'notifyOwner' => false,
         ]);

@@ -70,24 +70,9 @@ final class ContentReportPresenter
             'targetResolution' => $resolveCandidates
                 ? $this->resolver->resolve($report, $query)
                 : $this->targets->settledResolution($report),
-            'linkedUser' => $user ? [
-                'id' => $user->getId(),
-                'name' => $user->getName(),
-                'email' => $user->getEmail(),
-                'sharingRestricted' => $user->isSharingRestricted(),
-            ] : null,
-            'linkedComic' => $comic ? [
-                'id' => $comic->getId(),
-                'title' => $comic->getTitle(),
-                'owner' => $comic->getOwner() ? ['id' => $comic->getOwner()->getId(), 'name' => $comic->getOwner()->getName()] : null,
-                'sharingRestricted' => $comic->isSharingRestricted(),
-                'quarantined' => $comic->isQuarantined(),
-            ] : null,
-            'linkedShare' => $share ? [
-                'id' => $share->getId(),
-                'status' => $share->getStatus(),
-                'title' => $share->getComic()?->getTitle() ?? $share->getComicTitleSnapshot(),
-            ] : null,
+            'linkedUser' => $this->targets->detailed($user),
+            'linkedComic' => $this->targets->detailed($comic),
+            'linkedShare' => $this->targets->detailed($share),
         ];
     }
 }

@@ -80,6 +80,33 @@ export function createReaderPageUrl(comicId, pageNumber, variant) {
   return createComicPageUrl(encodeURIComponent(String(comicId)), pageNumber, variant);
 }
 
+/**
+ * Whether a page cache entry is an image that can actually be drawn.
+ *
+ * The cache stores the two pending outcomes — `"loading"` and `"failed"` — in
+ * the same slot as the image itself, so that one lookup answers "what is the
+ * state of this page". Every read has to tell the sentinels apart from an
+ * `Image`, which is easy to get subtly wrong: `"failed"` is truthy.
+ */
+export function isUsableImage(value) {
+  return Boolean(value) && value !== "loading" && value !== "failed";
+}
+
+/**
+ * Whether the cached page is decoded *and* sharp enough for what is being asked
+ * of it.
+ *
+ * Both halves matter and neither is sufficient: a page decoded at the fitted
+ * variant is a real image, but showing it for a zoomed-in read is showing a
+ * blurred one. Taken as a pair here because the loader and the renderer both
+ * ask this question — the loader from refs, mid-gesture, and the renderer from
+ * state — and a reader that disagrees with its own cache about what is ready
+ * either re-fetches what it has or displays what it does not.
+ */
+export function isPageAtVariant(cacheEntry, loadedVariant, wantedVariant) {
+  return isUsableImage(cacheEntry) && isPageVariantAtLeast(loadedVariant, wantedVariant);
+}
+
 export function createPageManifestUrl(comicId, from = 1) {
   if (!comicId) return null;
 
