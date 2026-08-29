@@ -9,7 +9,7 @@ export function Footer() {
   return (
     <footer className="border-t py-6 text-sm text-muted-foreground">
       <div className="container mx-auto flex flex-col gap-3 px-4 md:flex-row md:items-center md:justify-between md:px-6">
-        <p>© {new Date().getFullYear()} Comic Reader App. All rights reserved.</p>
+        <p>© {new Date().getFullYear()} Panel Page Flip. All rights reserved.</p>
         <nav aria-label="Legal" className="flex flex-wrap gap-x-5 gap-y-2">
           <Link className="hover:text-foreground" to="/privacy">Privacy</Link>
           <Link className="hover:text-foreground" to="/terms">Terms</Link>

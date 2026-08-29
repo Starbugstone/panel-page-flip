@@ -131,7 +131,7 @@ export default function Login() {
       
       toast({
         title: "Success",
-        description: "Account created successfully! You can now log in.",
+        description: "Account created successfully! Please verify your email before logging in.",
       });
       
       // Reset form and switch to login tab
@@ -159,7 +159,7 @@ export default function Login() {
         <div className="space-y-8 bg-card p-6 sm:p-8 rounded-lg shadow-lg">
           <div className="text-center">
             <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
-            <h1 className="mt-4 font-comic text-2xl">Welcome to Comic Reader</h1>
+            <h1 className="mt-4 font-comic text-2xl">Welcome to Panel Page Flip</h1>
             <p className="mt-2 text-muted-foreground">Access your comic collection</p>
           </div>
 
@@ -217,11 +217,6 @@ export default function Login() {
                     onChange={(e) => setRegisterName(e.target.value)}
                     required 
                   />
-                  {registerPassword && registerPasswordErrors.length > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      Password must include: {registerPasswordErrors.join(", ")}.
-                    </p>
-                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-username">Username</Label>
@@ -271,6 +266,11 @@ export default function Login() {
                     minLength={12}
                     required 
                   />
+                  {registerPassword && registerPasswordErrors.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Password must include: {registerPasswordErrors.join(", ")}.
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-start gap-2">
                   <Checkbox
@@ -300,14 +300,14 @@ export default function Login() {
 
         <div className="bg-card p-6 sm:p-8 rounded-lg shadow-lg space-y-2 text-center text-sm text-muted-foreground">
           <p>
-            Comic Reader is your personal multi-format comic library on the web. Upload your comics,
+            Panel Page Flip is your personal multi-format comic library on the web. Upload your comics,
             organize them with tags, and read page by page with your progress saved
             so you can pick up right where you left off.
           </p>
           <p>
             Keep your collection tidy with search and reading filters, or sync comic sources
             from Dropbox when you prefer. When a friend should see a book too, share
-            it by email — they can accept it into their own library and start reading.
+            it directly by username, U- code, or email, or send a private C- or G- code.
           </p>
         </div>
       </div>

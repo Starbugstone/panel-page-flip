@@ -77,7 +77,7 @@ The deploy server must have:
 | PHP CLI       | **8.2** (must match the local Docker `PHP_VERSION`) | runs `bin/console`, `composer install`, prod runtime |
 | PHP-FPM (or mod_php) | matching CLI | serves `index.php` to the web server         |
 | Composer 2    | 2.5+            | dependency installation                      |
-| Node.js       | 18 or 20        | builds the React frontend (skip if you build locally and use `--rsync`) |
+| Node.js       | **22.12+** (current release tooling uses Node 22) | builds the React frontend (skip if you build locally and use `--rsync`) |
 | MySQL/MariaDB | 8.0 / 10.6+     | the database                                 |
 | Required PHP extensions: `pdo_mysql`, `intl`, `mbstring`, `zip`, `zlib`, `xsl`, `gd`, `opcache` | | enforced by `composer.json` and verified by `server-install.sh` |
 
@@ -234,7 +234,7 @@ APP_URL=https://comics.yourdomain.com
 MAILER_DSN=smtp://smtp_user:smtp_pass@smtp.yourdomain.com:587
 MAILER_TRANSPORT=smtp
 MAILER_FROM_ADDRESS=noreply@yourdomain.com
-MAILER_FROM_NAME="Comic Reader"
+MAILER_FROM_NAME="Panel Page Flip"
 MESSENGER_TRANSPORT_DSN=doctrine://default?auto_setup=0
 MAX_CONCURRENT_UPLOADS=3
 DROPBOX_APP_KEY=...
@@ -367,7 +367,7 @@ After all the above, every release from your laptop is a single command:
 
 # Run an arbitrary remote command in the project dir (debugging escape hatch)
 ./scripts/deploy-ssh.sh --command="php bin/console about --env=prod"
-./scripts/deploy-ssh.sh --command="tail -n 100 backend/var/log/prod-$(date +%F).log"
+./scripts/deploy-ssh.sh --command="tail -n 100 backend/var/log/app/$(date +%F).log"
 ```
 
 ### Manually invoking the server side
@@ -550,10 +550,11 @@ no cron keeps everything for ever and never notices.
 | `app:cleanup-logs` | daily | **Yes** | `var/log/app`, `var/log/security` and `var/log/audit` grow without limit. `*_LOG_RETENTION_DAYS` has no effect |
 | `app:cleanup-personal-data` | daily | **Yes** | Audit rows past 12 months, spent verification and reset tokens, unverified accounts older than 30 days and pending export files are all kept indefinitely. This is a data-protection obligation, not housekeeping |
 | `app:cleanup-expired-shares` | daily | **Yes** | Unanswered invitations keep the email addresses of people who never had an account here. Dead sharing codes are never removed, so the admin table grows for ever |
+| `app:cleanup-content-reports` | daily | **Yes** | Closed and rejected reports past retention are kept indefinitely. Open cases and cases on legal hold are never selected |
 | `app:dropbox-sync` | every 2 hours | Only with Dropbox | Users import by hand from the Dropbox page. Nothing else is affected |
 | `app:cleanup-comics` | never | **No** | Nothing. It quarantines orphaned files and is a manual tool — run `--dry-run` first and look at the output |
 
-The three required jobs are all idempotent, cheap when there is nothing to do,
+The four required jobs are all idempotent, cheap when there is nothing to do,
 and safe to run more often than suggested. Stagger them by a few minutes rather
 than starting them all on the hour.
 
@@ -570,7 +571,7 @@ codes → Run cleanup**. That is a fallback for a broken or unconfigured cron, n
 a replacement for one: it runs the same service with the same rules, but only
 when somebody remembers to press it.
 
-### 7.1 Dropbox sync (every 2 hours)
+### 7.1 Dropbox import (every 2 hours)
 
 Only needed if the instance uses Dropbox imports.
 
@@ -692,13 +693,14 @@ The glob is deliberately not recursive, so it matches only the files directly in
 
 ### 7.5 Retention and privacy cleanups
 
-Both are required. Together with `app:cleanup-logs` above, these three lines are
+All are required. Together with `app:cleanup-logs` above, these four lines are
 the whole of what this application needs scheduled:
 
 ```cron
 # crontab -e for the deploy user
 0  3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-personal-data --env=prod >> /var/log/comics-cleanup.log 2>&1
 5  3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-expired-shares --env=prod >> /var/log/comics-cleanup.log 2>&1
+10 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-content-reports --env=prod >> /var/log/comics-cleanup.log 2>&1
 15 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-logs --env=prod >> /var/log/comics-cleanup.log 2>&1
 ```
 
@@ -711,7 +713,11 @@ hold the address of somebody who may never have had an account here — and
 sharing codes that died more than 30 days ago. It never touches a live record,
 and never the comics somebody claimed through a code.
 
-Both print what they removed. They are quiet by design when there is nothing to
+`app:cleanup-content-reports` removes closed and rejected reports past
+`CONTENT_REPORT_RETENTION_DAYS`. It never selects an open case or one on legal
+hold; see [docs/content-reporting.md](docs/content-reporting.md#configuration).
+
+All print what they removed. They are quiet by design when there is nothing to
 do, so an empty log line is the normal case rather than a sign the job failed.
 
 #### Checking the schedule is actually working
@@ -1017,7 +1023,7 @@ git push origin main
 
 # Debug helpers
 ./scripts/deploy-ssh.sh --command="php bin/console about --env=prod"
-./scripts/deploy-ssh.sh --command="tail -n 200 backend/var/log/prod-$(date +%F).log"
+./scripts/deploy-ssh.sh --command="tail -n 200 backend/var/log/app/$(date +%F).log"
 ./scripts/deploy-ssh.sh --no-git            # apply build without pulling new commits
 
 # Roll back

@@ -109,8 +109,8 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
                   />
                 )}
               </Link>
-              <Link to="/dropbox-sync" aria-label="Dropbox Sync" className={`${location.pathname === "/dropbox-sync" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
-                <span className="hidden md:inline">Dropbox Sync</span>
+              <Link to="/dropbox-sync" aria-label="Dropbox Import" className={`${location.pathname === "/dropbox-sync" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+                <span className="hidden md:inline">Dropbox Import</span>
                 <Cloud className="inline md:hidden h-5 w-5" />
               </Link>
               <Link to="/settings" aria-label="Settings" className={`${location.pathname === "/settings" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
@@ -118,8 +118,8 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
                 <SlidersHorizontal className="inline lg:hidden h-5 w-5" />
               </Link>
               {isAdmin && (
-                <Link to="/admin" aria-label="Admin Panel" className={`${location.pathname === "/admin" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
-                  <span className="hidden md:inline">Admin Panel</span>
+                <Link to="/admin" aria-label="Admin dashboard" className={`${location.pathname === "/admin" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
+                  <span className="hidden md:inline">Admin dashboard</span>
                   <Settings className="inline md:hidden h-5 w-5" />
                 </Link>
               )}

@@ -328,8 +328,8 @@ export function ShareComicsDialog({
           markExplicit,
         });
 
-        // Shown rather than auto-closing: this is the only moment the code
-        // exists in a readable form, because the server keeps only its hash.
+        // Shown rather than auto-closing so it can be handed over immediately;
+        // the owner can also reveal it later from the Sharing page.
         setIssuedCode(data.code);
         // The server's own expiry, never seven-days-from-now arithmetic of our
         // own — the lifetime is an operator setting and this must follow it.
@@ -388,18 +388,20 @@ export function ShareComicsDialog({
       const notificationFailed = results.some(
         (result) => result.notificationState === "failed"
       );
+      const deliveryDescription = created === 1
+        ? `An invitation for ${sentTo} is on its way.`
+        : `${created} invitations for ${sentTo} are on their way.`;
 
       toast({
         title: created === 1 ? "Comic shared" : `${created} comics shared`,
-        // One invitation, however many comics went into it — so this says what
-        // the recipient receives rather than implying a message each.
         description: notificationFailed
-          ? `${sentTo} could not be notified. The share exists — resend the invitation from the Sharing page.`
+          ? `${sentTo} could not be notified. The ${created === 1 ? "share exists" : "shares exist"} — `
+            + `resend the ${created === 1 ? "invitation" : "invitations"} from the Sharing page.`
           : refused.length > 0
-            ? `One invitation to ${sentTo} is on its way. `
+            ? `${deliveryDescription} `
               + `${refused.length} ${refused.length === 1 ? "comic was" : "comics were"} left out`
               + `${reason ? `: ${reason}` : "."}`
-            : `One invitation to ${sentTo} is on its way.`,
+            : deliveryDescription,
       });
 
       try {
@@ -450,8 +452,8 @@ export function ShareComicsDialog({
       ? `${comicCountLabel} will be put behind ${codeType === SHARE_CODE_TYPES.GROUP ? "one group code" : "a comic code"} `
         + `that ${usesValue === 1 ? "one person" : `up to ${usesValue} people`} can claim. `
         + "You can withdraw the code, or any share it created, at any time."
-      : `${comicCountLabel} will be offered to ${recipientDescription} in one invitation. `
-        + "They must accept each one before they can read it, and you can withdraw any of them later.";
+      : `${comicCountLabel} will be offered to ${recipientDescription} as separate invitations. `
+        + "Each must be accepted before it can be read, and you can withdraw any of them later.";
 
   // An address is its own confirmation: the sender typed the thing the comic is
   // going to, and there is no second identity behind it to check against.
@@ -479,12 +481,9 @@ export function ShareComicsDialog({
       ? isValidUsername(username)
       : isValidShareCode(userCode, SHARE_CODE_TYPES.USER));
 
-  // One invitation however many comics go into it, which is what the recipient
-  // actually receives — the count belongs in the review summary above, where it
-  // describes the comics rather than the messages.
   const submitLabel = mode === MODES.CODE
     ? `Create ${codeType === SHARE_CODE_TYPES.GROUP ? "group" : "comic"} code`
-    : "Send invitation";
+    : selectedComicIds.length === 1 ? "Send invitation" : "Send invitations";
 
   return (
     <Dialog
@@ -792,7 +791,7 @@ export function ShareComicsDialog({
 
                   {issuedCode ? (
                     <div className="space-y-2 rounded-md border p-3">
-                      <p className="text-sm font-medium">Your code — copy it now</p>
+                      <p className="text-sm font-medium">Your code is ready</p>
                       <div className="flex items-center gap-2">
                         <code
                           className="flex-1 rounded bg-muted px-3 py-2 font-mono text-sm tracking-widest"
@@ -805,7 +804,7 @@ export function ShareComicsDialog({
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        It is not stored and cannot be shown again. Create another if you lose it.
+                        Copy it now, or show it again later under Codes you have handed out on the Sharing page.
                         {issuedExpiry && ` It expires ${new Date(issuedExpiry).toLocaleString()}.`}
                       </p>
                     </div>
@@ -887,7 +886,7 @@ export function ShareComicsDialog({
                     ? `${alreadyExplicitCount} of these ${alreadyExplicitCount === 1 ? "is" : "are"} already marked 18+. `
                       + "Leaving this unticked never clears an existing mark."
                     : "Ticking this marks the selected comics 18+ on your own library, and recipients "
-                      + "must confirm their age before they can read them."}
+                      + "must confirm their age and accept before they can read them."}
                 </p>
               </div>
 

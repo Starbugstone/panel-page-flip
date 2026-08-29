@@ -165,6 +165,24 @@ final class SecurityAlertServiceTest extends KernelTestCase
         self::assertStringNotContainsString('An Explicit Title', $body);
     }
 
+    public function testAlertExplainsHowToFindTheSecurityRecordAndLinksSeparateAuditHistory(): void
+    {
+        $mailer = new RecordingMailer();
+        $service = $this->service($mailer, siteName: 'Configured Reader Name');
+
+        $service->alert('security.authorization.denied', SecurityAlertService::SEVERITY_HIGH, [
+            'request_id' => 'request-example-123',
+        ]);
+
+        $body = $mailer->messages[0]->getHtmlBody();
+        self::assertStringContainsString('Configured Reader Name', $body);
+        self::assertStringNotContainsString('Comic Reader', $body);
+        self::assertStringContainsString('request-example-123', $body);
+        self::assertStringContainsString('search the security log', $body);
+        self::assertStringContainsString('https://example.test/admin?tab=audit', $body);
+        self::assertStringContainsString('Separately, administrator audit history', $body);
+    }
+
     /**
      * The password really was changed, the role really was granted. A mail
      * server being down is not a reason to pretend otherwise, and an exception
@@ -277,6 +295,7 @@ final class SecurityAlertServiceTest extends KernelTestCase
         bool $enabled = true,
         string $recipients = 'ops@example.test',
         ?ArrayAdapter $cache = null,
+        string $siteName = 'Panel Page Flip',
     ): SecurityAlertService {
         $container = static::getContainer();
 
@@ -288,7 +307,7 @@ final class SecurityAlertServiceTest extends KernelTestCase
             $container->get(UserRepository::class),
             new Logger('test', [$this->logHandler]),
             'noreply@example.test',
-            'Panel Page Flip',
+            $siteName,
             new PublicUrl('https://example.test'),
             $enabled,
             $recipients,

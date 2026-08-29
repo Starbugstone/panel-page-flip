@@ -34,8 +34,20 @@ class TestMailCommand extends Command
     {
         $this
             ->addOption('to', null, InputOption::VALUE_REQUIRED, 'Email address to send the test email to')
-            ->addOption('subject', null, InputOption::VALUE_OPTIONAL, 'Subject of the test email', 'Test Email from Comic Reader')
-            ->addOption('body', null, InputOption::VALUE_OPTIONAL, 'Body of the test email', 'This is a test email from the Comic Reader application.');
+            ->addOption(
+                'subject',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Subject of the test email',
+                sprintf('Test email from %s', $this->fromName)
+            )
+            ->addOption(
+                'body',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Body of the test email',
+                sprintf('This is a test email from %s.', $this->fromName)
+            );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int

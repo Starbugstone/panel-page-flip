@@ -371,7 +371,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
                           title="Delete user"
                           onClick={() => setConfirmAction({
                             title: "Delete user?",
-                            description: `Delete ${user.name || user.email}. This cannot be undone.`,
+                            description: `Delete ${user.name || user.email}. Accounts that own comics cannot be deleted until their comics are explicitly removed. This cannot be undone.`,
                             onConfirm: () => handleDeleteUser(user.id),
                           })}
                         >

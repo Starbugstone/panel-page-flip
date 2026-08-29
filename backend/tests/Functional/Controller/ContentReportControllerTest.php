@@ -263,6 +263,20 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         self::assertArrayHasKey('errors', $payload);
     }
 
+    public function testExplanationValidationAsksWhyTheMaterialIsBeingReported(): void
+    {
+        $payload = $this->postJson('/api/content-reports', array_replace($this->validReport(), [
+            'category' => ContentReport::CATEGORY_OTHER_ILLEGAL,
+            'explanation' => 'Too short.',
+        ]));
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame(
+            'Explain why you are reporting it in at least 40 characters.',
+            $payload['errors']['explanation']
+        );
+    }
+
     public function invalidReportProvider(): iterable
     {
         yield 'invalid email' => [['reporterEmail' => 'not-an-email']];
@@ -287,6 +301,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
         self::assertResponseStatusCodeSame(201);
         self::assertSame('Your report has been received and will be reviewed.', $payload['message']);
+        self::assertArrayNotHasKey('reference', $payload);
+        self::assertEmailCount(0);
         self::assertNull(static::getContainer()->get(EntityManagerInterface::class)
             ->getRepository(ContentReport::class)
             ->findOneBy(['reporterEmail' => 'spam@example.com']));
@@ -570,6 +586,41 @@ final class ContentReportControllerTest extends AbstractApiTestCase
             'senderResponsibilityAccepted' => true,
         ]);
         self::assertResponseStatusCodeSame(403);
+    }
+
+    public function testOwnerNoticeUsesTheConfiguredProductNameAndHumanActionLabel(): void
+    {
+        $owner = UserFactory::createOne(['email' => 'notified-owner@example.com'])->object();
+        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $report = new ContentReport(
+            'Reporter',
+            'reporter@example.com',
+            ContentReport::CATEGORY_COPYRIGHT,
+            'Reference 9012',
+            'This report identifies the protected work and explains why this particular copy is being reported.'
+        );
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->persist($report);
+        $entityManager->flush();
+        $this->createAndLoginAdmin();
+
+        $this->patchJson('/api/admin/content-reports/'.$report->getId(), [
+            'targetType' => 'comic',
+            'targetId' => $comic->getId(),
+            'action' => 'restrict_sharing',
+            'notifyOwner' => true,
+        ]);
+
+        self::assertResponseIsSuccessful();
+        self::assertEmailCount(1);
+        $message = self::getMailerMessage();
+        self::assertNotNull($message);
+        self::assertSame(
+            'Administrative action affecting your Test Sender content',
+            $message->getSubject()
+        );
+        self::assertStringContainsString('Action: Restrict sharing for comic', (string) $message->getTextBody());
+        self::assertStringNotContainsString('Action: restrict sharing', (string) $message->getTextBody());
     }
 
     public function testAdminCanLiftARestrictionWithoutRecreatingShares(): void

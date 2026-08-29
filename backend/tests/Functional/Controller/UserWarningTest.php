@@ -9,6 +9,7 @@ use App\Entity\UserWarning;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use App\Tests\Support\SwitchableMailer;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
@@ -316,11 +317,35 @@ final class UserWarningTest extends AbstractApiTestCase
         ]);
 
         self::assertSame(UserWarning::EMAIL_SENT, $created['warning']['emailState']);
+        self::assertSame(
+            'Warning sent. They will see it the next time they sign in, and an email copy was delivered.',
+            $created['message']
+        );
         self::assertEmailCount(1);
 
         $message = self::getMailerMessage();
         self::assertNotNull($message);
         self::assertStringContainsString('Tag your adult material.', (string) $message->getHtmlBody());
         self::assertSame('mailed@example.com', $message->getTo()[0]->getAddress());
+    }
+
+    public function testFailedEmailCopyIsReportedHonestly(): void
+    {
+        $reader = UserFactory::createOne(['email' => 'unreachable-warning@example.com'])->object();
+        $this->createAndLoginAdmin();
+        SwitchableMailer::failEverything();
+
+        $created = $this->postJson('/api/admin/warnings', [
+            'userId' => $reader->getId(),
+            'message' => 'This warning remains available in the application.',
+            'sendEmail' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(201);
+        self::assertSame(UserWarning::EMAIL_FAILED, $created['warning']['emailState']);
+        self::assertSame(
+            'Warning sent. It is waiting for them in the application, but the email copy could not be delivered.',
+            $created['message']
+        );
     }
 }

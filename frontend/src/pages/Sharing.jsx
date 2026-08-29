@@ -193,8 +193,8 @@ export default function Sharing() {
           <div className="py-12 text-center text-muted-foreground">
             <p>You have not shared any comics yet.</p>
             <p className="mt-1 text-sm">
-              Share comics privately with someone you know. They must accept the invitation before
-              they can read anything.
+              Share comics privately with someone you know. Recipients must claim a code or accept
+              an invitation before reading.
             </p>
             <Button
               className="mt-4"

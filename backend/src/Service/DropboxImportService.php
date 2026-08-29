@@ -251,7 +251,7 @@ class DropboxImportService
                 // on that instead of on anything about itself, so stop and let
                 // the next sync run pick them up against a fresh manager.
                 if (!$this->entityManager->isOpen()) {
-                    $this->logger->error('Stopping the Dropbox sync because the entity manager closed.', ['user_id' => $user->getId()]);
+                    $this->logger->error('Stopping the Dropbox import because the entity manager closed.', ['user_id' => $user->getId()]);
                     $notify('aborted', ['reason' => 'entity_manager_closed']);
                     break;
                 }

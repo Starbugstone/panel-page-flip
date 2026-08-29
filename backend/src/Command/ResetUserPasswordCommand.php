@@ -3,6 +3,7 @@
 namespace App\Command;
 
 use App\Entity\User;
+use App\Service\PasswordValidator;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -21,6 +22,7 @@ class ResetUserPasswordCommand extends Command
     public function __construct(
         private EntityManagerInterface $entityManager,
         private UserPasswordHasherInterface $passwordHasher,
+        private readonly PasswordValidator $passwordValidator,
     ) {
         parent::__construct();
     }
@@ -35,12 +37,18 @@ class ResetUserPasswordCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $email = $input->getArgument('email');
-        $password = $input->getArgument('password');
+        $email = (string) $input->getArgument('email');
+        $password = (string) $input->getArgument('password');
 
         $user = $this->entityManager->getRepository(User::class)->findOneBy(['email' => $email]);
         if (!$user) {
             $io->error(sprintf('User with email "%s" not found', $email));
+            return Command::FAILURE;
+        }
+
+        $passwordErrors = $this->passwordValidator->validate($password);
+        if ($passwordErrors !== []) {
+            $io->error(array_merge(['Password does not meet policy requirements:'], $passwordErrors));
             return Command::FAILURE;
         }
 

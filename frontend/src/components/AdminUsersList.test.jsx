@@ -116,4 +116,15 @@ describe("AdminUsersList storage column", () => {
     await actor.type(dialog.getByLabelText("Password"), "StrongPass123!");
     expect(create).toBeEnabled();
   });
+
+  it("explains that owned comics must be removed before deleting an account", async () => {
+    const actor = userEvent.setup();
+    await renderList([user()]);
+
+    await actor.click(screen.getByRole("button", { name: "Delete Alice" }));
+
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(
+      /accounts that own comics cannot be deleted until their comics are explicitly removed/i
+    );
+  });
 });

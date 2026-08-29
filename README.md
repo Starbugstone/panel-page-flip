@@ -143,11 +143,12 @@ generic development default is not a substitute for identifying the controller.
 
 ### Privacy retention
 
-Run all three cleanup commands at least daily in production:
+Run all four cleanup commands at least daily in production:
 
 ```bash
 docker compose exec php php bin/console app:cleanup-personal-data
 docker compose exec php php bin/console app:cleanup-expired-shares
+docker compose exec php php bin/console app:cleanup-content-reports
 docker compose exec php php bin/console app:cleanup-logs
 ```
 
@@ -157,6 +158,8 @@ password-reset tokens. The share cleanup permanently removes invitations that
 expired without being answered. The log cleanup deletes daily log files past
 their retention period — 30 days for application logs, a year for security and
 audit records — and is the only thing that does: nothing deletes them on its own.
+The content-report cleanup removes closed and rejected reports past their
+retention period, but never open cases or cases on legal hold.
 Configure the web server separately to rotate and delete access logs after the
 shortest period needed for security operations.
 
@@ -209,13 +212,14 @@ docker compose exec php php bin/console cache:clear
 
 Nothing in the application schedules itself. Retention periods in `.env.local`
 are **policy only** — they say how long something is kept, and a command has to
-run for anything to be deleted. A production instance needs these three:
+run for anything to be deleted. A production instance needs these four:
 
 | Command | Cadence | If it never runs |
 |---|---|---|
 | `app:cleanup-logs` | daily | Log directories grow without limit; `*_LOG_RETENTION_DAYS` has no effect |
 | `app:cleanup-personal-data` | daily | Old audit rows, spent tokens, unverified accounts and uncollected export files are kept indefinitely |
 | `app:cleanup-expired-shares` | daily | Unanswered invitations keep the addresses of people who never had an account here, and dead sharing codes are never removed |
+| `app:cleanup-content-reports` | daily | Closed and rejected reports past retention are kept indefinitely; open cases and cases on legal hold are never selected |
 
 `app:dropbox-sync` is additionally needed only if the instance uses Dropbox
 imports. Crontab examples, and how to check the schedule is actually firing, are
@@ -245,19 +249,22 @@ the generated sitemap, robots and canonical metadata, and the crawlable
 landing copy inside the built `index.html`. `check:seo` reads
 `APP_URL`, so run it after a build made with the same value CI uses.
 
-**`check:tools` must be run from the host, not from `frontend_dev`:**
+**`check:tools` and `check:csp` must be run from the host, not from
+`frontend_dev`:**
 
 ```bash
 npm run check:tools --prefix frontend
+npm run check:csp --prefix frontend
 ```
 
 The container mounts only `scripts/generate-nginx-routes.mjs`, never the whole
 `scripts/` directory, because that directory can hold `scripts/.env.deploy` with
-production credentials. `check:tools` needs `scripts/comic-conversion/`, so
-inside the container it reports a missing source file — and
+production credentials. `check:tools` needs `scripts/comic-conversion/`, and
+`check:csp` needs `scripts/generate-csp.mjs`, so both must run on the host.
+Inside the container `check:tools` reports a missing source file — and
 `src/lib/conversion-tools.test.js`, which shells out to the same check, fails
-there for the same reason. Both pass on the host and in CI, where the whole
-repository is present.
+there for the same reason — while `check:csp` reports its generator missing.
+All three pass on the host and in CI, where the whole repository is present.
 
 ### Backend
 

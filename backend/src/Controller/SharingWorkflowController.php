@@ -168,7 +168,10 @@ final class SharingWorkflowController extends AbstractController
 
         if ($recipientUser !== null) {
             if ($recipientUser->getId() === $user->getId()) {
-                return $this->json(['message' => 'You cannot share with yourself.'], Response::HTTP_CONFLICT);
+                return $this->json(
+                    ['message' => 'You cannot share a comic with yourself.'],
+                    Response::HTTP_CONFLICT
+                );
             }
 
             $email = ComicShare::normaliseEmail((string) $recipientUser->getEmail());

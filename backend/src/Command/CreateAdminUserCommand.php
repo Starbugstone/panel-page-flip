@@ -4,6 +4,7 @@ namespace App\Command;
 
 use App\Entity\User;
 use App\Repository\UserRepository;
+use App\Service\PasswordValidator;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -37,8 +38,8 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
  *
  * Arguments:
  *   email:    (Required) The email address for the new admin user. Must be a valid email format.
- *   password: (Required) The plain text password for the new admin user. It will be hashed before storage.
- *             Minimum length requirements may apply (e.g., 6 characters as per current implementation).
+ *   password: (Required) The plain text password for the new admin user. It will be validated against
+ *             the application password policy and hashed before storage.
  *
  * Important Considerations:
  * - Ensure the email provided is not already in use by another user.
@@ -56,18 +57,21 @@ class CreateAdminUserCommand extends Command
     private UserPasswordHasherInterface $passwordHasher;
     private UserRepository $userRepository;
     private ValidatorInterface $validator;
+    private PasswordValidator $passwordValidator;
 
     public function __construct(
         EntityManagerInterface $entityManager,
         UserPasswordHasherInterface $passwordHasher,
         UserRepository $userRepository,
-        ValidatorInterface $validator
+        ValidatorInterface $validator,
+        PasswordValidator $passwordValidator,
     ) {
         parent::__construct();
         $this->entityManager = $entityManager;
         $this->passwordHasher = $passwordHasher;
         $this->userRepository = $userRepository;
         $this->validator = $validator;
+        $this->passwordValidator = $passwordValidator;
     }
 
     protected function configure(): void
@@ -80,8 +84,8 @@ class CreateAdminUserCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $email = $input->getArgument('email');
-        $plainPassword = $input->getArgument('password');
+        $email = (string) $input->getArgument('email');
+        $plainPassword = (string) $input->getArgument('password');
 
         // Check if user already exists
         if ($this->userRepository->findOneBy(['email' => $email])) {
@@ -103,9 +107,9 @@ class CreateAdminUserCommand extends Command
             return Command::FAILURE;
         }
         
-        // Password validation (length, etc.) - could also be done via form constraints if we used a form
-        if (strlen($plainPassword) < 6) { // Example basic check
-            $io->error('Password must be at least 6 characters long.');
+        $passwordErrors = $this->passwordValidator->validate($plainPassword);
+        if ($passwordErrors !== []) {
+            $io->error(array_merge(['Password does not meet policy requirements:'], $passwordErrors));
             return Command::FAILURE;
         }
 

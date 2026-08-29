@@ -35,6 +35,17 @@ final class ContentRestrictionService
     ) {
     }
 
+    public static function actionLabel(string $action): string
+    {
+        foreach (self::ACTIONS as $option) {
+            if ($option['value'] === $action) {
+                return $option['label'];
+            }
+        }
+
+        throw new \DomainException('Invalid administrative content action.');
+    }
+
     public function apply(string $action, ContentReport $report, User $admin): void
     {
         // Target consistency is ContentReportLinkService::assertCanonical()'s

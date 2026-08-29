@@ -7,9 +7,9 @@ import { Header } from "@/components/Header.jsx";
 vi.mock("@/hooks/use-sharing", () => ({ useSharing: () => ({ summary: { pendingInvitations: 0 } }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
-const renderHeader = (pathname) => render(
+const renderHeader = (pathname, { isAdmin = false } = {}) => render(
   <MemoryRouter initialEntries={[pathname]}>
-    <Header isLoggedIn onLogout={vi.fn()} isAdmin={false} />
+    <Header isLoggedIn onLogout={vi.fn()} isAdmin={isAdmin} />
   </MemoryRouter>
 );
 
@@ -57,5 +57,22 @@ describe("the bulk upload link", () => {
     renderHeader("/upload/bulk/session");
 
     expect(bulkLink()).toHaveAttribute("href", "/upload/bulk/session");
+  });
+});
+
+describe("the admin destination", () => {
+  it("uses Admin dashboard as its visible and accessible name", () => {
+    renderHeader("/dashboard", { isAdmin: true });
+
+    expect(screen.getByRole("link", { name: "Admin dashboard" })).toHaveTextContent("Admin dashboard");
+  });
+});
+
+describe("the Dropbox destination", () => {
+  it("describes the one-way workflow as an import", () => {
+    renderHeader("/dashboard");
+
+    expect(screen.getByRole("link", { name: "Dropbox Import" })).toHaveTextContent("Dropbox Import");
+    expect(screen.queryByRole("link", { name: "Dropbox Sync" })).not.toBeInTheDocument();
   });
 });

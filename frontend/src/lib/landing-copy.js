@@ -28,7 +28,7 @@ export const landingCopy = Object.freeze({
   }),
   sharing: Object.freeze({
     heading: "Share the good stuff",
-    body: "Invite a friend directly or send a private sharing code. They get their own place in the book and can organize it in their library, while you stay in control of access.",
+    body: "Share directly by username, U- code, or email, or send a private C- or G- code. Each reader gets their own place in the book and can organize it in their library, while you stay in control of access.",
     points: Object.freeze([
       "Share without duplicating the comic",
       "Each reader keeps their own progress",

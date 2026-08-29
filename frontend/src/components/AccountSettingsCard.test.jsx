@@ -93,7 +93,11 @@ describe("the account settings card", () => {
         { username: "PanelFan" }
       ));
       expect(mocks.checkAuth).toHaveBeenCalled();
-      expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Username changed" }));
+      expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+        title: "Username changed",
+        description: expect.stringContaining("Your U- code still works"),
+      }));
+      expect(screen.getByText(/your U- code stays the same/i)).toBeInTheDocument();
     });
 
     /** The @ is how a username is written, not part of it. */

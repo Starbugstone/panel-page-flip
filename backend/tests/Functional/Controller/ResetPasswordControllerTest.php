@@ -40,6 +40,14 @@ final class ResetPasswordControllerTest extends AbstractApiTestCase
             ->getRepository(ResetPasswordToken::class)
             ->findBy(['user' => $user]);
         self::assertNotEmpty($tokens);
+
+        self::assertEmailCount(1);
+        $message = self::getMailerMessage();
+        self::assertNotNull($message);
+        self::assertSame('Test Sender', $message->getFrom()[0]->getName());
+        self::assertSame('Reset your password - Test Sender', $message->getSubject());
+        self::assertStringContainsString('Test Sender', (string) $message->getHtmlBody());
+        self::assertStringNotContainsString('Comic Reader', (string) $message->getHtmlBody());
     }
 
     public function testValidateTokenRejectsAGuess(): void
@@ -92,6 +100,16 @@ final class ResetPasswordControllerTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame('Password has been reset successfully', $payload['message']);
+
+        self::assertEmailCount(1);
+        $message = self::getMailerMessage();
+        self::assertNotNull($message);
+        self::assertSame('Test Sender', $message->getFrom()[0]->getName());
+        self::assertSame('Your Password Has Been Changed - Test Sender', $message->getSubject());
+        self::assertStringContainsString('Test Sender', (string) $message->getHtmlBody());
+        self::assertStringContainsString('reset your password immediately', (string) $message->getHtmlBody());
+        self::assertStringNotContainsString('replying to this email', (string) $message->getHtmlBody());
+        self::assertStringNotContainsString('Comic Reader', (string) $message->getHtmlBody());
 
         $this->postJson('/api/login', [
             'email' => $user->getEmail(),

@@ -150,7 +150,7 @@ final class ContentReportService
             $errors['sourceContext'] = 'Source context must be 2000 characters or fewer.';
         }
         if (mb_strlen($values['explanation']) < 40 || mb_strlen($values['explanation']) > 10000) {
-            $errors['explanation'] = 'Explain the allegation and your authority in at least 40 characters.';
+            $errors['explanation'] = 'Explain why you are reporting it in at least 40 characters.';
         }
         if (mb_strlen($values['reporterOrganization']) > 200) {
             $errors['reporterOrganization'] = 'Organization must be 200 characters or fewer.';

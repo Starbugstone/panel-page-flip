@@ -44,7 +44,7 @@ export function AdminDropbox() {
     setBusyUserId(userId);
     try {
       await api.post(`/api/admin/dropbox-users/${userId}/${action}`, {});
-      toast({ title: action === "sync" ? "Dropbox sync completed" : "Dropbox disconnected" });
+      toast({ title: action === "sync" ? "Dropbox import completed" : "Dropbox disconnected" });
       await loadUsers();
     } catch (error) {
       toast({ title: "Dropbox action failed", description: error.message, variant: "destructive" });
@@ -59,13 +59,13 @@ export function AdminDropbox() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold">Dropbox Monitoring</h2>
+      <h2 className="text-xl font-bold">Dropbox Imports</h2>
       <div className="border rounded-md">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>User</TableHead>
-              <TableHead>Last sync</TableHead>
+              <TableHead>Last import</TableHead>
               <TableHead>Imported comics</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -77,7 +77,7 @@ export function AdminDropbox() {
                 <TableCell>{formatDateTime(user.lastSyncedAt, "Never")}</TableCell>
                 <TableCell>{user.dropboxComicCount}</TableCell>
                 <TableCell className="text-right space-x-2">
-                  <Button size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => runAction(user.id, "sync")}>Force sync</Button>
+                  <Button size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => runAction(user.id, "sync")}>Force import</Button>
                   <Button size="sm" variant="destructive" disabled={busyUserId === user.id} onClick={() => runAction(user.id, "disconnect")}>Disconnect</Button>
                 </TableCell>
               </TableRow>

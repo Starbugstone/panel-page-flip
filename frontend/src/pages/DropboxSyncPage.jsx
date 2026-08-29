@@ -35,7 +35,7 @@ const OrganizationGuide = () => {
           <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
             <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Quick Summary</h3>
             <p className="text-blue-800 dark:text-blue-200 text-sm">
-              Create folders in your <code className="bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">Applications/StarbugStoneComics</code> directory. 
+              Create folders in your <code className="bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">Apps/StarbugStoneComics</code> directory.
               Each folder becomes a tag automatically! Supports nested folders and smart naming conversion.
             </p>
           </div>
@@ -48,7 +48,7 @@ const OrganizationGuide = () => {
             </h3>
             <div className="bg-muted p-4 rounded-lg font-mono text-sm">
               <div className="space-y-1">
-                <div>📁 Applications/StarbugStoneComics/</div>
+                <div>📁 Apps/StarbugStoneComics/</div>
                 <div className="ml-4">📄 Superman.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox</Badge></div>
                 <div className="ml-4">📁 superHero/</div>
                 <div className="ml-8">📄 Batman.cbz <Badge variant="outline" className="ml-2 text-xs">→ Dropbox, Super Hero</Badge></div>
@@ -206,7 +206,7 @@ function DropboxSyncPage() {
       logger.error('Error fetching Dropbox files:', error);
       toast({
         title: "Refresh Failed",
-        description: "Network error occurred while refreshing files.",
+        description: error.message || "Could not refresh Dropbox files. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -302,22 +302,22 @@ function DropboxSyncPage() {
 
   const handleSync = async () => {
     setSyncing(true);
-    setSyncStatus('Syncing...');
+    setSyncStatus('Importing...');
     
     try {
       const data = await api.post('/api/dropbox/sync', {});
-      setSyncStatus(`Sync completed: ${data.newFiles || 0} new files added`);
+      setSyncStatus(`Import completed: ${data.newFiles || 0} new comics added`);
       setLastSync(new Date().toISOString());
       toast({
-        title: "Sync Complete",
-        description: `${data.newFiles || 0} new comics have been synced from Dropbox.`,
+        title: "Import Complete",
+        description: `${data.newFiles || 0} new comics have been imported from Dropbox.`,
       });
       fetchDropboxFiles();
     } catch (error) {
-      setSyncStatus(`Sync failed: ${error.message}`);
+      setSyncStatus(`Import failed: ${error.message || "Could not import comics from Dropbox."}`);
       toast({
-        title: "Sync Failed",
-        description: error.message || "Could not sync Dropbox.",
+        title: "Import Failed",
+        description: error.message || "Could not import comics from Dropbox.",
         variant: "destructive"
       });
     } finally {
@@ -342,13 +342,13 @@ function DropboxSyncPage() {
         {/* Organization Guide Header */}
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Dropbox Sync</h1>
+            <h1 className="text-3xl font-bold mb-2">Dropbox Import</h1>
             <p className="text-muted-foreground">
-              Sync your comic collection with Dropbox for easy access across devices.
+              Import comics from your Dropbox app folder into Panel Page Flip.
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
               Connecting authorizes Panel Page Flip to read file names and import files in enabled comic formats
-              files from its Dropbox app folder. Tokens are encrypted locally and can
+              from its Dropbox app folder. Tokens are encrypted locally and can
               be disconnected at any time.{" "}
               <Link className="underline" to="/privacy">Privacy information</Link>
             </p>
@@ -363,7 +363,7 @@ function DropboxSyncPage() {
             <div className="text-sm">
               <span className="font-medium text-amber-800 dark:text-amber-200">Pro Tip:</span>
               <span className="text-amber-700 dark:text-amber-300 ml-1">
-                Add supported comic files to your <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Applications/StarbugStoneComics</code> folder.
+                Add supported comic files to your <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Apps/StarbugStoneComics</code> folder.
                 Organize in subfolders like <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">superHero/</code> or <code className="bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded text-xs">Manga/Action/</code> for automatic tagging!
               </span>
             </div>
@@ -377,7 +377,7 @@ function DropboxSyncPage() {
               Connection Status
             </CardTitle>
             <CardDescription>
-              Manage your Dropbox connection and sync settings
+              Manage your Dropbox connection and imports
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -396,14 +396,14 @@ function DropboxSyncPage() {
                     )}
                     {lastSync && (
                       <p className="text-sm text-muted-foreground">
-                        Last sync: {new Date(lastSync).toLocaleString()}
+                        Last import: {new Date(lastSync).toLocaleString()}
                       </p>
                     )}
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={handleSync} disabled={syncing} className="flex items-center gap-2">
                       <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-                      {syncing ? 'Syncing...' : 'Sync now'}
+                      {syncing ? 'Importing...' : 'Import new comics'}
                     </Button>
                     <Button
                       variant="outline"
@@ -441,7 +441,7 @@ function DropboxSyncPage() {
                 <div>
                   <h3 className="text-lg font-semibold mb-3">Dropbox Comics</h3>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Comics found in your <code className="bg-muted px-1 py-0.5 rounded">Applications/StarbugStoneComics</code> folder
+                    Comics found in your <code className="bg-muted px-1 py-0.5 rounded">Apps/StarbugStoneComics</code> folder
                   </p>
                   
                   {dropboxFiles.length > 0 ? (
@@ -452,7 +452,7 @@ function DropboxSyncPage() {
                             <div className="flex items-center gap-2 mb-1">
                               <p className="font-medium">{file.name}</p>
                               <Badge variant={file.synced ? "default" : "secondary"}>
-                                {file.synced ? "Synced" : "Pending"}
+                                {file.synced ? "Imported" : "Available"}
                               </Badge>
                             </div>
                             {file.path && file.path !== `/${file.name}` && (
@@ -502,7 +502,7 @@ function DropboxSyncPage() {
                       <Cloud className="h-12 w-12 mx-auto mb-4 opacity-50" />
                       <p>No comics found in your Dropbox folder</p>
                       <p className="text-sm">
-                        Add an enabled comic format to the <code>Applications/StarbugStoneComics</code> folder in your Dropbox
+                        Add an enabled comic format to the <code>Apps/StarbugStoneComics</code> folder in your Dropbox
                       </p>
                     </div>
                   )}
@@ -515,10 +515,10 @@ function DropboxSyncPage() {
                   <span>Not connected to Dropbox</span>
                 </div>
                 <p className="text-muted-foreground">
-                  Connect your Dropbox account to automatically sync your comic collection.
+                  Connect your Dropbox account to import comics from Dropbox.
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Your comics should be placed in the <code className="bg-muted px-1 py-0.5 rounded">Applications/StarbugStoneComics</code> folder in your Dropbox.
+                  Your comics should be placed in the <code className="bg-muted px-1 py-0.5 rounded">Apps/StarbugStoneComics</code> folder in your Dropbox.
                 </p>
                 <Button 
                   onClick={handleConnectDropbox} 

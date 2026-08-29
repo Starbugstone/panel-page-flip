@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verify Your Email Address</title>
+    <title>Verify Your {{ site_name }} Email Address</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -65,7 +65,7 @@
         <div class="content">
             <p>Hi {{ user.name|default('there') }},</p>
             <p>
-                Thank you for registering with Comic Reader! To complete your registration and activate your account, 
+                Thank you for registering with {{ site_name }}! To complete your registration and activate your account,
                 please verify your email address by clicking the button below:
             </p>
             <a href="{{ verificationUrl|e('html_attr') }}" class="cta-button" style="color: #ffffff;">Verify Email Address</a>
@@ -81,7 +81,7 @@
             <p>Thank you!</p>
         </div>
         <div class="footer">
-            <p>&copy; {{ "now"|date("Y") }} Comic Reader. All rights reserved.</p>
+            <p>&copy; {{ "now"|date("Y") }} {{ site_name }}. All rights reserved.</p>
         </div>
     </div>
 </body>

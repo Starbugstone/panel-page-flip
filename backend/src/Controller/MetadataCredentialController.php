@@ -41,8 +41,18 @@ class MetadataCredentialController extends AbstractController
     private const SECRET_COLUMN_LENGTH = 1024;
 
     private const FIELDS = [
-        'metronToken' => ['metron', 'getMetronToken', 'setMetronToken'],
-        'comicVineApiKey' => ['comicvine', 'getComicVineApiKey', 'setComicVineApiKey'],
+        'metronToken' => [
+            'provider' => 'metron',
+            'getter' => 'getMetronToken',
+            'setter' => 'setMetronToken',
+            'label' => 'Metron API token',
+        ],
+        'comicVineApiKey' => [
+            'provider' => 'comicvine',
+            'getter' => 'getComicVineApiKey',
+            'setter' => 'setComicVineApiKey',
+            'label' => 'Comic Vine API key',
+        ],
     ];
 
     #[Route('', name: 'show', methods: ['GET'])]
@@ -86,21 +96,27 @@ class MetadataCredentialController extends AbstractController
 
         $credential = $credentials->editable($user);
 
-        foreach (self::FIELDS as $field => [, , $setter]) {
+        foreach (self::FIELDS as $field => $definition) {
             if (!array_key_exists($field, $data)) {
                 continue;
             }
 
             $value = $data[$field];
             if ($value !== null && !is_string($value)) {
-                return $this->json(['message' => sprintf('%s must be a string or null.', $field)], Response::HTTP_BAD_REQUEST);
+                return $this->json(
+                    ['message' => sprintf('%s must be text or empty.', $definition['label'])],
+                    Response::HTTP_BAD_REQUEST
+                );
             }
 
             if (is_string($value) && strlen(trim($value)) > AppDataEncryptionService::maxPlaintextBytes(self::SECRET_COLUMN_LENGTH)) {
-                return $this->json(['message' => sprintf('%s is longer than a token from this provider.', $field)], Response::HTTP_BAD_REQUEST);
+                return $this->json(
+                    ['message' => sprintf('%s is too long.', $definition['label'])],
+                    Response::HTTP_BAD_REQUEST
+                );
             }
 
-            $credential->{$setter}($value);
+            $credential->{$definition['setter']}($value);
         }
 
         $credentials->save($user, $credential);
@@ -161,8 +177,8 @@ class MetadataCredentialController extends AbstractController
 
         $provider = $data['provider'] ?? null;
         $field = null;
-        foreach (self::FIELDS as $name => [$providerKey]) {
-            if ($provider === $providerKey) {
+        foreach (self::FIELDS as $name => $definition) {
+            if ($provider === $definition['provider']) {
                 $field = $name;
                 break;
             }
@@ -211,8 +227,8 @@ class MetadataCredentialController extends AbstractController
         $credential = $credentials->for($user);
 
         $configured = [];
-        foreach (self::FIELDS as $field => [$providerKey, $getter]) {
-            $configured[$providerKey] = $credential?->{$getter}() !== null;
+        foreach (self::FIELDS as $definition) {
+            $configured[$definition['provider']] = $credential?->{$definition['getter']}() !== null;
         }
 
         return [
@@ -231,7 +247,7 @@ class MetadataCredentialController extends AbstractController
 
     private function storedSecret(?UserMetadataCredential $credential, string $field): ?string
     {
-        $getter = self::FIELDS[$field][1] ?? null;
+        $getter = self::FIELDS[$field]['getter'] ?? null;
 
         return $getter === null ? null : $credential?->{$getter}();
     }

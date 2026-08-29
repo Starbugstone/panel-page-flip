@@ -248,7 +248,8 @@ export function AdminComicsList({ ownerId, embedded = false }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete comic?</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete {comicToDelete?.title}. This removes the comic from the library.
+              Delete {comicToDelete?.title}. This permanently deletes the comic and its files.
+              Any active shares will end.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

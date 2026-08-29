@@ -277,7 +277,7 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv TRUSTED_PROXIES "${PROD_TRUSTED_PROXIES:-}"
     write_dotenv MAILER_DSN "${PROD_MAILER_DSN:-null://null}"
     write_dotenv MAILER_FROM_ADDRESS "${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}"
-    write_dotenv MAILER_FROM_NAME "${PROD_MAILER_FROM_NAME:-Comic Reader}"
+    write_dotenv MAILER_FROM_NAME "${PROD_MAILER_FROM_NAME:-Panel Page Flip}"
     write_dotenv PRIVACY_OPERATOR "${PROD_PRIVACY_OPERATOR:-Panel Page Flip site operator}"
     write_dotenv PRIVACY_EMAIL "${PROD_PRIVACY_EMAIL:-${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}}"
     write_dotenv MAILER_TRANSPORT "${PROD_MAILER_TRANSPORT:-smtp}"

@@ -9,6 +9,7 @@ use App\Entity\ComicReadingProgress;
 use App\Entity\ComicShare;
 use App\Entity\Tag;
 use App\Entity\User;
+use App\Metadata\StructuredMetadataInput;
 use App\Repository\ComicRepository;
 use App\Repository\ComicShareRepository;
 use App\Repository\TagRepository;
@@ -16,15 +17,17 @@ use App\Security\ComicAccess;
 use App\Security\Voter\ComicVoter;
 use App\Service\AdminAuditService;
 use App\Service\ApiRateLimiter;
-use App\Service\MetadataProviderRegistry;
-use App\Service\ComicSerializer;
-use App\Service\ComicShareService;
 use App\Service\ComicLibraryQueryService;
-use App\Service\LibraryFolderService;
-use App\Metadata\StructuredMetadataInput;
+use App\Service\ComicSerializer;
 use App\Service\ComicService;
+use App\Service\ComicShareService;
+use App\Service\ComicUploadRejectedException;
+use App\Service\LibraryFolderService;
+use App\Service\MetadataProviderRegistry;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
+use App\Service\StorageQuotaBusyException;
+use App\Service\StorageQuotaExceededException;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
@@ -497,17 +500,31 @@ class ComicController extends AbstractController
                 ]
             ], Response::HTTP_CREATED);
 
-        } catch (\Throwable $e) {
+        } catch (ComicUploadRejectedException $e) {
             $this->logger->warning('Comic upload failed.', ['user_id' => $user->getId(), 'exception' => $e]);
 
-            // The exception message used to be echoed back. ComicService throws
-            // its own vetted rejections ("Only CBZ files are allowed.") but the
-            // same catch also sees filesystem and database errors, which name
-            // server paths. The reasons a user can act on are enumerated here;
-            // anything else is a server fault and reads as one.
-            return $this->json([
-                'message' => 'Upload failed. Check that the file is a valid enabled comic format within your storage quota.',
-            ], Response::HTTP_BAD_REQUEST);
+            return $this->json(['message' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
+        } catch (StorageQuotaExceededException $e) {
+            $this->logger->warning('Comic upload exceeded storage quota.', ['user_id' => $user->getId(), 'exception' => $e]);
+
+            return $this->json(['message' => 'User storage quota exceeded.'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        } catch (StorageQuotaBusyException $e) {
+            $this->logger->warning('Comic upload could not acquire the storage lock.', ['user_id' => $user->getId(), 'exception' => $e]);
+
+            return $this->json(
+                ['message' => 'Another storage operation is already in progress. Please try again.'],
+                Response::HTTP_CONFLICT
+            );
+        } catch (\Throwable $e) {
+            $this->logger->error('Comic upload failed because of an internal error.', [
+                'user_id' => $user->getId(),
+                'exception' => $e,
+            ]);
+
+            return $this->json(
+                ['message' => 'Upload failed because of a server error. Please try again later.'],
+                Response::HTTP_INTERNAL_SERVER_ERROR
+            );
         }
     }
 

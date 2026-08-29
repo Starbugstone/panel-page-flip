@@ -118,6 +118,21 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         self::assertSame([], $this->getJson('/api/shares/shared-by-me')['sharedByMe']);
     }
 
+    public function testBulkShareUsesTheSameSelfShareMessageForAnEmailAddress(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'self@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $payload = $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
+            'email' => 'self@example.com',
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('You cannot share a comic with yourself.', $payload['message']);
+    }
+
     public function testBulkShareStillRequiresTheSenderResponsibilityAcknowledgement(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'responsible@example.com']);

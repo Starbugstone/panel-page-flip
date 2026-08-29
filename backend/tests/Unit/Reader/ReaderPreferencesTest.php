@@ -131,6 +131,52 @@ final class ReaderPreferencesTest extends TestCase
         $this->preferences->validate($candidate);
     }
 
+    public function testValidationMessagesUseReaderLabelsAndListAllowedChoices(): void
+    {
+        $defaults = $this->preferences->defaults();
+        $cases = [
+            'reading mode' => [
+                [...$defaults, 'settings' => [...$defaults['settings'], 'mode' => 'holographic']],
+                'Reading mode must be one of: Single page, Two pages, Continuous scroll.',
+            ],
+            'reading direction' => [
+                [...$defaults, 'settings' => [...$defaults['settings'], 'direction' => 'up']],
+                'Reading direction must be one of: Left to right, Right to left.',
+            ],
+            'page size' => [
+                [...$defaults, 'settings' => [...$defaults['settings'], 'fit' => 'stretch']],
+                'Page size must be one of: Best fit, Fit width, Fit height, Original size.',
+            ],
+            'screen wake setting' => [
+                [...$defaults, 'settings' => [...$defaults['settings'], 'wakeLock' => 1]],
+                'Keep screen awake must be true or false.',
+            ],
+            'device choice' => [
+                [...$defaults, 'overrides' => [[
+                    'context' => ['device' => 'watch', 'orientation' => 'portrait'],
+                    'settings' => ['fit' => 'width'],
+                ]]],
+                'Device must be one of: Phone, Tablet, Desktop.',
+            ],
+            'orientation choice' => [
+                [...$defaults, 'overrides' => [[
+                    'context' => ['device' => 'phone', 'orientation' => 'sideways'],
+                    'settings' => ['fit' => 'width'],
+                ]]],
+                'Screen orientation must be one of: Portrait, Landscape.',
+            ],
+        ];
+
+        foreach ($cases as $case => [$candidate, $expectedMessage]) {
+            try {
+                $this->preferences->validate($candidate);
+                self::fail(sprintf('The %s case was accepted.', $case));
+            } catch (\InvalidArgumentException $exception) {
+                self::assertSame($expectedMessage, $exception->getMessage(), $case);
+            }
+        }
+    }
+
     /** @dataProvider invalidReplacementProvider */
     public function testInvalidOrArbitraryReplacementIsRejected(mixed $candidate): void
     {

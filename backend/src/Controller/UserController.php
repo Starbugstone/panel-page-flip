@@ -156,9 +156,17 @@ class UserController extends AbstractController
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
 
-        // Basic validation for required fields
-        if (empty($data['email']) || empty($data['password']) || empty($data['name'])) {
-            return $this->json(['message' => 'Missing required fields: email, password, name'], Response::HTTP_BAD_REQUEST);
+        $requiredErrors = [];
+        foreach (['email', 'password', 'name'] as $field) {
+            if (empty($data[$field])) {
+                $requiredErrors[$field] = ['This field is required.'];
+            }
+        }
+        if ($requiredErrors !== []) {
+            return $this->json([
+                'message' => 'Missing required fields: email, password, name',
+                'errors' => $requiredErrors,
+            ], Response::HTTP_BAD_REQUEST);
         }
 
         $passwordErrors = $passwordValidator->validate((string) $data['password']);
@@ -169,7 +177,10 @@ class UserController extends AbstractController
         // Check if email already exists
         $existingUser = $entityManager->getRepository(User::class)->findOneBy(['email' => $data['email']]);
         if ($existingUser) {
-            return $this->json(['message' => 'Email already in use'], Response::HTTP_CONFLICT);
+            return $this->json([
+                'message' => 'Email already in use',
+                'errors' => ['email' => ['Email already in use.']],
+            ], Response::HTTP_CONFLICT);
         }
 
         $user = new User();
@@ -188,13 +199,10 @@ class UserController extends AbstractController
 
         $violations = $validator->validate($user);
         if (count($violations) > 0) {
-            $errors = [];
-            foreach ($violations as $violation) {
-                // Only include property path if it's useful (e.g., not for general class constraints)
-                $propertyPath = $violation->getPropertyPath();
-                $errors[] = ($propertyPath ? $propertyPath . ': ' : '') . $violation->getMessage();
-            }
-            return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+            return $this->json([
+                'message' => 'Validation failed',
+                'errors' => $this->validationErrors($violations),
+            ], Response::HTTP_BAD_REQUEST);
         }
 
         $entityManager->persist($user);
@@ -319,7 +327,12 @@ class UserController extends AbstractController
         // allowing it here would let a user grant it back.
         if (array_key_exists('metadataApiEnabled', $data) && $user->isAdmin()) {
             if (!is_bool($data['metadataApiEnabled'])) {
-                return $this->json(['message' => 'metadataApiEnabled must be true or false'], Response::HTTP_BAD_REQUEST);
+                $message = 'External metadata API access must be true or false.';
+
+                return $this->json([
+                    'message' => $message,
+                    'errors' => ['metadataApiEnabled' => [$message]],
+                ], Response::HTTP_BAD_REQUEST);
             }
 
             if ($targetUser->isMetadataApiEnabled() !== $data['metadataApiEnabled']) {
@@ -349,11 +362,10 @@ class UserController extends AbstractController
         // Validate user
         $violations = $validator->validate($targetUser);
         if (count($violations) > 0) {
-            $errors = [];
-            foreach ($violations as $violation) {
-                $errors[] = $violation->getMessage();
-            }
-            return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+            return $this->json([
+                'message' => 'Validation failed',
+                'errors' => $this->validationErrors($violations),
+            ], Response::HTTP_BAD_REQUEST);
         }
 
         $afterRoles = $targetUser->getRoles();
@@ -572,4 +584,18 @@ class UserController extends AbstractController
         ]);
     }
 
+    /**
+     * @param iterable<\Symfony\Component\Validator\ConstraintViolationInterface> $violations
+     * @return array<string, list<string>>
+     */
+    private function validationErrors(iterable $violations): array
+    {
+        $errors = [];
+        foreach ($violations as $violation) {
+            $field = $violation->getPropertyPath() ?: 'form';
+            $errors[$field][] = $violation->getMessage();
+        }
+
+        return $errors;
+    }
 }

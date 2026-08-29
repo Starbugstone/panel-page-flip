@@ -84,4 +84,16 @@ describe("the admin comics list", () => {
     expect(await screen.findByText("Warn about Sandman #1")).toBeInTheDocument();
     expect(screen.getByText(/Jo Owner will see this the next time they sign in/)).toBeInTheDocument();
   });
+
+  it("warns that deletion is permanent and ends active shares", async () => {
+    const user = userEvent.setup();
+    stubList([comic()]);
+    renderList();
+
+    await user.click(await screen.findByRole("button", { name: "Delete Sandman #1" }));
+
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(
+      /permanently deletes the comic and its files.*active shares.*end/i
+    );
+  });
 });

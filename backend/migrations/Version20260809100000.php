@@ -8,7 +8,7 @@ use Doctrine\DBAL\Schema\Schema;
 use Doctrine\Migrations\AbstractMigration;
 
 /**
- * Sharing codes: the permanent address somebody shares with an account by, and
+ * Sharing codes: the rotatable address somebody shares with an account by, and
  * the disposable code an owner hands out to give comics away.
  *
  * `user.sharing_code` is nullable and left empty here. Filling it for every

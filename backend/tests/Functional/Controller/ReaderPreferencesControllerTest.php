@@ -123,6 +123,21 @@ final class ReaderPreferencesControllerTest extends AbstractApiTestCase
         self::assertEquals($defaults, $storedUser?->getReaderPreferences());
     }
 
+    public function testValidationResponseNamesTheSettingAndItsAllowedChoices(): void
+    {
+        $this->createAndLoginUser();
+        $invalid = static::getContainer()->get(ReaderPreferences::class)->defaults();
+        $invalid['settings']['fit'] = 'stretch';
+
+        $payload = $this->putJson('/api/reader/preferences', ['preferences' => $invalid]);
+
+        self::assertResponseStatusCodeSame(422);
+        self::assertSame(
+            'Page size must be one of: Best fit, Fit width, Fit height, Original size.',
+            $payload['message']
+        );
+    }
+
     public function testResetRemovesStoredPreferencesAndReturnsDefaults(): void
     {
         $user = $this->createAndLoginUser();

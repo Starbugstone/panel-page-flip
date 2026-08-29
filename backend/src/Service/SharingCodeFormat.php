@@ -7,7 +7,7 @@ use App\Enum\ShareCodeType;
 /**
  * The shape of every sharing code, and the only place that decides it.
  *
- * Three different things are written in this format — the permanent user code
+ * Three different things are written in this format — the rotatable user code
  * that identifies somebody as a recipient, the comic code that hands over one
  * comic, and the group code that hands over a package of them. They are told
  * apart by a letter on the front rather than by which field they were pasted

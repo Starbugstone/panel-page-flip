@@ -9,12 +9,16 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { validatePassword } from "@/lib/password-policy";
 import { api } from "@/lib/api";
 
+const INVALID_TOKEN_MESSAGE = "Invalid or expired token";
+const VALIDATION_ERROR_FALLBACK = "The reset link could not be checked. Please try again.";
+
 export default function ResetPassword() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  // null while the check is in flight; "valid" or "invalid" once it answers.
+  // null while the check is in flight; otherwise records the validation outcome.
   const [validation, setValidation] = useState(null);
+  const [validationError, setValidationError] = useState("");
   const [resetComplete, setResetComplete] = useState(false);
   
   const { token } = useParams();
@@ -29,18 +33,22 @@ export default function ResetPassword() {
     let ignore = false;
     api.get(`/api/reset-password/validate/${token}`, { notifyUnauthorized: false })
       .then(() => { if (!ignore) setValidation("valid"); })
-      .catch(() => {
+      .catch((error) => {
         if (ignore) return;
-        setValidation("invalid");
-        toast({
-          title: "Validation Error",
-          description: "Could not validate reset token. Please try again.",
-          variant: "destructive",
-        });
+        const invalidToken = error.status === 400
+          && error.data?.message === INVALID_TOKEN_MESSAGE;
+
+        if (invalidToken) {
+          setValidation("invalid");
+          return;
+        }
+
+        setValidationError(error.message || VALIDATION_ERROR_FALLBACK);
+        setValidation("error");
       });
 
     return () => { ignore = true; };
-  }, [token, toast]);
+  }, [token]);
 
   // A missing token is not something to wait for — it is already invalid — so
   // these follow from the state above rather than being set alongside it.
@@ -105,6 +113,20 @@ export default function ResetPassword() {
           <CardContent>
             <div className="animate-pulse">Please wait while we validate your reset link...</div>
           </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (validation === "error") {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
+            <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
+            <CardTitle className="mt-4 font-comic text-2xl">Could Not Validate Reset Link</CardTitle>
+            <CardDescription>{validationError}</CardDescription>
+          </CardHeader>
         </Card>
       </div>
     );

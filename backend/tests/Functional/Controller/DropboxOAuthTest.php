@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Tests\Functional\Controller;
 
 use App\Entity\User;
+use App\Service\DropboxClientFactory;
+use App\Service\DropboxImportService;
 use App\Tests\Functional\AbstractApiTestCase;
+use Spatie\Dropbox\Client as DropboxClient;
 
 final class DropboxOAuthTest extends AbstractApiTestCase
 {
@@ -37,7 +40,9 @@ final class DropboxOAuthTest extends AbstractApiTestCase
 
         self::assertResponseStatusCodeSame(401);
         $payload = json_decode((string) $this->browser()->getResponse()->getContent(), true);
-        self::assertStringContainsString('Invalid OAuth state', $payload['error']);
+        self::assertStringStartsWith('Dropbox authorization expired or the session ended.', $payload['error']);
+        self::assertStringNotContainsString('CSRF', $payload['error']);
+        self::assertStringNotContainsString('attack', strtolower($payload['error']));
     }
 
     public function testDisconnectClearsStoredTokens(): void
@@ -67,5 +72,57 @@ final class DropboxOAuthTest extends AbstractApiTestCase
 
         self::assertResponseStatusCodeSame(400);
         self::assertSame('Dropbox not connected', $payload['error']);
+    }
+
+    public function testImportRequiresAPathOrLegacyFileName(): void
+    {
+        $user = $this->createAndLoginUser();
+        $user->setDropboxAccessToken('access');
+        self::getContainer()->get('doctrine')->getManager()->flush();
+
+        $payload = $this->postJson('/api/dropbox/import');
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('path or fileName is required', $payload['error']);
+    }
+
+    public function testPartialSyncReportsImportedAndFailedCountsWithoutClaimingSuccess(): void
+    {
+        $user = $this->createAndLoginUser();
+        $user->setDropboxAccessToken('access');
+        self::getContainer()->get('doctrine')->getManager()->flush();
+
+        $dropboxClient = $this->createMock(DropboxClient::class);
+        $clientFactory = $this->createMock(DropboxClientFactory::class);
+        $clientFactory->method('createForUser')->willReturn($dropboxClient);
+        static::getContainer()->set(DropboxClientFactory::class, $clientFactory);
+
+        $dropboxImport = $this->createMock(DropboxImportService::class);
+        $dropboxImport->method('syncUser')->willReturn(['newFiles' => 2, 'failed' => 1]);
+        static::getContainer()->set(DropboxImportService::class, $dropboxImport);
+
+        $payload = $this->postJson('/api/dropbox/sync');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame(2, $payload['newFiles']);
+        self::assertSame(1, $payload['failedFiles']);
+        self::assertSame('Dropbox import partially completed: 2 imported, 1 failed.', $payload['message']);
+        self::assertStringNotContainsString('success', strtolower($payload['message']));
+    }
+
+    public function testFailedImportUsesImportTerminology(): void
+    {
+        $user = $this->createAndLoginUser();
+        $user->setDropboxAccessToken('access');
+        self::getContainer()->get('doctrine')->getManager()->flush();
+
+        $clientFactory = $this->createMock(DropboxClientFactory::class);
+        $clientFactory->method('createForUser')->willThrowException(new \RuntimeException('Unavailable'));
+        static::getContainer()->set(DropboxClientFactory::class, $clientFactory);
+
+        $payload = $this->postJson('/api/dropbox/sync');
+
+        self::assertResponseStatusCodeSame(500);
+        self::assertSame('Dropbox import failed.', $payload['error']);
     }
 }

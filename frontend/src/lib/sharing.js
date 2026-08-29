@@ -388,8 +388,8 @@ export function shareCodeMisuse(value, expected) {
 
 /** How the three kinds of code are described wherever they are offered. */
 export const SHARING_CODE_COPY = {
-  mine: "Give this to someone so they can share comics with you. It only ever shows them "
-    + "your username — never your email address.",
+  mine: "Give your U- code to someone so they can share comics with you. Checking it shows "
+    + "them your username — never your email address.",
   rotate: "Replace your code if it has ended up somewhere you did not intend. The old one stops "
     + "working immediately, and anyone who still has it will need the new one. Your username and "
     + "the comics already shared with you are not affected.",
@@ -399,7 +399,8 @@ export const SHARING_CODE_COPY = {
     + "to can claim it until it runs out of uses or expires.",
   groupCode: "Create a G- code for these comics as one package — a story arc handed over with a "
     + "single code. Redeeming it costs one use however many comics it carries.",
-  redeem: "Someone sent you a C- or G- code? Redeem it here to add their comics to your collection.",
+  redeem: "Someone sent you a C- or G- code? Redeem it here to add their comics to your collection. "
+    + "18+ comics need age confirmation and acceptance on Shared with me.",
   handedOut: "Show a code again if you have lost the message you sent it in. Withdraw one at "
     + "any time to stop anyone else using it — anyone who already claimed a comic keeps it until "
     + "you revoke them. Codes that have stopped working are kept for a month so you can see who "
@@ -493,7 +494,8 @@ export const SHARING_PAGE_RESPONSIBILITY_REMINDER =
 export const EXPLICIT_FLAG_LABEL = "Explicit content (18+)";
 
 export const EXPLICIT_FLAG_DESCRIPTION = "Mark this comic as containing adult or explicit material. "
-  + "Recipients will have to confirm they are 18 or older before the comic is revealed or accepted.";
+  + "Recipients must confirm they are 18 or older before its details are shown. New shares must "
+  + "also be accepted before they can be read.";
 
 export const EXPLICIT_GATE_TITLE = "Explicit content — 18+";
 

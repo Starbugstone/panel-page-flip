@@ -106,7 +106,7 @@ APP_URL=https://comics.yourdomain.com
 MAILER_DSN=smtp://user:pass@smtp.yourdomain.com:587
 MAILER_TRANSPORT=smtp
 MAILER_FROM_ADDRESS=noreply@yourdomain.com
-MAILER_FROM_NAME="Comic Reader"
+MAILER_FROM_NAME="Panel Page Flip"
 
 MESSENGER_TRANSPORT_DSN=doctrine://default?auto_setup=0
 MAX_CONCURRENT_UPLOADS=3
@@ -185,7 +185,7 @@ Next steps (do them once):
    See SSH-deploy.md section 7 for what each one removes and how to check the
    schedule is actually firing.
 
-6. (Optional) Dropbox sync, only if this instance imports from Dropbox:
+6. (Optional) Dropbox import, only if this instance imports from Dropbox:
    0 */2 * * * cd $APP_DIR/backend && php bin/console app:dropbox-sync --env=prod >>/var/log/comics-dropbox.log 2>&1
 
 7. From your laptop, set up scripts/.env.deploy and from now on deploy with:

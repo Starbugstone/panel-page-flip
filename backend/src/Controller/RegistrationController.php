@@ -81,7 +81,7 @@ final class RegistrationController extends AbstractController
         if (!is_string($password) || $password === '') {
             return new JsonResponse([
                 'message' => 'Validation failed',
-                'errors' => ['[password]' => 'Password is required'],
+                'errors' => ['password' => 'Password is required'],
             ], Response::HTTP_BAD_REQUEST);
         }
 

@@ -68,6 +68,12 @@ describe("the footer it lives in", () => {
     <MemoryRouter initialEntries={[pathname]}><Footer /></MemoryRouter>
   );
 
+  it("uses the product name", () => {
+    renderFooter("/dashboard");
+
+    expect(screen.getByText(/© \d{4} Panel Page Flip\. All rights reserved\./)).toBeInTheDocument();
+  });
+
   /**
    * The reader is ad-free and the site code is never loaded there, but consent
    * is exactly what somebody wants to change while looking at the page that

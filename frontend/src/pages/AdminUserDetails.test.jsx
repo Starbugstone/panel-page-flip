@@ -75,6 +75,16 @@ describe("AdminUserDetails", () => {
     );
   });
 
+  it("describes Dropbox activity as a one-way import", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      user: { ...account, dropboxConnected: true, dropboxLastSyncedAt: "2026-08-29T12:00:00Z" },
+    });
+    renderPage();
+
+    expect(await screen.findByText(/Connected\. Last imported/)).toBeInTheDocument();
+    expect(screen.queryByText(/Last synced/)).not.toBeInTheDocument();
+  });
+
   it("rotates the user code through the route the backend serves", async () => {
     const user = userEvent.setup();
     renderPage();

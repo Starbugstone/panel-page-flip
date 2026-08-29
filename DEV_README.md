@@ -35,6 +35,8 @@ lives in [`docs/`](docs/):
 - **JSON Login**: Implemented in `security.yaml` with proper routes and handlers
 - **Registration**: Implemented in `RegistrationController.php`
 - **Password Reset**: Implemented in `ResetPasswordController.php` with email notifications
+- **Password Policy**: Registration, admin API changes and operator console commands all use `PasswordValidator`
+- **Auth Email Branding**: Verification, reset and password-change mail uses the configured `MAILER_FROM_NAME`
 - **User Entity**: Defined in `User.php` with proper properties and relationships
 - **Security**: Access control rules defined to secure API endpoints
 
@@ -42,7 +44,7 @@ lives in [`docs/`](docs/):
 - **Comic Entity**: Defined in `Comic.php` with properties for title, file path, cover image, etc.
 - **Comic Controller**: Implemented in `ComicController.php` with endpoints for CRUD operations. Includes refined permission checks for operations like comic deletion (owner/admin only).
 - **File Storage**: Comics are stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
-- **Cover Images**: Stored in comic-specific directories at `/uploads/comics/covers/{comic_id}/{cover_image.jpg}`
+- **Cover Images**: Stored under `backend/public/uploads/comics/{user_id}/covers/{comic_id}/{cover_image}` and served only through `GET /api/comics/cover/{userId}/{comicId}/{filename}`
 - **Chunked Upload**: Implemented chunked file upload system to handle large comic files (1MB chunks)
   - Initialization endpoint: `/api/comics/upload/init`
   - Chunk upload endpoint: `/api/comics/upload/chunk`
@@ -62,7 +64,7 @@ lives in [`docs/`](docs/):
 - **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored. One link per invitation, good for a single claim within two months; accepting spends it and revokes every other token for that share, and resending mints a new one and retires the old link
 - **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
 - **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup
-- **Public Identity**: Every account has a required, case-insensitively unique `username` and a permanent `U-` user code. `UsernamePolicy.php` is the one definition of what a username may be, `UsernameGenerator.php` invents friendly ones, `UsernameService.php` claims and changes them, and `UserIdentityListener.php` issues both identifiers on `prePersist` so no account can exist without them. See [Public identity: username and `U-` code](#public-identity-username-and-u--code)
+- **Public Identity**: Every account has a required, case-insensitively unique `username` and a rotatable `U-` user code. `UsernamePolicy.php` is the one definition of what a username may be, `UsernameGenerator.php` invents friendly ones, `UsernameService.php` claims and changes them, and `UserIdentityListener.php` issues both identifiers on `prePersist` so no account can exist without them. See [Public identity: username and `U-` code](#public-identity-username-and-u--code)
 - **Sharing Codes**: `SharingCodeFormat.php` and `ShareCodeType.php` define one wire format in three flavours — `U-` identifies a person, `C-` carries exactly one comic, `G-` carries a package of 2–20. `SharingCodeService.php` issues and resolves user codes; `ShareClaimCodeService.php` mints and redeems content codes. See [Sharing codes](#sharing-codes)
 - **Content Code Lifetime**: `ShareContentCodeLifetime.php` turns `SHARE_CONTENT_CODE_TTL_DAYS` (default 7) into an absolute expiry stamped on each code at minting time, and refuses to construct on a nonsense value so a bad deployment fails on the way up
 - **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients` and `POST /api/shares/invitations/bulk` — the one path that opens a direct share. Recipients come only from the caller's own share history and never from a user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
@@ -79,12 +81,12 @@ lives in [`docs/`](docs/):
 - **Individual Import**: Users can import specific comics from their Dropbox with individual import buttons
 - **Smart Sync Detection**: Robust duplicate detection using filename and title similarity matching
 - **Automatic Tagging**: Intelligent conversion of folder names to tags (camelCase, snake_case, kebab-case support)
-- **API Endpoints**: Status check, disconnect, file listing with sync status, and individual import
+- **API Endpoints**: Status check, disconnect, file listing with import status, and individual import
 - **Background Sync**: Console command for automated syncing with rate limiting (still available for bulk operations)
 
 #### ✅ Utility Commands
-- **CreateUserCommand**: Creates regular users (`app:create-user`)
-- **CreateAdminUserCommand**: Creates admin users (`app:create-admin-user`)
+- **CreateUserCommand**: Creates regular users after applying the shared password policy (`app:create-user`)
+- **CreateAdminUserCommand**: Creates admin users after applying the shared password policy (`app:create-admin-user`)
 - **ImportComicsCommand**: Imports comics from a directory (`app:import-comics`)
 - **CleanupComicsCommand**: Cleans up orphaned comic files and cover images (`app:cleanup-comics`)
 - **SetupUploadDirectoriesCommand**: Sets up necessary directories for uploads (`app:setup-upload-directories`)
@@ -99,13 +101,14 @@ lives in [`docs/`](docs/):
 - **PruneComicPagesCommand**: Drops generated page derivatives from the cache (`app:comic-pages:prune`)
 - **BackfillComicFileSizeCommand**: Fills `Comic.fileSize` for comics uploaded before quotas existed (`app:backfill-comic-file-size`)
 - **MigrateDropboxTokensCommand**: Re-encrypts legacy plaintext Dropbox tokens under `APP_DATA_KEY` (`app:migrate-dropbox-tokens`)
-- **ResetUserPasswordCommand**: Sets an account's password from the console (`app:reset-user-password`)
+- **ResetUserPasswordCommand**: Sets an account's password from the console after applying the shared password policy (`app:reset-user-password`)
 - **TestEmailVerificationCommand**: Exercises the email-verification flow (`app:test-email-verification`)
 - **TestMailCommand**: Sends one test message through the configured mailer (`app:test-mail`)
 
-The three cleanup commands that a production instance **must** have scheduled —
-`app:cleanup-logs`, `app:cleanup-personal-data` and `app:cleanup-expired-shares`
-— are listed with what breaks if they never run in
+The four cleanup commands that a production instance **must** have scheduled —
+`app:cleanup-logs`, `app:cleanup-personal-data`,
+`app:cleanup-expired-shares` and `app:cleanup-content-reports` — are listed with
+what breaks if they never run in
 [README.md § Scheduled maintenance](README.md#scheduled-maintenance).
 
 #### ✅ Security and Audit Logging
@@ -127,12 +130,11 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 
 #### ✅ Comic Reader
 - **Reading Interface**: Core reading functionality implemented in `ComicReader.jsx`
-- **Advanced Caching System**: Implemented a robust caching system that stores comic pages as data URLs to prevent unnecessary network requests
+- **Advanced Caching System**: Keeps decoded images loaded from protected `/api/comics/{id}/pages/{page}` URLs so browser HTTP caching and server authorization remain effective
 - **Optimized Page Loading**: Uses a priority queue system to load pages in order of likelihood to be viewed next
-- **Memory Management**: Automatically cleans up cached pages outside the viewing window (±5 pages) to prevent memory overflow
+- **Memory Management**: Evicts decoded pages outside an adaptive preload window based on viewport class, device memory and network data-saving hints
 - **Network Optimization**: Prevents duplicate network requests by tracking in-progress loads
 - **Responsive UI**: Immediately displays cached pages while loading new ones in the background
-- **Debug Panel**: Provides real-time visibility into cache state and loading processes
 
 #### ✅ Admin Interface
 - **Admin Dashboard**: Implemented in `AdminDashboard.jsx`, now includes a loading indicator during user authentication.
@@ -157,12 +159,12 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Collection Integration**: Accepted shares appear in the normal collection with a "Shared by …" badge, an `All | Mine | Shared with me` filter, and owner actions hidden
 
 #### ✅ Dropbox Integration
-- **Dropbox Sync Page**: Complete UI in `DropboxSyncPage.jsx` for managing Dropbox connection and individual imports
+- **Dropbox Import Page**: Complete UI in `DropboxSyncPage.jsx` for managing Dropbox connection and individual imports
 - **Connection Status**: Real-time detection of Dropbox connection status with proper OAuth scopes
-- **File Management**: Display of Dropbox files with accurate sync status indicators
+- **File Management**: Display of Dropbox files with accurate import status indicators
 - **Individual Import**: UI for importing specific comics with individual import buttons and loading states
 - **Smart Status Detection**: Accurately shows which files have been imported to prevent duplicates
-- **Dashboard Integration**: Dedicated "Dropbox" tab in the main dashboard for synced comics
+- **Dashboard Integration**: Dedicated "Dropbox" tab in the main dashboard for imported comics
 
 The frontend is built with:
 - React with JavaScript (converted from TypeScript)
@@ -238,9 +240,9 @@ Kept separate from the access relationship so the two lifecycles do not fight:
 resending mints a new token and invalidates the old link, while access that has
 already been accepted survives both.
 
-- **tokenHash**: SHA-256 of the plaintext. The plaintext exists once, in the
-  email, and is returned to the owner once at creation so they can pass the link
-  on themselves. Nothing can reconstruct it afterwards
+- **tokenHash**: SHA-256 of the plaintext. The plaintext exists only while the
+  email is being written and in the email itself. Neither the bulk-invite nor
+  resend API returns it to the owner, and nothing can reconstruct it afterwards
 - **createdAt / expiresAt / usedAt / revokedAt**
 
 A raw 256-bit token needs no work factor: there is no dictionary to slow an
@@ -659,9 +661,9 @@ issue another.
 
 Both are capabilities, so both are treated like one:
 
-- **Hashed at rest**, like an invitation token. The plaintext is returned once,
-  when it is created, and nothing can reproduce it afterwards — not even for an
-  administrator
+- **Hashed for redemption**, like an invitation token. An encrypted copy is
+  stored alongside the hash so the owner can reveal the code later. The reveal
+  is rate-limited and audited; administrators cannot read the code
 - **Typed in the hash.** The hash covers the type as well as the token, so a `C-`
   and a `G-` written with the same twelve characters are different codes and
   neither can be looked up as the other
@@ -733,6 +735,7 @@ are ordinary relationships and outlive it entirely.
 | `POST /api/shares/comic-codes` | mint a `C-` over exactly one comic the owner may share |
 | `POST /api/shares/group-codes` | mint a `G-` over a package of 2–20 |
 | `GET /api/shares/content-codes` | list codes handed out, live and dead — never the codes themselves |
+| `GET /api/shares/content-codes/{id}/reveal` | let the owner read one code again; rate-limited, audited, and available for dead codes where an encrypted copy exists |
 | `DELETE /api/shares/content-codes/{id}` | withdraw one |
 | `POST /api/shares/content-codes/redeem` | redeem either kind; the prefix decides |
 
@@ -750,9 +753,10 @@ second copy of the share lifecycle. **One service owns what a `ComicShare` is
 and how it changes**, whatever transport created it — a transport that grew its
 own transitions would drift from the canonical rules, and the acknowledgement
 timestamp being recreated at redemption time is exactly the bug that follows.
-Claiming emits the same `SHARE_CREATED` and `SHARE_ACCEPTED` audit records an
-emailed invitation does, tagged `via: claim_code`, alongside the aggregate
-`SHARE_CLAIM_CODE_REDEEMED`.
+Claiming emits `SHARE_CREATED`, tagged `via: claim_code`, alongside the
+aggregate `SHARE_CLAIM_CODE_REDEEMED`. `SHARE_ACCEPTED` is emitted when the
+share is actually accepted: during redemption for non-explicit comics, or after
+age confirmation and a later accept for explicit comics.
 
 **Redemption does not hand the owner the redeemer's address.** The owner put a
 code into the world and a stranger picked it up; returning that person's email
@@ -764,12 +768,13 @@ content-code share differs from a direct email share, where the sender already
 knows the address because they typed it.
 
 It differs from an emailed invitation in three deliberate ways: no token and no
-email, because the recipient is right there; redeeming counts as accepting,
-because typing a code somebody gave you is an affirmative act; and the sender's
-acknowledgement is **inherited from the code, not stamped now** — the owner
-acknowledged responsibility when they created it, possibly hours earlier, and
-`ComicShare::senderResponsibilityAcceptedAt` is the canonical evidence of when
-they did.
+email, because the recipient is right there; redeeming a non-explicit comic
+counts as accepting, because typing a code somebody gave you is an affirmative
+act; and the sender's acknowledgement is **inherited from the code, not stamped
+now** — the owner acknowledged responsibility when they created it, possibly
+hours earlier, and `ComicShare::senderResponsibilityAcceptedAt` is the canonical
+evidence of when they did. Explicit comics stay pending until the recipient
+confirms their age and then accepts them from the Sharing page.
 
 The one rule redemption cannot wave through is the age gate. **An explicit comic
 is left pending**, decided before the share is accepted rather than undone
@@ -862,14 +867,15 @@ database.
 | `POST /api/admin/sharing-codes/cleanup` | run the retention sweep by hand |
 
 The table is paginated because it grows continuously between sweeps, and the
-status filters (`active`, `expired`, `exhausted`, `withdrawn`) are expressed as
-predicates over the row and the clock rather than read from a stored column —
-a second column saying so would be one more thing to keep in step.
+status filters (`active`, `expired`, `exhausted`, `withdrawn`,
+`comics_removed`) are expressed as predicates over the row and the clock rather
+than read from a stored column — a second column saying so would be one more
+thing to keep in step.
 
 Three things this surface deliberately cannot do:
 
-- **show a code.** Only the hash is stored, so there is nothing to show and
-  nothing to recover, not even for an administrator
+- **show a code.** Redemption uses the stored hash and an encrypted copy may
+  exist for the owner to reveal, but the admin API never exposes that copy
 - **take back a comic.** Withdrawing closes the way in and never the access
   already granted, exactly as it does when the owner withdraws their own code.
   Removing a share is moderation — a different decision, on a different screen
@@ -906,8 +912,8 @@ not be implemented implicitly on top of recent recipients.
    already identified themselves more strongly than the token could
 4. Accepting sets the status, **spends the link and revokes every other
    outstanding token for that share**, and the comic appears in the recipient's
-   normal collection. From then on the link refuses every use — preview, accept,
-   decline and age confirmation alike
+   normal collection. The spent link cannot perform another action; reopening
+   it may instead report that the invitation was already accepted
 
 #### Losing access
 - **Revoke one recipient** (`POST /api/shares/{id}/revoke`) or **stop sharing
@@ -1057,26 +1063,24 @@ somebody who may never have had an account here.
   it in place through `/api/comics/{id}/pages/{page}` and
   `/api/comics/cover/{ownerId}/{comicId}/{filename}`, both gated by `COMIC_VIEW`
 
-#### Dropbox Synced Comics
-- Stored in user-specific Dropbox subdirectories: `/uploads/comics/{user_id}/dropbox/{filename}`
+#### Dropbox-Imported Comics
+- Staged in the system temporary directory, then stored like every other source
+  at `backend/public/uploads/comics/{user_id}/{generated_filename}`
 - Original filenames are preserved from Dropbox
 - Tagged with "Dropbox" for easy identification and filtering
-- One-way sync: files are downloaded from Dropbox to server
+- One-way import: files are downloaded from Dropbox to the server
 
 #### Public Cover Images
 - Removed. Sharing no longer copies a cover into a world-readable directory;
   covers are served from the authorised cover endpoint, which asks the voter
   whether this viewer may see the comic at all
-- **Theme Persistence**: Switched from `localStorage` to client-side cookies for storing theme preferences (light/dark mode), managed by `ThemeProvider.jsx` and a new utility module `frontend/src/lib/cookies.js`. Includes a migration step from `localStorage`.
-- **Authentication Hook (`use-auth.jsx`)**: The `checkAuth` function updated to use `/api/me` for fetching comprehensive authenticated user details, including roles. The hook also includes a `refreshSession` method that forces an immediate session check.
-- **Session Management**: Consolidated session management to use a single endpoint (`/api/me`) for both session validation and session keep-alive functionality. GET is the public session check and answers `{"user": null}` when nobody is signed in; POST is the authenticated refresh. The session manager treats an anonymous GET as an expired session.
-- **Cookie Utility (`frontend/src/lib/cookies.js`)**: New module added with helper functions for managing browser cookies.
 
 ## Dropbox Integration System
 
 ### Overview
 
-The Dropbox integration provides seamless synchronization of CBZ comic files from users' Dropbox accounts to the server. This is implemented as a one-way sync (Dropbox → Server) to allow users to easily share comics after they're synced.
+The Dropbox integration provides one-way import of enabled comic source formats
+from users' Dropbox accounts to the server.
 
 ### Configuration
 
@@ -1096,18 +1100,23 @@ DROPBOX_APP_SECRET=your_dropbox_app_secret_here
 DROPBOX_REDIRECT_URI=http://localhost:8080/api/dropbox/callback
 
 # Dropbox App Folder Configuration
-# For app-scoped Dropbox apps, this should be set to "/" (root of the app's scope)
-# Users must create the "Applications/StarbugStoneComics" folder in their Dropbox
-# but from the app's perspective, this folder becomes the root ("/")
+# With App folder access, "/" is the root Dropbox assigns to this app.
+# With Full Dropbox access, use "/" for the whole account or an explicit path.
 DROPBOX_APP_FOLDER=/
 
-# Dropbox Sync Configuration
+# Dropbox Import Batch Configuration
 # Maximum number of files to sync per user per sync operation (prevents overload)
 DROPBOX_SYNC_LIMIT=10
 
 # Dropbox Rate Limiting (requests per minute to prevent API limits)
 DROPBOX_RATE_LIMIT=60
 ```
+
+The production deployment templates and scripts default `DROPBOX_APP_FOLDER` to
+`/`. The committed local-development `backend/.env` currently uses
+`/Apps/StarbugStoneComics`, which Dropbox treats as a literal path and therefore
+only suits a Full Dropbox app; override it with `/` when developing against an
+App folder app.
 
 #### Services Configuration
 
@@ -1135,14 +1144,17 @@ services:
 #### Dropbox App Setup Requirements
 
 **Required Permissions:**
-- `files.metadata.read` - Required for listing files and folders
 - `files.content.read` - Required for downloading CBZ files
-- `files.content.write` - Optional, for future upload features
+- `files.content.write` - Requested by the current OAuth controller
+- `account_info.read` - Required for connection status and account display
 
 **App Configuration:**
 - **Access Type**: "App folder" (recommended) or "Full Dropbox"
 - **Redirect URI**: Must match `DROPBOX_REDIRECT_URI` exactly
-- **App Folder Name**: Should match the folder name in `DROPBOX_APP_FOLDER`
+- **Import Root**: Keep `DROPBOX_APP_FOLDER=/` for App folder access. Dropbox
+  creates and names the app folder, then exposes it to the API as `/`; this
+  setting does not name or create that folder. With Full Dropbox access, it is
+  an ordinary Dropbox path.
 
 #### Configuration Benefits
 
@@ -1155,32 +1167,30 @@ services:
 ### Integration Workflow
 
 #### Connection Process
-1. User clicks "Connect to Dropbox" in the Dropbox Sync page
+1. User clicks "Connect to Dropbox" on the Dropbox Import page
 2. System redirects to Dropbox OAuth authorization
 3. User authorizes the application
 4. Dropbox redirects back with authorization code
 5. System exchanges code for access and refresh tokens
 6. Tokens are stored in the user's database record
 
-#### Sync Process
-1. **Manual Sync**: Users can trigger sync from the Dropbox Sync page
-2. **Automatic Sync**: Background command can be scheduled via cron
-3. **File Discovery**: Recursively scans CBZ files in user's Dropbox app folder and all subfolders
+#### Import Process
+1. **Manual Import**: Users can trigger an import from the Dropbox Import page
+2. **Automatic Import**: The background command can be scheduled via cron
+3. **File Discovery**: Recursively scans enabled comic source files in the configured Dropbox root and all subfolders
 4. **Tag Generation**: Automatically creates tags from folder structure using intelligent naming conversion
 5. **Duplicate Check**: Compares with existing comics to avoid duplicates
-6. **Download**: Downloads new CBZ files to user's dropbox subdirectory
+6. **Download**: Stages each source in the system temporary directory
 7. **Import**: Creates comic entries with "Dropbox" tag plus folder-based tags and metadata
 
 #### File Organization
 ```
 uploads/comics/
 ├── {user_id}/
-│   ├── dropbox/           # Dropbox synced files
-│   │   ├── comic1.cbz
-│   │   └── comic2.cbz
-│   ├── regular_upload.cbz # Manual uploads
-│   └── covers/            # Cover images
-└── covers/                # Global covers directory
+│   ├── generated-source-name.cbz # Manual and Dropbox imports share this layout
+│   └── covers/
+│       └── {comic_id}/
+│           └── generated-cover-name.jpg
 ```
 
 ### API Endpoints
@@ -1189,8 +1199,9 @@ uploads/comics/
 - `GET /api/dropbox/callback` - Handle OAuth callback
 - `GET /api/dropbox/status` - Check connection status and user info
 - `POST /api/dropbox/disconnect` - Remove Dropbox connection
-- `GET /api/dropbox/files` - List CBZ files in Dropbox with sync status
-- `POST /api/dropbox/sync` - Trigger manual sync
+- `GET /api/dropbox/files` - List enabled comic source files in Dropbox with import status
+- `POST /api/dropbox/import` - Import one listed file
+- `POST /api/dropbox/sync` - Trigger a manual import
 
 ### Background Sync Command
 
@@ -1218,7 +1229,8 @@ php bin/console app:dropbox-sync --user-id=123 --limit=20 --dry-run
 The command respects these environment variables:
 
 - **`DROPBOX_SYNC_LIMIT`**: Default number of files to sync per user (default: 10)
-- **`DROPBOX_APP_FOLDER`**: Should be "/" for app-scoped Dropbox apps (users create Applications/StarbugStoneComics folder)
+- **`DROPBOX_APP_FOLDER`**: `/` for App folder access; for Full Dropbox access,
+  `/` scans the account root and an explicit path limits imports to that folder
 - **`DROPBOX_RATE_LIMIT`**: API rate limiting (default: 60 requests per minute)
 
 #### Rate Limiting & Performance
@@ -1233,27 +1245,27 @@ The command respects these environment variables:
 Can be scheduled to run automatically with various strategies:
 
 ```bash
-# Sync with environment default limit (10 files per user)
+# Import with environment default limit (10 files per user)
 0 0 * * * cd /path/to/project && php bin/console app:dropbox-sync
 
-# Sync with custom limit
+# Import with custom limit
 0 0 * * * cd /path/to/project && php bin/console app:dropbox-sync --limit=5
 
-# Sync every 6 hours with rate limiting
+# Import every 6 hours with rate limiting
 0 */6 * * * cd /path/to/project && php bin/console app:dropbox-sync --limit=3
 
-# Sync specific high-priority user more frequently
+# Import for a specific high-priority user more frequently
 */30 * * * * cd /path/to/project && php bin/console app:dropbox-sync --user-id=1 --limit=1
 ```
 
 ### Frontend Integration
 
-- **Dropbox Sync Page**: Complete management interface at `/dropbox-sync`
+- **Dropbox Import Page**: Complete management interface at `/dropbox-sync`
 - **Connection Status**: Real-time status detection and user info display
-- **File Listing**: Shows Dropbox files with sync status indicators
-- **Manual Sync**: One-click sync with progress feedback
-- **Dashboard Integration**: Dedicated "Dropbox" tab for synced comics
-- **Navigation**: Header includes link to Dropbox sync page
+- **File Listing**: Shows Dropbox files with import status indicators
+- **Manual Import**: One-click import with progress feedback
+- **Dashboard Integration**: Dedicated "Dropbox" tab for imported comics
+- **Navigation**: Header includes a link to the Dropbox Import page
 
 ### Automatic Tagging System
 
@@ -1279,9 +1291,9 @@ The Dropbox integration includes an intelligent tagging system that automaticall
 
 ```
 Dropbox Structure → Generated Tags
-(users create Applications/StarbugStoneComics folder in their Dropbox)
+(with App folder access, Dropbox creates this folder and exposes it as API root `/`)
 
-Applications/StarbugStoneComics/
+App folder root (`/`)
 ├── Superman.cbz → ["Dropbox"]
 ├── superHero/
 │   └── Batman.cbz → ["Dropbox", "Super Hero"]
@@ -1293,9 +1305,9 @@ Applications/StarbugStoneComics/
     └── space_opera/
         └── Foundation.cbz → ["Dropbox", "Sci Fi", "Space Opera"]
 
-With custom DROPBOX_APP_FOLDER=/Applications/MyComics:
+With Full Dropbox access and `DROPBOX_APP_FOLDER=/MyComics`:
 
-Applications/MyComics/
+MyComics/
 ├── Superman.cbz → ["Dropbox"]
 ├── Marvel/
 │   └── Spider-Man.cbz → ["Dropbox", "Marvel"]
@@ -1325,12 +1337,13 @@ Applications/MyComics/
 
 **1. Permission Denied Error**
 ```
-Your app (ID: XXXXXXX) is not permitted to access this endpoint because it does not have the required scope 'files.metadata.read'
+Your app (ID: XXXXXXX) is not permitted to access this endpoint because it does not have the required scope 'account_info.read'
 ```
 **Solution**: Enable required scopes in Dropbox App Console:
 - Go to https://www.dropbox.com/developers/apps
 - Select your app → Permissions tab
-- Enable: `files.metadata.read`, `files.content.read`, `files.content.write`
+- Enable the scopes requested by `DropboxController`: `files.content.read`,
+  `files.content.write`, `account_info.read`
 
 **2. Redirect URI Mismatch**
 ```
@@ -1451,7 +1464,7 @@ The four entities below are the core of the model. The sharing entities
 - `username`: The account's public identity (unique, required)
 - `usernameCanonical`: Its lowercase twin, which carries the unique index — see
   [What a username may be](#what-a-username-may-be)
-- `userCode`: The permanent `U-` recipient code (unique, required)
+- `userCode`: The rotatable `U-` recipient code (unique, required)
 - `password`: Hashed password
 - `roles`: Array of user roles (ROLE_USER, ROLE_ADMIN)
 - `name`: Display name (optional, **not** unique — never used alone to confirm a
@@ -1536,6 +1549,7 @@ documented in their own pages under `docs/`.
 - `PUT/PATCH /api/comics/{id}` - Update a comic's information
 - `DELETE /api/comics/{id}` - Delete a comic
 - `GET /api/comics/{id}/pages/{page}` - Get a specific page from a comic
+- `GET /api/comics/cover/{ownerId}/{comicId}/{filename}` - Get an authorised cover image
 - `POST /api/comics/{id}/progress` - Update reading progress for a comic
 
 #### Tags
@@ -1572,14 +1586,14 @@ For example:
 - `/uploads/comics/2/another_comic.cbz` - Comic owned by user with ID 2
 
 #### Cover Images
-Cover images are stored in comic-specific directories for better organization:
+Cover images are stored under the owner and comic:
 ```
-/uploads/comics/covers/{comic_id}/{cover_image.jpg}
+backend/public/uploads/comics/{user_id}/covers/{comic_id}/{cover_image}
 ```
 
-For example:
-- `/uploads/comics/covers/1/cover.jpg` - Cover image for comic with ID 1
-- `/uploads/comics/covers/2/cover.jpg` - Cover image for comic with ID 2
+They are not served as public upload paths. `ComicSerializer` emits
+`/api/comics/cover/{ownerId}/{comicId}/{filename}`, and `ComicPageController`
+checks `COMIC_VIEW` before reading the file.
 
 ### Email Testing with Mailpit
 
@@ -2019,4 +2033,6 @@ only — a command has to run for anything to be deleted. A production instance
 needs `app:cleanup-logs`, `app:cleanup-personal-data` and
 `app:cleanup-expired-shares` daily, plus `app:cleanup-content-reports`, and
 `app:dropbox-sync` if the instance uses Dropbox imports. Crontab examples are in
-[SSH-deploy.md §7](SSH-deploy.md#7-background-jobs-cron--systemd-timers).
+[SSH-deploy.md §7](SSH-deploy.md#7-background-jobs-cron--systemd-timers);
+content-report retention details are in
+[docs/content-reporting.md](docs/content-reporting.md#configuration).

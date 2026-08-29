@@ -47,9 +47,13 @@ final class ContentReportController extends AbstractController
             ], Response::HTTP_BAD_REQUEST);
         }
 
-        return $this->json([
+        $response = [
             'message' => 'Your report has been received and will be reviewed.',
-            'reference' => $report?->getReference() ?? 'CR-RECEIVED',
-        ], Response::HTTP_CREATED);
+        ];
+        if ($report !== null) {
+            $response['reference'] = $report->getReference();
+        }
+
+        return $this->json($response, Response::HTTP_CREATED);
     }
 }

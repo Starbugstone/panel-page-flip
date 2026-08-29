@@ -187,6 +187,48 @@ final class MetadataCredentialTest extends AbstractApiTestCase
     }
 
     /**
+     * @dataProvider invalidCredentialMessageProvider
+     */
+    public function testCredentialValidationUsesTheLabelsShownInTheInterface(
+        string $field,
+        mixed $value,
+        string $message
+    ): void {
+        $this->loginAs(UserFactory::createOne()->object());
+
+        $payload = $this->putJson('/api/me/metadata-credentials', [$field => $value]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame($message, $payload['message']);
+        self::assertStringNotContainsString($field, $payload['message']);
+    }
+
+    /** @return iterable<string, array{string, mixed, string}> */
+    public function invalidCredentialMessageProvider(): iterable
+    {
+        yield 'Metron type' => [
+            'metronToken',
+            ['not', 'a', 'string'],
+            'Metron API token must be text or empty.',
+        ];
+        yield 'Metron length' => [
+            'metronToken',
+            str_repeat('a', 1_000),
+            'Metron API token is too long.',
+        ];
+        yield 'Comic Vine type' => [
+            'comicVineApiKey',
+            ['not', 'a', 'string'],
+            'Comic Vine API key must be text or empty.',
+        ];
+        yield 'Comic Vine length' => [
+            'comicVineApiKey',
+            str_repeat('a', 1_000),
+            'Comic Vine API key is too long.',
+        ];
+    }
+
+    /**
      * Nothing is configured and no token was typed, so this must say there is
      * nothing to test rather than reaching out. No network is touched.
      */

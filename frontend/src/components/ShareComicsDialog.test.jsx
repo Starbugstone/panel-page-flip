@@ -140,6 +140,17 @@ describe("ShareComicsDialog", () => {
     expect(screen.queryByPlaceholderText(/Search your library/i)).not.toBeInTheDocument();
   });
 
+  it("describes a multi-comic direct share as separate invitations", async () => {
+    open({ initialComicIds: [1, 2], lockSelection: true });
+
+    await screen.findByText("Batman #1");
+
+    const review = screen.getByText(/2 comics will be offered .* as separate invitations\./);
+    expect(review).toHaveTextContent(/Each must be accepted before it can be read/);
+    expect(screen.queryByText(/in one invitation/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send invitations" })).toBeInTheDocument();
+  });
+
   /* ------------------------------------------------------------------------ */
   /* Naming a recipient                                                        */
   /* ------------------------------------------------------------------------ */
@@ -366,7 +377,7 @@ describe("ShareComicsDialog", () => {
   /* C- and G-                                                                 */
   /* ------------------------------------------------------------------------ */
 
-  it("creates a C- code for one comic and shows it once", async () => {
+  it("creates a C- code and explains where it can be shown again", async () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockResolvedValue({
       code: "C-7RFX-KP3M-Q82D",
@@ -386,8 +397,11 @@ describe("ShareComicsDialog", () => {
       expect.objectContaining({ comicIds: [1], maxUses: 1 })
     ));
 
-    // The only moment it exists in a readable form: the server keeps a hash.
     expect(await screen.findByLabelText("Your new sharing code")).toHaveTextContent("C-7RFX-KP3M-Q82D");
+    expect(screen.getByText(
+      /Copy it now, or show it again later under Codes you have handed out on the Sharing page\./
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/cannot be shown again/i)).not.toBeInTheDocument();
   });
 
   /**
@@ -461,6 +475,17 @@ describe("ShareComicsDialog", () => {
       "/api/shares/invitations/bulk",
       expect.objectContaining({ markExplicit: true })
     ));
+  });
+
+  it("explains that an 18+ recipient must confirm their age and accept", async () => {
+    const user = userEvent.setup();
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+
+    expect(screen.getByText(/recipients must confirm their age and accept before they can read them\./i))
+      .toBeInTheDocument();
   });
 
   it("says that leaving the 18+ box unticked never clears an existing mark", async () => {
@@ -573,18 +598,47 @@ describe("ShareComicsDialog", () => {
     })));
   });
 
-  it("says so when the server could not queue the notice", async () => {
+  it("reports every invitation in a multi-comic share", async () => {
     const user = userEvent.setup();
     answerResolveAndShare({
-      created: 1,
-      total: 1,
-      results: [{ comicId: 1, status: "created", notificationState: "failed" }],
+      created: 2,
+      total: 2,
+      results: [
+        { comicId: 1, status: "created" },
+        { comicId: 2, status: "created" },
+      ],
     });
 
     open();
     await screen.findByText("Batman #1");
 
     await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Superman #1" }));
+    await confirmRecipient(user, { username: "SilverOtter4821" });
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: /Send invitation/i }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      description: expect.stringContaining("2 invitations"),
+    })));
+  });
+
+  it("says so when the server could not queue the notice", async () => {
+    const user = userEvent.setup();
+    answerResolveAndShare({
+      created: 2,
+      total: 2,
+      results: [
+        { comicId: 1, status: "created", notificationState: "failed" },
+        { comicId: 2, status: "created", notificationState: "failed" },
+      ],
+    });
+
+    open();
+    await screen.findByText("Batman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select Batman #1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Superman #1" }));
     await confirmRecipient(user, { username: "SilverOtter4821" });
     await acknowledge(user);
     await user.click(screen.getByRole("button", { name: /Send invitation/i }));
@@ -592,7 +646,7 @@ describe("ShareComicsDialog", () => {
     // The share is real and the notice is not — telling somebody it was sent
     // leaves them waiting for an answer to a message nobody received.
     await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
-      description: expect.stringContaining("could not be notified"),
+      description: expect.stringMatching(/could not be notified\. The shares exist .* resend the invitations/),
     })));
   });
 

@@ -41,6 +41,17 @@ beforeEach(() => {
  * they are indexable, and both directions are wrong on the other deployment.
  */
 describe("the privacy policy", () => {
+  it("covers account identifiers and sharing-code records, not only email invitations", async () => {
+    renderPage(<PrivacyPolicy />);
+
+    expect(await screen.findByText(
+      /Sharing data: usernames, recipient email addresses, sharing-code records/i
+    )).toBeInTheDocument();
+    expect(screen.getByText(
+      /Sharing by username or code does not reveal either person’s email address/i
+    )).toBeInTheDocument();
+  });
+
   it("names Google as a recipient where advertising is on", async () => {
     advertisingOn();
 

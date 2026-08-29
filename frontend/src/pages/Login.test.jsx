@@ -20,6 +20,51 @@ const openSignup = () => render(
   </MemoryRouter>
 );
 
+describe("Login — registration copy", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.get).mockResolvedValue({ username: "SilverOtter4821" });
+  });
+
+  it("uses Panel Page Flip branding throughout the page", async () => {
+    openSignup();
+
+    expect(await screen.findByText("Welcome to Panel Page Flip")).toBeInTheDocument();
+    expect(screen.getByText(/Panel Page Flip is your personal multi-format comic library/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Comic Reader/i)).not.toBeInTheDocument();
+  });
+
+  it("places password-policy feedback with the password field", async () => {
+    const user = userEvent.setup();
+    openSignup();
+
+    const name = screen.getByLabelText("Name");
+    const password = screen.getByLabelText("Password");
+    await user.type(password, "weak");
+
+    const hint = screen.getByText(/Password must include:/i);
+    expect(password.parentElement).toContainElement(hint);
+    expect(name.parentElement).not.toContainElement(hint);
+  });
+
+  it("tells a newly registered person to verify their email before logging in", async () => {
+    const user = userEvent.setup();
+    register.mockResolvedValue({});
+    openSignup();
+
+    await waitFor(() => expect(screen.getByLabelText("Username")).toHaveValue("SilverOtter4821"));
+    await user.type(screen.getByLabelText("Name"), "Reader One");
+    await user.type(screen.getByLabelText("Email"), "reader@example.com");
+    await user.type(screen.getByLabelText("Password"), "StrongPassword!123");
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      description: expect.stringMatching(/verify your email before logging in/i),
+    })));
+  });
+});
+
 describe("Login — the username field", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -32,6 +77,17 @@ describe("Login — the username field", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Username")).toHaveValue("SilverOtter4821"));
     expect(api.get).toHaveBeenCalledWith("/api/users/username-suggestion");
+  });
+
+  it("describes every way a comic can be shared", async () => {
+    vi.mocked(api.get).mockResolvedValue({ username: "SilverOtter4821" });
+
+    openSignup();
+
+    expect(await screen.findByText(
+      /share it directly by username, U- code, or email, or send a private C- or G- code/i
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/share it by email —/i)).not.toBeInTheDocument();
   });
 
   it("replaces the suggestion on request", async () => {

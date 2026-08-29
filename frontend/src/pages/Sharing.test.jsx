@@ -79,6 +79,16 @@ describe("Sharing page", () => {
     lists.error = null;
   });
 
+  it("describes both claiming a code and accepting a direct invitation", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await openSharedByMe(user);
+
+    expect(screen.getByText(/Recipients must claim a code or accept an invitation before reading/))
+      .toBeInTheDocument();
+  });
+
   it("reminds the sender that shared content is their responsibility", async () => {
     const user = userEvent.setup();
     lists.sharedByMe = [{

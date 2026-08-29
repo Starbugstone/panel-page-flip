@@ -358,12 +358,8 @@ class SecurityAlertService
                 'occurredAt' => new \DateTimeImmutable(),
                 'windowMinutes' => $this->windowMinutes,
                 'details' => $this->reportableDetails($context),
-                // The admin dashboard, not a dedicated audit page: the audit
-                // list is a section of it. A path the frontend route manifest
-                // does not know is served as a 404, so an invented deep link
-                // would send an administrator chasing an incident to an error
-                // page.
-                'auditUrl' => $this->publicUrl->to('/admin'),
+                'siteName' => $this->mailerFromName,
+                'auditUrl' => $this->publicUrl->to('/admin?tab=audit'),
             ]);
         } catch (\Throwable $exception) {
             $this->logger->error('Failed to render a security alert email.', [

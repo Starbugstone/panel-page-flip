@@ -304,8 +304,8 @@ export default function UserSettings() {
           <AlertDialogHeader>
             <AlertDialogTitle>Permanently delete your account?</AlertDialogTitle>
             <AlertDialogDescription>
-              This deletes your comics, reading history, personal tags, share invitations,
-              Dropbox connection, and account. This cannot be undone.
+              This deletes your comics, reading history, personal tags, sharing relationships,
+              codes, and invitations, Dropbox connection, and account. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-4">

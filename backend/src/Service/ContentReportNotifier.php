@@ -55,11 +55,11 @@ final class ContentReportNotifier
             ->from(new Address($this->fromAddress, $this->fromName))
             ->to((string) $owner->getEmail())
             ->replyTo($this->legalEmail)
-            ->subject('Administrative action affecting your Panel Page Flip content')
+            ->subject(sprintf('Administrative action affecting your %s content', $this->fromName))
             ->text(sprintf(
                 "A content report was received and an administrator took action affecting your account or content.\n\nReport reference: %s\nAction: %s\n\nReporter contact details and private allegation material are not included. Contact %s if you believe this action is mistaken.",
                 $report->getReference(),
-                str_replace('_', ' ', $action),
+                ContentRestrictionService::actionLabel($action),
                 $this->legalEmail
             )), $report);
     }

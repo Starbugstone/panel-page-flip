@@ -38,7 +38,7 @@ const tabs = [
   { value: "tags", label: "Tags", content: "Tags Management", empty: "No tags available" },
   { value: "sharing-codes", label: "Sharing codes", content: "Sharing codes", empty: "No sharing codes match these filters." },
   { value: "content-reports", label: "Content reports", content: "Content reports", empty: "No reports match these filters." },
-  { value: "dropbox", label: "Dropbox", content: "Dropbox Monitoring", empty: "No connected Dropbox users" },
+  { value: "dropbox", label: "Dropbox", content: "Dropbox Imports", empty: "No connected Dropbox users" },
   { value: "audit", label: "Audit", content: "Admin Audit Log", empty: "No audit logs yet" },
 ];
 
@@ -115,6 +115,7 @@ describe("AdminDashboard tab navigation", () => {
   it("renders Overview at the canonical /admin URL", async () => {
     const router = renderDashboard();
 
+    expect(screen.getByRole("heading", { level: 1, name: "Admin dashboard" })).toBeInTheDocument();
     expectSelectedTab("Overview");
     expect(screen.getByRole("tablist")).toHaveClass("w-full", "overflow-x-auto");
     expect(router.state.location.search).toBe("");

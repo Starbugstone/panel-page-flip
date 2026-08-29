@@ -2,13 +2,21 @@
 
 namespace App\Tests\Functional\Controller;
 
+use App\Controller\AdminController;
+use App\Service\AdminAuditService;
 use App\Service\ComicFormatService;
+use App\Service\SecurityAuditLogger;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use App\Tests\Functional\SecurityLogAssertions;
+use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 class AdminControllerTest extends AbstractApiTestCase
 {
+    use SecurityLogAssertions;
+
     /** @var list<string> */
     private array $stagedFiles = [];
 
@@ -128,6 +136,32 @@ class AdminControllerTest extends AbstractApiTestCase
         self::assertGreaterThanOrEqual(1, $payload['cleanup']['quarantined']['orphanedComics']);
         self::assertArrayHasKey('orphanedCovers', $payload['cleanup']['quarantined']);
         self::assertFileDoesNotExist($orphan);
+    }
+
+    public function testFailedDropboxSyncDoesNotExposeSubprocessOutput(): void
+    {
+        $target = UserFactory::createOne([
+            'dropboxAccessToken' => 'example-invalid-dropbox-token',
+        ])->object();
+        $this->createAndLoginAdmin();
+        $this->clearSecurityLog();
+        $container = static::getContainer();
+        $controller = new AdminController(new ArrayAdapter(), sys_get_temp_dir());
+        $controller->setContainer($container);
+
+        $response = $controller->forceDropboxSync(
+            $target->getId(),
+            $container->get(EntityManagerInterface::class),
+            $container->get(AdminAuditService::class),
+            $container->get(SecurityAuditLogger::class),
+        );
+        $payload = json_decode((string) $response->getContent(), true, flags: JSON_THROW_ON_ERROR);
+
+        self::assertSame(502, $response->getStatusCode());
+        self::assertSame('Dropbox import failed. Please try again or review the server logs.', $payload['message']);
+        self::assertArrayNotHasKey('output', $payload);
+        $record = $this->assertLoggedSecurityEvent(SecurityAuditLogger::DATA_INTEGRITY_FAILURE);
+        self::assertSame('dropbox_force_sync', $record->context['operation']);
     }
 
     /**

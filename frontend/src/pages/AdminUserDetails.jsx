@@ -261,7 +261,7 @@ function AdminUserDetailsPage({ userId }) {
               <CardTitle className="flex items-center gap-2"><Cloud className="h-5 w-5" /> Dropbox</CardTitle>
               <CardDescription>
                 {user.dropboxConnected
-                  ? `Connected. Last synced ${formatDateTime(user.dropboxLastSyncedAt, "never")}.`
+                  ? `Connected. Last imported ${formatDateTime(user.dropboxLastSyncedAt, "never")}.`
                   : "Not connected."}
               </CardDescription>
             </CardHeader>

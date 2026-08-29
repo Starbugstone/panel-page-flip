@@ -53,7 +53,7 @@ export function AccountSettingsCard() {
       toast({
         title: "Username changed",
         description: `Other people now see you as @${trimmed}. `
-          + "Anyone who had your old handle will need the new one.",
+          + "Anyone using your old username will need the new one. Your U- code still works.",
       });
     } catch (error) {
       logger.error("Changing the username failed:", error);
@@ -101,8 +101,8 @@ export function AccountSettingsCard() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Changing it does not affect comics already shared with you, but anyone holding your old
-            handle will need the new one.
+            Changing it does not affect comics already shared with you. Anyone using your old
+            username will need the new one, but your U- code stays the same unless you replace it.
           </p>
         </div>
 

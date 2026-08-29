@@ -17,20 +17,47 @@ final class ReaderPreferences
 {
     public const SCHEMA_VERSION = 1;
 
-    /** @var list<string> */
-    private const MODES = ['single', 'double', 'continuous'];
+    /** @var array<string, string> */
+    private const MODES = [
+        'single' => 'Single page',
+        'double' => 'Two pages',
+        'continuous' => 'Continuous scroll',
+    ];
 
-    /** @var list<string> */
-    private const DIRECTIONS = ['ltr', 'rtl'];
+    /** @var array<string, string> */
+    private const DIRECTIONS = [
+        'ltr' => 'Left to right',
+        'rtl' => 'Right to left',
+    ];
 
-    /** @var list<string> */
-    private const FITS = ['contain', 'width', 'height', 'original'];
+    /** @var array<string, string> */
+    private const FITS = [
+        'contain' => 'Best fit',
+        'width' => 'Fit width',
+        'height' => 'Fit height',
+        'original' => 'Original size',
+    ];
 
-    /** @var list<string> */
-    private const DEVICES = ['phone', 'tablet', 'desktop'];
+    /** @var array<string, string> */
+    private const DEVICES = [
+        'phone' => 'Phone',
+        'tablet' => 'Tablet',
+        'desktop' => 'Desktop',
+    ];
 
-    /** @var list<string> */
-    private const ORIENTATIONS = ['portrait', 'landscape'];
+    /** @var array<string, string> */
+    private const ORIENTATIONS = [
+        'portrait' => 'Portrait',
+        'landscape' => 'Landscape',
+    ];
+
+    /** @var array<string, string> */
+    private const BOOLEAN_SETTING_LABELS = [
+        'autoHideControls' => 'Auto-hide reader controls',
+        'showProgress' => 'Show progress bar',
+        'wakeLock' => 'Keep screen awake',
+        'coverAlone' => 'Show first page alone',
+    ];
 
     /**
      * What a device/orientation context may say for itself. A context chooses
@@ -102,9 +129,9 @@ final class ReaderPreferences
         return [
             'schemaVersion' => self::SCHEMA_VERSION,
             'settings' => [
-                'mode' => $this->allowedString($settings['mode'] ?? null, self::MODES, $defaults['settings']['mode']),
-                'direction' => $this->allowedString($settings['direction'] ?? null, self::DIRECTIONS, $defaults['settings']['direction']),
-                'fit' => $this->allowedString($settings['fit'] ?? null, self::FITS, $defaults['settings']['fit']),
+                'mode' => $this->allowedString($settings['mode'] ?? null, array_keys(self::MODES), $defaults['settings']['mode']),
+                'direction' => $this->allowedString($settings['direction'] ?? null, array_keys(self::DIRECTIONS), $defaults['settings']['direction']),
+                'fit' => $this->allowedString($settings['fit'] ?? null, array_keys(self::FITS), $defaults['settings']['fit']),
                 'autoHideControls' => is_bool($settings['autoHideControls'] ?? null)
                     ? $settings['autoHideControls']
                     : $defaults['settings']['autoHideControls'],
@@ -153,9 +180,9 @@ final class ReaderPreferences
             $orientation = $override['context']['orientation'] ?? null;
             $fit = $override['settings']['fit'] ?? null;
 
-            if (!is_string($device) || !in_array($device, self::DEVICES, true)
-                || !is_string($orientation) || !in_array($orientation, self::ORIENTATIONS, true)
-                || !is_string($fit) || !in_array($fit, self::FITS, true)) {
+            if (!is_string($device) || !array_key_exists($device, self::DEVICES)
+                || !is_string($orientation) || !array_key_exists($orientation, self::ORIENTATIONS)
+                || !is_string($fit) || !array_key_exists($fit, self::FITS)) {
                 continue;
             }
 
@@ -184,18 +211,22 @@ final class ReaderPreferences
     public function validate(mixed $candidate): array
     {
         if (!is_array($candidate)) {
-            throw new \InvalidArgumentException('preferences must be an object.');
+            throw new \InvalidArgumentException('Reader preferences must be an object.');
         }
 
-        $this->assertExactKeys($candidate, ['schemaVersion', 'settings', 'overrides', 'dismissedSuggestions'], 'preferences');
+        $this->assertExactKeys(
+            $candidate,
+            ['schemaVersion', 'settings', 'overrides', 'dismissedSuggestions'],
+            'Reader preferences'
+        );
 
         if (($candidate['schemaVersion'] ?? null) !== self::SCHEMA_VERSION) {
-            throw new \InvalidArgumentException('schemaVersion is not supported.');
+            throw new \InvalidArgumentException('These reader settings use an unsupported version.');
         }
 
         $settings = $candidate['settings'] ?? null;
         if (!is_array($settings)) {
-            throw new \InvalidArgumentException('settings must be an object.');
+            throw new \InvalidArgumentException('Reader settings must be an object.');
         }
 
         $this->assertValidOverrides($candidate['overrides'] ?? null);
@@ -203,30 +234,24 @@ final class ReaderPreferences
         if (!is_array($dismissedSuggestions) || !array_is_list($dismissedSuggestions)
             || count($dismissedSuggestions) > 24
             || count(array_unique($dismissedSuggestions, SORT_REGULAR)) !== count($dismissedSuggestions)) {
-            throw new \InvalidArgumentException('dismissedSuggestions must be a unique bounded list.');
+            throw new \InvalidArgumentException('Dismissed reader suggestions must be a unique list of up to 24 items.');
         }
         foreach ($dismissedSuggestions as $suggestion) {
             if (!is_string($suggestion) || $suggestion === '' || strlen($suggestion) > 80) {
-                throw new \InvalidArgumentException('dismissed suggestion is invalid.');
+                throw new \InvalidArgumentException('Each dismissed reader suggestion must be 1 to 80 characters.');
             }
         }
 
         $required = ['mode', 'direction', 'fit', 'autoHideControls', 'showProgress', 'wakeLock', 'coverAlone'];
-        $this->assertExactKeys($settings, $required, 'settings');
+        $this->assertExactKeys($settings, $required, 'Reader settings');
 
-        if (!in_array($settings['mode'], self::MODES, true)) {
-            throw new \InvalidArgumentException('mode is not supported.');
-        }
-        if (!in_array($settings['direction'], self::DIRECTIONS, true)) {
-            throw new \InvalidArgumentException('direction is not supported.');
-        }
-        if (!in_array($settings['fit'], self::FITS, true)) {
-            throw new \InvalidArgumentException('fit is not supported.');
-        }
+        $this->assertAllowedChoice($settings['mode'], self::MODES, 'Reading mode');
+        $this->assertAllowedChoice($settings['direction'], self::DIRECTIONS, 'Reading direction');
+        $this->assertAllowedChoice($settings['fit'], self::FITS, 'Page size');
 
-        foreach (['autoHideControls', 'showProgress', 'wakeLock', 'coverAlone'] as $field) {
+        foreach (self::BOOLEAN_SETTING_LABELS as $field => $label) {
             if (!is_bool($settings[$field])) {
-                throw new \InvalidArgumentException(sprintf('%s must be a boolean.', $field));
+                throw new \InvalidArgumentException(sprintf('%s must be true or false.', $label));
             }
         }
 
@@ -241,51 +266,57 @@ final class ReaderPreferences
     private function assertValidOverrides(mixed $overrides): void
     {
         if (!is_array($overrides) || !array_is_list($overrides)) {
-            throw new \InvalidArgumentException('overrides must be a list.');
+            throw new \InvalidArgumentException('Per-device page sizes must be a list.');
         }
 
         // The set of contexts is closed, so a longer list is duplicates or junk
         // either way; refusing it keeps an unbounded write out of the column.
         if (count($overrides) > self::maxOverrides()) {
-            throw new \InvalidArgumentException('too many overrides.');
+            throw new \InvalidArgumentException('At most six per-device page sizes can be saved.');
         }
 
         $seen = [];
         foreach ($overrides as $override) {
             if (!is_array($override)) {
-                throw new \InvalidArgumentException('each override must be an object.');
+                throw new \InvalidArgumentException('Each per-device page size must be an object.');
             }
 
-            $this->assertExactKeys($override, ['context', 'settings'], 'override');
+            $this->assertExactKeys($override, ['context', 'settings'], 'Each per-device page size');
 
             $context = $override['context'];
             if (!is_array($context)) {
-                throw new \InvalidArgumentException('override context must be an object.');
+                throw new \InvalidArgumentException('The device and orientation must be an object.');
             }
-            $this->assertExactKeys($context, ['device', 'orientation'], 'override context');
+            $this->assertExactKeys($context, ['device', 'orientation'], 'The device and orientation');
 
-            if (!in_array($context['device'], self::DEVICES, true)) {
-                throw new \InvalidArgumentException('override device is not supported.');
-            }
-            if (!in_array($context['orientation'], self::ORIENTATIONS, true)) {
-                throw new \InvalidArgumentException('override orientation is not supported.');
-            }
+            $this->assertAllowedChoice($context['device'], self::DEVICES, 'Device');
+            $this->assertAllowedChoice($context['orientation'], self::ORIENTATIONS, 'Screen orientation');
 
             $key = $context['device'] . ':' . $context['orientation'];
             if (isset($seen[$key])) {
-                throw new \InvalidArgumentException('overrides name the same context twice.');
+                throw new \InvalidArgumentException('A device and orientation can have only one page size.');
             }
             $seen[$key] = true;
 
             $settings = $override['settings'];
             if (!is_array($settings)) {
-                throw new \InvalidArgumentException('override settings must be an object.');
+                throw new \InvalidArgumentException('A per-device page size must be an object.');
             }
-            $this->assertExactKeys($settings, self::OVERRIDABLE, 'override settings');
+            $this->assertExactKeys($settings, self::OVERRIDABLE, 'A per-device page size');
 
-            if (!in_array($settings['fit'], self::FITS, true)) {
-                throw new \InvalidArgumentException('override fit is not supported.');
-            }
+            $this->assertAllowedChoice($settings['fit'], self::FITS, 'Page size');
+        }
+    }
+
+    /** @param array<string, string> $choices */
+    private function assertAllowedChoice(mixed $value, array $choices, string $label): void
+    {
+        if (!is_string($value) || !array_key_exists($value, $choices)) {
+            throw new \InvalidArgumentException(sprintf(
+                '%s must be one of: %s.',
+                $label,
+                implode(', ', array_values($choices))
+            ));
         }
     }
 
@@ -306,7 +337,7 @@ final class ReaderPreferences
         sort($expected);
 
         if ($keys !== $expected) {
-            throw new \InvalidArgumentException(sprintf('%s has missing or unknown fields.', $field));
+            throw new \InvalidArgumentException(sprintf('Only supported fields may be used in %s.', $field));
         }
     }
 }

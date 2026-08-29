@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace App\Tests\Functional\Controller;
 
+use App\Service\ComicService;
+use App\Service\ComicUploadRejectedException;
+use App\Service\StorageQuotaBusyException;
+use App\Service\StorageQuotaExceededException;
 use App\Tests\Functional\AbstractApiTestCase;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 final class ComicUploadCompleteTest extends AbstractApiTestCase
 {
@@ -92,6 +97,105 @@ final class ComicUploadCompleteTest extends AbstractApiTestCase
         if (is_file($path)) {
             unlink($path);
         }
+    }
+
+    public function testCreatePreservesTheVettedMalformedSourceRejectionFromTheUploadService(): void
+    {
+        $this->createAndLoginUser();
+
+        $payload = $this->uploadSingleComic();
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('Uploaded file is not a valid or supported comic source.', $payload['message']);
+    }
+
+    public function testCreatePreservesAVettedUploadRejection(): void
+    {
+        $this->createAndLoginUser();
+        $comicService = $this->createMock(ComicService::class);
+        $comicService->method('uploadComic')
+            ->willThrowException(new ComicUploadRejectedException('Uploaded file is empty.'));
+        static::getContainer()->set(ComicService::class, $comicService);
+
+        $payload = $this->uploadSingleComic();
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('Uploaded file is empty.', $payload['message']);
+    }
+
+    public function testCreateReportsAnInternalUploadFailureWithoutBlamingTheFileOrLeakingDetails(): void
+    {
+        $this->createAndLoginUser();
+        $comicService = $this->createMock(ComicService::class);
+        $comicService->method('uploadComic')
+            ->willThrowException(new \RuntimeException('Database failed at /srv/private/comics.'));
+        static::getContainer()->set(ComicService::class, $comicService);
+
+        $payload = $this->uploadSingleComic();
+
+        self::assertResponseStatusCodeSame(500);
+        self::assertSame('Upload failed because of a server error. Please try again later.', $payload['message']);
+        self::assertStringNotContainsString('/srv/private', (string) $this->browser()->getResponse()->getContent());
+        self::assertStringNotContainsString('format', strtolower($payload['message']));
+        self::assertStringNotContainsString('quota', strtolower($payload['message']));
+    }
+
+    public function testCreateReportsAnExceededStorageQuotaAsAnUploadRejection(): void
+    {
+        $this->createAndLoginUser();
+        $comicService = $this->createMock(ComicService::class);
+        $comicService->method('uploadComic')
+            ->willThrowException(new StorageQuotaExceededException('internal quota wording'));
+        static::getContainer()->set(ComicService::class, $comicService);
+
+        $payload = $this->uploadSingleComic();
+
+        self::assertResponseStatusCodeSame(413);
+        self::assertSame('User storage quota exceeded.', $payload['message']);
+        self::assertStringNotContainsString('internal', $payload['message']);
+    }
+
+    public function testCreateReportsABusyStorageLockAsRetryable(): void
+    {
+        $this->createAndLoginUser();
+        $comicService = $this->createMock(ComicService::class);
+        $comicService->method('uploadComic')
+            ->willThrowException(new StorageQuotaBusyException('internal lock wording'));
+        static::getContainer()->set(ComicService::class, $comicService);
+
+        $payload = $this->uploadSingleComic();
+
+        self::assertResponseStatusCodeSame(409);
+        self::assertSame(
+            'Another storage operation is already in progress. Please try again.',
+            $payload['message']
+        );
+        self::assertStringNotContainsString('internal', $payload['message']);
+    }
+
+    /** @return array<string, mixed> */
+    private function uploadSingleComic(): array
+    {
+        $path = tempnam(sys_get_temp_dir(), 'comic-');
+        file_put_contents($path, 'cbz');
+
+        $this->browser()->request(
+            'POST',
+            '/api/comics',
+            ['title' => 'Runtime failure'],
+            ['file' => new UploadedFile($path, 'issue.cbz', 'application/zip', null, true)],
+            array_merge(['HTTP_ACCEPT' => 'application/json'], $this->csrfHeader())
+        );
+
+        if (is_file($path)) {
+            unlink($path);
+        }
+
+        return json_decode(
+            (string) $this->browser()->getResponse()->getContent(),
+            true,
+            flags: JSON_THROW_ON_ERROR
+        );
     }
 
     protected function tearDown(): void

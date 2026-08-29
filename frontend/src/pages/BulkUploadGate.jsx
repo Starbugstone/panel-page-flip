@@ -47,6 +47,7 @@ export default function BulkUploadGate() {
 
   const folder = searchParams.get("folder");
   const uploaderPath = folder ? `${BULK_UPLOAD_ROUTE}?folder=${encodeURIComponent(folder)}` : BULK_UPLOAD_ROUTE;
+  const singleUploaderPath = folder ? `${SINGLE_UPLOAD_ROUTE}?folder=${encodeURIComponent(folder)}` : SINGLE_UPLOAD_ROUTE;
 
   useEffect(() => {
     // Both waits are load-bearing, and for the same reason. Until the runtime
@@ -133,7 +134,8 @@ export default function BulkUploadGate() {
           <p>
             One advertisement covers the whole batch, however many comics are in
             it. Uploading comics one at a time is always available and never asks
-            for one.
+            for one. If no rewarded advertisement is available, bulk upload will
+            open without one.
           </p>
           {adFailed && (
             <p role="status" className="text-foreground">
@@ -148,7 +150,7 @@ export default function BulkUploadGate() {
             {accepting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Continuing…</> : "Watch ad and continue"}
           </Button>
           <Button className="w-full sm:w-auto" variant="outline" asChild>
-            <Link to={SINGLE_UPLOAD_ROUTE}>Use single upload instead</Link>
+            <Link to={singleUploaderPath}>Use single upload instead</Link>
           </Button>
         </CardFooter>
       </Card>

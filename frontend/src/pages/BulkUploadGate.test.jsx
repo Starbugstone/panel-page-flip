@@ -126,6 +126,8 @@ describe("the rewarded choice", () => {
     expect(screen.getByText(/watch a short advertisement to unlock bulk upload for this batch/i))
       .toBeInTheDocument();
     expect(screen.getByText(/one advertisement covers the whole batch/i)).toBeInTheDocument();
+    expect(screen.getByText(/if no rewarded advertisement is available, bulk upload will open without one/i))
+      .toBeInTheDocument();
   });
 
   /** Declining must be as easy to find as accepting, and must lead somewhere. */
@@ -136,6 +138,13 @@ describe("the rewarded choice", () => {
     await userEvent.click(decline);
 
     expect(await screen.findByRole("heading", { name: "Upload New Comic" })).toBeInTheDocument();
+  });
+
+  it("preserves the chosen folder when switching to single upload", async () => {
+    renderGate("/upload/bulk?folder=7");
+
+    expect(await screen.findByRole("link", { name: "Use single upload instead" }))
+      .toHaveAttribute("href", "/upload?folder=7");
   });
 
   it("shows the advertisement before recording anything", async () => {
