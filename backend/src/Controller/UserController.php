@@ -59,7 +59,7 @@ class UserController extends AbstractController
                 $u,
                 $stats[$u->getId()] ?? null,
                 isset($withCredential[$u->getId()]),
-                $storageQuota->getQuotaBytes($u)
+                $storageQuota
             ),
             $page->items
         );
@@ -77,7 +77,7 @@ class UserController extends AbstractController
      *        Precomputed totals; omitted counts fall back to the user's own collections.
      * @return array<string, mixed>
      */
-    private function serializeUser(User $user, ?array $stats = null, bool $hasPersonalMetadataCredential = false, ?int $storageQuotaBytes = null): array
+    private function serializeUser(User $user, ?array $stats, bool $hasPersonalMetadataCredential, StorageQuotaService $storageQuota): array
     {
         return [
             'id' => $user->getId(),
@@ -92,7 +92,9 @@ class UserController extends AbstractController
             // Raw bytes, never a percentage or a formatted string: the client
             // needs the real values to say 112% when the data says 112%.
             'storageUsedBytes' => $stats['storageUsedBytes'] ?? 0,
-            'storageQuotaBytes' => $storageQuotaBytes,
+            'storageQuotaBytes' => $storageQuota->getQuotaBytes($user),
+            'storageQuotaOverrideBytes' => $user->getStorageQuotaOverrideBytes(),
+            'storageDefaultQuotaBytes' => $storageQuota->getDefaultQuotaBytes(),
             'unmeasuredComicCount' => $stats['unmeasuredComicCount'] ?? 0,
             'metadataApiEnabled' => $user->isMetadataApiEnabled(),
             // Whether they brought their own provider token, never which one.
@@ -127,7 +129,7 @@ class UserController extends AbstractController
             $targetUser,
             $stats[$targetUser->getId()] ?? null,
             $credentialRepository->findForUser($targetUser) !== null,
-            $storageQuota->getQuotaBytes($targetUser)
+            $storageQuota
         );
 
         // The admin user page needs enough to explain why an account can or
@@ -433,6 +435,77 @@ class UserController extends AbstractController
                 'roles' => $targetUser->getRoles(),
                 'isEmailVerified' => $targetUser->isEmailVerified(),
             ]
+        ]);
+    }
+
+    /**
+     * Set this account's explicit canonical-source allowance, or clear it back
+     * to the installation default. Zero is deliberately unlimited; null is
+     * inheritance, so the two must never be collapsed during validation.
+     */
+    #[Route('/{id}/storage-quota', name: 'update_storage_quota', methods: ['PATCH'], requirements: ['id' => '\\d+'])]
+    public function updateStorageQuota(
+        int $id,
+        Request $request,
+        EntityManagerInterface $entityManager,
+        AdminAuditService $auditService,
+        StorageQuotaService $storageQuota
+    ): JsonResponse {
+        $admin = $this->requireUser();
+        if (!$admin->isAdmin()) {
+            return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
+        }
+
+        $targetUser = $entityManager->getRepository(User::class)->find($id);
+        if (!$targetUser instanceof User) {
+            return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $data = \App\Http\JsonRequestDecoder::decode($request);
+        if (!array_key_exists('storageQuotaOverrideBytes', $data)) {
+            $message = 'storageQuotaOverrideBytes is required and must be null or a non-negative integer.';
+
+            return $this->json([
+                'message' => $message,
+                'errors' => ['storageQuotaOverrideBytes' => [$message]],
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $override = $data['storageQuotaOverrideBytes'];
+        if ($override !== null && (!is_int($override) || $override < 0 || $override > StorageQuotaService::MAX_QUOTA_BYTES)) {
+            $message = sprintf(
+                'Storage quota must be null, 0 for unlimited, or an integer no greater than %d bytes.',
+                StorageQuotaService::MAX_QUOTA_BYTES
+            );
+
+            return $this->json([
+                'message' => $message,
+                'errors' => ['storageQuotaOverrideBytes' => [$message]],
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $before = $targetUser->getStorageQuotaOverrideBytes();
+        if ($before !== $override) {
+            $targetUser->setStorageQuotaOverrideBytes($override);
+            $auditService->log($admin, 'user_storage_quota_updated', 'user', $targetUser->getId(), [
+                'target_user_id' => $targetUser->getId(),
+                'override_before_bytes' => $before,
+                'override_after_bytes' => $override,
+                'effective_after_bytes' => $storageQuota->getQuotaBytes($targetUser),
+            ]);
+            $entityManager->flush();
+        }
+
+        return $this->json([
+            'message' => $override === null
+                ? 'Storage quota restored to the server default.'
+                : ($override === 0 ? 'Storage quota set to unlimited.' : 'Storage quota updated.'),
+            'user' => [
+                'id' => $targetUser->getId(),
+                'storageQuotaBytes' => $storageQuota->getQuotaBytes($targetUser),
+                'storageQuotaOverrideBytes' => $targetUser->getStorageQuotaOverrideBytes(),
+                'storageDefaultQuotaBytes' => $storageQuota->getDefaultQuotaBytes(),
+            ],
         ]);
     }
 

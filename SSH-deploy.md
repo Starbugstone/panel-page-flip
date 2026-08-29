@@ -237,6 +237,7 @@ MAILER_FROM_ADDRESS=noreply@yourdomain.com
 MAILER_FROM_NAME="Panel Page Flip"
 MESSENGER_TRANSPORT_DSN=doctrine://default?auto_setup=0
 MAX_CONCURRENT_UPLOADS=3
+UPLOAD_USER_QUOTA_BYTES=10737418240
 DROPBOX_APP_KEY=...
 DROPBOX_APP_SECRET=...
 DROPBOX_REDIRECT_URI=https://comics.yourdomain.com/api/dropbox/callback

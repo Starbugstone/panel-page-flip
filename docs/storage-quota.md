@@ -44,21 +44,25 @@ counts onto that result.
 The quota half lives in `StorageQuotaService`:
 
 - `getUserStorageBytes()` is what upload admission is checked against.
-- `getQuotaBytes(User)` returns the effective limit, `upload_user_quota_bytes`,
-  10 GiB today.
+- `getQuotaBytes(User)` returns the effective limit: the account's stored
+  override when present, otherwise `UPLOAD_USER_QUOTA_BYTES`.
+- `getDefaultQuotaBytes()` returns that installation default, 10 GiB when the
+  environment variable is omitted.
 
-`getQuotaBytes()` takes a `User` it does not currently read. That argument is the
-seam: when the quota becomes configurable and per-user (#64), resolution changes
-inside this one method and every caller keeps working. Nothing outside the
-service may read `%upload_user_quota_bytes%` or hardcode the number.
+The stored override is nullable. `null` means "follow the server default" and
+`0` explicitly means unlimited; those states are not interchangeable. An
+unlimited account has no application-level protection from filling the disk,
+which is why the admin form warns before saving it. Nothing outside the service
+may reproduce this precedence rule or read `%upload_user_quota_bytes%`.
 
-The admin list does **not** call the quota service once per row — one grouped
-query serves the page — and it never touches the filesystem.
+The admin list does **not** calculate usage once per row — one grouped query
+serves the page. Resolving each account's quota reads the already-loaded user
+and the configured default, and never touches the filesystem.
 
 ## The API contract
 
 `GET /api/users`, `GET /api/users/{id}` and `GET /api/me/storage` report the same
-fields for the same account, from the same grouped query:
+core storage fields for the same account, from the same grouped query:
 
 ```json
 {
@@ -69,9 +73,21 @@ fields for the same account, from the same grouped query:
 }
 ```
 
+`/api/users` responses additionally report
+`storageQuotaOverrideBytes` (nullable) and `storageDefaultQuotaBytes`, which
+are the two values the quota editor needs to distinguish inheritance from an
+explicit limit. The account's own response only needs the effective quota.
+
 Raw integers, never a percentage or a formatted string. The client divides, so
 an account at 112% is shown as 112% rather than clamped on the way out; only the
 progress bar is clamped, and only visually.
+
+Administrators change an override with
+`PATCH /api/users/{id}/storage-quota`, sending
+`{"storageQuotaOverrideBytes": <bytes-or-null>}`. Setting an override below
+current use never deletes a comic: the account remains over quota and cannot
+add canonical source bytes until use falls or its allowance rises. Every change
+is recorded in the admin audit log.
 
 `/api/me/storage` is deliberately its own request rather than a field on
 `/api/me`, which the session monitor polls: a grouped sum over every comic an
@@ -117,8 +133,9 @@ by name. The only enumeration is `ComicCleanupService`'s orphan sweep, and it
 runs from `app:cleanup-comics` rather than from a request, so its cost lands on
 a maintenance window instead of on a reader.
 
-Raising `upload_user_quota_bytes` substantially is the change that would move
-this ceiling. The answer at that point is sharding into nested directories
+Raising `UPLOAD_USER_QUOTA_BYTES` or a user override substantially is the
+change that would move this ceiling. The answer at that point is sharding into
+nested directories
 (`<userId>/ab/cd/<file>`), which is a migration of existing files and a change
 to every path already stored in the database — not a one-line edit at the point
 of upload. Worth knowing before the quota is raised, rather than after.

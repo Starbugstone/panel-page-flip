@@ -139,6 +139,16 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     private bool $metadataApiEnabled = true;
 
     /**
+     * Canonical-source storage this account may own, in bytes.
+     *
+     * Null means "inherit the installation default"; zero explicitly removes
+     * the application-level quota for this account.
+     */
+    #[ORM\Column(type: Types::BIGINT, nullable: true)]
+    #[Assert\PositiveOrZero(message: 'The storage quota override cannot be negative.')]
+    private ?int $storageQuotaOverrideBytes = null;
+
+    /**
      * @var Collection<int, Comic>
      */
     #[ORM\OneToMany(targetEntity: Comic::class, mappedBy: 'owner', cascade: ['persist', 'remove'], orphanRemoval: true)]
@@ -479,6 +489,18 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setMetadataApiEnabled(bool $metadataApiEnabled): static
     {
         $this->metadataApiEnabled = $metadataApiEnabled;
+
+        return $this;
+    }
+
+    public function getStorageQuotaOverrideBytes(): ?int
+    {
+        return $this->storageQuotaOverrideBytes;
+    }
+
+    public function setStorageQuotaOverrideBytes(?int $storageQuotaOverrideBytes): static
+    {
+        $this->storageQuotaOverrideBytes = $storageQuotaOverrideBytes;
 
         return $this;
     }
