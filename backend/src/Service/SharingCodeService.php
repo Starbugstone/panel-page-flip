@@ -11,7 +11,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 
 /**
- * The permanent `U-` code somebody hands out so that others can share with them.
+ * The rotatable `U-` code somebody hands out so others can share with them.
  *
  * This is the one place that turns a code back into a person, and it is
  * deliberately narrow about what that means. Resolving a code answers exactly
@@ -56,8 +56,8 @@ final class SharingCodeService
      * only acquires one on its owner's first visit cannot be shared with until
      * then.
      *
-     * Whatever it returns is permanent from that moment. Nothing here, and
-     * nothing anywhere else, replaces an existing one.
+     * This lookup never replaces an existing code. Rotation is an explicit,
+     * rate-limited operation handled separately below.
      */
     public function codeFor(User $user): string
     {

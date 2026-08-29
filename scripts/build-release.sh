@@ -46,7 +46,10 @@ cd "$REPO_ROOT"
 ENV_FILE="$SCRIPT_DIR/.env.deploy"
 RELEASE_DIR="$REPO_ROOT/release"
 PHP_VERSION_DEFAULT="8.2"
-NODE_VERSION_DEFAULT="20"
+# Must satisfy frontend/package.json "engines": building the release on an
+# older runtime than the one the project declares is a difference nobody sees
+# until the built assets misbehave in production.
+NODE_VERSION_DEFAULT="22"
 
 # --- helpers ------------------------------------------------------------------
 log()  { printf "\033[1;36m[build]\033[0m %s\n" "$*"; }
@@ -85,6 +88,9 @@ log "Verifying checkout matches origin/main"
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fail "Production releases must be built from a Git checkout."
 fi
+if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+    fail "Refusing production release: the checkout has modified, staged, or untracked files. Commit or remove them before building."
+fi
 if ! git remote get-url origin >/dev/null 2>&1; then
     fail "Git remote 'origin' is not configured."
 fi
@@ -121,6 +127,7 @@ REQUIRED_PROD_VARS=(
     PROD_APP_SECRET
     PROD_APP_DATA_KEY
     PROD_DATABASE_URL
+    PROD_CORS_ALLOW_ORIGIN
     PUBLIC_URL
     POST_DEPLOY_TOKEN
 )
@@ -129,6 +136,15 @@ for v in "${REQUIRED_PROD_VARS[@]}"; do
         fail "Missing $v in $ENV_FILE."
     fi
 done
+
+# Required rather than defaulted, and the old default refused by name. The
+# deployment is same-origin, so this regex exists to name that one origin; the
+# fallback it replaces was ^https://.*$ — every site on the internet, baked into
+# production by a variable nobody had to set. Asked for explicitly because the
+# escaping is easy to get wrong and a derived regex would get it wrong quietly.
+if [ "$PROD_CORS_ALLOW_ORIGIN" = '^https://.*$' ]; then
+    fail "PROD_CORS_ALLOW_ORIGIN must match this deployment's own origin, not every HTTPS site. See scripts/.env.deploy.example."
+fi
 
 # --- clean ---------------------------------------------------------------------
 log "Cleaning $RELEASE_DIR"
@@ -247,23 +263,41 @@ if [ "$DO_BACKEND" = "1" ]; then
         fail "PROD_MAILER_DSN must be set when PROD_SECURITY_ALERTS_ENABLED is enabled."
     fi
 
+    # A mistyped publisher id is not a build error to Symfony — it logs a warning
+    # and serves the site with advertising quietly off, which is an outage
+    # nobody is watching for. Caught here instead, while somebody is looking.
+    # Trimmed first, because AdvertisingConfiguration trims before it validates:
+    # matching the raw value here would reject a publisher id the application
+    # would have accepted, and abort the release over surrounding whitespace.
+    PROD_ADSENSE_CLIENT="$(printf '%s' "${PROD_ADSENSE_CLIENT:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    if [ "${PROD_ADSENSE_ENABLED:-false}" = "true" ]; then
+        case "$PROD_ADSENSE_CLIENT" in
+            ca-pub-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+            *) fail "PROD_ADSENSE_CLIENT must be ca-pub- followed by 16 digits when PROD_ADSENSE_ENABLED is true." ;;
+        esac
+    fi
+
     write_dotenv APP_ENV prod
     write_dotenv APP_DEBUG 0
     write_dotenv APP_SECRET "$PROD_APP_SECRET"
     write_dotenv APP_DATA_KEY "$PROD_APP_DATA_KEY"
     write_dotenv APP_URL "${PUBLIC_URL%/}"
     write_dotenv DATABASE_URL "$PROD_DATABASE_URL"
-    write_dotenv CORS_ALLOW_ORIGIN "${PROD_CORS_ALLOW_ORIGIN:-^https://.*$}"
+    write_dotenv CORS_ALLOW_ORIGIN "$PROD_CORS_ALLOW_ORIGIN"
     write_dotenv TRUSTED_PROXIES "${PROD_TRUSTED_PROXIES:-}"
     write_dotenv MAILER_DSN "${PROD_MAILER_DSN:-null://null}"
     write_dotenv MAILER_FROM_ADDRESS "${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}"
-    write_dotenv MAILER_FROM_NAME "${PROD_MAILER_FROM_NAME:-Comic Reader}"
+    write_dotenv MAILER_FROM_NAME "${PROD_MAILER_FROM_NAME:-Panel Page Flip}"
     write_dotenv PRIVACY_OPERATOR "${PROD_PRIVACY_OPERATOR:-Panel Page Flip site operator}"
     write_dotenv PRIVACY_EMAIL "${PROD_PRIVACY_EMAIL:-${PROD_MAILER_FROM_ADDRESS:-noreply@example.com}}"
     write_dotenv MAILER_TRANSPORT "${PROD_MAILER_TRANSPORT:-smtp}"
     write_dotenv MESSENGER_TRANSPORT_DSN "${PROD_MESSENGER_TRANSPORT_DSN:-doctrine://default?auto_setup=0}"
     write_dotenv LOCK_DSN "${PROD_LOCK_DSN:-flock}"
     write_dotenv MAX_CONCURRENT_UPLOADS "${PROD_MAX_CONCURRENT_UPLOADS:-3}"
+    write_dotenv UPLOAD_USER_QUOTA_BYTES "${PROD_UPLOAD_USER_QUOTA_BYTES:-10737418240}"
+    # Written explicitly so a release never inherits the development default
+    # from a stray .env; the application defaults it on in any case.
+    write_dotenv LOGIN_RATE_LIMIT_ENABLED "${PROD_LOGIN_RATE_LIMIT_ENABLED:-1}"
     write_dotenv APP_LOG_RETENTION_DAYS "${PROD_APP_LOG_RETENTION_DAYS:-30}"
     write_dotenv SECURITY_LOG_RETENTION_DAYS "${PROD_SECURITY_LOG_RETENTION_DAYS:-365}"
     write_dotenv AUDIT_LOG_RETENTION_DAYS "${PROD_AUDIT_LOG_RETENTION_DAYS:-365}"
@@ -278,6 +312,13 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv DROPBOX_APP_FOLDER "${PROD_DROPBOX_APP_FOLDER:-/}"
     write_dotenv DROPBOX_SYNC_LIMIT "${PROD_DROPBOX_SYNC_LIMIT:-10}"
     write_dotenv DROPBOX_RATE_LIMIT "${PROD_DROPBOX_RATE_LIMIT:-60}"
+    # Advertising. Off unless the operator sets PROD_ADSENSE_ENABLED, and
+    # baked in here because `composer dump-env prod` consolidates this file into
+    # .env.local.php — after which Symfony stops reading backend/.env entirely.
+    # Without these two lines an operator can edit .env on the server all day
+    # and AdvertisingConfiguration still reports "off". See docs/advertising.md.
+    write_dotenv ADSENSE_ENABLED "${PROD_ADSENSE_ENABLED:-false}"
+    write_dotenv ADSENSE_CLIENT "$PROD_ADSENSE_CLIENT"
     write_dotenv DEPLOY_TOKEN "$POST_DEPLOY_TOKEN"
     chmod 600 "$PROD_ENV_FILE"
 

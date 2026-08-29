@@ -5,7 +5,7 @@ import { logger } from '@/lib/logger';
 
 const DEFAULT_CONFIG = {
   upload: {
-    maxConcurrentUploads: 5,
+    maxConcurrentUploads: 4,
     comicFormats: ["cbz"],
   },
   // Empty until the server says otherwise, so a lookup is never offered against

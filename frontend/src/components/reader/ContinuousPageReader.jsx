@@ -12,6 +12,10 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState({ key: "", status: "loading" });
   const { transform, isZoomed, pinch, pan, doubleTapAt, resetTransform } = useReaderTransform({ containerRef, imageRef });
+  // The settings zoom is already in the measurement: it widens this page's own
+  // container rather than transforming it, so multiplying it in again would ask
+  // the server for a rung the page will never show. A pinch is not in the
+  // measurement — a CSS transform leaves layout size alone — so that one counts.
   const variant = usePageVariant(containerRef, { zoomLevel: transform.scale });
   const baseUrl = createReaderPageUrl(comicId, pageIndex + 1, variant);
   const url = useMemo(() => retry > 0 ? withForcedReload(baseUrl) : baseUrl, [baseUrl, retry]);
@@ -46,14 +50,15 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
         ref={imageRef}
         src={url}
         alt={`Page ${pageIndex + 1} of ${title || "Comic"}`}
+        data-reader-artwork="true"
         draggable={false}
         onLoad={() => setResult({ key: url, status: "loaded" })}
         onError={() => setResult({ key: url, status: "failed" })}
-        className={`block max-h-full max-w-full object-contain shadow-lg ${cursorClass}`}
+        className={`block max-h-full max-w-full select-none object-contain shadow-lg ${cursorClass}`}
         style={{
           transform: `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`,
           transformOrigin: "center center",
-          touchAction: isZoomed ? "none" : "pan-y",
+          touchAction: isZoomed ? "none" : undefined,
         }}
       />
       {status === "loading" && !hasPreviousImage && <div className="pointer-events-none absolute inset-0 animate-pulse bg-muted" aria-hidden="true" />}
@@ -75,8 +80,8 @@ function ContinuousPage({ comicId, pageIndex, title, geometry, shouldLoad, reset
       ref={containerRef}
       data-continuous-page={pageIndex}
       aria-label={`Page ${pageIndex + 1} of ${title || "comic"}`}
-      className="relative mx-auto flex w-full max-w-4xl items-center justify-center overflow-hidden bg-muted/20"
-      style={{ aspectRatio: String(aspectRatio), touchAction: "pan-y" }}
+      className="relative mx-auto flex max-w-none items-center justify-center overflow-hidden bg-muted/20"
+      style={{ aspectRatio: String(aspectRatio) }}
     >
       {shouldLoad ? (
         <ContinuousPageContent
@@ -102,6 +107,7 @@ export function ContinuousPageReader({
   title,
   geometry,
   resetToken,
+  zoomLevel = 1,
   onCurrentPageChange,
   onActivity,
 }) {
@@ -173,7 +179,16 @@ export function ContinuousPageReader({
   }, [containerRef, currentPage]);
 
   return (
-    <div ref={containerRef} data-reader-mode="continuous" className="reader-continuous h-full w-full overflow-y-auto overscroll-contain" style={{ touchAction: "pan-y" }}>
+    <div
+      ref={containerRef}
+      data-reader-mode="continuous"
+      data-continuous-zoom={zoomLevel}
+      className="reader-continuous h-full w-full overflow-auto overscroll-contain"
+      // One custom property per zoom change instead of two inline style writes
+      // on every page: a 200-page comic re-laid out the whole scroller on each
+      // of the sixteen steps a slider drag fires.
+      style={{ "--reader-page-zoom": zoomLevel, touchAction: "pan-x pan-y" }}
+    >
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 py-4">
         {Array.from({ length: pageCount }, (_, pageIndex) => (
           <ContinuousPage

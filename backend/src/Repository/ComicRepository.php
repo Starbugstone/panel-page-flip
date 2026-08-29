@@ -5,6 +5,7 @@ namespace App\Repository;
 use App\Entity\Comic;
 use App\Entity\Tag;
 use App\Service\Pagination\PaginatedResult;
+use App\Service\Pagination\LikePattern;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -103,6 +104,25 @@ class ComicRepository extends ServiceEntityRepository
             ->getResult();
 
         return PaginatedResult::fromRequest($comics, $total, $request);
+    }
+
+    /** @return list<Comic> */
+    public function searchForContentReport(string $query, int $limit = 10): array
+    {
+        $query = trim($query);
+        if (mb_strlen($query) < LikePattern::MIN_TERM_LENGTH) {
+            return [];
+        }
+
+        $pattern = LikePattern::contains($query);
+        return $this->createQueryBuilder('c')
+            ->leftJoin('c.owner', 'o')->addSelect('o')
+            ->andWhere('LOWER(c.title) LIKE :search OR LOWER(c.author) LIKE :search OR LOWER(c.publisher) LIKE :search OR LOWER(c.description) LIKE :search OR LOWER(o.name) LIKE :search OR LOWER(o.email) LIKE :search')
+            ->setParameter('search', $pattern)
+            ->orderBy('c.id', 'DESC')
+            ->setMaxResults(max(1, min($limit, 20)))
+            ->getQuery()
+            ->getResult();
     }
 
     /**

@@ -338,7 +338,7 @@ class ComicPageController extends AbstractController
             throw new ComicNotAccessibleException();
         }
 
-        $coverPath = $comic->getCoverImagePath(); // This is relative to user's comic dir, e.g., "covers/COMIC_ID/file.jpg"
+        $coverPath = $comic->getCoverImagePath();
         if (!$coverPath) {
             return $this->json(['message' => 'Comic has no cover image path.'], Response::HTTP_NOT_FOUND);
         }
@@ -349,9 +349,6 @@ class ComicPageController extends AbstractController
             return $this->json(['message' => 'Invalid filename requested.'], Response::HTTP_NOT_FOUND);
         }
 
-        // $this->comicsDirectory is the base path like "/var/www/public/uploads/comics"
-        // $userId is the comic owner's ID
-        // $coverPath is "covers/{comic_id}/actual_cover.jpg"
         $absolutePath = $this->comicsDirectory . '/' . $userId . '/' . ltrim($coverPath, '/');
 
         if (!file_exists($absolutePath) || !is_readable($absolutePath)) {

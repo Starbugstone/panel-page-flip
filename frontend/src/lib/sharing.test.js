@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  EXPLICIT_FLAG_DESCRIPTION,
   EXPLICIT_FLAG_LABEL,
   NOTIFICATION_STATE,
   SHARE_CODE_TYPES,
   SHARE_RESPONSIBILITY_ACK_LABEL,
   SHARE_RESPONSIBILITY_NOTICE,
   SHARE_STATUS,
+  SHARING_CODE_COPY,
   SHARING_PAGE_RESPONSIBILITY_REMINDER,
   buildInvitationRequest,
   canSendInvitation,
@@ -425,6 +427,17 @@ describe("usernames", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("share codes", () => {
+  it("describes the identity, reveal, and explicit-code workflows", () => {
+    expect(SHARING_CODE_COPY.mine).toMatch(/Give your U- code/);
+    expect(SHARING_CODE_COPY.handedOut).toMatch(/Show a code again/);
+    expect(SHARING_CODE_COPY.redeem).toMatch(
+      /18\+ comics need age confirmation and acceptance/
+    );
+    expect(EXPLICIT_FLAG_DESCRIPTION).toMatch(
+      /New shares must also be accepted before they can be read/
+    );
+  });
+
   it("splits a code into the type it claims and its token", () => {
     expect(parseShareCode("U-7RFX-KP3M-Q82D")).toEqual({
       type: SHARE_CODE_TYPES.USER,

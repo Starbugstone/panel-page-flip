@@ -49,6 +49,7 @@ export function SpreadPageReader({
   isSwiping = false,
   gestures,
   onSurfaceClick,
+  onSurfaceDoubleClick,
   children,
 }) {
   const safeFit = Object.hasOwn(VIEWPORT_CLASSES, fit) ? fit : "contain";
@@ -74,6 +75,10 @@ export function SpreadPageReader({
         if (event.target.closest("button, a, input, select, textarea")) return;
         if (lastPointerTypeRef.current === "mouse") onSurfaceClick?.(event);
       }}
+      onDoubleClick={(event) => {
+        if (event.target.closest("button, a, input, select, textarea")) return;
+        if (lastPointerTypeRef.current === "mouse") onSurfaceDoubleClick?.(event);
+      }}
     >
       <div
         ref={contentRef}
@@ -92,7 +97,7 @@ export function SpreadPageReader({
                 aria-hidden={isStale ? "true" : undefined}
                 data-reader-artwork="true"
                 draggable={false}
-                className={`block object-contain shadow-lg ${imageClasses(safeFit)}`}
+                className={`block select-none object-contain shadow-lg ${imageClasses(safeFit)}`}
               />
             )}
             {isLoading && !image && <div className="aspect-[2/3] w-full max-w-md animate-pulse rounded bg-muted" />}

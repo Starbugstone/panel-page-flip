@@ -56,4 +56,64 @@ describe("continuous page proximity", () => {
     expect(firstPage.querySelector("img")).toBeNull();
     expect(document.querySelector('[data-continuous-page="3"] img')).not.toBeNull();
   });
+
+  it("expands page layout for settings zoom without breaking vertical flow", () => {
+    const containerRef = createRef();
+    render(
+      <ContinuousPageReader
+        containerRef={containerRef}
+        comicId="42"
+        pageCount={2}
+        currentPage={0}
+        title="Sandman"
+        geometry={{}}
+        resetToken="portrait:continuous"
+        zoomLevel={1.5}
+      />
+    );
+
+    const reader = document.querySelector('[data-reader-mode="continuous"]');
+    const firstPage = document.querySelector('[data-continuous-page="0"]');
+    expect(reader).toHaveAttribute("data-continuous-zoom", "1.5");
+    expect(reader).toHaveClass("overflow-auto");
+    // The zoom is written once on the scroller as a custom property and every
+    // page derives its width from it in CSS, rather than each page carrying the
+    // arithmetic in an inline style that a slider drag rewrites.
+    expect(reader.style.getPropertyValue("--reader-page-zoom")).toBe("1.5");
+    expect(firstPage.getAttribute("style")).not.toMatch(/width/);
+    expect(firstPage.querySelector("img")).toHaveClass("select-none");
+  });
+
+  it("asks for the size the widened page actually occupies, not the zoom counted twice", async () => {
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    // A zoomed page is laid out wider, so the width measured off its container
+    // already carries the zoom. 800 measured CSS pixels at a ratio of 1 are the
+    // small rung whatever the slider says; counting the zoom again would reach
+    // for the large one and download it on every page in the scroll.
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 800 });
+
+    try {
+      render(
+        <ContinuousPageReader
+          containerRef={createRef()}
+          comicId="42"
+          pageCount={2}
+          currentPage={0}
+          title="Sandman"
+          geometry={{}}
+          resetToken="portrait:continuous"
+          zoomLevel={3}
+        />
+      );
+
+      await waitFor(() => expect(document.querySelector('[data-continuous-page="0"] img')).toHaveAttribute(
+        "src",
+        expect.stringContaining("reader-small")
+      ));
+    } finally {
+      // jsdom defines clientWidth on Element, so the shadowing property added
+      // above is removed rather than restored.
+      delete HTMLElement.prototype.clientWidth;
+    }
+  });
 });

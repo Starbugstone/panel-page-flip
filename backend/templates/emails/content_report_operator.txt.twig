@@ -1,0 +1,28 @@
+New content report {{ report.reference }}
+
+Category: {{ report.category|replace({'_': ' '})|title }}
+Submitted: {{ report.createdAt|date('c') }}
+Reporter: {{ report.reporterName }}
+{% if report.reporterOrganization %}Organization: {{ report.reporterOrganization }}
+{% endif %}{% if report.reporterRole %}Role / authority: {{ report.reporterRole }}
+{% endif %}Email: {{ report.reporterEmail }}
+
+Reference type: {{ report.referenceType|replace({'_': ' '})|title }}
+Reported material/reference:
+{{ report.reportedReference }}
+{% if report.reportedContentTitle %}
+Content title: {{ report.reportedContentTitle }}
+{% endif %}{% if report.reportedAccountReference %}
+Account reference: {{ report.reportedAccountReference }}
+{% endif %}{% if report.sourceContext %}
+Source context:
+{{ report.sourceContext }}
+{% endif %}
+
+Explanation:
+{{ report.explanation }}
+
+Good-faith declaration: confirmed
+
+Review case:
+{{ reviewUrl }}

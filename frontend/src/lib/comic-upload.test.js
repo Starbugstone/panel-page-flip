@@ -12,6 +12,12 @@ describe("comic upload helpers", () => {
     expect(generateTitleFromFilename(filename)).toBe(expected);
   });
 
+  // The queue refuses to upload a row with no title, so a name that derives to
+  // nothing has to fall back to something rather than to "".
+  it.each([".cbz", "___.cbz", "- -.cbr"])("keeps %s as its own title rather than deriving nothing", (filename) => {
+    expect(generateTitleFromFilename(filename)).toBe(filename);
+  });
+
   it.each(["comic.CBZ", "comic.cbr", "comic.CB7", "comic.cbt", "comic.PDF"])("accepts %s", (name) => {
     expect(isComicFile({ name })).toBe(true);
   });

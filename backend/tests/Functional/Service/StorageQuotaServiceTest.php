@@ -29,6 +29,24 @@ final class StorageQuotaServiceTest extends AbstractApiTestCase
         );
     }
 
+    public function testAUserOverrideWinsOverTheConfiguredDefault(): void
+    {
+        $user = UserFactory::createOne(['storageQuotaOverrideBytes' => 4_096])->object();
+        $quota = static::getContainer()->get(StorageQuotaService::class);
+
+        self::assertSame(4_096, $quota->getQuotaBytes($user));
+        self::assertTrue($quota->wouldExceedQuota($user, 4_097));
+    }
+
+    public function testAZeroOverrideIsExplicitlyUnlimited(): void
+    {
+        $user = UserFactory::createOne(['storageQuotaOverrideBytes' => 0])->object();
+        $quota = static::getContainer()->get(StorageQuotaService::class);
+
+        self::assertSame(0, $quota->getQuotaBytes($user));
+        self::assertFalse($quota->wouldExceedQuota($user, StorageQuotaService::MAX_QUOTA_BYTES));
+    }
+
     /** Reporting the quota changed nothing about being held to it. */
     public function testAdmissionStillRefusesAnUploadPastTheQuota(): void
     {

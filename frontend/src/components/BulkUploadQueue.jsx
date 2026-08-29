@@ -1,11 +1,13 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, RotateCcw, Trash2, Upload } from "lucide-react";
-import { uploadComicInChunks } from "@/hooks/use-chunked-upload";
+import { createUploadRequestPool, uploadComicInChunks } from "@/hooks/use-chunked-upload";
 import { useAuth } from "@/hooks/use-auth";
 import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
 import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile } from "@/lib/comic-upload";
+import { closeBulkUploadSession } from "@/lib/bulk-upload-session";
+import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,6 +19,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 export const MAX_PARALLEL_FILES = 2;
 const ACTIVE_STATUSES = new Set(["initialising", "uploading", "completing"]);
+/** Not in flight and not uploaded: a row "Start all" would still pick up. */
+const RETRYABLE_STATUSES = ["idle", "error", "cancelled"];
 
 function rowId(file) {
   return `${file.name}-${file.size}-${file.lastModified}`;
@@ -38,9 +42,14 @@ export default function BulkUploadQueue() {
   const { toast } = useToast();
   const { refreshSession } = useAuth();
   const { config } = useConfig();
+  const { isActive: advertisingActive } = useAdSense();
   const [searchParams] = useSearchParams();
   const { folders, isLoading: foldersLoading } = useLibraryFolders();
-  const concurrentChunks = config.upload?.maxConcurrentUploads || 5;
+  const concurrentChunks = config.upload?.maxConcurrentUploads || 4;
+  const requestPool = useMemo(
+    () => createUploadRequestPool(concurrentChunks),
+    [concurrentChunks]
+  );
   const comicFormats = config.upload?.comicFormats || ["cbz"];
   const [rows, setRows] = useState([]);
   const [tagsInput, setTagsInput] = useState("");
@@ -54,6 +63,8 @@ export default function BulkUploadQueue() {
   // captured when the run began, so without this a file removed mid-run would
   // still be uploaded after it had left the screen.
   const removedRef = useRef(new Set());
+  /** Whether "Start all" has run: only then is there a batch to settle. */
+  const batchRanRef = useRef(false);
   const inputRef = useRef(null);
   const completed = rows.filter((row) => row.status === "done").length;
   const failed = rows.filter((row) => row.status === "error" || row.status === "cancelled").length;
@@ -105,6 +116,7 @@ export default function BulkUploadQueue() {
         file: row.file,
         metadata: { title: row.title, tags, folderId: selectedFolderId },
         concurrentChunks,
+        requestPool,
         signal: controller.signal,
         onProgress: (progress) => updateRow(row.id, { progress }),
         onStatus: (status) => updateRow(row.id, { status }),
@@ -131,8 +143,39 @@ export default function BulkUploadQueue() {
     await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_FILES, selectedRows.length) }, worker));
   };
 
+  /**
+   * The batch is what a rewarded session covers, so it ends when the batch does
+   * — but only once there is nothing left to retry. Closing it while files are
+   * still failed would charge a second advertisement for finishing the batch
+   * the first one paid for, which issue #73 rules out explicitly. A session
+   * nobody closes expires on its own two hours later.
+   *
+   * Both ways a batch can settle come through here. A retry that rescues the
+   * last failure ends the batch exactly as a clean run does, and a session left
+   * open by that path would hand the *next* batch a free pass until it expired.
+   *
+   * Skipped where advertising is off, because the gate opens a session only on
+   * the offer path and the offer is only made where advertising is running —
+   * so there is nothing to close, and this would be an authenticated request to
+   * delete something that does not exist after every batch, for every
+   * self-hosted user. Nothing about uploading depended on the session, so
+   * nothing here checks whether it closed.
+   */
+  useEffect(() => {
+    if (!batchRanRef.current || running) return;
+    // Read off the rows themselves rather than a count each caller works out.
+    // Every way a batch can settle — a clean run, a retry that rescues the last
+    // failure, removing the last outstanding file — is the same question, and
+    // three separate answers to it disagreed about a row whose title was
+    // cleared. Rows are never stale here: an effect sees the render they are in.
+    if (rows.some((row) => row.status !== "done")) return;
+
+    batchRanRef.current = false;
+    if (advertisingActive) void closeBulkUploadSession();
+  }, [rows, running, advertisingActive]);
+
   const startAll = async () => {
-    const pending = rows.filter((row) => ["idle", "error", "cancelled"].includes(row.status) && row.title.trim());
+    const pending = rows.filter((row) => RETRYABLE_STATUSES.includes(row.status) && row.title.trim());
     if (!pending.length) return;
     if (!await refreshSession()) {
       toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
@@ -140,6 +183,7 @@ export default function BulkUploadQueue() {
     }
     // Only removals made during this run may cancel work in it.
     removedRef.current = new Set();
+    batchRanRef.current = true;
     setRunning(true);
     await runQueue(pending);
     setRunning(false);
@@ -191,7 +235,11 @@ export default function BulkUploadQueue() {
                         <Button size="icon" variant="outline" onClick={() => controllers.current.get(row.id)?.abort()} aria-label={`Cancel ${row.file.name}`}><XIcon /></Button>
                       )}
                       {(row.status === "error" || row.status === "cancelled") && (
-                        <Button size="icon" variant="outline" disabled={running} onClick={async () => { setRunning(true); await uploadRow(row); setRunning(false); }} aria-label={`Retry ${row.file.name}`}><RotateCcw className="h-4 w-4" /></Button>
+                        <Button size="icon" variant="outline" disabled={running} onClick={async () => {
+                          setRunning(true);
+                          await uploadRow(row);
+                          setRunning(false);
+                        }} aria-label={`Retry ${row.file.name}`}><RotateCcw className="h-4 w-4" /></Button>
                       )}
                       {/* Anything not in flight and not already uploaded. A file
                           mid-upload is cancelled first, and an uploaded one is a
@@ -214,7 +262,7 @@ export default function BulkUploadQueue() {
           </div>
           <div className="flex gap-2">
             {allFinished && <Button variant="outline" asChild><Link to="/dashboard">View library</Link></Button>}
-            <Button onClick={startAll} disabled={running || foldersLoading || !rows.some((row) => ["idle", "error", "cancelled"].includes(row.status) && row.title.trim())}>
+            <Button onClick={startAll} disabled={running || foldersLoading || !rows.some((row) => RETRYABLE_STATUSES.includes(row.status) && row.title.trim())}>
               {running ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</> : "Start all"}
             </Button>
           </div>

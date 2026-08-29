@@ -18,11 +18,16 @@ final class ContentReportRepository extends ServiceEntityRepository
     public function findForAdmin(?string $status, ?string $category, ?\DateTimeImmutable $from, ?\DateTimeImmutable $to): array
     {
         $qb = $this->createQueryBuilder('r')
-            ->addSelect('admin', 'linkedUser', 'linkedComic', 'linkedShare')
+            // shareComic as well as linkedComic: the queue labels a share by its
+            // comic's title, and a report whose share is linked without one —
+            // rows predating the target migration — would otherwise cost a query
+            // per row to render one column.
+            ->addSelect('admin', 'linkedUser', 'linkedComic', 'linkedShare', 'shareComic')
             ->leftJoin('r.reviewedByAdmin', 'admin')
             ->leftJoin('r.linkedUser', 'linkedUser')
             ->leftJoin('r.linkedComic', 'linkedComic')
             ->leftJoin('r.linkedShare', 'linkedShare')
+            ->leftJoin('linkedShare.comic', 'shareComic')
             ->orderBy('r.createdAt', 'DESC')
             ->setMaxResults(250);
 

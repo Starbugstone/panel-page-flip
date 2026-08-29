@@ -167,10 +167,10 @@ final class SharingWorkflowController extends AbstractController
         }
 
         if ($recipientUser !== null) {
-            if ($recipientUser->getId() === $user->getId()) {
-                return $this->json(['message' => 'You cannot share with yourself.'], Response::HTTP_CONFLICT);
-            }
-
+            // Including when the recipient resolves to the sender. Naming
+            // yourself is refused by ComicShareService, which owns that rule
+            // for every recipient form; a second copy here answered a
+            // different status for a username than an address got.
             $email = ComicShare::normaliseEmail((string) $recipientUser->getEmail());
             $viaSharingCode = SharingCodeRecipient::forUser($recipientUser);
         } else {

@@ -271,7 +271,7 @@ export default function ShareInvitation() {
               <AlertCircle className="h-5 w-5" />
               <AlertTitle>This invitation is for a different account</AlertTitle>
               <AlertDescription>
-                It was sent to another address. Sign in with that account to accept it.
+                It belongs to another account. Sign in with that account to accept it.
               </AlertDescription>
             </Alert>
             <Button variant="outline" onClick={() => navigate("/dashboard")}>

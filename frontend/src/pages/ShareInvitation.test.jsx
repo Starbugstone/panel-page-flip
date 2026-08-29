@@ -142,6 +142,18 @@ describe("ShareInvitation explicit-content gate", () => {
     expect(screen.queryByText("Now Visible")).not.toBeInTheDocument();
   });
 
+  it("describes a wrong recipient as another account without assuming an address", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      invitation: { ...ordinaryInvitation, isForCurrentUser: false, recipientEmail: null },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("This invitation is for a different account")).toBeInTheDocument();
+    expect(screen.getByText(/It belongs to another account\./)).toBeInTheDocument();
+    expect(screen.queryByText(/another address/i)).not.toBeInTheDocument();
+  });
+
   it("adds no extra step to an ordinary invitation", async () => {
     vi.mocked(api.get).mockResolvedValue({ invitation: ordinaryInvitation });
     renderPage();

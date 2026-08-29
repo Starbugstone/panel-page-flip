@@ -232,9 +232,9 @@ class ComicShareService
      *
      * - no token and no email. The recipient is right here; there is nothing to
      *   send them a link to
-     * - **redeeming counts as accepting.** Typing a code somebody gave you is
-     *   an affirmative act, so an ordinary comic lands in the collection rather
-     *   than waiting to be accepted a second time
+     * - **redeeming an ordinary comic counts as accepting.** Typing a code
+     *   somebody gave you is an affirmative act, so a non-explicit comic lands
+     *   in the collection rather than waiting to be accepted a second time
      * - the acknowledgement is inherited, not made. The owner acknowledged
      *   responsibility when they created the code
      *
@@ -378,7 +378,8 @@ class ComicShareService
             ]);
 
             throw new ShareException(
-                'The invitation email could not be sent. The share is unaffected — try again, or copy the link.',
+                'The invitation email could not be sent. The share is unaffected — try resending. '
+                .'If the recipient has an account, the invitation is waiting on their Sharing page.',
                 502
             );
         }
@@ -807,7 +808,7 @@ class ComicShareService
         }
 
         if ($email === ComicShare::normaliseEmail((string) $owner->getEmail())) {
-            throw new ShareException('You already own this comic.', 400);
+            throw new ShareException('You cannot share a comic with yourself.', 400);
         }
 
         return $email;
@@ -1021,7 +1022,7 @@ class ComicShareService
 
     private function sendInvitationEmail(ComicShare $share, Comic $comic, User $owner, string $plaintextToken): void
     {
-        $ownerName = $owner->getName() ?: $owner->getEmail();
+        $ownerName = $owner->getName() ?: '@'.$owner->getUsername();
 
         // An email is the least controlled surface there is: it sits in an inbox,
         // gets previewed on a lock screen and is scanned on the way. For an
@@ -1032,6 +1033,7 @@ class ComicShareService
             'comic' => $comic,
             'explicitContent' => $comic->isExplicitContent(),
             'userName' => $ownerName,
+            'siteName' => $this->mailerFromName,
             'shareLink' => $this->invitationUrl($plaintextToken),
             'privacyUrl' => $this->publicUrl->to('/privacy'),
             'expiresAt' => $share->getExpiresAt(),
@@ -1069,7 +1071,7 @@ class ComicShareService
             return;
         }
 
-        $ownerName = $owner->getName() ?: $owner->getEmail();
+        $ownerName = $owner->getName() ?: '@'.$owner->getUsername();
         $recipient = $prepared[0]->share->getRecipientEmailNormalized();
         $expiresAt = $prepared[0]->share->getExpiresAt();
 
@@ -1095,6 +1097,7 @@ class ComicShareService
             'comicCount' => count($invitations),
             'explicitCount' => count(array_filter($invitations, static fn (array $i): bool => $i['explicitContent'])),
             'userName' => $ownerName,
+            'siteName' => $this->mailerFromName,
             'privacyUrl' => $this->publicUrl->to('/privacy'),
             'expiresAt' => $expiresAt,
         ]);

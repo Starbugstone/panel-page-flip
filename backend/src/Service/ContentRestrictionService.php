@@ -8,16 +8,51 @@ use App\Entity\User;
 
 final class ContentRestrictionService
 {
+    /**
+     * Every administrative action, its label, and the target it needs.
+     *
+     * Served to the queue alongside the statuses and categories, so the admin
+     * screen renders the options rather than holding its own copy of them. A
+     * requirement stated in two places eventually offers an action that always
+     * fails, or hides one that would have worked.
+     *
+     * @var list<array{value: string, label: string, requires: string|null}>
+     */
+    public const ACTIONS = [
+        ['value' => 'none', 'label' => 'No content action', 'requires' => null],
+        ['value' => 'restrict_sharing', 'label' => 'Restrict sharing for comic', 'requires' => 'comic'],
+        ['value' => 'lift_sharing_restriction', 'label' => 'Lift comic sharing restriction', 'requires' => 'comic'],
+        ['value' => 'revoke_all_shares', 'label' => 'Revoke all shares', 'requires' => 'comic'],
+        ['value' => 'quarantine_content', 'label' => 'Quarantine comic', 'requires' => 'comic'],
+        ['value' => 'lift_quarantine', 'label' => 'Lift comic quarantine', 'requires' => 'comic'],
+        ['value' => 'restrict_user_sharing', 'label' => 'Restrict account sharing', 'requires' => 'user'],
+        ['value' => 'lift_user_sharing_restriction', 'label' => 'Lift account sharing restriction', 'requires' => 'user'],
+    ];
+
     public function __construct(
         private readonly ComicShareService $shares,
         private readonly SecurityAuditLogger $auditLogger,
     ) {
     }
 
+    public static function actionLabel(string $action): string
+    {
+        foreach (self::ACTIONS as $option) {
+            if ($option['value'] === $action) {
+                return $option['label'];
+            }
+        }
+
+        throw new \DomainException('Invalid administrative content action.');
+    }
+
     public function apply(string $action, ContentReport $report, User $admin): void
     {
+        // Target consistency is ContentReportLinkService::assertCanonical()'s
+        // rule, enforced on the way in. Re-checking it here gave the same
+        // invariant a second implementation and a second error message.
         $comic = $report->getLinkedComic();
-        $user = $report->getLinkedUser() ?? $comic?->getOwner();
+        $user = $report->getLinkedUser();
 
         match ($action) {
             'restrict_sharing' => $this->restrictSharing($this->requireComic($comic), $report, $admin),

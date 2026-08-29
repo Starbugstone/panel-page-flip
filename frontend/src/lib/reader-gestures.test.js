@@ -225,8 +225,22 @@ describe("what a mouse click means", () => {
     expect(mouseClickAction({ ...wide, x: 200 })).toBe("chrome");
   });
 
-  it("offers a zoomed page its way back out, wherever the click landed", () => {
-    expect(mouseClickAction({ ...wide, x: 20, zoomed: true })).toBe("zoomOut");
-    expect(mouseClickAction({ ...wide, x: 200, zoomed: true, onArtwork: true })).toBe("zoomOut");
+  /**
+   * A zoomed reader clicks to follow a panel, not to leave. Zooming out from
+   * that threw away the pan and the magnification they had just set up, so no
+   * single click anywhere on a zoomed page may do it — leaving is the
+   * double-click's job, and Escape's, and the zoom-out control's.
+   */
+  it("never leaves a zoomed page on a single click, wherever it landed", () => {
+    expect(mouseClickAction({ ...wide, x: 20, zoomed: true })).toBe("chrome");
+    expect(mouseClickAction({ ...wide, x: 200, zoomed: true, onArtwork: true })).toBe("chrome");
+    expect(mouseClickAction({ ...wide, x: 390, zoomed: true })).toBe("chrome");
+  });
+
+  /** Whatever a zoomed click means, it is never a page turn taken from the mat. */
+  it("does not turn the page while zoomed, because there is no mat left", () => {
+    for (const x of [0, 20, 200, 380, 399]) {
+      expect(mouseClickAction({ ...wide, x, zoomed: true })).toBe("chrome");
+    }
   });
 });

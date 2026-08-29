@@ -1,24 +1,40 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
-import { api } from "@/lib/api";
-import { logger } from "@/lib/logger";
+import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
+import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
+import { adSafeRouteSentence } from "@/lib/advertising";
 
-const LAST_UPDATED = "15 August 2026";
+const LAST_UPDATED = "22 August 2026";
 
+/**
+ * The operator's contact details, from the one public-config request the
+ * application already makes on startup.
+ *
+ * These used to have an endpoint and a fetch of their own, which meant the
+ * privacy and cookie pages made two anonymous round trips on the same render
+ * for two halves of the same answer.
+ */
 function useLegalConfig() {
-  const [config, setConfig] = useState({
-    operator: "Panel Page Flip site operator",
-    privacyEmail: null,
-    legalEmail: null,
-  });
+  return useAdSense().legal;
+}
 
-  useEffect(() => {
-    api.get("/api/legal-config", { notifyUnauthorized: false })
-      .then(setConfig)
-      .catch((error) => logger.warn("Could not load legal contact details:", error.message));
-  }, []);
+/**
+ * Whether this installation actually shows advertising.
+ *
+ * The same build serves an ad-free self-hosted library and a monetised public
+ * one, so these pages describe what is running rather than what the software can
+ * do. A privacy policy that lists a processor nobody uses is as wrong as one
+ * that omits a processor they do.
+ */
+function useAdvertisingInUse() {
+  const { isLoading, isActive } = useAdSense();
 
-  return config;
+  // Null, not false, until the answer arrives. These pages carry absolute
+  // claims in both directions — "we do not use advertising networks" is a
+  // statement of fact on an indexable page — and defaulting to the negative one
+  // for the length of a round trip publishes the wrong fact on every load of an
+  // installation that does show advertising. Unknown renders neither claim.
+  return isLoading ? null : isActive;
 }
 
 function Contact({ email }) {
@@ -66,48 +82,22 @@ function LegalLayout({ title, children }) {
   );
 }
 
-export function PrivacyPolicy() {
-  const { operator, privacyEmail } = useLegalConfig();
-
+/**
+ * Who else sees the data, including the advertising disclosures that only
+ * apply where the operator has actually turned advertising on.
+ */
+function PrivacyRecipients({ advertising }) {
   return (
-    <LegalLayout title="Privacy Policy">
-      <p>
-        This policy explains how {operator} (“we”, “us”) processes personal data
-        when you use Panel Page Flip.
-      </p>
-
-      <h2>Data controller and contact</h2>
-      <p>
-        The data controller is {operator}. For privacy questions or to exercise
-        your rights, contact <Contact email={privacyEmail} />.
-      </p>
-
-      <h2>Data we process</h2>
-      <ul>
-        <li>Account information: email address, display name, password hash, roles, verification status, and account timestamps.</li>
-        <li>Library data: uploaded comic files and metadata, tags, and ownership records.</li>
-        <li>Reading activity: current page, completion status, and last-read time.</li>
-        <li>Sharing data: recipient email addresses, expiring share tokens, and the identity of the person sharing.</li>
-        <li>Dropbox data, when connected: encrypted OAuth credentials, import paths, and last-sync time.</li>
-        <li>Metadata-provider credentials, when you add your own: an encrypted API token, write-only after saving and removable at any time.</li>
-        <li>Security and operations data: session identifiers, IP-based rate-limit entries, access logs, and administrator audit records.</li>
-        <li>Content reports: reporter contact details, the supplied allegation and references, review notes, linked internal records, and action history.</li>
-      </ul>
-
-      <h2>Why we process it</h2>
-      <ul>
-        <li><strong>Contract:</strong> to create your account and provide the library, reader, sharing, and optional Dropbox features you request.</li>
-        <li><strong>Legitimate interests:</strong> to secure, troubleshoot, and administer the service, prevent abuse, and keep proportionate audit records.</li>
-        <li><strong>Legal obligations:</strong> where records must be retained or disclosed under applicable law.</li>
-      </ul>
-
+    <>
       <h2>Who receives data</h2>
       <p>
         We use the hosting and database infrastructure selected by the operator.
         Email delivery providers receive recipient addresses and message content.
         If you connect Dropbox, Dropbox receives API requests needed to list and
         import the files you select. Dropbox is optional and can be disconnected.
-        We do not use advertising networks or third-party analytics.
+        {advertising === null ? null : advertising
+          ? " Google serves advertising on a small number of pages, described below. We do not use third-party analytics."
+          : " We do not use advertising networks or third-party analytics."}
       </p>
       <p>
         <strong>Metadata providers.</strong> When you explicitly search for a comic’s
@@ -131,6 +121,89 @@ export function PrivacyPolicy() {
         A provider may process data outside your country. Where GDPR requires it,
         the operator must use an appropriate transfer safeguard and processor agreement.
       </p>
+
+      {advertising && (
+        <>
+          <h2>Advertising</h2>
+          <p>
+            This installation shows Google AdSense advertising to help finance its
+            hosting and running costs. Advertising appears only on pages this
+            application owns — {adSafeRouteSentence()}. It is never shown on
+            the reader, on your library, beside a cover or a page image, or beside
+            anything read out of a comic you uploaded.
+          </p>
+          <p>
+            Google and its approved advertising partners may process online
+            identifiers, device and browser information, your consent signals,
+            information derived from your IP address, and how you interacted with
+            an advertisement. They act as independent controllers for that
+            processing under their own terms. We do not send them your email
+            address, your library, your reading history, your tags, your filenames
+            or any part of a comic file.
+          </p>
+          <p>
+            Where the EEA, UK or Swiss rules apply, a Google-certified consent
+            management platform asks for your choices before any non-essential
+            advertising storage or personalised advertising request. You can
+            accept all, reject all, or choose individually; rejecting is as easy
+            as accepting; and you can change or withdraw your choices at any time
+            using{" "}
+            <PrivacyChoicesButton className="underline">privacy choices</PrivacyChoicesButton>
+            , which also appears in the footer of every page outside the comic
+            reader.
+          </p>
+          <p>
+            Refusing advertising consent does not prevent you from registering,
+            signing in, uploading, organising or reading your comics. Where the
+            bulk uploader offers a rewarded advertisement, it is optional: single
+            comic upload is always available without watching one, and if no
+            rewarded advertisement can be served, bulk upload opens normally.
+            Showing an advertisement is not an endorsement of what it advertises.
+          </p>
+        </>
+      )}
+    </>
+  );
+}
+
+export function PrivacyPolicy() {
+  const { operator, privacyEmail } = useLegalConfig();
+
+  const advertising = useAdvertisingInUse();
+
+  return (
+    <LegalLayout title="Privacy Policy">
+      <p>
+        This policy explains how {operator} (“we”, “us”) processes personal data
+        when you use Panel Page Flip.
+      </p>
+
+      <h2>Data controller and contact</h2>
+      <p>
+        The data controller is {operator}. For privacy questions or to exercise
+        your rights, contact <Contact email={privacyEmail} />.
+      </p>
+
+      <h2>Data we process</h2>
+      <ul>
+        <li>Account information: email address, display name, password hash, roles, verification status, and account timestamps.</li>
+        <li>Library data: uploaded comic files and metadata, tags, and ownership records.</li>
+        <li>Reading activity: current page, completion status, and last-read time.</li>
+        <li>Sharing data: usernames, recipient email addresses, sharing-code records, invitation and redemption records, and the identities of the people sharing and receiving comics.</li>
+        <li>Dropbox data, when connected: encrypted OAuth credentials, import paths, and last-sync time.</li>
+        <li>Metadata-provider credentials, when you add your own: an encrypted API token, write-only after saving and removable at any time.</li>
+        <li>Security and operations data: session identifiers, IP-based rate-limit entries, access logs, and administrator audit records.</li>
+        <li>Content reports: reporter contact details, the supplied allegation and references, review notes, linked internal records, and action history.</li>
+      </ul>
+
+      <h2>Why we process it</h2>
+      <ul>
+        <li><strong>Contract:</strong> to create your account and provide the library, reader, sharing, and optional Dropbox features you request.</li>
+        <li><strong>Legitimate interests:</strong> to secure, troubleshoot, and administer the service, prevent abuse, and keep proportionate audit records.</li>
+        <li><strong>Legal obligations:</strong> where records must be retained or disclosed under applicable law.</li>
+      </ul>
+
+      <PrivacyRecipients advertising={advertising} />
 
       <h2>Retention</h2>
       <ul>
@@ -159,8 +232,9 @@ export function PrivacyPolicy() {
 
       <h2>Other people’s data</h2>
       <p>
-        Only share a recipient’s email address when you are entitled to do so. Share
-        invitations explain who initiated the invitation and why the address was used.
+        Only share someone’s email address when you are entitled to do so. Sharing by username or
+        code does not reveal either person’s email address. Email invitations identify the sender
+        and explain that the message was generated by a request to share a comic.
       </p>
 
       <h2>Changes</h2>
@@ -171,6 +245,7 @@ export function PrivacyPolicy() {
 
 export function TermsOfService() {
   const { operator, privacyEmail, legalEmail } = useLegalConfig();
+  const advertising = useAdvertisingInUse();
 
   return (
     <LegalLayout title="Terms of Service">
@@ -201,6 +276,25 @@ export function TermsOfService() {
         Do not use the service unlawfully, attempt unauthorized access, interfere
         with its operation, distribute malware, or use sharing features for spam or abuse.
       </p>
+
+      {advertising && (
+        <>
+          <h2>Advertising</h2>
+          <p>
+            Some pages of this service that contain only the operator’s own
+            content may display third-party advertising. Advertising is not an
+            endorsement of the advertiser or of what is advertised, and the
+            operator does not control which advertisements are shown.
+          </p>
+          <p>
+            Do not click, automate, script, or otherwise interact with
+            advertisements other than through genuine interest, and do not
+            encourage anyone else to. Advertising fraud breaches the advertising
+            provider’s terms and may result in suspension. Nobody should click an
+            advertisement in order to support this project.
+          </p>
+        </>
+      )}
 
       <h2>Availability and changes</h2>
       <p>
@@ -237,11 +331,14 @@ export function TermsOfService() {
 }
 
 export function CookieNoticePage() {
+  const advertising = useAdvertisingInUse();
+
   return (
     <LegalLayout title="Cookie Notice">
       <p>
-        Panel Page Flip does not use advertising or analytics cookies. It uses only
-        storage needed to operate the service and remember your theme preference.
+        {advertising === null ? null : advertising
+          ? "Panel Page Flip uses storage needed to operate the service and remember your theme preference. On a small number of pages it also shows Google advertising, which uses storage of its own — you decide whether to allow that."
+          : "Panel Page Flip does not use advertising or analytics cookies. It uses only storage needed to operate the service and remember your theme preference."}
       </p>
 
       <h2>Storage used</h2>
@@ -250,14 +347,49 @@ export function CookieNoticePage() {
         <li><strong>XSRF-TOKEN:</strong> protects authenticated actions against cross-site request forgery.</li>
         <li><strong>comic-reader-theme:</strong> remembers light or dark appearance for up to 365 days.</li>
         <li><strong>Local browser storage:</strong> remembers the theme during migration and whether you dismissed the cookie notice.</li>
+        {advertising && (
+          <li>
+            <strong>Consent choices:</strong> the Google-certified consent platform stores the
+            choices you made, so it does not ask again on every visit.
+          </li>
+        )}
+        {advertising && (
+          <li>
+            <strong>Google advertising storage:</strong> cookies and local storage set by Google
+            and its advertising partners on pages that carry advertising, used to serve, limit
+            and measure advertisements and to detect invalid traffic. Exactly what is set depends
+            on the choices you make and on the advertising configuration in use, so this notice
+            does not promise that refusing personalisation leaves no storage at all — the
+            consent panel is where the current answer lives.
+          </li>
+        )}
       </ul>
 
       <h2>Your choices</h2>
       <p>
         Session and security storage are necessary for signed-in features. You can
         clear site data in your browser. Doing so signs you out and resets preferences.
-        Because no advertising or analytics storage is used, there is no tracking-consent panel.
       </p>
+      {advertising === null ? null : advertising ? (
+        <>
+          <p>
+            Advertising storage is not necessary, and you choose whether to allow it. Where the
+            EEA, UK or Swiss rules apply, the consent panel appears before any non-essential
+            advertising storage is used; rejecting is as easy as accepting. Reopen it at any time
+            through{" "}
+            <PrivacyChoicesButton className="underline">privacy choices</PrivacyChoicesButton>
+            , which is also in the footer of every page outside the comic reader.
+          </p>
+          <p>
+            Refusing does not sign you out, hide your library, or take away any feature. Comic
+            pages, covers, library screens and the reader carry no advertising at all.
+          </p>
+        </>
+      ) : (
+        <p>
+          Because no advertising or analytics storage is used, there is no tracking-consent panel.
+        </p>
+      )}
     </LegalLayout>
   );
 }

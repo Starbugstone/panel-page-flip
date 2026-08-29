@@ -78,6 +78,22 @@ describe("the account settings card", () => {
       expect(saveButton()).toBeDisabled();
     });
 
+    /**
+     * The U- code is the address people share with; the username is the name a
+     * check of that code reveals. Settings used to say the opposite, which
+     * made a rename sound like it would break sharing.
+     */
+    it("says the username is the name people see, not the thing they share with", async () => {
+      render(<AccountSettingsCard />);
+
+      expect(await screen.findByText(/public name people see when they check your U- code/i))
+        .toBeInTheDocument();
+      expect(screen.getByText(/your U- code stays the same unless you replace it/i))
+        .toBeInTheDocument();
+      expect(screen.queryByText(/how other people share comics with you/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/anyone using your old username/i)).not.toBeInTheDocument();
+    });
+
     it("saves a new one and refreshes the account behind it", async () => {
       const user = userEvent.setup();
       vi.mocked(api.put).mockResolvedValue({ username: "PanelFan" });
@@ -93,7 +109,10 @@ describe("the account settings card", () => {
         { username: "PanelFan" }
       ));
       expect(mocks.checkAuth).toHaveBeenCalled();
-      expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Username changed" }));
+      expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+        title: "Username changed",
+        description: expect.stringContaining("Your U- code still works"),
+      }));
     });
 
     /** The @ is how a username is written, not part of it. */

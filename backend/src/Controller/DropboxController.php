@@ -76,7 +76,10 @@ class DropboxController extends AbstractController
 
         if (empty($returnedState) || !is_string($savedState) || !hash_equals($savedState, $returnedState)) {
             $this->logger->warning('Dropbox OAuth state mismatch.', ['user_id' => $user->getId()]);
-            return $this->json(['error' => 'Invalid OAuth state. CSRF attack suspected or session expired.'], Response::HTTP_UNAUTHORIZED);
+            return $this->json(
+                ['error' => 'Dropbox authorization expired or the session ended. Please connect Dropbox again.'],
+                Response::HTTP_UNAUTHORIZED
+            );
         }
 
         if (!$code) {
@@ -225,7 +228,7 @@ class DropboxController extends AbstractController
         $fileName = is_string($fileName) && $fileName !== '' ? $fileName : null;
 
         if ($filePath === null && $fileName === null) {
-            return $this->json(['error' => 'path is required'], Response::HTTP_BAD_REQUEST);
+            return $this->json(['error' => 'path or fileName is required'], Response::HTTP_BAD_REQUEST);
         }
 
         try {
@@ -288,14 +291,22 @@ class DropboxController extends AbstractController
             $user->setDropboxLastSyncedAt(new \DateTimeImmutable());
             $entityManager->flush();
 
+            $message = $result['failed'] > 0
+                ? sprintf(
+                    'Dropbox import partially completed: %d imported, %d failed.',
+                    $result['newFiles'],
+                    $result['failed']
+                )
+                : sprintf('Dropbox import completed: %d imported, 0 failed.', $result['newFiles']);
+
             return $this->json([
-                'message' => 'Sync completed successfully',
+                'message' => $message,
                 'newFiles' => $result['newFiles'],
                 'failedFiles' => $result['failed'],
             ]);
         } catch (\Throwable $e) {
-            $this->logger->error('Dropbox sync failed.', ['user_id' => $user->getId(), 'exception' => $e]);
-            return $this->json(['error' => 'Sync failed.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+            $this->logger->error('Dropbox import failed.', ['user_id' => $user->getId(), 'exception' => $e]);
+            return $this->json(['error' => 'Dropbox import failed.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 }

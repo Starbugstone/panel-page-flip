@@ -57,7 +57,9 @@ security:
         - { path: '^/api/reset-password/reset/[A-Fa-f0-9]{64}$', methods: [POST], roles: PUBLIC_ACCESS }
         - { path: '^/api/email-verification/verify/[A-Fa-f0-9]{64}$', methods: [GET], roles: PUBLIC_ACCESS }
         - { path: ^/api/email-verification/resend$, methods: [POST], roles: PUBLIC_ACCESS }
-        - { path: ^/api/legal-config$, methods: [GET], roles: PUBLIC_ACCESS }
+        # Whether this installation shows advertising, needed by the landing and
+        # login pages before anybody has signed in. Nothing account-specific.
+        - { path: ^/api/public-config$, methods: [GET], roles: PUBLIC_ACCESS }
         - { path: ^/api/content-reports$, methods: [POST], roles: PUBLIC_ACCESS }
         # Reading an invitation is public so somebody who does not have an
         # account yet can see what they are being offered before creating one.
@@ -82,6 +84,11 @@ security:
         - { path: ^/api/users(/|$), roles: ROLE_ADMIN }
         - { path: ^/api/admin, roles: ROLE_ADMIN }
         
+        # The frontend probes this endpoint on every public page. Absence of a
+        # session is a normal state for GET, while POST remains the protected
+        # keep-alive operation.
+        - { path: ^/api/me$, methods: [GET], roles: PUBLIC_ACCESS }
+
         # User routes (require authentication)
         - { path: ^/api/me$, roles: IS_AUTHENTICATED_FULLY }
         

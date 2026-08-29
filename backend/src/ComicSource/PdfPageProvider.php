@@ -90,7 +90,7 @@ final class PdfPageProvider implements ComicPageProviderInterface
      *
      * A parsed document holds the whole file in memory. Keeping one per source
      * is right for an HTTP request, which reads one comic, and wrong for the
-     * import command and the Dropbox sync, where a single provider instance
+     * import command and the Dropbox import, where a single provider instance
      * walks a whole library in one process and would accumulate every PDF it
      * ever opened. One entry still gives a reader turning pages the
      * parse-once benefit, since those requests are all for the same file.

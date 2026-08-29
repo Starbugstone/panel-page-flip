@@ -79,9 +79,14 @@ describe("AdminSharingCodesList", () => {
     expect(await screen.findByText("issuer@example.com · #3")).toBeInTheDocument();
     expect(screen.getByText("2 / 5")).toBeInTheDocument();
     expect(screen.getByText(/#8 Batman #1, #9 Superman #1/)).toBeInTheDocument();
+    expect(screen.getByText(
+      /Administrators can manage code records, but cannot see the codes themselves\./
+    )).toBeInTheDocument();
+    expect(screen.getByText(
+      /Owners can show their own codes again on the Sharing page\./
+    )).toBeInTheDocument();
 
-    // Only the hash is stored, so there is nothing to show and no column that
-    // could ever hold one.
+    // The administrator endpoint deliberately exposes no readable code.
     expect(screen.queryByText(/····|[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}/)).not.toBeInTheDocument();
   });
 

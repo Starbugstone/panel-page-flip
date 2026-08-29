@@ -71,11 +71,6 @@ final class PaginationRequest
     /**
      * The `LIKE` argument for the search term, or null when nothing was
      * searched for.
-     *
-     * `%` and `_` are escaped so they match themselves: searching a comic
-     * library for "50%" should find "50% Off", not every row in the table. The
-     * escape character is the backslash MySQL applies to LIKE by default, so no
-     * ESCAPE clause has to be threaded through every query that uses this.
      */
     public function searchPattern(): ?string
     {
@@ -83,8 +78,6 @@ final class PaginationRequest
             return null;
         }
 
-        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], mb_strtolower($this->search));
-
-        return '%' . $escaped . '%';
+        return LikePattern::contains($this->search);
     }
 }

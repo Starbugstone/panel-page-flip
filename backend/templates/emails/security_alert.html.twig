@@ -8,7 +8,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Security alert - Comic Reader</title>
+    <title>Security alert - {{ siteName }}</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -63,7 +63,7 @@
 </head>
 <body>
     <div class="header">
-        <div class="logo">Comic Reader</div>
+        <div class="logo">{{ siteName }}</div>
     </div>
 
     <div class="alert">
@@ -92,8 +92,13 @@
     {% endif %}
 
     <p>
-        The full record is in the security log for
-        {{ occurredAt|date('Y-m-d') }}. Administrator actions are also listed at
+        {% if details.request_id is defined %}
+            Use request ID <strong>{{ details.request_id }}</strong> to search the security log for
+            {{ occurredAt|date('Y-m-d') }}.
+        {% else %}
+            Search the security log for {{ occurredAt|date('Y-m-d') }} using the event and identifiers above.
+        {% endif %}
+        Separately, administrator audit history is available at
         <a href="{{ auditUrl }}">{{ auditUrl }}</a>.
     </p>
 

@@ -150,13 +150,14 @@ class ResetPasswordService
             $emailContent = $this->twig->render('emails/password_changed.html.twig', [
                 'user' => $user,
                 'changeTime' => new \DateTimeImmutable(),
+                'site_name' => $this->mailerFromName,
             ]);
             
             // Create the email
             $email = (new Email())
                 ->from(sprintf('"%s" <%s>', $this->mailerFromName, $this->mailerFromAddress))
                 ->to($user->getEmail())
-                ->subject('Your Password Has Been Changed - Comic Reader')
+                ->subject(sprintf('Your Password Has Been Changed - %s', $this->mailerFromName))
                 ->html($emailContent);
             
             // Send the email
@@ -208,13 +209,14 @@ class ResetPasswordService
                 'resetUrl' => $resetUrl,
                 'user' => $user,
                 'expiryHours' => self::TOKEN_EXPIRY_HOURS,
+                'site_name' => $this->mailerFromName,
             ]);
             
             // Create the email
             $email = (new Email())
                 ->from(sprintf('"%s" <%s>', $this->mailerFromName, $this->mailerFromAddress))
                 ->to($user->getEmail())
-                ->subject('Reset your password - Comic Reader')
+                ->subject(sprintf('Reset your password - %s', $this->mailerFromName))
                 ->html($emailContent);
             
             // Send the email

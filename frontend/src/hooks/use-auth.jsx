@@ -17,8 +17,9 @@ export function AuthProvider({ children }) {
   const checkAuth = useCallback(async () => {
     try {
       const data = await api.get("/api/me", { notifyUnauthorized: false });
-      setUser(data.user);
-      return true;
+      const authenticatedUser = data?.user ?? null;
+      setUser(authenticatedUser);
+      return Boolean(authenticatedUser);
     } catch (error) {
       logger.warn("Authentication check failed:", error.message);
       clearClientSession();

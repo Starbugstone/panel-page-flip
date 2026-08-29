@@ -1,21 +1,29 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
 import { persistCookieNoticeDismissal, wasCookieNoticeDismissed } from "@/lib/cookie-notice-storage";
 import { NOTIFICATION_LAYER_CLASSES } from "@/lib/overlay-layers";
 import { cn } from "@/lib/utils";
 
 export function CookieNotice() {
   const { pathname } = useLocation();
+  const { isLoading, isActive } = useAdSense();
   const [visible, setVisible] = useState(() => !wasCookieNoticeDismissed());
   const isReaderPage = pathname.startsWith("/read/");
+  const advertising = isActive;
 
   const dismiss = () => {
     persistCookieNoticeDismissal();
     setVisible(false);
   };
 
-  if (!visible) return null;
+  // Nothing is said about cookies until the server has said whether this
+  // installation shows advertising. The two wordings contradict each other, and
+  // the dismissal is permanent: somebody who pressed "Got it" during the round
+  // trip would have been told the opposite of the truth, once, and never see
+  // the correction.
+  if (!visible || isLoading) return null;
 
   return (
     <aside
@@ -27,9 +35,15 @@ export function CookieNotice() {
       )}
     >
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* Two banners asking about the same thing is how somebody ends up
+            accepting in one and rejecting in the other. Where advertising is on,
+            Google's certified consent platform owns the choice and this notice
+            says only what it is for; where it is off, there is no choice to make
+            and this stays the whole story. */}
         <p className="text-sm text-muted-foreground">
-          We use necessary session and security cookies, plus a theme preference.
-          No advertising or analytics cookies are used.{" "}
+          {advertising
+            ? "We use necessary session and security cookies, plus a theme preference. Advertising on some pages uses additional storage, which you accept or reject in the privacy choices panel."
+            : "We use necessary session and security cookies, plus a theme preference. No advertising or analytics cookies are used."}{" "}
           <Link className="font-medium text-foreground underline" to="/cookies">Learn more</Link>
         </p>
         <Button className="shrink-0" size="sm" onClick={dismiss}>Got it</Button>

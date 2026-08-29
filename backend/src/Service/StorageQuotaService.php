@@ -11,6 +11,9 @@ use Symfony\Component\Lock\LockInterface;
 
 final class StorageQuotaService
 {
+    /** Largest integer JavaScript clients can receive without losing bytes. */
+    public const MAX_QUOTA_BYTES = 9_007_199_254_740_991;
+
     // Keep the admission lock comfortably beyond the configured 300-second PHP
     // execution ceiling so a long validation/finalization cannot lose serialization
     // immediately before committing its storage usage.
@@ -21,6 +24,12 @@ final class StorageQuotaService
         private readonly LockFactory $lockFactory,
         private readonly int $uploadUserQuotaBytes,
     ) {
+        if ($this->uploadUserQuotaBytes < 0 || $this->uploadUserQuotaBytes > self::MAX_QUOTA_BYTES) {
+            throw new \InvalidArgumentException(sprintf(
+                'UPLOAD_USER_QUOTA_BYTES must be between 0 (unlimited) and %d.',
+                self::MAX_QUOTA_BYTES
+            ));
+        }
     }
 
     public function acquireAdmission(User $user, int $additionalBytes, bool $blocking = true): LockInterface
@@ -44,18 +53,25 @@ final class StorageQuotaService
 
     public function wouldExceedQuota(User $user, int $additionalBytes): bool
     {
-        return $this->getUserStorageBytes($user) + $additionalBytes > $this->getQuotaBytes($user);
+        $quotaBytes = $this->getQuotaBytes($user);
+
+        return $quotaBytes > 0
+            && $this->getUserStorageBytes($user) + $additionalBytes > $quotaBytes;
     }
 
     /**
      * The quota this account is actually held to.
      *
-     * Every user gets the same configured limit today, which is why the
-     * argument looks unused. It is the seam #64 needs: resolving a per-user
-     * override happens here, and callers that already ask the service rather
-     * than reading `%upload_user_quota_bytes%` will not have to change.
+     * A stored override wins; null inherits the installation's environment
+     * default. Zero deliberately means unlimited in either place. Callers use
+     * this resolver so reporting and admission always agree.
      */
     public function getQuotaBytes(User $user): int
+    {
+        return $user->getStorageQuotaOverrideBytes() ?? $this->uploadUserQuotaBytes;
+    }
+
+    public function getDefaultQuotaBytes(): int
     {
         return $this->uploadUserQuotaBytes;
     }

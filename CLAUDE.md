@@ -16,14 +16,30 @@ a preference.
 
 The only work that ships without tests is documentation and comments.
 
-Run before every push — all of it, not a subset:
+Run before every push — all of it, not a subset, but only before a requested push. never during a normal code update unless necessary:
 
 ```bash
 docker compose exec -T php php bin/phpunit          # backend
+docker compose exec -T php composer analyse         # PHPStan
+docker compose exec -T php composer cs:check        # PHP-CS-Fixer
+docker compose exec -T php php bin/console lint:twig templates   # email templates
 npm test --prefix frontend                          # frontend
-npm run lint --prefix frontend
+npm run lint --prefix frontend                      # --max-warnings=0
 npm run build --prefix frontend
+npm run check:routes --prefix frontend              # committed artefacts
+npm run check:tools --prefix frontend               # host only, see below
+npm run check:seo --prefix frontend                 # after build, same APP_URL
+npm run check:csp --prefix frontend                 # CSP across deployment targets
 ```
+
+CI gates on all of these. `lint` fails on a single warning, and the `check:`
+scripts guard generated files that are committed rather than rebuilt on the way
+to production — see `docs/development-tooling.md`.
+
+`check:tools` and `src/lib/conversion-tools.test.js` only work from the host.
+`frontend_dev` deliberately does not mount `scripts/`, which can hold deploy
+credentials, so inside the container they report a missing source file. That
+failure is the mount, not the repository.
 
 Report failures honestly, with the output. A suite you did not run is a suite
 that failed.
@@ -58,7 +74,9 @@ entries, PDF objects, XML, filenames — is attacker-controlled.
 
 - Backend: PHP 8.2 / Symfony 6.4 / Doctrine. Migrations are
   `VersionYYYYMMDDHHMMSS`, MySQL-only, and guard with `abortIf` on the platform.
-- Frontend: React 18 / Vite / Tailwind / Radix. Node >= 22.12.
-- Per-feature documentation lives in `docs/` — see `docs/reader.md`,
-  `docs/comic-formats.md`, `docs/metadata-enrichment.md`.
-- Branch from `main`; never commit to it directly.
+- Frontend: React 19 / Vite / Tailwind / Radix. Node >= 22.12.
+- Per-feature documentation lives in `docs/`; `DEV_README.md` indexes every page.
+  A behaviour change updates its page in the same PR.
+- Branch from `main`; never commit to it directly. `develop` is the integration
+  branch — work wanting manual testing on a real deployment lands there first
+  and reaches `main` as one merge.

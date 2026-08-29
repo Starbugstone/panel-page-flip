@@ -60,9 +60,14 @@ final class AdminMetadataApiAccessTest extends AbstractApiTestCase
         $target = UserFactory::createOne()->object();
         $this->createAndLoginAdmin();
 
-        $this->patchJson(sprintf('/api/users/%d', $target->getId()), ['metadataApiEnabled' => 'no']);
+        $payload = $this->patchJson(sprintf('/api/users/%d', $target->getId()), ['metadataApiEnabled' => 'no']);
 
         self::assertResponseStatusCodeSame(400);
+        self::assertSame('External metadata API access must be true or false.', $payload['message']);
+        self::assertSame(
+            ['External metadata API access must be true or false.'],
+            $payload['errors']['metadataApiEnabled']
+        );
     }
 
     public function testTheAdminListReportsAccessWithoutRevealingAnyToken(): void

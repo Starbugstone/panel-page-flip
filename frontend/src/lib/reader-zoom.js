@@ -20,6 +20,18 @@ export const MAX_SCALE = 5;
 // "0px" — which is the difference between settling and settling twice.
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value)) + 0;
 
+/**
+ * A zoom level held to the reader's limits, with no geometry involved.
+ *
+ * Continuous mode has no transform — the number widens its pages — but the
+ * settings slider has to mean the same thing in both modes.
+ */
+export function clampScale(scale) {
+  const requested = Number(scale);
+
+  return clamp(Number.isFinite(requested) ? requested : MIN_SCALE, MIN_SCALE, MAX_SCALE);
+}
+
 export function isZoomed({ scale } = IDENTITY_TRANSFORM) {
   return scale > MIN_SCALE + 0.001;
 }
@@ -63,6 +75,18 @@ export function clampTransform(transform, { viewport, content }) {
     x: clamp(transform.x, -overflowX, overflowX),
     y: clamp(transform.y, -overflowY, overflowY),
   };
+}
+
+/**
+ * Keep this scale and show the top of the page.
+ *
+ * A page turn has no pan worth keeping: the middle of the last page is not
+ * where reading starts. Horizontal centre, because turning the page is not a
+ * sideways glance. Asking clampTransform for the top edge keeps the overflow
+ * arithmetic in one place.
+ */
+export function originAtTop(scale, geometry) {
+  return clampTransform({ scale, x: 0, y: Number.POSITIVE_INFINITY }, geometry);
 }
 
 /**

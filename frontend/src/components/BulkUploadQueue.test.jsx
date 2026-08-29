@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,10 @@ import { uploadComicInChunks } from "@/hooks/use-chunked-upload";
 
 const mocks = vi.hoisted(() => ({ toast: vi.fn(), refreshSession: vi.fn().mockResolvedValue(true) }));
 
-vi.mock("@/hooks/use-chunked-upload", () => ({ uploadComicInChunks: vi.fn() }));
+vi.mock("@/hooks/use-chunked-upload", () => ({
+  createUploadRequestPool: vi.fn(() => (request) => request()),
+  uploadComicInChunks: vi.fn(),
+}));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ refreshSession: mocks.refreshSession }),
@@ -72,6 +75,60 @@ describe("taking a file back out of the bulk queue", () => {
     const uploaded = vi.mocked(uploadComicInChunks).mock.calls.map(([{ file }]) => file.name);
     expect(uploaded).not.toContain("three.cbz");
     expect(screen.queryByText("three.cbz")).not.toBeInTheDocument();
+  });
+
+  /**
+   * Removal has to reach the rows React is holding, not the ones this handler
+   * was rendered with. A file in flight writes progress into the queue
+   * continuously, so a removal that rebuilds the list from the render closure
+   * throws away every update that landed since — a file that reached 90% drops
+   * back to where it was when the remove button was last drawn.
+   */
+  it("does not discard a running file's progress when another row is removed", async () => {
+    const user = userEvent.setup();
+    let report;
+    vi.mocked(uploadComicInChunks).mockImplementation(
+      ({ file, onProgress }) => new Promise(() => {
+        if (file.name === "running.cbz") report = onProgress;
+      })
+    );
+
+    // Three files for two parallel slots, so the spare is still queued — and so
+    // still has a remove button — while the first is uploading.
+    renderQueue();
+    await addFiles(user, ["running.cbz", "second.cbz", "spare.cbz"]);
+    await user.click(screen.getByRole("button", { name: "Start all" }));
+    await waitFor(() => expect(uploadComicInChunks).toHaveBeenCalled());
+
+    act(() => report(40));
+    await screen.findByText("40%");
+
+    // Both in one commit: the progress update is queued before the click, so a
+    // handler reading rendered state cannot see it.
+    await act(async () => {
+      report(90);
+      screen.getByRole("button", { name: "Remove spare.cbz" }).click();
+    });
+
+    expect(screen.queryByText("spare.cbz")).not.toBeInTheDocument();
+    expect(screen.getByText("90%")).toBeInTheDocument();
+  });
+
+  it("gives simultaneous files the same global request pool", async () => {
+    const user = userEvent.setup();
+    const release = [];
+    vi.mocked(uploadComicInChunks).mockImplementation(
+      () => new Promise((resolve) => release.push(() => resolve({ comic: { id: release.length } })))
+    );
+
+    renderQueue();
+    await addFiles(user, ["one.cbz", "two.cbz"]);
+    await user.click(screen.getByRole("button", { name: "Start all" }));
+    await waitFor(() => expect(uploadComicInChunks).toHaveBeenCalledTimes(2));
+
+    const [first, second] = vi.mocked(uploadComicInChunks).mock.calls.map(([options]) => options);
+    expect(first.requestPool).toBe(second.requestPool);
+    release.forEach((resolve) => resolve());
   });
 
   it("offers removal beside retry once a file has failed", async () => {

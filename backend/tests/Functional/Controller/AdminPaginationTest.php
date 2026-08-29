@@ -21,6 +21,31 @@ use Doctrine\ORM\EntityManagerInterface;
  */
 final class AdminPaginationTest extends AbstractApiTestCase
 {
+    /**
+     * Accounts a search test needs to exist without matching anything it looks
+     * for.
+     *
+     * Named rather than left to the factory, because the factory's names come
+     * from Faker's real-surname list — which contains Gordon, among roughly one
+     * name in two thousand. A random filler that happened to be "… Gordon" made
+     * the searches below fail about once in five hundred runs, which reads as a
+     * flaky suite rather than as the collision it is. Anything a search test
+     * counts on *not* matching has to say so here.
+     */
+    private static function createNonMatchingUsers(int $count): void
+    {
+        UserFactory::createSequence(array_map(static fn (int $n): array => [
+            'name' => sprintf('Unmatched Filler %d', $n),
+            'email' => sprintf('filler%d@example.com', $n),
+        ], range(1, $count)));
+    }
+
+    /** An administrator whose own name and email cannot match a search either. */
+    private function createAndLoginSearchAdmin(): void
+    {
+        $this->createAndLoginAdmin(['name' => 'Unmatched Admin', 'email' => 'search-admin@example.com']);
+    }
+
     public function testUserListReturnsOnePageAndTheTotalForTheWholeSet(): void
     {
         $this->createAndLoginAdmin();
@@ -84,10 +109,10 @@ final class AdminPaginationTest extends AbstractApiTestCase
 
     public function testUserSearchCountsOnlyMatchingUsers(): void
     {
-        $this->createAndLoginAdmin();
+        $this->createAndLoginSearchAdmin();
         UserFactory::createOne(['name' => 'Barbara Gordon', 'email' => 'oracle@example.com']);
         UserFactory::createOne(['name' => 'Bruce Wayne', 'email' => 'bat@example.com']);
-        UserFactory::createMany(4);
+        self::createNonMatchingUsers(4);
 
         $payload = $this->getJson('/api/users?search=' . urlencode('gordon'));
 
@@ -98,7 +123,7 @@ final class AdminPaginationTest extends AbstractApiTestCase
 
     public function testUserSearchMatchesTheEmailAddressToo(): void
     {
-        $this->createAndLoginAdmin();
+        $this->createAndLoginSearchAdmin();
         UserFactory::createOne(['name' => 'Barbara Gordon', 'email' => 'oracle@example.com']);
 
         $payload = $this->getJson('/api/users?search=oracle');
@@ -108,7 +133,7 @@ final class AdminPaginationTest extends AbstractApiTestCase
 
     public function testUserSearchAndVerifiedFilterApplyTogether(): void
     {
-        $this->createAndLoginAdmin();
+        $this->createAndLoginSearchAdmin();
         UserFactory::new()->unverified()->create(['name' => 'Gordon Pending', 'email' => 'pending@example.com']);
         UserFactory::createOne(['name' => 'Gordon Verified', 'email' => 'verified@example.com']);
 

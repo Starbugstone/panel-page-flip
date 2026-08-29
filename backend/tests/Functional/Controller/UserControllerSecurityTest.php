@@ -91,6 +91,26 @@ class UserControllerSecurityTest extends AbstractApiTestCase
         self::assertCount(4, $payload['errors']['password']);
     }
 
+    public function testAdminUserCreationErrorsAreKeyedByField(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $missing = $this->postJson('/api/users', []);
+        self::assertResponseStatusCodeSame(400);
+        self::assertArrayHasKey('email', $missing['errors']);
+        self::assertArrayHasKey('password', $missing['errors']);
+        self::assertArrayHasKey('name', $missing['errors']);
+
+        $invalid = $this->postJson('/api/users', [
+            'email' => 'not-an-email',
+            'name' => 'Invalid Email',
+            'password' => 'Valid!Password123',
+        ]);
+        self::assertResponseStatusCodeSame(400);
+        self::assertArrayHasKey('email', $invalid['errors']);
+        self::assertArrayNotHasKey(0, $invalid['errors']);
+    }
+
     public function testAdminCannotDemoteSelf(): void
     {
         $admin = $this->createAndLoginAdmin();

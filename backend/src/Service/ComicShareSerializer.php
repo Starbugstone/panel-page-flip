@@ -12,8 +12,8 @@ use App\Enum\ShareCodeType;
  * an owner is managing who has access, a recipient is deciding what to do with
  * a comic somebody else controls.
  *
- * Neither view exposes a token. Invitation links are emailed, and the owner's
- * copy is handed back once, at the moment the invitation is created.
+ * Neither view exposes a token. Invitation links are emailed to recipients and
+ * are never returned by the sharing APIs.
  */
 class ComicShareSerializer
 {

@@ -14,18 +14,20 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Protected comic-page streaming across supported source formats, fullscreen reading, keyboard navigation, and saved progress
 - Single and bulk chunked uploads with progress reporting
 - Search, custom tags, bulk tagging, and recoverable file cleanup
+- Private library folders that organise a collection without touching a file on disk — see [library folders](docs/library-folders.md)
 - Comic sharing that grants revocable read access without copying files, with a dedicated Sharing page and re-readable `C-`/`G-` codes — see [who may reach a comic](docs/comic-access.md)
 - One-way Dropbox imports with duplicate detection and folder-based tags
 - Responsive light and dark themes
 - Administration for users, comics, shares, tags, Dropbox connections, cleanup, and audit history
 - Administrator notices warning one account about their activity, a comic, or something they shared, shown on their next visit and optionally emailed — see [administrator notices](docs/administrator-notices.md)
 - Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
+- Optional Google AdSense, off unless an operator turns it on, confined by an allowlist to pages that render no uploaded comic content, with consent left entirely to Google's certified platform and bulk upload optionally behind a rewarded advertisement that nothing depends on — see [advertising, consent, and the rewarded bulk-upload gate](docs/advertising.md)
 
 ## Technology
 
 | Layer | Stack |
 | --- | --- |
-| Frontend | React 18, Vite 8, React Router, TanStack Query, Tailwind CSS, Radix UI |
+| Frontend | React 19, Vite 8, React Router 7, TanStack Query, Tailwind CSS, Radix UI |
 | Backend | PHP 8.2, Symfony 6.4, Doctrine ORM |
 | Data | MySQL 8 and filesystem-backed canonical comic-source storage |
 | Development | Docker Compose, Nginx, PHP-FPM, Mailpit, Adminer |
@@ -109,9 +111,17 @@ Important configuration variables:
 - `CORS_ALLOW_ORIGIN` — allowed browser origins
 - `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
 - `PRIVACY_OPERATOR`, `PRIVACY_EMAIL` — public data-controller name and privacy contact
-- `MAX_CONCURRENT_UPLOADS` — frontend upload concurrency returned by the application config endpoint
+- `MAX_CONCURRENT_UPLOADS` — concurrent upload HTTP requests shared across a batch; keep below the PHP-FPM worker count (the Docker default is 4 requests for 5 workers)
+- `UPLOAD_USER_QUOTA_BYTES` — default canonical comic storage per account in bytes (10 GiB when omitted); administrators can override it per user, and `0` deliberately means unlimited
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REDIRECT_URI` — optional Dropbox OAuth settings
 - `DROPBOX_APP_FOLDER`, `DROPBOX_SYNC_LIMIT`, `DROPBOX_RATE_LIMIT` — optional Dropbox import settings
+- `ADSENSE_ENABLED`, `ADSENSE_CLIENT` — optional Google AdSense, off by default.
+  Advertising runs only when both are set and the client is a publisher id in
+  Google's form (`ca-pub-` and sixteen digits); anything else logs a warning and
+  leaves it off. There is deliberately no third setting — ad formats, page
+  exclusions and the Offerwall live in the AdSense account, not here. Enabling
+  it also requires widening the Content-Security-Policy and configuring the
+  account, both in [`docs/advertising.md`](docs/advertising.md).
 - `METRON_SHARED_ENABLED` — whether this server may spend its own Metron account
   on behalf of every user. Off unless set; a user's personal Metron token is
   unaffected by it.
@@ -134,11 +144,12 @@ generic development default is not a substitute for identifying the controller.
 
 ### Privacy retention
 
-Run all three cleanup commands at least daily in production:
+Run all four cleanup commands at least daily in production:
 
 ```bash
 docker compose exec php php bin/console app:cleanup-personal-data
 docker compose exec php php bin/console app:cleanup-expired-shares
+docker compose exec php php bin/console app:cleanup-content-reports
 docker compose exec php php bin/console app:cleanup-logs
 ```
 
@@ -148,6 +159,8 @@ password-reset tokens. The share cleanup permanently removes invitations that
 expired without being answered. The log cleanup deletes daily log files past
 their retention period — 30 days for application logs, a year for security and
 audit records — and is the only thing that does: nothing deletes them on its own.
+The content-report cleanup removes closed and rejected reports past their
+retention period, but never open cases or cases on legal hold.
 Configure the web server separately to rotate and delete access logs after the
 shortest period needed for security operations.
 
@@ -200,13 +213,14 @@ docker compose exec php php bin/console cache:clear
 
 Nothing in the application schedules itself. Retention periods in `.env.local`
 are **policy only** — they say how long something is kept, and a command has to
-run for anything to be deleted. A production instance needs these three:
+run for anything to be deleted. A production instance needs these four:
 
 | Command | Cadence | If it never runs |
 |---|---|---|
 | `app:cleanup-logs` | daily | Log directories grow without limit; `*_LOG_RETENTION_DAYS` has no effect |
 | `app:cleanup-personal-data` | daily | Old audit rows, spent tokens, unverified accounts and uncollected export files are kept indefinitely |
 | `app:cleanup-expired-shares` | daily | Unanswered invitations keep the addresses of people who never had an account here, and dead sharing codes are never removed |
+| `app:cleanup-content-reports` | daily | Closed and rejected reports past retention are kept indefinitely; open cases and cases on legal hold are never selected |
 
 `app:dropbox-sync` is additionally needed only if the instance uses Dropbox
 imports. Crontab examples, and how to check the schedule is actually firing, are
@@ -223,9 +237,35 @@ docker compose exec frontend_dev npm test
 docker compose exec frontend_dev npm run lint
 docker compose exec frontend_dev npm run build
 docker compose exec frontend_dev npm run audit:production
+docker compose exec frontend_dev npm run check:routes
+docker compose exec frontend_dev npm run check:seo
 ```
 
 Alternatively, run `npm ci` and the same scripts from `frontend/` with a local Node.js 22 installation.
+
+`lint` runs with `--max-warnings=0`, so a warning fails it. The `check:` scripts
+guard artefacts that are committed rather than rebuilt on the way to production
+— the nginx route manifest, the conversion-tool downloads and their checksums,
+the generated sitemap, robots and canonical metadata, and the crawlable
+landing copy inside the built `index.html`. `check:seo` reads
+`APP_URL`, so run it after a build made with the same value CI uses.
+
+**`check:tools` and `check:csp` must be run from the host, not from
+`frontend_dev`:**
+
+```bash
+npm run check:tools --prefix frontend
+npm run check:csp --prefix frontend
+```
+
+The container mounts only `scripts/generate-nginx-routes.mjs`, never the whole
+`scripts/` directory, because that directory can hold `scripts/.env.deploy` with
+production credentials. `check:tools` needs `scripts/comic-conversion/`, and
+`check:csp` needs `scripts/generate-csp.mjs`, so both must run on the host.
+Inside the container `check:tools` reports a missing source file — and
+`src/lib/conversion-tools.test.js`, which shells out to the same check, fails
+there for the same reason — while `check:csp` reports its generator missing.
+All three pass on the host and in CI, where the whole repository is present.
 
 ### Backend
 
@@ -241,12 +281,30 @@ Then run:
 
 ```bash
 docker compose exec php php bin/phpunit
+docker compose exec php composer analyse
+docker compose exec php composer cs:check
 docker compose exec php composer validate --strict
+docker compose exec php composer audit --locked --no-dev
 docker compose exec php php bin/console lint:container --env=test
 docker compose exec php php bin/console doctrine:schema:validate --env=test
 ```
 
-GitHub Actions runs frontend linting, tests, dependency auditing, and a production build, plus backend tests, Composer auditing, migrations, and Symfony/Doctrine validation. CI validates releases but does not deploy them.
+`composer analyse` is PHPStan and `composer cs:check` is PHP-CS-Fixer in dry-run
+mode; both are CI gates, not optional local tooling. See
+[development tooling](docs/development-tooling.md) for the PHPStan baseline
+policy.
+
+### Continuous integration
+
+`.github/workflows/build-frontend.yml` ("Validate Application") runs everything
+above on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**`
+and `ci/**`, and on pushes to `main` and `develop`. A weekly
+`security-audit.yml` re-runs the frontend and backend dependency audits on their
+own schedule.
+
+CI validates releases and deliberately does not deploy them: frontend and
+backend must ship together through the backup-gated release scripts described
+under [Production deployment](#production-deployment).
 
 ## Dropbox integration
 
@@ -301,6 +359,12 @@ The release tooling builds the React application, installs optimized production 
 
 Do not deploy only `frontend/dist`: frontend and backend changes may depend on each other.
 
+Deploying with advertising enabled has steps of its own, most of them in the
+AdSense account rather than in this repository — the release environment reads
+`PROD_ADSENSE_ENABLED` and `PROD_ADSENSE_CLIENT` at build time, so editing
+`backend/.env` on the host after `composer dump-env prod` changes nothing. See
+the production checklist in [`docs/advertising.md`](docs/advertising.md).
+
 ## Project layout
 
 ```text
@@ -318,6 +382,7 @@ Do not deploy only `frontend/dist`: frontend and backend changes may depend on e
 │   │   └── Service/
 │   └── tests/
 ├── docker/                  PHP and Nginx development images
+├── docs/                    Per-feature documentation
 ├── frontend/                React application and frontend tests
 │   └── src/
 │       ├── components/

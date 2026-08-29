@@ -119,25 +119,26 @@
 
             <p>
                 To accept, you'll need to log in or create an account on
-                <span class="highlight">Comic Share Platform</span>.
+                <span class="highlight">{{ siteName|e }}</span>.
             </p>
             <p>
                 The comics stay owned by {{ userName|e }}. You will be able to read them
                 for as long as they keep sharing them, and any of them may become
-                unavailable if they stop sharing or remove it.
+                unavailable if they stop sharing or remove them.
             </p>
             <p>
                 These invitation links will expire on <span class="highlight">{{ expiresAt|date("F j, Y") }}</span>.
             </p>
             <p>
-                You received this email because {{ userName|e }} entered your address
-                to share these comics. If you do not know the sender or do not want the
-                invitations, you can ignore this email; no account will be created for you.
+                You received this email because {{ userName|e }} asked {{ siteName|e }}
+                to share these comics with you. If you do not know the sender or do not
+                want the invitations, you can ignore this email; no account will be
+                created for you.
             </p>
             <p>Happy reading!</p>
         </div>
         <div class="footer">
-            <p>&copy; {{ "now"|date("Y") }} Comic Share Platform. All rights reserved.</p>
+            <p>&copy; {{ "now"|date("Y") }} {{ siteName|e }}. All rights reserved.</p>
             <p><a href="{{ privacyUrl|e('html_attr') }}">Privacy information</a></p>
         </div>
     </div>

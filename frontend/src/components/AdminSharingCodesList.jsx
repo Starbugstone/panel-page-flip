@@ -45,10 +45,9 @@ const STATUS_LABELS = {
  * The claim codes an instance has issued, and the two things support can do
  * about them.
  *
- * Deliberately not a place a code can be read. Only the hash is stored, so
- * there is nothing to show — the table identifies a code by its record id, its
- * owner and what is behind it, which is what somebody acting on an abuse report
- * actually has to go on.
+ * Deliberately not a place a code can be read. Owners can reveal their own
+ * encrypted codes, but administrators only need the record id, owner and
+ * contents to act on an abuse report.
  *
  * Receiver codes are not here. Their lifecycle is rotation, which lives on the
  * user page beside the account it identifies.
@@ -129,8 +128,9 @@ export function AdminSharingCodesList() {
         <div>
           <h2 className="text-lg font-semibold">Sharing codes</h2>
           <p className="text-sm text-muted-foreground">
-            Codes users have handed out so others can claim their comics. The codes themselves are
-            stored only as hashes and cannot be shown or recovered.
+            Codes users have handed out so others can claim their comics. Administrators can manage
+            code records, but cannot see the codes themselves. Owners can show their own codes again
+            on the Sharing page.
           </p>
         </div>
         <Button variant="outline" onClick={() => setIsCleanupOpen(true)} disabled={isBusy}>

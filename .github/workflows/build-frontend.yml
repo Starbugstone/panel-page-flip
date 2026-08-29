@@ -6,10 +6,16 @@ on:
   # the base branch, and a stack of four PRs runs its tests exactly once — on
   # the one at the bottom — leaving the rest reviewed by nothing until they are
   # retargeted.
+  #
+  # `develop` is an integration branch: work that wants manual testing on a real
+  # deployment lands there first and reaches main as one merge. It has to be a
+  # base here, or every PR into it is reviewed by nothing — and it has to be a
+  # push branch too, because what gets manually tested is the accumulated
+  # branch, not any single PR that went into it.
   pull_request:
-    branches: [main, 'feature/**', 'docs/**', 'fix/**', 'ci/**']
+    branches: [main, develop, 'feature/**', 'docs/**', 'fix/**', 'ci/**']
   push:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 permissions:
@@ -52,6 +58,12 @@ jobs:
 
       - name: Validate shared frontend route manifest
         run: npm run check:routes
+
+      # The policy is emitted into three files in two syntaxes. Left to hand
+      # editing, a missed origin blocks advertising only on the target nobody
+      # tested — and blocks it silently.
+      - name: Validate Content-Security-Policy across deployment targets
+        run: npm run check:csp
 
       # The tool zips and their checksums are committed, so nothing rebuilds
       # them on the way to production. Without this, editing a script under
@@ -115,6 +127,10 @@ jobs:
           docker compose exec -T php composer validate --strict
           docker compose exec -T php composer audit --locked --no-dev
           docker compose exec -T php php bin/console lint:container --env=test
+          # Nothing renders a template on a request, so a broken one shows up
+          # only in the mail that failed to send. A dead base template sat here
+          # calling importmap() long after the asset mapper went.
+          docker compose exec -T php php bin/console lint:twig templates
           docker compose exec -T php php bin/console doctrine:schema:validate --env=test
 
       - name: Static analysis and code style

@@ -122,9 +122,11 @@ final class AdminUserWarningController extends AbstractController
         );
 
         return $this->json([
-            'message' => $warning->getEmailState() === UserWarning::EMAIL_FAILED
-                ? 'Warning sent. It is waiting for them in the application, but the email copy could not be delivered.'
-                : 'Warning sent. They will see it the next time they sign in.',
+            'message' => match ($warning->getEmailState()) {
+                UserWarning::EMAIL_FAILED => 'Warning sent. It is waiting for them in the application, but the email copy could not be delivered.',
+                UserWarning::EMAIL_SENT => 'Warning sent. They will see it the next time they sign in, and an email copy was delivered.',
+                default => 'Warning sent. They will see it the next time they sign in.',
+            },
             'warning' => $warning->toAdminPayload(),
         ], Response::HTTP_CREATED);
     }

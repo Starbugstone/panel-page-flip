@@ -191,12 +191,20 @@ export function AdminTagsList({ creatorId, embedded = false }) {
                     <TableCell>{formatDate(tag.createdAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleOpenEditDialog(tag)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Edit ${tag.name}`}
+                          title="Edit tag"
+                          onClick={() => handleOpenEditDialog(tag)}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`Delete ${tag.name}`}
+                          title="Delete tag"
                           onClick={() => setTagToDelete(tag)}
                         >
                           <Trash className="h-4 w-4" />

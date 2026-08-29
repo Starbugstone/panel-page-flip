@@ -74,7 +74,11 @@ class AuthenticationSuccessHandlerTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(401);
 
         $this->client->request('GET', '/api/me', [], [], ['HTTP_ACCEPT' => 'application/json']);
-        self::assertResponseStatusCodeSame(401);
+        self::assertResponseIsSuccessful();
+        self::assertSame(
+            ['user' => null, 'sessionRefreshed' => false],
+            $this->json()
+        );
     }
 
     public function testInvalidPasswordDoesNotRecordLastLoginDate(): void

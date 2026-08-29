@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import ComicReader from "./ComicReader";
 import { api } from "@/lib/api";
 import { toggleFullscreen } from "@/lib/fullscreen";
 import { DEFAULT_READER_PREFERENCES } from "@/lib/reader-preferences";
+import { FakeImage } from "@/test/fake-image";
 
 /**
  * Stable identities, deliberately.
@@ -26,49 +27,6 @@ vi.mock("@/hooks/use-comic-library.jsx", () => ({
   useComicLibrary: () => ({ updateComicProgress: mocks.updateComicProgress }),
 }));
 
-/**
- * Stands in for the browser's image loader, which jsdom does not provide.
- *
- * Images settle on their own by default, because the reader keeps asking for
- * pages until they do — the cache entry it writes while a page is in flight is
- * itself state, so a page that never arrives re-runs the loading effect for as
- * long as the test is willing to wait. Tests choose the outcome per URL through
- * `policy` rather than by holding requests open.
- */
-class FakeImage {
-  constructor() {
-    this.onload = null;
-    this.onerror = null;
-    this._src = "";
-    FakeImage.instances.push(this);
-  }
-
-  set src(value) {
-    this._src = value;
-    // A macrotask, so a test can change the policy up to the moment it renders.
-    setTimeout(() => {
-      const outcome = FakeImage.policy(value);
-      if (outcome === "load") this.onload?.();
-      if (outcome === "error") this.onerror?.();
-      // "hold" leaves the request outstanding for the test to settle by hand.
-    }, 0);
-  }
-
-  get src() {
-    return this._src;
-  }
-
-  static reset() {
-    FakeImage.instances = [];
-    FakeImage.policy = () => "load";
-  }
-
-  /** Fail only the pages whose URL contains `fragment`; everything else loads. */
-  static failing(fragment) {
-    FakeImage.policy = (src) => (src.includes(fragment) ? "error" : "load");
-  }
-}
-FakeImage.reset();
 
 const comic = (pageCount = 3) => ({
   comic: { id: 42, title: "Sandman", pageCount, readingProgress: null },
@@ -126,6 +84,15 @@ function measuredSurface(width = 400) {
   const element = surface();
   Object.defineProperty(element, "clientWidth", { value: width, configurable: true });
   return element;
+}
+
+function measureZoomGeometry({ width = 400, height = 400, contentWidth = 400, contentHeight = 800 } = {}) {
+  const element = measuredSurface(width);
+  Object.defineProperty(element, "clientHeight", { value: height, configurable: true });
+  const artwork = element.querySelector('[data-reader-artwork="true"]');
+  Object.defineProperty(artwork, "offsetWidth", { value: contentWidth, configurable: true });
+  Object.defineProperty(artwork, "offsetHeight", { value: contentHeight, configurable: true });
+  return { element, artwork };
 }
 
 function touch(type, { id = 1, x = 0, y = 0, time = 0 } = {}) {
@@ -268,6 +235,19 @@ describe("ComicReader", () => {
       await waitFor(() => expect(pageBox()).toHaveValue(3));
       expect(await page(3)).toBeInTheDocument();
     });
+
+    it("has an explicit Go action for a typed page", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.clear(pageBox());
+      await user.type(pageBox(), "3");
+      await user.click(screen.getByRole("button", { name: "Go to typed page" }));
+
+      expect(await page(3)).toBeInTheDocument();
+      expect(pageBox()).toHaveValue(3);
+    });
   });
 
   describe("shared navigation and logical progress", () => {
@@ -281,6 +261,9 @@ describe("ComicReader", () => {
 
       await user.keyboard("{ArrowLeft}");
       expect(await page(1)).toBeInTheDocument();
+
+      expect(screen.getByRole("button", { name: "Previous page" })).toHaveAttribute("aria-keyshortcuts", "ArrowLeft");
+      expect(screen.getByRole("button", { name: "Next page" })).toHaveAttribute("aria-keyshortcuts", "ArrowRight");
     });
 
     it("does not steal arrow keys from the page input", async () => {
@@ -324,6 +307,46 @@ describe("ComicReader", () => {
 
       await waitFor(() => expect(container.querySelector("[data-page-fit]")).toHaveAttribute("data-page-fit", "width"));
       expect(api.get.mock.calls.filter(([path]) => path === "/api/comics/42")).toHaveLength(1);
+    });
+
+    it("uses the zoom slider to widen pages in continuous mode", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? { preferences: savedPreferences({ mode: "continuous" }) }
+          : comic()
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await waitFor(() => expect(document.querySelector('[data-reader-mode="continuous"]')).toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: "Reader settings" }));
+      const slider = screen.getByRole("slider", { name: "Zoom level" });
+      expect(slider).toBeEnabled();
+      fireEvent.change(slider, { target: { value: "175" } });
+
+      await waitFor(() => expect(document.querySelector('[data-reader-mode="continuous"]')).toHaveAttribute("data-continuous-zoom", "1.75"));
+      // CSS derives every page's width from this one property on the scroller.
+      expect(document.querySelector('[data-reader-mode="continuous"]').style.getPropertyValue("--reader-page-zoom")).toBe("1.75");
+    });
+
+    it("widens continuous pages without throwing away where the reader was", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? { preferences: savedPreferences({ mode: "continuous" }) }
+          : comic(12)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await waitFor(() => expect(document.querySelector('[data-reader-mode="continuous"]')).toBeInTheDocument());
+
+      const scroller = document.querySelector('[data-reader-mode="continuous"]');
+      scroller.scrollTop = 4000;
+
+      await user.click(screen.getByRole("button", { name: "Reader settings" }));
+      fireEvent.change(screen.getByRole("slider", { name: "Zoom level" }), { target: { value: "175" } });
+      await waitFor(() => expect(scroller).toHaveAttribute("data-continuous-zoom", "1.75"));
+
+      expect(scroller.scrollTop).toBe(4000);
     });
 
     it("changes fit immediately, persists it, and resets naturally", async () => {
@@ -517,6 +540,49 @@ describe("ComicReader", () => {
       expect(await page(3)).toBeInTheDocument();
       expect(screen.getByText("Showing pages 2–3")).toBeInTheDocument();
       expect(screen.getByRole("progressbar")).toHaveAccessibleName("Pages 2–3 of 5");
+    });
+
+    it("offers visible page-turn zones in two-page mode", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "double" }) } : comic(5)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      expect(screen.getByRole("button", { name: "Left edge: previous page" })).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: "Right edge: next page" }));
+
+      expect(await page(2)).toBeInTheDocument();
+      expect(await page(3)).toBeInTheDocument();
+    });
+
+    it("keeps buttons, arrow keys, and manual jumps on the same spread navigation model", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "double" }) } : comic(7)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: "Next page" }));
+      expect(await page(2)).toBeInTheDocument();
+      expect(await page(3)).toBeInTheDocument();
+
+      await user.keyboard("{ArrowRight}");
+      expect(await page(4)).toBeInTheDocument();
+      expect(await page(5)).toBeInTheDocument();
+
+      await user.keyboard("{ArrowLeft}");
+      expect(await page(2)).toBeInTheDocument();
+      expect(await page(3)).toBeInTheDocument();
+
+      await user.clear(pageBox());
+      await user.type(pageBox(), "6");
+      await user.click(screen.getByRole("button", { name: "Go to typed page" }));
+      expect(await page(6)).toBeInTheDocument();
+      expect(await page(7)).toBeInTheDocument();
+      expect(pageBox()).toHaveValue(6);
     });
 
     it("restores the second logical page of a pair without moving progress", async () => {
@@ -822,6 +888,75 @@ describe("ComicReader", () => {
       expect(pageControls()).toHaveClass("reader-chrome-hidden");
     });
 
+    /**
+     * Reported from real reading: while zoomed in, any stray click threw the
+     * zoom away. Dragging was already exempt — the pan hook swallows the click
+     * after 4px of movement — so it was the clicks *between* drags, made to
+     * follow a panel, that cost the reader the view they had set up.
+     *
+     * What a zoomed click now does instead is toggle the chrome, which is what
+     * a tap has always done. That it no longer *leaves* the zoom is pinned on
+     * mouseClickAction directly, in reader-gestures.test.js: jsdom lays nothing
+     * out, so zoomToFit has no geometry to work from and the transform cannot
+     * be observed changing here either way.
+     *
+     * Clicks go in as native events rather than through userEvent: the pan hook
+     * calls preventDefault on pointerdown to stop the browser starting its own
+     * image drag, and userEvent honours that by withholding the click the real
+     * browser still sends.
+     */
+    it("toggles the controls from a single click on a zoomed page", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      measureZoomGeometry();
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      expect(pageControls()).not.toHaveClass("reader-chrome-hidden");
+
+      fireEvent.click(surface(), { clientX: 200, clientY: 400 });
+
+      expect(pageControls()).toHaveClass("reader-chrome-hidden");
+      expect(surface()).toHaveAttribute("data-page-zoomed", "true");
+    });
+
+    /**
+     * A double click arrives as click, click, dblclick — so the controls are
+     * toggled twice and end up exactly where they started, leaving the double
+     * click to mean only "zoom out". This pins that netting-out: a change that
+     * made one of the two clicks stop toggling would leave the reader's
+     * controls flipped every time they zoomed back out.
+     */
+    it("does not toggle the controls when the click turns out to be a double click", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      measureZoomGeometry();
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      expect(pageControls()).not.toHaveClass("reader-chrome-hidden");
+
+      const surfaceElement = surface();
+      fireEvent.click(surfaceElement, { clientX: 200, clientY: 400 });
+      fireEvent.click(surfaceElement, { clientX: 200, clientY: 400 });
+      fireEvent.dblClick(surfaceElement, { clientX: 200, clientY: 400 });
+
+      expect(pageControls()).not.toHaveClass("reader-chrome-hidden");
+    });
+
+    /** A fitted page has no double-click meaning, so its clicks must not be delayed. */
+    it("still turns the page immediately from a mouse click when not zoomed", async () => {
+      renderReader();
+      await page(1);
+      const surfaceElement = measuredSurface();
+      Object.defineProperty(surfaceElement, "getBoundingClientRect", {
+        value: () => ({ left: 0, top: 0, width: 400, height: 400 }),
+        configurable: true,
+      });
+
+      fireEvent.click(surfaceElement, { clientX: 390, clientY: 200 });
+
+      expect(await page(2)).toBeInTheDocument();
+    });
+
     it("releases a pointer-focused control when the reader returns to the artwork", async () => {
       const user = userEvent.setup();
       renderReader();
@@ -837,11 +972,89 @@ describe("ComicReader", () => {
       gesture(surfaceElement, touch("pointercancel", { x: 200, y: 400, time: 10 }));
     });
 
-    it("does not offer a click zone as well, which would turn two pages at once", async () => {
+    it("offers an explicit mouse page zone without changing touch tap handling", async () => {
+      const user = userEvent.setup();
       renderReader();
       await page(1);
 
-      expect(document.querySelectorAll(".page-navigation")).toHaveLength(0);
+      expect(screen.getByRole("button", { name: "Left edge: previous page" })).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: "Right edge: next page" }));
+
+      expect(await page(2)).toBeInTheDocument();
+    });
+
+    it("keeps the selected zoom and page-turn gutters when changing pages", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      measureZoomGeometry();
+
+      await user.click(screen.getByRole("button", { name: "Reader settings" }));
+      fireEvent.change(screen.getByRole("slider", { name: "Zoom level" }), { target: { value: "175" } });
+      expect(surface()).toHaveAttribute("data-page-zoomed", "true");
+
+      const nextZone = screen.getByRole("button", { name: "Right edge: next page" });
+      expect(nextZone).toBeVisible();
+      await user.click(nextZone);
+
+      const nextArtwork = await page(2);
+      expect(surface()).toHaveAttribute("data-page-zoomed", "true");
+      expect(nextArtwork.style.transform).toContain("scale(1.75)");
+      // 800 tall at 1.75x in a 400 viewport: the top of the page, not the middle.
+      expect(nextArtwork.style.transform).toContain("translate3d(0px, 500px, 0)");
+      expect(screen.getByRole("button", { name: "Right edge: next page" })).toBeVisible();
+    });
+
+    it("uses the wheel to move vertically without changing the zoom", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      const { element, artwork } = measureZoomGeometry();
+
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      const beforeWheel = artwork.style.transform;
+      fireEvent.wheel(element, { deltaY: 120 });
+
+      expect(beforeWheel).toContain("translate3d(0px, 400px, 0)");
+      expect(artwork.style.transform).toContain("translate3d(0px, 280px, 0)");
+      expect(artwork.style.transform).toContain("scale(2)");
+    });
+
+    it("restores the zoom level selected in settings from the toolbar button", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      measureZoomGeometry();
+
+      await user.click(screen.getByRole("button", { name: "Reader settings" }));
+      fireEvent.change(screen.getByRole("slider", { name: "Zoom level" }), { target: { value: "275" } });
+      await user.click(screen.getByRole("button", { name: /zoom out/i }));
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+
+      expect((await page(1)).style.transform).toContain("scale(2.75)");
+    });
+
+    it("keeps page-turn buttons in gutters outside the artwork surface", async () => {
+      renderReader();
+      await page(1);
+
+      const frame = document.querySelector("[data-reader-turn-zones]");
+      expect(frame).toContainElement(surface());
+      expect(surface()).not.toContainElement(screen.getByRole("button", { name: "Left edge: previous page" }));
+      expect(surface()).not.toContainElement(screen.getByRole("button", { name: "Right edge: next page" }));
+    });
+
+    it("releases the normal desktop width cap while zoomed", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 1440, height: 900, coarsePointer: false });
+      renderReader();
+      await page(1);
+
+      expect(surface().closest(".reader-stage")).toHaveClass("max-w-4xl");
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+
+      expect(surface().closest(".reader-stage")).toHaveClass("max-w-none");
+      expect(surface().closest(".reader-stage")).not.toHaveClass("max-w-4xl");
     });
   });
 
@@ -1001,10 +1214,42 @@ describe("ComicReader", () => {
 
       expect(document.querySelector(".reader-root")).toHaveAttribute("data-fullscreen", "true");
       expect(surface()).not.toHaveClass("fullscreen-container");
-      expect(surface().parentElement).toHaveClass("reader-stage-controls-visible");
+      expect(surface().closest(".reader-stage-fullscreen")).toHaveClass("reader-stage-controls-visible");
 
       Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
       act(() => document.dispatchEvent(new Event("fullscreenchange")));
+    });
+  });
+
+  describe("keeping the page clear of the bottom controls", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    /**
+     * The bar is not one fixed height — a zoom badge, a spread's page range and
+     * a coarse pointer's larger buttons all grow it — so the stage reserves what
+     * it measures. Reserving a constant is what buried the foot of the page.
+     */
+    const withMeasuredControls = (height) => vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function measured() {
+        const box = this.classList?.contains("reader-controls") ? height : 0;
+        return { height: box, width: 0, top: 0, right: 0, bottom: box, left: 0, x: 0, y: 0 };
+      });
+
+    it("reserves the height the controls actually take", async () => {
+      withMeasuredControls(104);
+      renderReader();
+      await page(1);
+
+      await waitFor(() => expect(document.querySelector(".reader-root"))
+        .toHaveStyle({ "--reader-controls-height": "104px" }));
+    });
+
+    it("leaves the fallback reservation standing when nothing can be measured", async () => {
+      withMeasuredControls(0);
+      renderReader();
+      await page(1);
+
+      expect(document.querySelector(".reader-root").style.getPropertyValue("--reader-controls-height")).toBe("");
     });
   });
 

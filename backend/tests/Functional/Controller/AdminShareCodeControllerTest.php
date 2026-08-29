@@ -17,9 +17,9 @@ use Doctrine\ORM\EntityManagerInterface;
  *
  * Claim codes are capabilities that leave the building, so somebody has to be
  * able to see what is outstanding and stop one. Most of what is asserted here
- * is what this surface must *not* do: show a code it cannot recover, take back
- * comics that were already claimed, or delete anything the nightly sweep would
- * have left alone.
+ * is what this surface must *not* do: expose a code reserved for its owner,
+ * take back comics that were already claimed, or delete anything the nightly
+ * sweep would have left alone.
  */
 final class AdminShareCodeControllerTest extends AbstractApiTestCase
 {
@@ -74,8 +74,8 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         self::assertNotNull($entry['deletableAfter']);
         self::assertSame(1, $payload['pagination']['totalItems']);
 
-        // Only the hash is stored, so there is nothing to show and nothing to
-        // recover — not even to an administrator.
+        // An encrypted copy exists for the owner, but the administrator's list
+        // deliberately exposes neither it nor the redemption hash.
         $body = (string) $this->browser()->getResponse()->getContent();
         self::assertStringNotContainsString(str_replace('-', '', $plaintext), str_replace('-', '', $body));
         self::assertArrayNotHasKey('code', $entry);

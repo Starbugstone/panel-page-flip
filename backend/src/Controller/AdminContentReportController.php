@@ -2,12 +2,12 @@
 
 namespace App\Controller;
 
-use App\Entity\Comic;
-use App\Entity\ComicShare;
 use App\Entity\ContentReport;
 use App\Entity\User;
 use App\Repository\ContentReportRepository;
+use App\Service\ContentReportLinkService;
 use App\Service\ContentReportNotifier;
+use App\Service\ContentReportPresenter;
 use App\Service\ContentRestrictionService;
 use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -23,7 +23,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 final class AdminContentReportController extends AbstractController
 {
     #[Route('', name: 'list', methods: ['GET'])]
-    public function list(Request $request, ContentReportRepository $reports): JsonResponse
+    public function list(Request $request, ContentReportRepository $reports, ContentReportPresenter $presenter): JsonResponse
     {
         try {
             $from = $this->date($request->query->get('from'));
@@ -33,7 +33,7 @@ final class AdminContentReportController extends AbstractController
         }
 
         return $this->json([
-            'reports' => array_map($this->serialize(...), $reports->findForAdmin(
+            'reports' => array_map($presenter->summary(...), $reports->findForAdmin(
                 $request->query->get('status'),
                 $request->query->get('category'),
                 $from,
@@ -41,13 +41,14 @@ final class AdminContentReportController extends AbstractController
             )),
             'statuses' => ContentReport::STATUSES,
             'categories' => ContentReport::CATEGORIES,
+            'actions' => ContentRestrictionService::ACTIONS,
         ]);
     }
 
     #[Route('/{id}', name: 'detail', methods: ['GET'], requirements: ['id' => '\d+'])]
-    public function detail(ContentReport $report): JsonResponse
+    public function detail(ContentReport $report, Request $request, ContentReportPresenter $presenter): JsonResponse
     {
-        return $this->json(['report' => $this->serialize($report)]);
+        return $this->json(['report' => $presenter->detail($report, $request->query->get('q'))]);
     }
 
     #[Route('/{id}', name: 'update', methods: ['PATCH'], requirements: ['id' => '\d+'])]
@@ -56,6 +57,8 @@ final class AdminContentReportController extends AbstractController
         Request $request,
         EntityManagerInterface $entityManager,
         ContentRestrictionService $restrictions,
+        ContentReportLinkService $linker,
+        ContentReportPresenter $presenter,
         ContentReportNotifier $notifier,
         SecurityAuditLogger $auditLogger,
     ): JsonResponse {
@@ -66,24 +69,24 @@ final class AdminContentReportController extends AbstractController
         }
 
         try {
-            if (array_key_exists('linkedUserId', $data)) {
-                $report->linkUser($this->findNullable($entityManager, User::class, $data['linkedUserId']));
-            }
-            if (array_key_exists('linkedComicId', $data)) {
-                $comic = $this->findNullable($entityManager, Comic::class, $data['linkedComicId']);
-                $report->linkComic($comic);
-                if ($comic instanceof Comic && $report->getLinkedUser() === null) {
-                    $report->linkUser($comic->getOwner());
+            $previousTarget = $this->targetIds($report);
+            if (array_key_exists('targetType', $data) || array_key_exists('targetId', $data)) {
+                if (!array_key_exists('targetType', $data) || !array_key_exists('targetId', $data)) {
+                    throw new \DomainException('A target type and integer target ID are required together.');
+                }
+                // An explicit pair of nulls is how the queue says "this is not
+                // the right record". Without it a wrong target — including one
+                // linked automatically from the reference the reporter supplied
+                // — could be swapped for another but never cleared.
+                if ($data['targetType'] === null && $data['targetId'] === null) {
+                    $linker->unlink($report);
+                } elseif (!is_string($data['targetType'] ?? null) || !is_int($data['targetId'] ?? null)) {
+                    throw new \DomainException('A target type and integer target ID are required together.');
+                } else {
+                    $linker->select($report, $data['targetType'], $data['targetId'], 'admin_selection');
                 }
             }
-            if (array_key_exists('linkedShareId', $data)) {
-                $share = $this->findNullable($entityManager, ComicShare::class, $data['linkedShareId']);
-                $report->linkShare($share);
-                if ($share instanceof ComicShare) {
-                    $report->linkComic($report->getLinkedComic() ?? $share->getComic());
-                    $report->linkUser($report->getLinkedUser() ?? $share->getOwner());
-                }
-            }
+            $linker->assertCanonical($report);
 
             $status = (string) ($data['status'] ?? ContentReport::STATUS_UNDER_REVIEW);
             $report->reviewAs($admin, $status)->resolve(
@@ -113,6 +116,13 @@ final class AdminContentReportController extends AbstractController
             'report_id' => $report->getId(),
             'status' => $report->getStatus(),
         ]);
+        $linkedTarget = $this->targetIds($report);
+        if ($linkedTarget !== $previousTarget) {
+            $auditLogger->audit(
+                SecurityAuditLogger::CONTENT_REPORT_TARGET_LINKED,
+                ContentReportLinkService::targetLinkedPayload($report, $previousTarget) + ['actor_user_id' => $admin->getId()],
+            );
+        }
 
         $owner = $report->getLinkedComic()?->getOwner() ?? $report->getLinkedUser();
         if (($data['notifyOwner'] ?? false) === true && $owner instanceof User && $notifier->notifyOwner($report, $owner, $action)) {
@@ -125,55 +135,17 @@ final class AdminContentReportController extends AbstractController
             ]);
         }
 
-        return $this->json(['report' => $this->serialize($report)]);
+        // No candidate search on the way out. The admin has just chosen the
+        // target, so re-running it would spend six leading-wildcard scans over
+        // the comic and user tables to answer a question that has been settled
+        // — and would throw away the search they were looking at.
+        return $this->json(['report' => $presenter->detail($report, resolveCandidates: false)]);
     }
 
-    /** @return array<string, mixed> */
-    private function serialize(ContentReport $report): array
+    /** @return array{user: int|null, comic: int|null, share: int|null} */
+    private function targetIds(ContentReport $report): array
     {
-        $comic = $report->getLinkedComic();
-        $share = $report->getLinkedShare();
-        $user = $report->getLinkedUser();
-        $reviewer = $report->getReviewedByAdmin();
-
-        return [
-            'id' => $report->getId(),
-            'reference' => $report->getReference(),
-            'status' => $report->getStatus(),
-            'category' => $report->getCategory(),
-            'reporterName' => $report->getReporterName(),
-            'reporterOrganization' => $report->getReporterOrganization(),
-            'reporterRole' => $report->getReporterRole(),
-            'reporterEmail' => $report->getReporterEmail(),
-            'reportedReference' => $report->getReportedReference(),
-            'explanation' => $report->getExplanation(),
-            'goodFaithAcknowledgedAt' => $report->getGoodFaithAcknowledgedAt()->format(DATE_ATOM),
-            'createdAt' => $report->getCreatedAt()->format(DATE_ATOM),
-            'updatedAt' => $report->getUpdatedAt()->format(DATE_ATOM),
-            'reviewedAt' => $report->getReviewedAt()?->format(DATE_ATOM),
-            'reviewedBy' => $reviewer ? [
-                'id' => $reviewer->getId(),
-                'name' => $reviewer->getName(),
-            ] : null,
-            'resolutionCode' => $report->getResolutionCode(),
-            'resolutionNote' => $report->getResolutionNote(),
-            'legalHold' => $report->isLegalHold(),
-            'linkedUser' => $user ? [
-                'id' => $user->getId(),
-                'name' => $user->getName(),
-                'sharingRestricted' => $user->isSharingRestricted(),
-            ] : null,
-            'linkedComic' => $comic ? [
-                'id' => $comic->getId(),
-                'title' => $comic->getTitle(),
-                'sharingRestricted' => $comic->isSharingRestricted(),
-                'quarantined' => $comic->isQuarantined(),
-            ] : null,
-            'linkedShare' => $share ? [
-                'id' => $share->getId(),
-                'status' => $share->getStatus(),
-            ] : null,
-        ];
+        return ['user' => $report->getLinkedUser()?->getId(), 'comic' => $report->getLinkedComic()?->getId(), 'share' => $report->getLinkedShare()?->getId()];
     }
 
     private function admin(): User
@@ -183,23 +155,6 @@ final class AdminContentReportController extends AbstractController
             throw $this->createAccessDeniedException();
         }
         return $user;
-    }
-
-    /**
-     * @template T of object
-     * @param class-string<T> $class
-     * @return T|null
-     */
-    private function findNullable(EntityManagerInterface $entityManager, string $class, mixed $id): ?object
-    {
-        if ($id === null || $id === '') {
-            return null;
-        }
-        if (!is_int($id) && !(is_string($id) && ctype_digit($id))) {
-            throw new \DomainException('Linked record identifiers must be integers or null.');
-        }
-        return $entityManager->getRepository($class)->find((int) $id)
-            ?? throw new \DomainException('A linked record could not be found.');
     }
 
     private function nullableBoundedString(mixed $value, int $max, string $label): ?string

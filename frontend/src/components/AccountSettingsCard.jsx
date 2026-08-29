@@ -18,7 +18,7 @@ import { stripUsernamePrefix, validateUsername } from "@/lib/sharing";
  *
  * Both were previously only visible to an administrator looking at somebody
  * else's account. An upload refused for want of space is the first an account
- * heard about its quota, and a username — the handle other people share with —
+ * heard about its quota, and a username — the public name other people see —
  * could be changed through the API but nowhere in the interface.
  */
 export function AccountSettingsCard() {
@@ -52,8 +52,7 @@ export function AccountSettingsCard() {
       await checkAuth();
       toast({
         title: "Username changed",
-        description: `Other people now see you as @${trimmed}. `
-          + "Anyone who had your old handle will need the new one.",
+        description: `Other people now see you as @${trimmed}. Your U- code still works.`,
       });
     } catch (error) {
       logger.error("Changing the username failed:", error);
@@ -72,8 +71,8 @@ export function AccountSettingsCard() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><UserRound className="h-5 w-5" /> Your account</CardTitle>
         <CardDescription>
-          Your username is how other people share comics with you. Your email address is never
-          shown to them.
+          Your username is the public name people see when they check your U- code. Your email
+          address is never shown to them.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -101,8 +100,8 @@ export function AccountSettingsCard() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Changing it does not affect comics already shared with you, but anyone holding your old
-            handle will need the new one.
+            Changing it updates the name people see. Comics already shared with you are
+            unaffected, and your U- code stays the same unless you replace it.
           </p>
         </div>
 

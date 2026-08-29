@@ -44,7 +44,7 @@ class ComicService
         array $tags = []
     ): Comic {
         if (!$file->isValid()) {
-            throw new \RuntimeException('Invalid uploaded file.');
+            throw new ComicUploadRejectedException('Invalid uploaded file.');
         }
 
         $originalName = $file->getClientOriginalName();
@@ -52,18 +52,18 @@ class ComicService
         $extension = strtolower($file->getClientOriginalExtension());
 
         $sourceType = ComicSourceType::tryFrom($extension)
-            ?? throw new \RuntimeException('Unsupported comic source format.');
+            ?? throw new ComicUploadRejectedException('Unsupported comic source format.');
         if (!$this->comicFormatService->isEnabled($sourceType)) {
-            throw new \RuntimeException(sprintf('%s uploads are not enabled by the administrator.', strtoupper($sourceType->value)));
+            throw new ComicUploadRejectedException(sprintf('%s uploads are not enabled by the administrator.', strtoupper($sourceType->value)));
         }
 
         $incomingSize = (int) ($file->getSize() ?? filesize($file->getPathname()) ?: 0);
         if ($incomingSize <= 0) {
-            throw new \RuntimeException('Uploaded file is empty.');
+            throw new ComicUploadRejectedException('Uploaded file is empty.');
         }
 
         if ($incomingSize > $this->uploadMaxTotalBytes) {
-            throw new \RuntimeException('Uploaded file is too large.');
+            throw new ComicUploadRejectedException('Uploaded file is too large.');
         }
 
         $quotaLock = $this->storageQuota->acquireAdmission($user, $incomingSize);
@@ -74,19 +74,30 @@ class ComicService
 
         $safeFilename = (string) $this->slugger->slug($originalFilename);
         $newFilename = $safeFilename . '-' . uniqid('', true) . '.' . $sourceType->value;
-        // TODO: Shard comic archives into nested directories before large
-        // libraries put enough files in one user directory to degrade OS/filesystem performance.
+        // One flat directory per account, bounded by the per-user quota: at
+        // 10 GiB it takes unusually small comics to reach five figures of
+        // files, which a hashed directory index handles. Serving a page is a
+        // lookup by exact name and never a listing; the only enumeration is
+        // ComicCleanupService's orphan sweep, which runs from a console command
+        // rather than a request. Raising the quota substantially is what would
+        // change that, and the answer then is sharding into nested directories
+        // — a migration of existing files, not a change to this line.
+        // See docs/storage-quota.md.
         $absolutePath = $userDirectory . '/' . $newFilename;
 
-        try {
-            if (!copy($file->getPathname(), $absolutePath)) {
-                throw new \RuntimeException('Failed to copy uploaded file.');
+        if (!copy($file->getPathname(), $absolutePath)) {
+            if (is_file($absolutePath)) {
+                @unlink($absolutePath);
             }
-            chmod($absolutePath, 0644);
+            throw new \RuntimeException('Failed to copy uploaded file.');
+        }
+        chmod($absolutePath, 0644);
+
+        try {
             $provider = $this->pageProviderFactory->for($sourceType);
             $sourceInfo = $provider->inspect($absolutePath, $sourceType);
             if ($sourceInfo->pageCount < 1) {
-                throw new \RuntimeException('Comic source contains no pages.');
+                throw new ComicUploadRejectedException('Comic source contains no pages.');
             }
             $cover = $provider->readPage($absolutePath, $sourceType, 1);
         } catch (\Throwable $e) {
@@ -94,7 +105,7 @@ class ComicService
                 unlink($absolutePath);
             }
             $this->logger->warning('Comic upload rejected.', ['reason' => $e->getMessage()]);
-            throw new \RuntimeException('Uploaded file is not a valid or supported comic source.');
+            throw new ComicUploadRejectedException('Uploaded file is not a valid or supported comic source.');
         }
 
         $fileSize = filesize($absolutePath) ?: $incomingSize;

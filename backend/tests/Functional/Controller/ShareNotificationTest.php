@@ -65,6 +65,31 @@ final class ShareNotificationTest extends AbstractApiTestCase
         );
     }
 
+    public function testInvitationEmailUsesPublicIdentityAndProductName(): void
+    {
+        $owner = $this->createAndLoginUser([
+            'email' => 'private-owner@example.com',
+            'name' => null,
+            'username' => 'PublicOwner1234',
+        ]);
+        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+
+        $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$comic->getId()],
+            'email' => 'recipient@example.com',
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(201);
+        $body = (string) self::getMailerMessage()->getHtmlBody();
+        self::assertStringContainsString('Test Sender', $body);
+        self::assertStringContainsString('@PublicOwner1234', $body);
+        self::assertMatchesRegularExpression('/asked\s+Test Sender\s+to share this comic with you/', $body);
+        self::assertStringNotContainsString('Comic Share Platform', $body);
+        self::assertStringNotContainsString('private-owner@example.com', $body);
+        self::assertStringNotContainsString('entered your address', $body);
+    }
+
     public function testTheQueuedNoticeCarriesIdsAndNoSecrets(): void
     {
         $notification = new ShareInvitationNotification(7, [11, 12, 13]);
@@ -171,6 +196,8 @@ final class ShareNotificationTest extends AbstractApiTestCase
 
         self::assertResponseStatusCodeSame(502);
         self::assertStringContainsString('The share is unaffected', $payload['message']);
+        self::assertStringContainsString('Sharing page', $payload['message']);
+        self::assertStringNotContainsString('copy the link', $payload['message']);
 
         $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
         self::assertSame(ComicShare::STATUS_PENDING, $recipient['status']);

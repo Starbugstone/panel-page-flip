@@ -584,7 +584,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         $payload = $this->postInvitation((int) $comic->getId(), 'SELF@test.local');
 
         self::assertResponseStatusCodeSame(400);
-        self::assertStringContainsString('already own', $payload['message']);
+        self::assertSame('You cannot share a comic with yourself.', $payload['message']);
     }
 
     public function testOnlyTheOwnerCanManageAShare(): void

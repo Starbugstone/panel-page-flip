@@ -349,13 +349,16 @@ class AdminController extends AbstractController
                 result: SecurityAuditLogger::RESULT_FAILED
             );
 
-            return $this->json(['message' => 'Dropbox sync failed', 'output' => $process->getErrorOutput()], Response::HTTP_BAD_GATEWAY);
+            return $this->json(
+                ['message' => 'Dropbox import failed. Please try again or review the server logs.'],
+                Response::HTTP_BAD_GATEWAY
+            );
         }
 
         $auditService->log($admin, 'dropbox_force_sync', 'user', $targetUser->getId(), ['email' => $targetUser->getEmail()]);
         $entityManager->flush();
 
-        return $this->json(['message' => 'Dropbox sync completed', 'output' => $process->getOutput()]);
+        return $this->json(['message' => 'Dropbox import completed', 'output' => $process->getOutput()]);
     }
 
     #[Route('/dropbox-users/{id}/disconnect', name: 'dropbox_user_disconnect', methods: ['POST'])]

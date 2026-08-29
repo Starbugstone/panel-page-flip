@@ -96,11 +96,75 @@ describe("zoom that knows where the reader was", () => {
     const elements = refs({ scrollTop: 500 });
     const { result } = renderHook(() => useReaderTransform(elements));
 
-    act(() => result.current.stepZoomBy(3));
+    act(() => result.current.setZoomLevel(3));
     act(() => result.current.resetTransform());
 
     expect(result.current.transform).toEqual({ scale: 1, x: 0, y: 0 });
     expect(elements.containerRef.current.scrollTop).toBe(0);
+  });
+
+  it("sets an absolute zoom level from the settings slider", () => {
+    const elements = refs({ content: { width: 400, height: 800 } });
+    const { result } = renderHook(() => useReaderTransform(elements));
+
+    act(() => result.current.setZoomLevel(2.5));
+    expect(result.current.transform.scale).toBe(2.5);
+
+    act(() => result.current.setZoomLevel(1.25));
+    expect(result.current.transform.scale).toBe(1.25);
+  });
+
+  it("keeps the zoom and shows the top of a new page, not the middle", () => {
+    const elements = refs({ content: { width: 400, height: 800 } });
+    const { result } = renderHook(() => useReaderTransform(elements));
+
+    act(() => result.current.setZoomLevel(2.5));
+    act(() => result.current.pan({ dx: -80, dy: -120 }));
+    act(() => result.current.resetPosition());
+
+    // 800 tall at 2.5x in an 800 viewport: 600 of slack, and the top is +600.
+    expect(result.current.transform).toEqual({ scale: 2.5, x: 0, y: 600 });
+    expect(elements.containerRef.current.scrollTop).toBe(0);
+  });
+
+  /**
+   * The turn is decided before the page turned to has rendered, so the only
+   * artwork measurable at that moment is the one being left. Under fit-to-width
+   * a taller next page has a top edge further out than the old page's, and
+   * clamping to the old one leaves the reader part way down the new page.
+   */
+  it("finds the top of the new page once it has a height of its own", () => {
+    const elements = refs({ content: { width: 400, height: 800 } });
+    const { result, rerender } = renderHook(() => useReaderTransform(elements));
+
+    act(() => result.current.pinch({ scale: 2, focal: { x: 200, y: 400 } }));
+    act(() => result.current.resetPosition());
+
+    // Still the outgoing page: 800 at 2x in an 800 viewport is 400 of slack.
+    expect(result.current.transform).toEqual({ scale: 2, x: 0, y: 400 });
+
+    // The next page lays out taller, as a page fitted to the width may.
+    elements.imageRef.current.offsetHeight = 1600;
+    act(() => rerender());
+
+    // 1600 at 2x in an 800 viewport: 1200 of slack, and the top is +1200.
+    expect(result.current.transform).toEqual({ scale: 2, x: 0, y: 1200 });
+  });
+
+  /** Settling must not outlive the turn: a reader who pans has chosen a place. */
+  it("stops chasing the top once the reader has moved the page themselves", () => {
+    const elements = refs({ content: { width: 400, height: 800 } });
+    const { result, rerender } = renderHook(() => useReaderTransform(elements));
+
+    act(() => result.current.pinch({ scale: 2, focal: { x: 200, y: 400 } }));
+    act(() => result.current.resetPosition());
+    act(() => result.current.pan({ dx: 0, dy: -150 }));
+
+    const chosen = result.current.transform;
+    elements.imageRef.current.offsetHeight = 1600;
+    act(() => rerender());
+
+    expect(result.current.transform).toEqual(chosen);
   });
 
   it("survives being driven before anything has been laid out", () => {
@@ -110,5 +174,63 @@ describe("zoom that knows where the reader was", () => {
 
     expect(Number.isFinite(result.current.transform.x)).toBe(true);
     expect(Number.isFinite(result.current.transform.y)).toBe(true);
+  });
+});
+
+/**
+ * Continuous mode has no transform: it scrolls natively and only borrows the
+ * zoom number to widen its pages. It used to be switched off by handing the
+ * hook a ref that was never attached, which worked only because the arithmetic
+ * tolerates a zero-sized viewport — a clamp against measured geometry, or an
+ * early return on a missing container, would have silently stopped the zoom
+ * slider working with nothing to show for it.
+ */
+describe("with the transform switched off", () => {
+  it("keeps the zoom level and leaves the scroller alone", () => {
+    const elements = refs({ scrollTop: 500 });
+    const { result } = renderHook(() => useReaderTransform({ ...elements, enabled: false }));
+
+    act(() => result.current.setZoomLevel(2.5));
+
+    expect(result.current.transform).toEqual({ scale: 2.5, x: 0, y: 0 });
+    expect(elements.containerRef.current.scrollTop).toBe(500);
+  });
+
+  it("holds the zoom level to the reader's limits", () => {
+    const elements = refs();
+    const { result } = renderHook(() => useReaderTransform({ ...elements, enabled: false }));
+
+    act(() => result.current.setZoomLevel(99));
+    expect(result.current.transform.scale).toBe(5);
+
+    act(() => result.current.setZoomLevel(0.1));
+    expect(result.current.transform.scale).toBe(1);
+
+    act(() => result.current.setZoomLevel("not a number"));
+    expect(result.current.transform.scale).toBe(1);
+  });
+
+  it("ignores the gestures that belong to a paged reader", () => {
+    const elements = refs();
+    const { result } = renderHook(() => useReaderTransform({ ...elements, enabled: false }));
+
+    act(() => result.current.setZoomLevel(2));
+    act(() => result.current.pinch({ scale: 2, focal: { x: 200, y: 400 } }));
+    act(() => result.current.pan({ dx: 50, dy: 50 }));
+    act(() => result.current.doubleTapAt({ x: 100, y: 100 }));
+
+    expect(result.current.transform).toEqual({ scale: 2, x: 0, y: 0 });
+    expect(elements.containerRef.current.scrollTop).toBe(0);
+  });
+
+  it("does not move the scroller when a page turn asks for the top", () => {
+    const elements = refs({ scrollTop: 900 });
+    const { result } = renderHook(() => useReaderTransform({ ...elements, enabled: false }));
+
+    act(() => result.current.setZoomLevel(3));
+    act(() => result.current.resetPosition());
+
+    expect(elements.containerRef.current.scrollTop).toBe(900);
+    expect(result.current.transform.scale).toBe(3);
   });
 });

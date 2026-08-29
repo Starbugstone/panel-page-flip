@@ -59,7 +59,7 @@ class UserController extends AbstractController
                 $u,
                 $stats[$u->getId()] ?? null,
                 isset($withCredential[$u->getId()]),
-                $storageQuota->getQuotaBytes($u)
+                $storageQuota
             ),
             $page->items
         );
@@ -77,7 +77,7 @@ class UserController extends AbstractController
      *        Precomputed totals; omitted counts fall back to the user's own collections.
      * @return array<string, mixed>
      */
-    private function serializeUser(User $user, ?array $stats = null, bool $hasPersonalMetadataCredential = false, ?int $storageQuotaBytes = null): array
+    private function serializeUser(User $user, ?array $stats, bool $hasPersonalMetadataCredential, StorageQuotaService $storageQuota): array
     {
         return [
             'id' => $user->getId(),
@@ -92,7 +92,9 @@ class UserController extends AbstractController
             // Raw bytes, never a percentage or a formatted string: the client
             // needs the real values to say 112% when the data says 112%.
             'storageUsedBytes' => $stats['storageUsedBytes'] ?? 0,
-            'storageQuotaBytes' => $storageQuotaBytes,
+            'storageQuotaBytes' => $storageQuota->getQuotaBytes($user),
+            'storageQuotaOverrideBytes' => $user->getStorageQuotaOverrideBytes(),
+            'storageDefaultQuotaBytes' => $storageQuota->getDefaultQuotaBytes(),
             'unmeasuredComicCount' => $stats['unmeasuredComicCount'] ?? 0,
             'metadataApiEnabled' => $user->isMetadataApiEnabled(),
             // Whether they brought their own provider token, never which one.
@@ -127,7 +129,7 @@ class UserController extends AbstractController
             $targetUser,
             $stats[$targetUser->getId()] ?? null,
             $credentialRepository->findForUser($targetUser) !== null,
-            $storageQuota->getQuotaBytes($targetUser)
+            $storageQuota
         );
 
         // The admin user page needs enough to explain why an account can or
@@ -156,9 +158,17 @@ class UserController extends AbstractController
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
 
-        // Basic validation for required fields
-        if (empty($data['email']) || empty($data['password']) || empty($data['name'])) {
-            return $this->json(['message' => 'Missing required fields: email, password, name'], Response::HTTP_BAD_REQUEST);
+        $requiredErrors = [];
+        foreach (['email', 'password', 'name'] as $field) {
+            if (empty($data[$field])) {
+                $requiredErrors[$field] = ['This field is required.'];
+            }
+        }
+        if ($requiredErrors !== []) {
+            return $this->json([
+                'message' => 'Missing required fields: email, password, name',
+                'errors' => $requiredErrors,
+            ], Response::HTTP_BAD_REQUEST);
         }
 
         $passwordErrors = $passwordValidator->validate((string) $data['password']);
@@ -169,7 +179,10 @@ class UserController extends AbstractController
         // Check if email already exists
         $existingUser = $entityManager->getRepository(User::class)->findOneBy(['email' => $data['email']]);
         if ($existingUser) {
-            return $this->json(['message' => 'Email already in use'], Response::HTTP_CONFLICT);
+            return $this->json([
+                'message' => 'Email already in use',
+                'errors' => ['email' => ['Email already in use.']],
+            ], Response::HTTP_CONFLICT);
         }
 
         $user = new User();
@@ -188,13 +201,10 @@ class UserController extends AbstractController
 
         $violations = $validator->validate($user);
         if (count($violations) > 0) {
-            $errors = [];
-            foreach ($violations as $violation) {
-                // Only include property path if it's useful (e.g., not for general class constraints)
-                $propertyPath = $violation->getPropertyPath();
-                $errors[] = ($propertyPath ? $propertyPath . ': ' : '') . $violation->getMessage();
-            }
-            return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+            return $this->json([
+                'message' => 'Validation failed',
+                'errors' => $this->validationErrors($violations),
+            ], Response::HTTP_BAD_REQUEST);
         }
 
         $entityManager->persist($user);
@@ -319,7 +329,12 @@ class UserController extends AbstractController
         // allowing it here would let a user grant it back.
         if (array_key_exists('metadataApiEnabled', $data) && $user->isAdmin()) {
             if (!is_bool($data['metadataApiEnabled'])) {
-                return $this->json(['message' => 'metadataApiEnabled must be true or false'], Response::HTTP_BAD_REQUEST);
+                $message = 'External metadata API access must be true or false.';
+
+                return $this->json([
+                    'message' => $message,
+                    'errors' => ['metadataApiEnabled' => [$message]],
+                ], Response::HTTP_BAD_REQUEST);
             }
 
             if ($targetUser->isMetadataApiEnabled() !== $data['metadataApiEnabled']) {
@@ -349,11 +364,10 @@ class UserController extends AbstractController
         // Validate user
         $violations = $validator->validate($targetUser);
         if (count($violations) > 0) {
-            $errors = [];
-            foreach ($violations as $violation) {
-                $errors[] = $violation->getMessage();
-            }
-            return $this->json(['message' => 'Validation failed', 'errors' => $errors], Response::HTTP_BAD_REQUEST);
+            return $this->json([
+                'message' => 'Validation failed',
+                'errors' => $this->validationErrors($violations),
+            ], Response::HTTP_BAD_REQUEST);
         }
 
         $afterRoles = $targetUser->getRoles();
@@ -421,6 +435,77 @@ class UserController extends AbstractController
                 'roles' => $targetUser->getRoles(),
                 'isEmailVerified' => $targetUser->isEmailVerified(),
             ]
+        ]);
+    }
+
+    /**
+     * Set this account's explicit canonical-source allowance, or clear it back
+     * to the installation default. Zero is deliberately unlimited; null is
+     * inheritance, so the two must never be collapsed during validation.
+     */
+    #[Route('/{id}/storage-quota', name: 'update_storage_quota', methods: ['PATCH'], requirements: ['id' => '\\d+'])]
+    public function updateStorageQuota(
+        int $id,
+        Request $request,
+        EntityManagerInterface $entityManager,
+        AdminAuditService $auditService,
+        StorageQuotaService $storageQuota
+    ): JsonResponse {
+        $admin = $this->requireUser();
+        if (!$admin->isAdmin()) {
+            return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
+        }
+
+        $targetUser = $entityManager->getRepository(User::class)->find($id);
+        if (!$targetUser instanceof User) {
+            return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $data = \App\Http\JsonRequestDecoder::decode($request);
+        if (!array_key_exists('storageQuotaOverrideBytes', $data)) {
+            $message = 'storageQuotaOverrideBytes is required and must be null or a non-negative integer.';
+
+            return $this->json([
+                'message' => $message,
+                'errors' => ['storageQuotaOverrideBytes' => [$message]],
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $override = $data['storageQuotaOverrideBytes'];
+        if ($override !== null && (!is_int($override) || $override < 0 || $override > StorageQuotaService::MAX_QUOTA_BYTES)) {
+            $message = sprintf(
+                'Storage quota must be null, 0 for unlimited, or an integer no greater than %d bytes.',
+                StorageQuotaService::MAX_QUOTA_BYTES
+            );
+
+            return $this->json([
+                'message' => $message,
+                'errors' => ['storageQuotaOverrideBytes' => [$message]],
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $before = $targetUser->getStorageQuotaOverrideBytes();
+        if ($before !== $override) {
+            $targetUser->setStorageQuotaOverrideBytes($override);
+            $auditService->log($admin, 'user_storage_quota_updated', 'user', $targetUser->getId(), [
+                'target_user_id' => $targetUser->getId(),
+                'override_before_bytes' => $before,
+                'override_after_bytes' => $override,
+                'effective_after_bytes' => $storageQuota->getQuotaBytes($targetUser),
+            ]);
+            $entityManager->flush();
+        }
+
+        return $this->json([
+            'message' => $override === null
+                ? 'Storage quota restored to the server default.'
+                : ($override === 0 ? 'Storage quota set to unlimited.' : 'Storage quota updated.'),
+            'user' => [
+                'id' => $targetUser->getId(),
+                'storageQuotaBytes' => $storageQuota->getQuotaBytes($targetUser),
+                'storageQuotaOverrideBytes' => $targetUser->getStorageQuotaOverrideBytes(),
+                'storageDefaultQuotaBytes' => $storageQuota->getDefaultQuotaBytes(),
+            ],
         ]);
     }
 
@@ -572,4 +657,18 @@ class UserController extends AbstractController
         ]);
     }
 
+    /**
+     * @param iterable<\Symfony\Component\Validator\ConstraintViolationInterface> $violations
+     * @return array<string, list<string>>
+     */
+    private function validationErrors(iterable $violations): array
+    {
+        $errors = [];
+        foreach ($violations as $violation) {
+            $field = $violation->getPropertyPath() ?: 'form';
+            $errors[$field][] = $violation->getMessage();
+        }
+
+        return $errors;
+    }
 }

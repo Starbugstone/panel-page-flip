@@ -259,6 +259,10 @@ and this is what finds the line in it. It is **generated**, never taken from an
 inbound header: a correlation id a caller chooses can be reused to make two
 unrelated incidents look like one.
 
+Security alert emails direct the operator to the dated security log and its
+request id. They link separately to `/admin?tab=audit` for administrator audit
+history; an alert is not itself an `admin_audit_log` row.
+
 ## Adding a new event
 
 1. Add a constant to `App\Service\SecurityAuditLogger`. Event names are stable

@@ -37,6 +37,10 @@ final class PasswordSessionInvalidationTest extends AbstractApiTestCase
         }
         $freshClient->request('GET', '/api/me', [], [], ['HTTP_ACCEPT' => 'application/json']);
 
-        self::assertResponseStatusCodeSame(401);
+        self::assertResponseIsSuccessful();
+        self::assertSame(
+            ['user' => null, 'sessionRefreshed' => false],
+            json_decode((string) $freshClient->getResponse()->getContent(), true, 512, JSON_THROW_ON_ERROR)
+        );
     }
 }

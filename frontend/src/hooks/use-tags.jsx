@@ -11,6 +11,50 @@ const TagContext = createContext(undefined);
 // Stable identity so a signed-out render does not produce a new context value.
 const EMPTY_TAGS = [];
 
+/**
+ * Tag search, answered from the cache when it can be.
+ *
+ * The local pass runs first so typing feels immediate, and a cache filled
+ * recently in the same context is treated as the answer. The admin context is
+ * part of that test: admin search sees every account's tags, so a cache filled
+ * outside it would silently under-report.
+ */
+function useTagSearch({ tagsRef, lastFetchedRef, lastFetchedAdminContextRef }) {
+  return useCallback(async (query, isAdminContext = false) => {
+    if (!query || query.trim().length < 2) {
+      return [];
+    }
+
+    // Try to search locally first for immediate feedback
+    const localResults = fuzzyFilter(tagsRef.current, query, ['name']);
+
+    // If we have local results and they were fetched recently, use them
+    const CACHE_TIME = 5 * 60 * 1000; // 5 minutes
+    if (
+      lastFetchedRef.current
+      && lastFetchedAdminContextRef.current === isAdminContext
+      && (Date.now() - lastFetchedRef.current) < CACHE_TIME
+    ) {
+      return localResults;
+    }
+
+    // Otherwise, fetch from the server
+    try {
+      // Only pass adminContext when we're explicitly in the admin section
+      const url = isAdminContext
+        ? `/api/tags/search?q=${encodeURIComponent(query.trim())}&adminContext=true`
+        : `/api/tags/search?q=${encodeURIComponent(query.trim())}`;
+
+      const data = await api.get(url);
+      return data.tags || [];
+    } catch (error) {
+      logger.error('Error searching tags:', error);
+      // Fall back to local results if API fails
+      return localResults;
+    }
+  }, [lastFetchedAdminContextRef, lastFetchedRef, tagsRef]);
+}
+
 export function TagProvider({ children }) {
   const [tags, setTags] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -85,40 +129,7 @@ export function TagProvider({ children }) {
     }
   }, [toast, user]);
 
-  // Function to search tags (using cache when possible)
-  const searchTags = useCallback(async (query, isAdminContext = false) => {
-    if (!query || query.trim().length < 2) {
-      return [];
-    }
-
-    // Try to search locally first for immediate feedback
-    const localResults = fuzzyFilter(tagsRef.current, query, ['name']);
-    
-    // If we have local results and they were fetched recently, use them
-    const CACHE_TIME = 5 * 60 * 1000; // 5 minutes
-    if (
-      lastFetchedRef.current
-      && lastFetchedAdminContextRef.current === isAdminContext
-      && (Date.now() - lastFetchedRef.current) < CACHE_TIME
-    ) {
-      return localResults;
-    }
-
-    // Otherwise, fetch from the server
-    try {
-      // Only pass adminContext when we're explicitly in the admin section
-      const url = isAdminContext 
-        ? `/api/tags/search?q=${encodeURIComponent(query.trim())}&adminContext=true` 
-        : `/api/tags/search?q=${encodeURIComponent(query.trim())}`;
-      
-      const data = await api.get(url);
-      return data.tags || [];
-    } catch (error) {
-      logger.error('Error searching tags:', error);
-      // Fall back to local results if API fails
-      return localResults;
-    }
-  }, []);
+  const searchTags = useTagSearch({ tagsRef, lastFetchedRef, lastFetchedAdminContextRef });
 
   // Function to add a tag to the local cache after creation
   const addTagToCache = useCallback((newTag) => {

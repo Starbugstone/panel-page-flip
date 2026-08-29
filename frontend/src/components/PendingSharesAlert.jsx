@@ -28,7 +28,9 @@ export function PendingSharesAlert() {
             {count === 1 ? 'You have a comic invitation.' : `You have ${count} comic invitations.`}
           </AlertTitle>
           <AlertDescription className="text-purple-600 dark:text-purple-400">
-            Somebody wants to share a comic with you.
+            {count === 1
+              ? "Someone wants to share a comic with you."
+              : "Review them to see who shared each comic."}
           </AlertDescription>
         </div>
       </div>

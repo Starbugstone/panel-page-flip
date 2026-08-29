@@ -16,7 +16,7 @@ use Doctrine\ORM\EntityManagerInterface;
 /**
  * Sharing codes, in both directions.
  *
- * A **`U-` user code** is permanent, belongs to the person who wants to be
+ * A **`U-` user code** is rotatable, belongs to the person who wants to be
  * shared with, and grants nothing: it only says who a share should be addressed
  * to, so the sender never has to be told an email address. A **`C-` comic code**
  * goes the other way — an owner hands it out and whoever redeems it gets the one
@@ -274,7 +274,8 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         self::assertSame(2, $created['contentCode']['usesRemaining']);
         self::assertSame('C', $created['contentCode']['type']);
 
-        // Listing never gives the code back — only its hash is stored.
+        // Listing never gives the code back; revealing it is a separate,
+        // owner-only request.
         $listed = $this->getJson('/api/shares/content-codes')['codes'];
         self::assertCount(1, $listed);
         self::assertArrayNotHasKey('code', $listed[0]);

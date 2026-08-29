@@ -46,9 +46,10 @@ provider of the same contract for comics that have no ComicInfo.
 Slices 2-4 are library/UX value and can land at any later point without
 blocking #86 or #89.
 
-## Starting state (at time of writing)
+## Historical starting state (superseded)
 
-Verified against `main` at the merge of PR #103 and PR #104:
+The points below were verified against `main` at the merge of PR #103 and PR
+#104. They describe the pre-implementation baseline, not the current code:
 
 - There is **no** ComicInfo handling anywhere — `grep -ril comicinfo` over
   `backend/src`, `backend/tests` and `frontend/src` returns nothing.
@@ -210,7 +211,8 @@ persisted preference (see `docs/reader.md`).
 
 - A CBZ, CB7 and CBT with ComicInfo.xml all import with structured metadata.
 - A CBR does too, on a host whose 7z has RAR support.
-- A PDF imports with whatever its Info dictionary offers and no invented fields.
+- A PDF imports without embedded ComicInfo metadata; it follows the same
+  no-ComicInfo path as any source with no usable `ComicInfo.xml`.
 - A comic with no ComicInfo, a malformed one, and one with a hostile DTD all
   import exactly as they do today.
 - The page-info contract is queryable for a comic and covers direction,
@@ -659,7 +661,11 @@ Admin → Metadata → Test will report it as "Metron refused the token".
 6. **Whether characters and teams become tags.** No — see the classification
    section. Genres only, and only on acceptance.
 
-## Open questions from the original plan
+## Historical open questions from the original plan (superseded)
+
+These were settled during implementation and are retained only as the original
+decision prompts. The current answers are in
+[How the pre-implementation questions were settled](#how-the-pre-implementation-questions-were-settled).
 
 1. **Per-page metadata storage.** A dedicated table (clean queries, one row per
    page, an extra join) or a JSON column on `comic` (matches

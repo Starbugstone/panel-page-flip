@@ -33,10 +33,11 @@ final class EmailVerificationMailer
         $email = (new Email())
             ->from(new Address($this->mailerFromAddress, $this->mailerFromName))
             ->to((string) $user->getEmail())
-            ->subject('Verify your email address')
+            ->subject(sprintf('Verify your %s email address', $this->mailerFromName))
             ->html($this->twig->render('emails/email_verification.html.twig', [
                 'user' => $user,
                 'verificationUrl' => $verificationUrl,
+                'site_name' => $this->mailerFromName,
             ]));
 
         $this->mailer->send($email);

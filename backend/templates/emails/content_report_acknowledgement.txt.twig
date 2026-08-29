@@ -1,0 +1,16 @@
+Your content report has been received and will be reviewed.
+
+Case reference: {{ report.reference }}
+Submitted: {{ report.createdAt|date('c') }}
+Category: {{ report.category|replace({'_': ' '})|title }}
+How the material was identified: {{ report.referenceType|replace({'_': ' '})|title }}
+Submitted reference: {{ receiptReference }}
+
+Good-faith declaration: confirmed
+
+Invitation tokens and sharing codes are masked in this receipt so this email
+does not create another copy of an access capability. The complete submission
+remains in the durable case record. Other free-text submission fields are not
+reproduced because the destination mailbox has not been verified. Keep the case
+reference if you contact the site operator. This acknowledgement does not
+promise a specific response time.

@@ -74,9 +74,10 @@ not a second, richer channel: it names no administrator, quotes no report, and
 links to nothing that would act on the recipient's behalf if the mail were
 opened by the wrong person.
 
-A failed send is recorded on the row as `email_state = failed` and reported back
-to the administrator; it never raises. The notice is real and waiting either
-way, which is the delivery that matters.
+A delivered email copy is confirmed in the success response. A failed send is
+recorded on the row as `email_state = failed` and reported back to the
+administrator; it never raises. The notice is real and waiting either way,
+which is the delivery that matters.
 
 ## What the recipient sees
 

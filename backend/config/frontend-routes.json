@@ -13,6 +13,7 @@
     "/dashboard",
     "/upload",
     "/upload/bulk",
+    "/upload/bulk/session",
     "/settings",
     "/admin",
     "/dropbox-sync",

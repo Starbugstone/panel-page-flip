@@ -18,7 +18,7 @@ const WARNING_PERCENT = 90;
  *
  * @param {object} props
  * @param {number} props.usedBytes Canonical owned-comic bytes.
- * @param {number|null} props.quotaBytes Effective quota; null or 0 when none is configured.
+ * @param {number|null} props.quotaBytes Effective quota; 0 means unlimited.
  * @param {number} [props.unmeasuredComicCount] Owned comics with no recorded size.
  * @param {string} [props.className]
  */
@@ -27,12 +27,12 @@ export function UserStorageUsage({ usedBytes, quotaBytes, unmeasuredComicCount =
   const quota = Math.max(0, Number(quotaBytes) || 0);
   const unmeasured = Math.max(0, Number(unmeasuredComicCount) || 0);
 
-  // A quota of zero is a missing limit, not a full disk: there is no percentage
-  // to report and nothing honest to fill the bar with.
+  // A quota of zero is unlimited, not a full disk: there is no percentage to
+  // report and nothing honest to fill the bar with.
   const percent = quota > 0 ? (used / quota) * 100 : null;
   // Only the bar is clamped. If the data says 112%, every number here says 112%.
   const barValue = percent === null ? 0 : Math.min(100, Math.max(0, percent));
-  const percentLabel = percent === null ? "No quota" : `${percent.toFixed(1)}%`;
+  const percentLabel = percent === null ? "Unlimited" : `${percent.toFixed(1)}%`;
 
   const usedLabel = formatBytes(used);
   const quotaLabel = quota > 0 ? formatBytes(quota) : null;
@@ -43,7 +43,7 @@ export function UserStorageUsage({ usedBytes, quotaBytes, unmeasuredComicCount =
   const heading = incompleteNote ? "Measured storage used" : "Storage used";
   const summary = quotaLabel
     ? `${heading}: ${usedLabel} of ${quotaLabel}, ${percentLabel}.`
-    : `${heading}: ${usedLabel}. No quota configured.`;
+    : `${heading}: ${usedLabel}. Unlimited storage quota.`;
 
   return (
     <TooltipProvider>

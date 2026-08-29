@@ -18,6 +18,11 @@ parameters:
     privacy_email: '%env(default:mailer_from_address:PRIVACY_EMAIL)%'
     legal_email: '%env(default:privacy_email:LEGAL_EMAIL)%'
     content_report_retention_days: '%env(int:default:content_report_retention_days_default:CONTENT_REPORT_RETENTION_DAYS)%'
+    # On unless an installation says otherwise, so a deployment that never sets
+    # it is protected rather than quietly unprotected. The local stack turns it
+    # off in backend/.env; see LoginRateLimitSubscriber.
+    login_rate_limit_enabled_default: true
+    login_rate_limit_enabled: '%env(bool:default:login_rate_limit_enabled_default:LOGIN_RATE_LIMIT_ENABLED)%'
     content_report_retention_days_default: 730
     # The single source of truth for C-/G- code expiry. The service validates it
     # and refuses to build on a nonsense value, so a bad deployment fails on the
@@ -29,11 +34,14 @@ parameters:
     # config/packages/messenger.yaml for why that is the safe default.
     share_notification_transport_dsn_default: 'sync://'
     max_concurrent_uploads: '%env(int:default:max_concurrent_uploads_default:MAX_CONCURRENT_UPLOADS)%'
-    max_concurrent_uploads_default: 3
+    max_concurrent_uploads_default: 4
     upload_max_chunk_bytes: 2097152
     upload_max_total_bytes: 524288000
     upload_max_total_chunks: 600
-    upload_user_quota_bytes: 10737418240
+    # Canonical source bytes each account may own unless an administrator sets
+    # a per-user override. Zero deliberately means unlimited.
+    upload_user_quota_bytes_default: 10737418240
+    upload_user_quota_bytes: '%env(int:default:upload_user_quota_bytes_default:UPLOAD_USER_QUOTA_BYTES)%'
     # The optional qpdf second opinion on a PDF's structure, as a per-document
     # time budget. It costs about 0.4s per megabyte, so 8 seconds admits
     # documents up to roughly 20 MB and skips the large scans where the check
@@ -73,6 +81,17 @@ parameters:
     env(COMIC_VINE_SHARED_ENABLED): 'true'
     metron_shared_enabled: '%env(bool:METRON_SHARED_ENABLED)%'
     comic_vine_shared_enabled: '%env(bool:COMIC_VINE_SHARED_ENABLED)%'
+    # Advertising. Two settings, because everything else AdSense can be told —
+    # which formats run, which pages are excluded, whether an Offerwall appears —
+    # is configured in the AdSense account. See docs/advertising.md.
+    #
+    # Off unless an operator turns it on: the ordinary deployment of this
+    # software is somebody's own library, which has no publisher account and no
+    # reason to load a third-party script.
+    env(ADSENSE_ENABLED): 'false'
+    env(ADSENSE_CLIENT): ''
+    adsense_enabled: '%env(bool:ADSENSE_ENABLED)%'
+    adsense_client: '%env(ADSENSE_CLIENT)%'
     # Daily log files live under these, one folder per stream. Security and
     # audit files are grouped into YYYY/MM/ because a year of them at one file
     # per day is several hundred entries in a single listing.
@@ -185,6 +204,10 @@ services:
             $verificationResendLimiter: '@limiter.verification_resend'
             $comicSearchLimiter: '@limiter.comic_search'
 
+    App\EventSubscriber\LoginRateLimitSubscriber:
+        arguments:
+            $enabled: '%login_rate_limit_enabled%'
+
     App\Service\ComicShareService:
         arguments:
             $shareInvitationLimiter: '@limiter.share_invitation'
@@ -200,6 +223,10 @@ services:
             $mailerFromName: '%mailer_from_name%'
             
     # Comic service with comics directory configuration
+    App\Service\BulkUploadSessionService:
+        arguments:
+            $bulkUploadSessionCache: '@upload.bulk_session.cache'
+
     App\Service\StorageQuotaService:
         arguments:
             $uploadUserQuotaBytes: '%upload_user_quota_bytes%'

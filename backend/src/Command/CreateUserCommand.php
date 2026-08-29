@@ -3,6 +3,7 @@
 namespace App\Command;
 
 use App\Entity\User;
+use App\Service\PasswordValidator;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -36,7 +37,8 @@ class CreateUserCommand extends Command
 
     public function __construct(
         EntityManagerInterface $entityManager,
-        UserPasswordHasherInterface $passwordHasher
+        UserPasswordHasherInterface $passwordHasher,
+        private readonly PasswordValidator $passwordValidator,
     ) {
         $this->entityManager = $entityManager;
         $this->passwordHasher = $passwordHasher;
@@ -55,13 +57,19 @@ class CreateUserCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $email = $input->getArgument('email');
-        $password = $input->getArgument('password');
+        $email = (string) $input->getArgument('email');
+        $password = (string) $input->getArgument('password');
 
         // Check if user already exists
         $existingUser = $this->entityManager->getRepository(User::class)->findOneBy(['email' => $email]);
         if ($existingUser) {
             $io->error(sprintf('User with email "%s" already exists', $email));
+            return Command::FAILURE;
+        }
+
+        $passwordErrors = $this->passwordValidator->validate($password);
+        if ($passwordErrors !== []) {
+            $io->error(array_merge(['Password does not meet policy requirements:'], $passwordErrors));
             return Command::FAILURE;
         }
 

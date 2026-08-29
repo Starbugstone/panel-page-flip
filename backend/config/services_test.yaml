@@ -3,6 +3,8 @@ parameters:
     # create and delete files under these paths, and pointing them at
     # public/uploads puts real comics within reach of a test's cleanup.
     comics_directory: '%kernel.project_dir%/var/test-uploads/comics'
+    quarantine_directory: '%kernel.project_dir%/var/test-quarantine/comics'
+    page_cache_directory: '%kernel.project_dir%/var/test-page-cache'
 
 services:
     _defaults:
@@ -39,6 +41,15 @@ services:
         class: App\Tests\Support\PersistentArrayCache
         public: true
 
+    # Bulk-upload sessions are keyed on the user id and the real pool is
+    # filesystem-backed with a two-hour lifetime, so a session left open by one
+    # run outlives the database rollback — and ResetDatabase restarts
+    # AUTO_INCREMENT at 1, handing a fresh account the previous run's active
+    # batch. Same trap as the two pools above, same fix.
+    upload.bulk_session.cache:
+        class: App\Tests\Support\PersistentArrayCache
+        public: true
+
     # In-memory handlers for the security and audit channels, so a test can read
     # back exactly what a real handler would have been given — after the
     # processors, which is the only way to assert that redaction happens in the
@@ -56,6 +67,13 @@ services:
         public: true
         arguments:
             $securityAlertCache: '@security.alert.cache'
+
+    # The suite signs the same accounts in over and over from one address, so
+    # the limiter would exhaust its allowance on setup rather than on anything
+    # being tested. The control itself is covered directly, by unit test.
+    App\EventSubscriber\LoginRateLimitSubscriber:
+        arguments:
+            $enabled: false
 
     App\Tests\:
         resource: '../tests/'

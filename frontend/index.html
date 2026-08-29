@@ -3,22 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Panel Page Flip – Personal CBZ Comic Reader</title>
-    <meta name="description" content="Panel Page Flip is a self-hosted personal comic library for uploading and reading CBZ comics on desktop, tablet, and mobile while keeping your reading progress in sync." />
+    <title>Panel Page Flip – Personal Comic Library</title>
+    <meta name="description" content="Panel Page Flip is a self-hosted personal comic library. Organize, read, and share CBZ, CBR, CB7, CBT, and PDF files with synced progress and a page-by-page reader." />
     <meta name="author" content="Panel Page Flip" />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="__APP_URL__/" />
 
-    <meta property="og:title" content="Panel Page Flip – Personal CBZ Comic Reader" />
-    <meta property="og:description" content="Upload, organize, and read your personal CBZ comic library anywhere, with reading progress saved automatically." />
+    <meta property="og:title" content="Panel Page Flip – Personal Comic Library" />
+    <meta property="og:description" content="Organize, read, and share your personal comic library anywhere, with reading progress saved automatically." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="__APP_URL__/" />
     <meta property="og:site_name" content="Panel Page Flip" />
 
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Panel Page Flip – Personal CBZ Comic Reader" />
-    <meta name="twitter:description" content="Upload, organize, and read your personal CBZ comic library anywhere, with reading progress saved automatically." />
-    
+    <meta name="twitter:title" content="Panel Page Flip – Personal Comic Library" />
+    <meta name="twitter:description" content="Organize, read, and share your personal comic library anywhere, with reading progress saved automatically." />
+
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
@@ -30,27 +30,96 @@
 
   <body>
     <div id="root">
-      <!-- Crawlable first render. React replaces this markup when the app starts. -->
+      <!-- Crawlable first render. React replaces this markup when the app starts.
+           Keep it in sync with src/lib/landing-copy.js — Symfony serves this HTML
+           to crawlers that never run JavaScript. -->
+      <header>
+        <p><a href="/">Panel Page Flip</a></p>
+        <p><a href="/login">Log in</a></p>
+      </header>
       <main>
         <section>
-          <h1>Panel Page Flip: Your Personal Comic Book Reader</h1>
+          <p>Your collection, made readable</p>
+          <h1>Your comics, ready when you are.</h1>
           <p>
-            Upload, organize, and read your personal CBZ comic collection from a desktop,
-            tablet, or phone. Panel Page Flip remembers your reading position so you can
-            continue each comic where you left off.
+            Turn scattered comic files into a personal library you can organize, enjoy on any screen, and share with the people who will love them too.
           </p>
-          <p><a href="/login">Log in or create an account</a></p>
+          <p>
+            <a href="/login?signup=true">Start your library</a>
+            <a href="/login">Log in</a>
+          </p>
+          <p>CBZ, plus server-enabled CBR, CB7, CBT, and PDF support.</p>
         </section>
         <section>
-          <h2>A self-hosted CBZ reader built for your library</h2>
-          <h3>Easy reading</h3>
-          <p>Enjoy a distraction-free comic reading experience optimized for every screen size.</p>
-          <h3>Reading progress</h3>
-          <p>Your position is saved automatically across reading sessions.</p>
-          <h3>CBZ library support</h3>
-          <p>Keep your comic collection organized and read it in the popular CBZ format.</p>
+          <p>More than a file viewer</p>
+          <h2>Make a collection feel collected.</h2>
+          <p>
+            Panel Page Flip adds the structure, continuity, and connection that a folder full of archives cannot.
+          </p>
+          <article>
+            <h3>A library that feels like yours</h3>
+            <p>
+              Build nested folders for series, publishers, reading lists, or whatever makes sense to you. Add tags, search the collection, and move comics in bulk without touching the original files.
+            </p>
+            <ul>
+              <li>Personal folders and tags</li>
+              <li>Progress saved automatically</li>
+              <li>Pick up on another device</li>
+            </ul>
+          </article>
+          <article>
+            <h3>Share the good stuff</h3>
+            <p>
+              Share directly by username, U- code, or email, or send a private C- or G- code. Each reader gets their own place in the book and can organize it in their library, while you stay in control of access.
+            </p>
+            <ul>
+              <li>Share without duplicating the comic</li>
+              <li>Each reader keeps their own progress</li>
+              <li>Revoke access whenever you need to</li>
+            </ul>
+          </article>
+        </section>
+        <section>
+          <h2>Built for the next page.</h2>
+          <p>
+            The reader does not hand your browser one giant comic file. The server opens the source and delivers each page individually, then chooses a size that matches the available space and your screen’s sharpness.
+          </p>
+          <p>
+            Each result is right-sized for the screen and cached, so returning readers and popular pages skip repeat processing while access remains protected on every request.
+          </p>
+          <ol>
+            <li>
+              <h3>01. Open the source</h3>
+              <p>One reader handles archive and PDF formats through the same protected pipeline.</p>
+            </li>
+            <li>
+              <h3>02. Request only nearby pages</h3>
+              <p>The reader prepares what is next and releases distant artwork to keep memory use in check.</p>
+            </li>
+            <li>
+              <h3>03. Fit, cache, and keep reading</h3>
+              <p>Phones avoid oversized scans; larger screens and zoom get more detail when they need it.</p>
+            </li>
+          </ol>
+        </section>
+        <section>
+          <h2>Give your comics a better home.</h2>
+          <p>
+            Organize the collection, share a favorite, and settle in with a reader designed to stay out of the story’s way.
+          </p>
+          <p><a href="/login?signup=true">Start your library</a></p>
         </section>
       </main>
+      <footer>
+        <p>© 2026 Panel Page Flip. All rights reserved.</p>
+        <nav aria-label="Legal">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/cookies">Cookies</a>
+          <a href="/report-content">Report illegal content</a>
+          <a href="https://github.com/Starbugstone/panel-page-flip/issues">Report a bug</a>
+        </nav>
+      </footer>
     </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
