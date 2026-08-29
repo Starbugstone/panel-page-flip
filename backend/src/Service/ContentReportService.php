@@ -13,6 +13,7 @@ final class ContentReportService
         private readonly ContentReportNotifier $notifier,
         private readonly ContentReportTargetResolver $targetResolver,
         private readonly ContentReportLinkService $linker,
+        private readonly PublicUrl $publicUrl,
     ) {
     }
 
@@ -187,11 +188,7 @@ final class ContentReportService
     private function validApplicationUrl(string $reference, string $pathPattern): bool
     {
         $parts = parse_url($reference);
-        if (!is_array($parts)
-            || !in_array(mb_strtolower((string) ($parts['scheme'] ?? '')), ['http', 'https'], true)
-            || ($parts['host'] ?? '') === ''
-            || isset($parts['user'])
-            || isset($parts['pass'])) {
+        if (!is_array($parts) || !$this->publicUrl->hasSameOrigin($reference)) {
             return false;
         }
         return preg_match($pathPattern, (string) ($parts['path'] ?? '')) === 1;

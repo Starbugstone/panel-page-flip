@@ -129,7 +129,7 @@ export function ComicCard({
               alt={comic.title}
               decoding="async"
               loading={coverPriority ? "eager" : "lazy"}
-              fetchpriority={coverPriority ? "high" : "auto"}
+              fetchPriority={coverPriority ? "high" : "auto"}
               onLoad={() => setCoverLoaded(true)}
               // A cover that fails still has to reveal its alt text.
               onError={() => setCoverLoaded(true)}

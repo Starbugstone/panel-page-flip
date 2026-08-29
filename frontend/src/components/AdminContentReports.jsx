@@ -24,6 +24,7 @@ const emptyReview = {
   status: "under_review",
   targetType: null,
   targetId: null,
+  targetChanged: false,
   resolutionCode: "",
   resolutionNote: "",
   legalHold: false,
@@ -50,6 +51,7 @@ export function AdminContentReports() {
       status: report.status === "received" ? "under_review" : report.status,
       targetType: null,
       targetId: null,
+      targetChanged: false,
       resolutionCode: report.resolutionCode || "",
       resolutionNote: report.resolutionNote || "",
       legalHold: Boolean(report.legalHold),
@@ -106,7 +108,7 @@ export function AdminContentReports() {
     try {
       const response = await api.get("/api/admin/content-reports/" + selected.id + "?q=" + encodeURIComponent(search.trim()));
       setSelected(response.report);
-      setReview((current) => ({ ...current, targetType: null, targetId: null, action: "none" }));
+      setReview((current) => ({ ...current, targetType: null, targetId: null, targetChanged: false, action: "none" }));
     } catch (loadError) {
       setError(loadError.message || "Target candidates could not be loaded.");
     } finally {
@@ -115,7 +117,18 @@ export function AdminContentReports() {
   };
 
   const chooseTarget = (candidate) => {
-    setReview((current) => ({ ...current, targetType: candidate.type, targetId: candidate.id, action: "none" }));
+    setReview((current) => ({ ...current, targetType: candidate.type, targetId: candidate.id, targetChanged: true, action: "none" }));
+  };
+
+  const unlinkTarget = () => {
+    setReview((current) => ({
+      ...current,
+      targetType: null,
+      targetId: null,
+      targetChanged: true,
+      action: "none",
+      notifyOwner: false,
+    }));
   };
 
   const save = async () => {
@@ -129,7 +142,7 @@ export function AdminContentReports() {
         legalHold: review.legalHold,
         action: review.action,
         notifyOwner: review.notifyOwner,
-        ...(review.targetType ? { targetType: review.targetType, targetId: review.targetId } : {}),
+        ...(review.targetChanged ? { targetType: review.targetType, targetId: review.targetId } : {}),
       };
       const response = await api.patch("/api/admin/content-reports/" + selected.id, payload);
       setDetail(response.report);
@@ -148,7 +161,9 @@ export function AdminContentReports() {
 
   const candidates = selected?.targetResolution?.candidates || [];
   const chosen = candidates.find((candidate) => candidate.type === review.targetType && candidate.id === review.targetId) || null;
-  const effectiveTarget = chosen || linkedTargetFromDetail(selected);
+  const effectiveTarget = review.targetChanged ? chosen : linkedTargetFromDetail(selected);
+  const retainedSnapshot = review.targetChanged && !chosen ? null : selected?.targetSnapshot;
+  const canUnlinkTarget = Boolean(effectiveTarget || (!review.targetChanged && hasTargetSnapshot(selected?.targetSnapshot)));
   const incompatibleAction = actionRequirement(review.action) && !supportsAction(effectiveTarget, actionRequirement(review.action));
 
   return (
@@ -235,7 +250,10 @@ export function AdminContentReports() {
 
             <section className="space-y-3 rounded-md border p-4">
               <h2 className="font-semibold">Canonical linked target</h2>
-              <TargetSummary target={effectiveTarget} snapshot={selected.targetSnapshot} />
+              <TargetSummary target={effectiveTarget} snapshot={retainedSnapshot} />
+              {canUnlinkTarget && (
+                <Button type="button" size="sm" variant="outline" onClick={unlinkTarget}>Unlink target</Button>
+              )}
             </section>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -284,6 +302,10 @@ function linkedTargetFromDetail(report) {
   if (report.linkedComic) return { type: "comic", id: report.linkedComic.id, label: report.linkedComic.title, title: report.linkedComic.title, owner: report.linkedComic.owner || report.linkedUser };
   if (report.linkedUser) return { type: "user", id: report.linkedUser.id, label: report.linkedUser.name, name: report.linkedUser.name, email: report.linkedUser.email };
   return null;
+}
+
+function hasTargetSnapshot(snapshot) {
+  return Boolean(snapshot?.userId || snapshot?.comicId || snapshot?.shareId);
 }
 
 function actionRequirement(action) {

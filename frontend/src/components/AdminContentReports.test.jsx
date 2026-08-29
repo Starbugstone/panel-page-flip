@@ -154,4 +154,48 @@ describe("AdminContentReports", () => {
     expect(payload).not.toHaveProperty("targetType");
     expect(payload).not.toHaveProperty("targetId");
   });
+
+  it("sends an explicit null target when an administrator unlinks a report", async () => {
+    const user = userEvent.setup();
+    const linkedReport = {
+      ...report,
+      linkedComic: { id: 17, title: "Linked comic", owner: { id: 7, name: "Comic Owner" } },
+      targetSnapshot: { comicId: 17, comicTitle: "Linked comic" },
+    };
+    vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+      path === "/api/admin/content-reports/42"
+        ? { report: linkedReport }
+        : {
+            reports: [{ ...summary, linkedTarget: { type: "comic", id: 17, label: "Linked comic" } }],
+            statuses: ["received", "under_review", "action_taken", "rejected", "closed"],
+            categories: ["copyright_ip", "other_illegal"],
+          }
+    ));
+    vi.mocked(api.patch).mockResolvedValue({
+      report: {
+        ...linkedReport,
+        status: "under_review",
+        linkedComic: null,
+        targetSnapshot: {},
+      },
+    });
+
+    render(<AdminContentReports />);
+    await user.click(await screen.findByRole("button", { name: /review CR-20260815-42/i }));
+    await user.click(await screen.findByRole("button", { name: /unlink target/i }));
+
+    expect(screen.getByText("No target has been confirmed.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /unlink target/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /save review/i }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+      "/api/admin/content-reports/42",
+      expect.objectContaining({
+        targetType: null,
+        targetId: null,
+        action: "none",
+        notifyOwner: false,
+      })
+    ));
+  });
 });

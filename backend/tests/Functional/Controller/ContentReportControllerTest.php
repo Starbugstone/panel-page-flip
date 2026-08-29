@@ -20,6 +20,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 {
     use SecurityLogAssertions;
 
+    private const APP_URL = 'http://localhost:8080';
+
     public function testAnonymousVisitorCanSubmitAnActionableReport(): void
     {
         $payload = $this->postJson('/api/content-reports', [
@@ -62,12 +64,12 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function structuredLocatorProvider(): iterable
     {
-        yield 'invitation URL' => [ContentReport::REFERENCE_INVITATION_URL, 'https://panel.example/share/invitation/ABC123'];
+        yield 'invitation URL' => [ContentReport::REFERENCE_INVITATION_URL, self::APP_URL.'/share/invitation/ABC123'];
         yield 'content code' => [ContentReport::REFERENCE_SHARING_CODE, 'C-1234-5678-9ABC'];
         yield 'user code' => [ContentReport::REFERENCE_USER_CODE, 'U-1234-5678-9ABC'];
         yield 'account' => [ContentReport::REFERENCE_ACCOUNT, 'known-account'];
         yield 'comic metadata' => [ContentReport::REFERENCE_COMIC, 'Issue 17, Example Publishing', ['reportedContentTitle' => 'The Example #17']];
-        yield 'panel URL' => [ContentReport::REFERENCE_PANEL_URL, 'https://panel.example/read/123'];
+        yield 'panel URL' => [ContentReport::REFERENCE_PANEL_URL, self::APP_URL.'/read/123'];
         yield 'other' => [ContentReport::REFERENCE_OTHER, 'External evidence reference EX-153'];
     }
 
@@ -87,6 +89,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         yield 'unsafe invitation scheme' => [ContentReport::REFERENCE_INVITATION_URL, 'file:///share/invitation/ABC'];
         yield 'wrong invitation path' => [ContentReport::REFERENCE_INVITATION_URL, 'https://panel.example/admin/ABC'];
         yield 'credentials in URL' => [ContentReport::REFERENCE_PANEL_URL, 'https://user:pass@panel.example/read/1'];
+        yield 'foreign invitation origin' => [ContentReport::REFERENCE_INVITATION_URL, 'https://foreign.example/share/invitation/ABC'];
+        yield 'foreign panel origin' => [ContentReport::REFERENCE_PANEL_URL, 'https://foreign.example/read/1'];
         yield 'invalid content code' => [ContentReport::REFERENCE_SHARING_CODE, 'C-not-a-code'];
         yield 'wrong code type' => [ContentReport::REFERENCE_USER_CODE, 'G-1234-5678-9ABC'];
     }
@@ -106,12 +110,12 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
         $resolved = $this->postJson('/api/content-reports', array_replace($this->validReport(), [
             'referenceType' => ContentReport::REFERENCE_INVITATION_URL,
-            'reportedReference' => 'https://panel.example/share/invitation/'.$plaintext,
+            'reportedReference' => self::APP_URL.'/share/invitation/'.$plaintext,
         ]));
         $unresolved = $this->postJson('/api/content-reports', array_replace($this->validReport(), [
             'reporterEmail' => 'second@example.com',
             'referenceType' => ContentReport::REFERENCE_INVITATION_URL,
-            'reportedReference' => 'https://panel.example/share/invitation/'.str_repeat('0', 64),
+            'reportedReference' => self::APP_URL.'/share/invitation/'.str_repeat('0', 64),
         ]));
 
         self::assertSame($resolved['message'], $unresolved['message']);
@@ -182,7 +186,7 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         $sourceContext = 'Invitation https://panel.example/share/invitation/'.str_repeat('C', 64);
         $this->postJson('/api/content-reports', array_replace($this->validReport(), [
             'referenceType' => ContentReport::REFERENCE_INVITATION_URL,
-            'reportedReference' => 'https://panel.example/share/invitation/'.$token,
+            'reportedReference' => self::APP_URL.'/share/invitation/'.$token,
             'reportedAccountReference' => $accountReference,
             'sourceContext' => $sourceContext,
             'explanation' => $explanation,

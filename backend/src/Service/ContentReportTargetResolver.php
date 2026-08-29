@@ -25,6 +25,7 @@ final class ContentReportTargetResolver
         private readonly ComicRepository $comics,
         private readonly ComicShareRepository $shares,
         private readonly UserRepository $users,
+        private readonly PublicUrl $publicUrl,
     ) {
     }
 
@@ -95,7 +96,7 @@ final class ContentReportTargetResolver
     private function invitationTarget(string $reference): ?array
     {
         $parts = parse_url($reference);
-        if (!is_array($parts) || !in_array(mb_strtolower((string) ($parts['scheme'] ?? '')), ['http', 'https'], true)) return null;
+        if (!is_array($parts) || !$this->publicUrl->hasSameOrigin($reference)) return null;
         if (!preg_match('#^/share/invitation/([A-Za-z0-9]+)$#', (string) ($parts['path'] ?? ''), $matches)) return null;
         $share = $this->invitationTokens->findByPlaintext($matches[1])?->getComicShare();
         return $share?->getId() === null ? null : ['type' => 'share', 'id' => $share->getId(), 'method' => 'invitation_url'];
@@ -127,7 +128,7 @@ final class ContentReportTargetResolver
     private function panelUrlTarget(string $reference): ?array
     {
         $parts = parse_url($reference);
-        if (!is_array($parts) || !in_array(mb_strtolower((string) ($parts['scheme'] ?? '')), ['http', 'https'], true)) return null;
+        if (!is_array($parts) || !$this->publicUrl->hasSameOrigin($reference)) return null;
         if (!preg_match('#^/read/(\d+)$#', (string) ($parts['path'] ?? ''), $matches)) return null;
         $comic = $this->comics->find((int) $matches[1]);
         return $comic?->getId() === null ? null : ['type' => 'comic', 'id' => $comic->getId(), 'method' => 'panel_url'];
