@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminUserDetails from "./AdminUserDetails";
 import { api } from "@/lib/api";
 
-vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
+vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() } }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 // Stable across renders on purpose: the page's load effect lists `toast` in its
 // dependencies, so a fresh function per render would re-fetch for ever.
@@ -30,6 +30,8 @@ const account = {
   tagCount: 0,
   storageUsedBytes: 0,
   storageQuotaBytes: 10 * 1024 ** 3,
+  storageQuotaOverrideBytes: null,
+  storageDefaultQuotaBytes: 10 * 1024 ** 3,
   unmeasuredComicCount: 0,
 };
 
@@ -50,6 +52,15 @@ describe("AdminUserDetails", () => {
     vi.clearAllMocks();
     vi.mocked(api.get).mockResolvedValue({ user: account });
     vi.mocked(api.post).mockResolvedValue({ message: "User code replaced." });
+    vi.mocked(api.patch).mockResolvedValue({
+      message: "Storage quota set to unlimited.",
+      user: {
+        id: 7,
+        storageQuotaBytes: 0,
+        storageQuotaOverrideBytes: 0,
+        storageDefaultQuotaBytes: 10 * 1024 ** 3,
+      },
+    });
   });
 
   it("shows the same storage figures the user list does", async () => {
@@ -73,6 +84,59 @@ describe("AdminUserDetails", () => {
     expect(await screen.findByRole("progressbar")).toHaveAccessibleName(
       /Measured storage used.*2 comics have no stored file-size metadata/
     );
+  });
+
+  it("lets an administrator set an explicit unlimited quota with a warning", async () => {
+    const actor = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Storage allowance");
+    await actor.click(screen.getByLabelText(/Use server default/));
+    const input = screen.getByLabelText("Custom quota (GiB)");
+    await actor.clear(input);
+    await actor.type(input, "0");
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /Available disk space becomes the only remaining limit/
+    );
+    await actor.click(screen.getByRole("button", { name: "Save storage quota" }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+      "/api/users/7/storage-quota",
+      { storageQuotaOverrideBytes: 0 }
+    ));
+  });
+
+  it("lets an administrator clear a custom quota back to the server default", async () => {
+    const actor = userEvent.setup();
+    vi.mocked(api.get).mockResolvedValue({
+      user: {
+        ...account,
+        storageQuotaBytes: 2 * 1024 ** 3,
+        storageQuotaOverrideBytes: 2 * 1024 ** 3,
+      },
+    });
+    vi.mocked(api.patch).mockResolvedValue({
+      message: "Storage quota restored to the server default.",
+      user: {
+        id: 7,
+        storageQuotaBytes: 10 * 1024 ** 3,
+        storageQuotaOverrideBytes: null,
+        storageDefaultQuotaBytes: 10 * 1024 ** 3,
+      },
+    });
+    renderPage();
+
+    await screen.findByText("Storage allowance");
+    const useDefault = screen.getByLabelText(/Use server default/);
+    expect(useDefault).not.toBeChecked();
+    await actor.click(useDefault);
+    await actor.click(screen.getByRole("button", { name: "Save storage quota" }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+      "/api/users/7/storage-quota",
+      { storageQuotaOverrideBytes: null }
+    ));
   });
 
   it("describes Dropbox activity as a one-way import", async () => {

@@ -54,10 +54,10 @@ describe("UserStorageUsage", () => {
     expect(await screen.findByText("8,912,345,678 / 10,737,418,240 bytes")).toBeInTheDocument();
   });
 
-  it("reports no percentage when no quota is configured", () => {
+  it("reports no percentage when the quota is unlimited", () => {
     render(<UserStorageUsage usedBytes={5 * GIB} quotaBytes={0} />);
 
-    expect(screen.getByText("No quota")).toBeInTheDocument();
-    expect(screen.getByRole("progressbar")).toHaveAccessibleName("Storage used: 5.00 GiB. No quota configured.");
+    expect(screen.getByText("Unlimited")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAccessibleName("Storage used: 5.00 GiB. Unlimited storage quota.");
   });
 });

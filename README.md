@@ -112,6 +112,7 @@ Important configuration variables:
 - `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
 - `PRIVACY_OPERATOR`, `PRIVACY_EMAIL` — public data-controller name and privacy contact
 - `MAX_CONCURRENT_UPLOADS` — concurrent upload HTTP requests shared across a batch; keep below the PHP-FPM worker count (the Docker default is 4 requests for 5 workers)
+- `UPLOAD_USER_QUOTA_BYTES` — default canonical comic storage per account in bytes (10 GiB when omitted); administrators can override it per user, and `0` deliberately means unlimited
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REDIRECT_URI` — optional Dropbox OAuth settings
 - `DROPBOX_APP_FOLDER`, `DROPBOX_SYNC_LIMIT`, `DROPBOX_RATE_LIMIT` — optional Dropbox import settings
 - `ADSENSE_ENABLED`, `ADSENSE_CLIENT` — optional Google AdSense, off by default.

@@ -38,7 +38,10 @@ parameters:
     upload_max_chunk_bytes: 2097152
     upload_max_total_bytes: 524288000
     upload_max_total_chunks: 600
-    upload_user_quota_bytes: 10737418240
+    # Canonical source bytes each account may own unless an administrator sets
+    # a per-user override. Zero deliberately means unlimited.
+    upload_user_quota_bytes_default: 10737418240
+    upload_user_quota_bytes: '%env(int:default:upload_user_quota_bytes_default:UPLOAD_USER_QUOTA_BYTES)%'
     # The optional qpdf second opinion on a PDF's structure, as a per-document
     # time budget. It costs about 0.4s per megabyte, so 8 seconds admits
     # documents up to roughly 20 MB and skips the large scans where the check

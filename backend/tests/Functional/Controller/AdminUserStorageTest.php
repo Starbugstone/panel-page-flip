@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Tests\Functional\Controller;
 
+use App\Entity\AdminAuditLog;
+use App\Service\StorageQuotaService;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use Doctrine\ORM\EntityManagerInterface;
 
 /**
  * What the admin screens read to answer "how much of this server is this
@@ -63,6 +66,94 @@ final class AdminUserStorageTest extends AbstractApiTestCase
         foreach (['comicCount', 'storageUsedBytes', 'storageQuotaBytes', 'unmeasuredComicCount'] as $field) {
             self::assertSame($listed[$field], $detail[$field], $field . ' disagrees between the list and the detail page.');
         }
+    }
+
+    public function testTheAdminCanSetAndClearAQuotaOverride(): void
+    {
+        $user = UserFactory::createOne()->object();
+        $admin = $this->createAndLoginAdmin();
+
+        $updated = $this->patchJson('/api/users/' . $user->getId() . '/storage-quota', [
+            'storageQuotaOverrideBytes' => 2_147_483_648,
+        ]);
+
+        self::assertResponseIsSuccessful();
+        self::assertSame(2_147_483_648, $updated['user']['storageQuotaBytes']);
+        self::assertSame(2_147_483_648, $updated['user']['storageQuotaOverrideBytes']);
+        self::assertSame($this->configuredQuotaBytes(), $updated['user']['storageDefaultQuotaBytes']);
+
+        $detail = $this->getJson('/api/users/' . $user->getId())['user'];
+        self::assertSame(2_147_483_648, $detail['storageQuotaBytes']);
+        self::assertSame(2_147_483_648, $detail['storageQuotaOverrideBytes']);
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $audit = $entityManager->getRepository(AdminAuditLog::class)->findOneBy([
+            'action' => 'user_storage_quota_updated',
+            'targetId' => $user->getId(),
+        ]);
+        self::assertNotNull($audit);
+        self::assertSame($admin->getId(), $audit->getAdminUser()?->getId());
+        self::assertSame(2_147_483_648, $audit->getPayload()['override_after_bytes']);
+
+        $cleared = $this->patchJson('/api/users/' . $user->getId() . '/storage-quota', [
+            'storageQuotaOverrideBytes' => null,
+        ]);
+
+        self::assertResponseIsSuccessful();
+        self::assertNull($cleared['user']['storageQuotaOverrideBytes']);
+        self::assertSame($this->configuredQuotaBytes(), $cleared['user']['storageQuotaBytes']);
+    }
+
+    public function testTheAdminCanMakeAnAccountExplicitlyUnlimited(): void
+    {
+        $user = UserFactory::createOne()->object();
+        $this->createAndLoginAdmin();
+
+        $updated = $this->patchJson('/api/users/' . $user->getId() . '/storage-quota', [
+            'storageQuotaOverrideBytes' => 0,
+        ]);
+
+        self::assertResponseIsSuccessful();
+        self::assertSame(0, $updated['user']['storageQuotaBytes']);
+        self::assertSame(0, $updated['user']['storageQuotaOverrideBytes']);
+        self::assertSame('Storage quota set to unlimited.', $updated['message']);
+    }
+
+    public function testAUserCannotChangeTheirOwnQuota(): void
+    {
+        $user = $this->createAndLoginUser();
+
+        $this->patchJson('/api/users/' . $user->getId() . '/storage-quota', [
+            'storageQuotaOverrideBytes' => 0,
+        ]);
+
+        self::assertResponseStatusCodeSame(403);
+    }
+
+    /**
+     * @dataProvider invalidQuotaOverrides
+     */
+    public function testInvalidQuotaOverridesAreRejected(mixed $override): void
+    {
+        $user = UserFactory::createOne()->object();
+        $this->createAndLoginAdmin();
+
+        $payload = $this->patchJson('/api/users/' . $user->getId() . '/storage-quota', [
+            'storageQuotaOverrideBytes' => $override,
+        ]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertArrayHasKey('storageQuotaOverrideBytes', $payload['errors']);
+    }
+
+    /** @return iterable<string, array{mixed}> */
+    public function invalidQuotaOverrides(): iterable
+    {
+        yield 'negative' => [-1];
+        yield 'numeric string' => ['10737418240'];
+        yield 'fraction' => [1.5];
+        yield 'boolean' => [false];
+        yield 'larger than JavaScript can represent exactly' => [StorageQuotaService::MAX_QUOTA_BYTES + 1];
     }
 
     public function testStorageSurvivesSearchAndPaging(): void

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, BookOpen, CalendarPlus, Clock, Cloud, HardDrive, ShieldAlert, Tags, Trash2 } from "lucide-react";
 
 import { AdminComicsList } from "@/components/AdminComicsList";
+import { AdminStorageQuotaForm } from "@/components/AdminStorageQuotaForm";
 import { AdminTagsList } from "@/components/AdminTagsList";
 import { UserStorageUsage } from "@/components/UserStorageUsage";
 import { Badge } from "@/components/ui/badge";
@@ -252,6 +253,10 @@ function AdminUserDetailsPage({ userId }) {
                 quotaBytes={user.storageQuotaBytes}
                 unmeasuredComicCount={user.unmeasuredComicCount}
                 className="max-w-md"
+              />
+              <AdminStorageQuotaForm
+                user={user}
+                onUpdated={(quota) => setUser((current) => ({ ...current, ...quota }))}
               />
             </CardContent>
           </Card>
