@@ -888,6 +888,75 @@ describe("ComicReader", () => {
       expect(pageControls()).toHaveClass("reader-chrome-hidden");
     });
 
+    /**
+     * Reported from real reading: while zoomed in, any stray click threw the
+     * zoom away. Dragging was already exempt — the pan hook swallows the click
+     * after 4px of movement — so it was the clicks *between* drags, made to
+     * follow a panel, that cost the reader the view they had set up.
+     *
+     * What a zoomed click now does instead is toggle the chrome, which is what
+     * a tap has always done. That it no longer *leaves* the zoom is pinned on
+     * mouseClickAction directly, in reader-gestures.test.js: jsdom lays nothing
+     * out, so zoomToFit has no geometry to work from and the transform cannot
+     * be observed changing here either way.
+     *
+     * Clicks go in as native events rather than through userEvent: the pan hook
+     * calls preventDefault on pointerdown to stop the browser starting its own
+     * image drag, and userEvent honours that by withholding the click the real
+     * browser still sends.
+     */
+    it("toggles the controls from a single click on a zoomed page", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      measureZoomGeometry();
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      expect(pageControls()).not.toHaveClass("reader-chrome-hidden");
+
+      fireEvent.click(surface(), { clientX: 200, clientY: 400 });
+
+      expect(pageControls()).toHaveClass("reader-chrome-hidden");
+      expect(surface()).toHaveAttribute("data-page-zoomed", "true");
+    });
+
+    /**
+     * A double click arrives as click, click, dblclick — so the controls are
+     * toggled twice and end up exactly where they started, leaving the double
+     * click to mean only "zoom out". This pins that netting-out: a change that
+     * made one of the two clicks stop toggling would leave the reader's
+     * controls flipped every time they zoomed back out.
+     */
+    it("does not toggle the controls when the click turns out to be a double click", async () => {
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      measureZoomGeometry();
+      await user.click(screen.getByRole("button", { name: /zoom in/i }));
+      expect(pageControls()).not.toHaveClass("reader-chrome-hidden");
+
+      const surfaceElement = surface();
+      fireEvent.click(surfaceElement, { clientX: 200, clientY: 400 });
+      fireEvent.click(surfaceElement, { clientX: 200, clientY: 400 });
+      fireEvent.dblClick(surfaceElement, { clientX: 200, clientY: 400 });
+
+      expect(pageControls()).not.toHaveClass("reader-chrome-hidden");
+    });
+
+    /** A fitted page has no double-click meaning, so its clicks must not be delayed. */
+    it("still turns the page immediately from a mouse click when not zoomed", async () => {
+      renderReader();
+      await page(1);
+      const surfaceElement = measuredSurface();
+      Object.defineProperty(surfaceElement, "getBoundingClientRect", {
+        value: () => ({ left: 0, top: 0, width: 400, height: 400 }),
+        configurable: true,
+      });
+
+      fireEvent.click(surfaceElement, { clientX: 390, clientY: 200 });
+
+      expect(await page(2)).toBeInTheDocument();
+    });
+
     it("releases a pointer-focused control when the reader returns to the artwork", async () => {
       const user = userEvent.setup();
       renderReader();

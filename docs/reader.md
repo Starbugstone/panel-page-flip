@@ -84,7 +84,8 @@ broken — so it has its own small set of rules instead.
 | --- | --- |
 | Click the mat left or right of the page | Previous or next page in paged modes, adjusted for reading direction |
 | Click the page itself | Show or hide the reader controls. **Never turns the page** |
-| Click anywhere while zoomed | Back to the fitted page |
+| Click anywhere while zoomed | Show or hide the reader controls. **Never leaves the zoom** |
+| Double click while zoomed | Back to the fitted page |
 | Drag while zoomed | Pan the page; the cursor becomes a grab handle to say so |
 | Wheel while zoomed | Zoom around the pointer |
 | `Escape` while zoomed | Back to the fitted page |
@@ -99,10 +100,24 @@ lose anything — showing and hiding the chrome.
 Touch is deliberately unaffected and still uses the whole width: a phone fitted
 to width has no mat to aim at, and a thumb has no cursor to aim with.
 
+A zoomed page keeps that rule rather than making an exception to it. It fills
+the window, so every click lands on artwork — which is exactly when a reader is
+clicking to follow a panel, and a single click that zoomed out threw away both
+the magnification and the pan they had just set up. Leaving is a deliberate act:
+a double click, `Escape`, or the zoom-out control. Touch has always worked this
+way — a tap on a zoomed page toggles the chrome — so this is the mouse being
+made consistent with the finger rather than a new rule.
+
+The two clicks inside a double click each toggle the chrome, which leaves it
+where it started, so the double click means only "zoom out". Telling a single
+click from a double one by delaying the toggle was tried and removed: it put a
+fifth of a second between every zoomed click and the controls appearing, to save
+a flicker that cancels itself out.
+
 The drag that moved a zoomed page does not also arrive as a click, or letting go
-would zoom back out and undo the pan that was just made. `Escape` only claims the
-key while there is a zoom to leave and the settings sheet is closed, so it keeps
-its ordinary meanings the rest of the time.
+would toggle the chrome on every pan. `Escape` only claims the key while there is
+a zoom to leave and the settings sheet is closed, so it keeps its ordinary
+meanings the rest of the time.
 
 Continuous mode has no zoom control on a desktop — there is no zoom button, and
 the wheel scrolls. Pinch and double tap still zoom a continuous page on a

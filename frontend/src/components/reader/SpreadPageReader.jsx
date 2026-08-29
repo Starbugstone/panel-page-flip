@@ -49,6 +49,7 @@ export function SpreadPageReader({
   isSwiping = false,
   gestures,
   onSurfaceClick,
+  onSurfaceDoubleClick,
   children,
 }) {
   const safeFit = Object.hasOwn(VIEWPORT_CLASSES, fit) ? fit : "contain";
@@ -73,6 +74,10 @@ export function SpreadPageReader({
         // caller's decision, not this element's.
         if (event.target.closest("button, a, input, select, textarea")) return;
         if (lastPointerTypeRef.current === "mouse") onSurfaceClick?.(event);
+      }}
+      onDoubleClick={(event) => {
+        if (event.target.closest("button, a, input, select, textarea")) return;
+        if (lastPointerTypeRef.current === "mouse") onSurfaceDoubleClick?.(event);
       }}
     >
       <div

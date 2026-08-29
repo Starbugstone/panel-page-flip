@@ -51,16 +51,17 @@ export function SinglePageReader({
   paged = true,
   gestures,
   onSurfaceClick,
+  onSurfaceDoubleClick,
   onRetry,
   isStale = false,
   children,
 }) {
   const safeFit = Object.hasOwn(VIEWPORT_CLASSES, fit) ? fit : "contain";
   const zoomed = isZoomed(transform);
-  // Clicking a zoomed page to fit it again is the mouse's way out, and touch
-  // has the second double tap. They are not alternatives: a browser sends a
-  // click after a tap too, and after a double tap that click would arrive on
-  // the zoom the double tap had just applied and undo it.
+  // Mouse clicks and touch taps reach this element by different routes, and
+  // only the mouse's belong to the caller: a browser sends a click after a tap
+  // too, so without this a double tap would zoom and the trailing click would
+  // immediately undo it.
   const lastPointerTypeRef = useRef("mouse");
 
   useReaderGestures(containerRef, { zoomed, paged, ...gestures });
@@ -82,6 +83,10 @@ export function SinglePageReader({
         // caller's decision, not this element's.
         if (event.target.closest("button, a, input, select, textarea")) return;
         if (lastPointerTypeRef.current === "mouse") onSurfaceClick?.(event);
+      }}
+      onDoubleClick={(event) => {
+        if (event.target.closest("button, a, input, select, textarea")) return;
+        if (lastPointerTypeRef.current === "mouse") onSurfaceDoubleClick?.(event);
       }}
     >
       {image && (

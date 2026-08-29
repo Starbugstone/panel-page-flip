@@ -291,10 +291,14 @@ export function tapZone(x, width, edgeFraction = 0.28) {
  * @returns {"zoomOut"|"chrome"|"left"|"right"}
  */
 export function mouseClickAction({ x, width, onArtwork = false, zoomed = false }) {
-  // A zoomed page is bigger than its window, so there is no mat and no zone to
-  // read. Clicking is the mouse's way back out.
-  if (zoomed) return "zoomOut";
-  if (onArtwork) return "chrome";
+  // A zoomed page fills its window, so there is no mat left and every click
+  // lands on artwork — which is exactly when a reader is clicking to follow a
+  // panel, not to leave. Zooming out from a stray click threw away the pan and
+  // the magnification they had just set up, so a click means here what it means
+  // on artwork anywhere else, and leaving is a deliberate act: double-click,
+  // Escape, or the zoom-out control. Touch has always worked this way — a tap
+  // on a zoomed page toggles the chrome — and this is the mouse catching up.
+  if (zoomed || onArtwork) return "chrome";
 
   const zone = tapZone(x, width);
 

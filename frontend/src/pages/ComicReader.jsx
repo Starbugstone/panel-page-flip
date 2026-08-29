@@ -483,11 +483,23 @@ export default function ComicReader() {
       zoomed: isZoomed,
     });
 
-    if (action === "zoomOut") zoomToFit();
-    else if (action === "chrome") toggleChrome();
+    if (action === "chrome") toggleChrome();
     else if (action === "left") physicalLeft();
     else physicalRight();
-  }, [isZoomed, physicalLeft, physicalRight, toggleChrome, zoomToFit]);
+  }, [isZoomed, physicalLeft, physicalRight, toggleChrome]);
+
+  /**
+   * The mouse's counterpart to touch's second tap: a deliberate way back out.
+   *
+   * The two clicks that precede it have each toggled the chrome, which leaves
+   * it exactly as it was — so this only has to deal with the zoom. Deferring
+   * those toggles to tell a single click from a double one was tried and
+   * removed: it put a fifth of a second between every zoomed click and the
+   * controls appearing, to save a flicker that cancels itself out.
+   */
+  const handleMousePageDoubleClick = useCallback(() => {
+    if (isZoomed) zoomToFit();
+  }, [isZoomed, zoomToFit]);
 
   if (Boolean(comicId) && isFetchingComic) {
     return <div className="flex min-h-[60vh] items-center justify-center bg-background"><Skeleton className="h-[60vh] w-full max-w-md" /></div>;
@@ -577,6 +589,7 @@ export default function ComicReader() {
                 isSwiping={isSwiping}
                 gestures={gestures}
                 onSurfaceClick={handleMousePageClick}
+                onSurfaceDoubleClick={handleMousePageDoubleClick}
               />
             ) : (
               <SinglePageReader
@@ -594,6 +607,7 @@ export default function ComicReader() {
                 isSwiping={isSwiping}
                 gestures={gestures}
                 onSurfaceClick={handleMousePageClick}
+                onSurfaceDoubleClick={handleMousePageDoubleClick}
                 onRetry={() => retryPage(currentPage)}
               />
             )}
