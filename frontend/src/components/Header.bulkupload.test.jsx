@@ -4,18 +4,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Header } from "@/components/Header.jsx";
 
+const { adSense } = vi.hoisted(() => ({ adSense: { isActive: false } }));
+
+vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({ useAdSense: () => adSense }));
 vi.mock("@/hooks/use-sharing", () => ({ useSharing: () => ({ summary: { pendingInvitations: 0 } }) }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
-const renderHeader = (pathname, { isAdmin = false } = {}) => render(
-  <MemoryRouter initialEntries={[pathname]}>
+const renderHeader = (entry, { isAdmin = false } = {}) => render(
+  <MemoryRouter initialEntries={[entry]}>
     <Header isLoggedIn onLogout={vi.fn()} isAdmin={isAdmin} />
   </MemoryRouter>
 );
 
 const bulkLink = () => screen.getByRole("link", { name: "Bulk Upload" });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  adSense.isActive = false;
+});
 
 /**
  * Bulk upload uses two routes for the Offerwall boundary: the clean page at
@@ -23,7 +29,15 @@ beforeEach(() => vi.clearAllMocks());
  * when it was one.
  */
 describe("the bulk upload link", () => {
-  it("goes to the gate from anywhere else", () => {
+  it("skips the gate entirely where there is no advertising to show", () => {
+    renderHeader("/dashboard");
+
+    expect(bulkLink()).toHaveAttribute("href", "/upload/bulk/session");
+  });
+
+  it("goes through the gate where advertising is on", () => {
+    adSense.isActive = true;
+
     renderHeader("/dashboard");
 
     expect(bulkLink()).toHaveAttribute("href", "/upload/bulk");
@@ -36,9 +50,9 @@ describe("the bulk upload link", () => {
   });
 
   /**
-   * The gate redirects through to the batch in well under a second, so keying
-   * the highlight on the gate's own path alone left the nav item dark for the
-   * entire time bulk upload was actually being used — while /upload and
+   * Bulk upload is spent almost entirely on the batch screen behind the gate,
+   * so keying the highlight on the gate's own path alone left the nav item dark
+   * for the whole time bulk upload was actually being used — while /upload and
    * /dashboard still lit up, so the header disagreed with itself.
    */
   it("stays highlighted on the batch screen behind it", () => {
@@ -53,10 +67,18 @@ describe("the bulk upload link", () => {
    * and progress bar in it, while the uploads already in flight carried on
    * against a tree nobody could see.
    */
+  /**
+   * Checked with advertising on, where the entry link would point at the gate:
+   * that is what makes this distinguish staying put from being sent back
+   * through it, and being sent back reloads the page and takes the titles,
+   * tags and uploads in flight with it.
+   */
   it("does not leave the batch screen when it is already there", () => {
-    renderHeader("/upload/bulk/session");
+    adSense.isActive = true;
 
-    expect(bulkLink()).toHaveAttribute("href", "/upload/bulk/session");
+    renderHeader("/upload/bulk/session?folder=7");
+
+    expect(bulkLink()).toHaveAttribute("href", "/upload/bulk/session?folder=7");
   });
 });
 

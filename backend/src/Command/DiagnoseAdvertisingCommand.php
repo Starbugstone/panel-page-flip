@@ -16,6 +16,16 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 #[AsCommand(name: 'app:diagnose-advertising', description: 'Show effective AdSense, Offerwall, CSP and runtime-config state')]
 final class DiagnoseAdvertisingCommand extends Command
 {
+    /**
+     * Printed for an operator comparing it against their AdSense page
+     * exclusions. A copy of `AD_SAFE_ROUTES` in `frontend/src/lib/advertising.js`,
+     * which stays the authority; `advertising.test.js` reads this back and fails
+     * on any drift.
+     *
+     * @var list<string>
+     */
+    public const AD_SAFE_ROUTES = ['/', '/login', '/upload', '/upload/bulk'];
+
     public function __construct(
         private readonly AdvertisingConfiguration $advertising,
         #[Autowire('%kernel.project_dir%')]
@@ -35,7 +45,7 @@ final class DiagnoseAdvertisingCommand extends Command
             ['Publisher id valid' => $this->yesNo($this->advertising->hasValidClient())],
             ['ads.txt expected' => $this->yesNo($this->advertising->isEnabled())],
             ['Runtime config mode' => $mode],
-            ['Ad-safe routes' => '/, /login, /upload, /upload/bulk'],
+            ['Ad-safe routes' => implode(', ', self::AD_SAFE_ROUTES)],
             ['Rewarded integration' => 'Google AdSense Offerwall (account-side; no application completion callback)'],
             ['Advertising CSP' => 'per-response nonce + strict-dynamic'],
         );

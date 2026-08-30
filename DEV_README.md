@@ -23,7 +23,7 @@ lives in [`docs/`](docs/):
 | [security-logging.md](docs/security-logging.md) | Security/audit channels, retention, alerts |
 | [content-reporting.md](docs/content-reporting.md) | Illegal-content notices and restrictions |
 | [administrator-notices.md](docs/administrator-notices.md) | Warning one account about their activity |
-| [advertising.md](docs/advertising.md) | Optional AdSense, consent, rewarded bulk upload |
+| [advertising.md](docs/advertising.md) | Optional AdSense, consent, AdSense Offerwall, strict CSP |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
 
@@ -2031,18 +2031,23 @@ backup:
 The scripts are `build-release.sh`, `deploy-ssh.sh`, `deploy-ftp.sh` and
 `post-deploy.sh`, with `scripts/server/` holding the install and backup helpers.
 They build the React application, install optimized production Composer
-dependencies, consolidate Symfony's production environment, and exclude
+dependencies, leave the host's `backend/.env.local` alone, and exclude
 `public/uploads/` from every transfer.
 
 Deployment configuration lives in `scripts/.env.deploy`, which is gitignored and
-never committed. The variables it holds — `PROD_*`, `SSH_*`, `FTP_*` and
+never committed. The variables it holds — `DEPLOY_CONFIG_MODE`, `PROD_*`, `SSH_*`, `FTP_*` and
 `POST_DEPLOY_TOKEN` — are documented in the two guides above rather than
 duplicated here, because they are the thing most likely to drift.
 
-Advertising is a build-time decision: `PROD_ADSENSE_ENABLED` and
-`PROD_ADSENSE_CLIENT` are read when the release is built, so editing
-`backend/.env` on the host after `composer dump-env prod` changes nothing. See
-the production checklist in [docs/advertising.md](docs/advertising.md).
+Runtime configuration is a deployment-mode decision. The default
+`DEPLOY_CONFIG_MODE=server-local` ships no dotenv file at all and reads the
+host's ignored `backend/.env.local`, so advertising is switched on there and
+`PROD_ADSENSE_*` in `scripts/.env.deploy` is not consulted. The opt-in
+`compiled` mode runs `composer dump-env prod` and bakes `PROD_*` into
+`backend/.env.local.php`, which Symfony then reads *instead of* `.env.local` —
+later edits to that file change nothing until the compiled one is regenerated or
+removed. See the production checklist in
+[docs/advertising.md](docs/advertising.md).
 
 ### Before every release
 

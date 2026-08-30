@@ -78,9 +78,10 @@ a second safeguard, not a replacement for the application allowlist.
 
 Panel Page Flip uses AdSense **Privacy & messaging → Offerwall → Rewarded ad**.
 Google implements the rewarded format, decides whether inventory is available,
-records completion and grants the configured entitlement. The application does
-not call the H5-game `adBreak()` API and does not create a fake completion
-signal.
+records completion and grants the configured entitlement — for this deployment,
+a page-view grant counted in loads of `/upload/bulk`, set in the account rather
+than here. The application does not call the H5-game `adBreak()` API and does
+not create a fake completion signal.
 
 The flow is:
 
@@ -90,8 +91,24 @@ The flow is:
 /upload/bulk/session  ad-free upload queue
 ```
 
+`BulkUploadEntryLink` is the only way in, and decides how. With advertising on
+it is a plain anchor, so entering the gate is a real document load: Google's
+messaging APIs expose no way to re-evaluate a message after a client-side route
+change, so a router navigation would reach the gate without ever giving the
+Offerwall a chance. One load of `/upload/bulk` is one such chance, and the unit
+the entitlement below is counted in.
+
+While `/api/public-config` is still loading, the link uses a router navigation
+to the gate. If advertising is enabled, the site code is then loaded there for
+the first time; a fast click cannot bypass the Offerwall target. **Once
+advertising is confirmed off, the gate is skipped entirely** and the link is an
+ordinary router navigation to the queue. The header's link back from the batch
+screen also stays a router navigation and preserves its folder query, because
+reloading or resetting that route mid-batch would lose the queue in flight.
+
 There is no application-owned “watch ad” prompt, rewarded audit flag or
-two-hour rewarded session. Consequently no stale session can hide a failed
+server-side reward session; the two-hour session that predated this design was
+removed with the rest of it. Consequently no stale session can hide a failed
 integration and no reset endpoint is needed. If the site code is blocked,
 consent is refused, Google has no rewarded inventory, or Offerwall does not
 render for any other reason, the normal Continue action remains available.
@@ -104,11 +121,22 @@ Configure the account exactly as follows:
 3. Add a page exclusion for `/upload/bulk/session`. Exclusions override
    inclusions.
 4. Enable the Rewarded ad choice and select the intended rewarded ad unit.
-5. Choose the entitlement in AdSense (page views or time). Do not reproduce it
-   in application state.
-6. Set metering for the desired frequency. For deterministic account-side
-   testing, use Google's Privacy & messaging testing flow/`fc=alwaysshow`; it
-   cannot override an excluded URL.
+5. Set a **page-view** entitlement, at the smallest value offered. Page views
+   rather than time because `/upload/bulk` is the only included URL and
+   `/upload/bulk/session` is excluded, and Google confirms excluded pages do not
+   count towards a visitor's threshold — so the only page view this installation
+   produces is one load of the gate, which is one attempt to start a batch. An
+   entitlement of *N* covers the next *N* loads before the Offerwall returns.
+
+   One advertisement per batch is not reachable: grants are expressed as
+   *additional* page views, so even the smallest still covers the next visit.
+   Treat "every other batch" as the floor. The value stays in the account —
+   nothing here can read it back, so a copy would only ever be the wrong one.
+6. Set the metering threshold to the smallest value offered. Google does not
+   document whether a threshold of *N* gates the *N*th or the *N+1*th page view,
+   so confirm the real frequency in the account rather than against this page.
+   For deterministic account-side testing use Google's Privacy & messaging
+   testing flow/`fc=alwaysshow`; it cannot override an excluded URL.
 
 Google no longer requires ordinary subdomains to be registered as separate
 AdSense sites. The approved `starbugstone.com` site can serve code on
@@ -155,10 +183,19 @@ untrusted script. Non-script directives retain the explicit audited origins in
 Reference: [Integrate the AdSense ad code with a Content Security Policy](https://support.google.com/adsense/answer/16283098).
 
 On Apache/Symfony, `FrontendController` creates a cryptographic nonce, injects it
-into every initial Vite script and emits the matching response header. The
-Apache `.htaccess` deliberately does not add a second CSP header. Static nginx
-uses its per-request `$request_id` in both the header and `sub_filter` injection.
+into every initial Vite script and emits the matching response header. Every HTML
+route reaches it: `scripts/deploy/htaccess.dist` rewrites client-side paths to
+`index.php` rather than serving the built `index.html` off disk, because a static
+shell arrives with no policy and no nonce. The `.htaccess` deliberately adds no
+CSP header of its own — `Header always set` replaces rather than merges, so a
+second policy there would overwrite the nonce header and block every script.
+
 Advertising-off Symfony responses keep the tighter `script-src 'self'` policy.
+The nginx headers cannot: they are baked into the image and the container never
+sees `ADSENSE_ENABLED`, so both nginx targets carry the advertising shape
+unconditionally and use the per-request `$request_id` in the header and in the
+`sub_filter` that nonces the script tags. Those targets are the local Docker
+stack; the released deployments are Apache/Symfony.
 
 After changing `backend/config/csp.json`, run:
 

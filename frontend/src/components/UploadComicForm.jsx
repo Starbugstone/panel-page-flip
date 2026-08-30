@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+
+import { BulkUploadEntryLink } from "@/components/BulkUploadEntryLink.jsx";
 import { Loader2, Upload, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useChunkedUpload } from "@/hooks/use-chunked-upload";
@@ -104,7 +106,7 @@ export default function UploadComicForm() {
       <CardHeader>
         <CardTitle className="text-2xl font-comic">Upload New Comic</CardTitle>
         <CardDescription>
-          Upload one comic here, or <Link className="text-comic-purple underline" to={`/upload/bulk?folder=${selectedFolderId == null ? "root" : selectedFolderId}`}>upload several at once</Link>.
+          Upload one comic here, or <BulkUploadEntryLink className="text-comic-purple underline" search={`?folder=${selectedFolderId == null ? "root" : selectedFolderId}`}>upload several at once</BulkUploadEntryLink>.
         </CardDescription>
       </CardHeader>
       <CardContent>

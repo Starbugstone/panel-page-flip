@@ -101,18 +101,13 @@ export function isAdvertisingActive(config) {
  * answers within the timeout.
  *
  * The script loader needs this because browser load callbacks can arrive late,
- * more than once, or never. A
- * second settle would leave a cached answer permanently contradicting what
- * actually happened, so the rule lives in one place.
- *
- * `holdOpen` stops the timeout without settling — for the point where Google
- * has confirmed it has something to show and the wait is over, but the outcome
- * is not known yet.
+ * more than once, or never. A second settle would leave a cached answer
+ * permanently contradicting what actually happened, so the rule lives in one
+ * place.
  *
  * @param {number} timeoutMs
- * @param {{ onSettle?: (outcome: string) => void }} [options]
  */
-export function settleOnce(timeoutMs, { onSettle } = {}) {
+export function settleOnce(timeoutMs) {
   let settled = false;
   let timer;
   let settle;
@@ -122,12 +117,11 @@ export function settleOnce(timeoutMs, { onSettle } = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      onSettle?.(outcome);
       resolve(outcome);
     };
   });
 
   timer = setTimeout(() => settle("unavailable"), timeoutMs);
 
-  return { promise, settle, holdOpen: () => clearTimeout(timer) };
+  return { promise, settle };
 }

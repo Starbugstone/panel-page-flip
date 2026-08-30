@@ -425,7 +425,7 @@ server {
     server_name comics.yourdomain.com;
 
     root /var/www/comics/backend/public;
-    index index.php index.html;
+    index index.php;
 
     # Comic uploads can be big.
     client_max_body_size 100M;
@@ -435,19 +435,20 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    # Security headers
+    # Security headers. Deliberately no Content-Security-Policy: Symfony sends
+    # one per response, carrying the nonce it injected into the page's scripts,
+    # and a second add_header here would be enforced alongside it — the
+    # intersection of the two blocks every script on the page.
     add_header X-Content-Type-Options "nosniff"           always;
     add_header X-Frame-Options        "DENY"              always;
     add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
 
-    # SPA: serve index.html for any non-file, non-API path.
+    # Everything that is not a file on disk goes to Symfony, SPA routes
+    # included. Serving index.html directly would be faster and would lose the
+    # CSP nonce, the per-path canonical, the noindex header, the 404 status for
+    # an unknown path, and the generated /ads.txt.
     location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API: hand to Symfony.
-    location /api {
         try_files $uri /index.php$is_args$args;
     }
 

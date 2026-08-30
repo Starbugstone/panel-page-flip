@@ -2,7 +2,7 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { BULK_UPLOAD_ROUTE, SINGLE_UPLOAD_ROUTE } from "@/lib/bulk-upload-routes";
+import { BULK_UPLOAD_QUEUE_ROUTE, SINGLE_UPLOAD_ROUTE } from "@/lib/bulk-upload-routes";
 
 /**
  * The clean page targeted by the account-side AdSense Offerwall.
@@ -19,7 +19,7 @@ import { BULK_UPLOAD_ROUTE, SINGLE_UPLOAD_ROUTE } from "@/lib/bulk-upload-routes
 export default function BulkUploadGate() {
   const [searchParams] = useSearchParams();
   const folder = searchParams.get("folder");
-  const uploaderPath = folder ? `${BULK_UPLOAD_ROUTE}?folder=${encodeURIComponent(folder)}` : BULK_UPLOAD_ROUTE;
+  const uploaderPath = folder ? `${BULK_UPLOAD_QUEUE_ROUTE}?folder=${encodeURIComponent(folder)}` : BULK_UPLOAD_QUEUE_ROUTE;
   const singleUploaderPath = folder ? `${SINGLE_UPLOAD_ROUTE}?folder=${encodeURIComponent(folder)}` : SINGLE_UPLOAD_ROUTE;
 
   return (
