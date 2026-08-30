@@ -45,8 +45,14 @@ export function useSharingActions({ reload, loadLibrary }) {
     busyShareId,
     runAction,
 
-    accept: (share) => post(share, "accept", "Comic added to your collection."),
-    decline: (share) => post(share, "decline", "Invitation declined."),
+    accept: (share) => post(
+      share,
+      "accept",
+      share.invitationBatchId
+        ? `${share.invitationBatchSize || "Folder"} comics added to your collection.`
+        : "Comic added to your collection."
+    ),
+    decline: (share) => post(share, "decline", share.invitationBatchId ? "Folder invitation declined." : "Invitation declined."),
     remove: (share) => post(share, "remove", "Removed from your collection."),
     restore: (share) => post(share, "restore", "Restored to your collection."),
     resend: (recipient) => post(recipient, "resend", `Invitation resent to ${recipientLabel(recipient)}.`),

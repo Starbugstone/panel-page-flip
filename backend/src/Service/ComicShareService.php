@@ -83,18 +83,15 @@ class ComicShareService
     /**
      * Share several comics with one recipient as a single act.
      *
-     * A convenience layer and nothing more: every comic still gets its own
-     * {@see ComicShare}, its own token, its own status and its own revocation,
-     * and every one of them goes through the same checks a single invitation
-     * does. Nothing here can grant access that {@see invite()} would refuse.
+     * Every comic still gets its own {@see ComicShare} and can be withdrawn on
+     * its own after acceptance. When the source is a folder, those grants share
+     * one invitation batch: one token, one email and one accept or decline.
      *
      * Two things are deliberately shared across the batch rather than repeated
      * per comic:
      *
      * - **One email.** Twenty comics must not mean twenty messages in somebody's
-     *   inbox. The recipient gets one notice listing what they were offered,
-     *   with a separate link per comic, because each invitation is still
-     *   answered on its own.
+     *   inbox. A folder notice also has one link for the whole folder.
      * - **One allowance.** One send is one claim on the `share_invitation`
      *   limiter, so what the limiter protects — how much mail one account can
      *   put in somebody's inbox — is exactly what it protected before bulk
@@ -127,13 +124,15 @@ class ComicShareService
         string $recipientEmail,
         bool $senderResponsibilityAccepted,
         ?SharingCodeRecipient $viaSharingCode = null,
-        ?int $sourceFolderId = null
+        ?int $sourceFolderId = null,
+        ?string $sourceFolderName = null
     ): array {
         $this->assertSenderResponsibility($senderResponsibilityAccepted);
         $email = $this->assertInvitableRecipient($owner, $recipientEmail);
 
         $outcomes = [];
         $invitable = [];
+        $existing = $this->shareRepository->findForComicsAndRecipient($comics, $email);
 
         // Read-only pass first. Every comic is judged before any of them is
         // created, so the allowance is claimed once and only for a send that is
@@ -143,7 +142,7 @@ class ComicShareService
 
             try {
                 $this->assertSharingAvailable($comic, $owner);
-                $invitable[$comicId] = [$comic, $this->assertNoLiveInvitation($comic, $email)];
+                $invitable[$comicId] = [$comic, $this->assertNoLiveInvitation($existing[$comicId] ?? null)];
             } catch (ShareException $exception) {
                 $outcomes[$comicId] = $this->describeFailure($exception);
             }
@@ -156,8 +155,19 @@ class ComicShareService
         $this->reserveInvitationAllowance($owner);
 
         $prepared = [];
+        $batchId = $sourceFolderId === null ? null : bin2hex(random_bytes(16));
+        $batchSize = count($invitable);
         foreach ($invitable as $comicId => [$comic, $reusable]) {
             $prepared[$comicId] = $this->openInvitation($reusable, $comic, $owner, $email);
+
+            if ($batchId !== null && $sourceFolderName !== null) {
+                $prepared[$comicId]->joinInvitationBatch($batchId, $sourceFolderName, $batchSize);
+            } else {
+                // A declined/revoked row can be reused by a later hand-picked
+                // invitation. It must not retain the decision boundary of the
+                // old folder offer.
+                $prepared[$comicId]->leaveInvitationBatch();
+            }
 
             // The sender reached this person through their receiver code and
             // never saw the address, so the record carries what the sender may
@@ -374,6 +384,51 @@ class ComicShareService
             throw new ShareException('That invitation has already been accepted.', 409);
         }
 
+        if ($share->getInvitationBatchId() !== null && $share->getStatus() === ComicShare::STATUS_PENDING) {
+            $members = array_values(array_filter(
+                $this->invitationMembers($share),
+                static fn (ComicShare $member): bool => $member->getStatus() === ComicShare::STATUS_PENDING
+                    && !$member->isTombstoned()
+                    && $member->getComic() !== null
+            ));
+            foreach ($members as $member) {
+                $memberComic = $member->getComic();
+                $memberOwner = $member->getOwner();
+                if ($memberComic === null || $memberOwner === null) {
+                    throw new ShareException('This folder invitation is no longer available to resend.', 410);
+                }
+                $this->assertSharingAvailable($memberComic, $memberOwner);
+                $member->markPending($this->invitationExpiry())->refreshSnapshots()->awaitNotification();
+            }
+
+            $this->reserveInvitationAllowance($owner);
+            try {
+                $url = $this->notify($members, $owner, $share->getInvitationBatchName());
+            } catch (\Throwable $exception) {
+                foreach ($members as $member) {
+                    $member->markNotificationFailed();
+                }
+                $this->entityManager->flush();
+
+                $this->logger->error('Failed to resend a folder share invitation.', [
+                    'invitation_batch_id' => $share->getInvitationBatchId(),
+                    'share_ids' => array_map(
+                        static fn (ComicShare $member): ?int => $member->getId(),
+                        $members
+                    ),
+                    'exception' => $exception,
+                ]);
+
+                throw new ShareException(
+                    'The folder invitation email could not be sent. The shares are unaffected — try resending. '
+                    .'If the recipient has an account, the invitation is waiting on their Sharing page.',
+                    502
+                );
+            }
+
+            return new IssuedInvitation($share, (string) $url);
+        }
+
         // Claimed before the row is touched, so a resend that is turned away
         // leaves the invitation exactly as it was.
         $this->reserveInvitationAllowance($owner);
@@ -467,8 +522,10 @@ class ComicShareService
         // the same reason: being sent to the warning must not cost the recipient
         // the link they need once they have answered it.
         $share = $token->getComicShare();
-        $this->assertRecipient($share, $recipient);
-        $this->assertAdultConfirmed($share, $recipient);
+        foreach ($this->invitationDecisionShares($share) as $member) {
+            $this->assertRecipient($member, $recipient);
+            $this->assertAdultConfirmed($member, $recipient);
+        }
         $token->markUsed();
 
         return $this->acceptShare($share, $recipient);
@@ -480,7 +537,9 @@ class ComicShareService
     public function decline(ShareInvitationToken $token, User $recipient): ComicShare
     {
         $share = $token->getComicShare();
-        $this->assertRecipient($share, $recipient);
+        foreach ($this->invitationDecisionShares($share) as $member) {
+            $this->assertRecipient($member, $recipient);
+        }
         $token->markUsed();
 
         return $this->declineShare($share, $recipient);
@@ -498,31 +557,38 @@ class ComicShareService
      */
     public function acceptShare(ComicShare $share, User $recipient): ComicShare
     {
-        $this->assertRecipient($share, $recipient);
-        $comic = $share->getComic();
-        if ($comic === null || $comic->isSharingRestricted() || $comic->isQuarantined()) {
-            throw new ShareException('This shared comic is temporarily unavailable.', 410);
-        }
-        $this->assertAnswerable($share);
-        // The warning on the invitation page is a prompt; this is the boundary.
-        // Accepting is what puts a comic in somebody's collection, so an
-        // unconfirmed explicit share must not get that far however the request
-        // was made.
-        $this->assertAdultConfirmed($share, $recipient);
+        $members = $this->invitationDecisionShares($share);
 
-        $share->markAccepted($recipient)->refreshSnapshots();
-        // Every link that was issued for this invitation is spent now.
-        $this->revokeOutstandingTokens($share);
+        // Validate the complete folder before changing any row. A single
+        // accept is atomic: it never leaves half a folder in the collection.
+        foreach ($members as $member) {
+            $this->assertRecipient($member, $recipient);
+            $comic = $member->getComic();
+            if ($comic === null || $comic->isSharingRestricted() || $comic->isQuarantined()) {
+                throw new ShareException('One or more comics in this invitation are temporarily unavailable.', 410);
+            }
+            $this->assertAnswerable($member);
+            $this->assertAdultConfirmed($member, $recipient);
+        }
+
+        foreach ($members as $member) {
+            $member->markAccepted($recipient)->refreshSnapshots();
+            // Every link that was issued for this invitation is spent now.
+            $this->revokeOutstandingTokens($member);
+        }
         $this->entityManager->flush();
 
-        $this->auditLogger->audit(SecurityAuditLogger::SHARE_ACCEPTED, [
-            'actor_user_id' => $recipient->getId(),
-            'target_type' => 'share',
-            'target_id' => $share->getId(),
-            'comic_id' => $share->getComic()?->getId(),
-            'owner_user_id' => $share->getOwner()?->getId(),
-            'explicit_content' => $share->isExplicitContent(),
-        ]);
+        foreach ($members as $member) {
+            $this->auditLogger->audit(SecurityAuditLogger::SHARE_ACCEPTED, [
+                'actor_user_id' => $recipient->getId(),
+                'target_type' => 'share',
+                'target_id' => $member->getId(),
+                'comic_id' => $member->getComic()?->getId(),
+                'owner_user_id' => $member->getOwner()?->getId(),
+                'explicit_content' => $member->isExplicitContent(),
+                'invitation_batch_id' => $member->getInvitationBatchId(),
+            ]);
+        }
 
         return $share;
     }
@@ -532,20 +598,28 @@ class ComicShareService
      */
     public function declineShare(ComicShare $share, User $recipient): ComicShare
     {
-        $this->assertRecipient($share, $recipient);
-        $this->assertAnswerable($share);
+        $members = $this->invitationDecisionShares($share);
+        foreach ($members as $member) {
+            $this->assertRecipient($member, $recipient);
+            $this->assertAnswerable($member);
+        }
 
-        $share->markDeclined($recipient);
-        $this->revokeOutstandingTokens($share);
+        foreach ($members as $member) {
+            $member->markDeclined($recipient);
+            $this->revokeOutstandingTokens($member);
+        }
         $this->entityManager->flush();
 
-        $this->auditLogger->audit(SecurityAuditLogger::SHARE_DECLINED, [
-            'actor_user_id' => $recipient->getId(),
-            'target_type' => 'share',
-            'target_id' => $share->getId(),
-            'comic_id' => $share->getComic()?->getId(),
-            'owner_user_id' => $share->getOwner()?->getId(),
-        ]);
+        foreach ($members as $member) {
+            $this->auditLogger->audit(SecurityAuditLogger::SHARE_DECLINED, [
+                'actor_user_id' => $recipient->getId(),
+                'target_type' => 'share',
+                'target_id' => $member->getId(),
+                'comic_id' => $member->getComic()?->getId(),
+                'owner_user_id' => $member->getOwner()?->getId(),
+                'invitation_batch_id' => $member->getInvitationBatchId(),
+            ]);
+        }
 
         return $share;
     }
@@ -565,45 +639,54 @@ class ComicShareService
      */
     public function confirmAdult(ComicShare $share, User $recipient): ComicShare
     {
-        $this->assertRecipient($share, $recipient);
+        $members = $share->getStatus() === ComicShare::STATUS_PENDING
+            ? $this->invitationDecisionShares($share)
+            : [$share];
+        $explicit = [];
 
-        if ($share->isTombstoned() || $share->getComic() === null) {
-            throw new ShareException('The shared comic is no longer available.', 410);
+        foreach ($members as $member) {
+            $this->assertRecipient($member, $recipient);
+
+            if ($member->isTombstoned() || $member->getComic() === null) {
+                throw new ShareException('The shared comic is no longer available.', 410);
+            }
+            if ($member->getStatus() === ComicShare::STATUS_REVOKED) {
+                throw new ShareException('The owner has withdrawn this invitation.', 410);
+            }
+            if ($member->getStatus() === ComicShare::STATUS_DECLINED) {
+                throw new ShareException('You have already declined this invitation.', 409);
+            }
+            if ($member->isExpired()) {
+                throw new ShareException('This invitation has expired.', 410);
+            }
+            if ($member->getComic()->isExplicitContent()) {
+                $explicit[] = $member;
+            }
         }
 
-        if ($share->getStatus() === ComicShare::STATUS_REVOKED) {
-            throw new ShareException('The owner has withdrawn this invitation.', 410);
+        if ($explicit === []) {
+            throw new ShareException('This invitation is not marked as explicit content.', 409);
         }
 
-        if ($share->getStatus() === ComicShare::STATUS_DECLINED) {
-            throw new ShareException('You have already declined this invitation.', 409);
+        foreach ($explicit as $member) {
+            $member->confirmAdult();
         }
-
-        // Only a pending invitation runs out. An accepted share has no expiry —
-        // markAccepted clears it — so this cannot lock out somebody re-gated
-        // long after they accepted.
-        if ($share->isExpired()) {
-            throw new ShareException('This invitation has expired.', 410);
-        }
-
-        if (!$share->getComic()->isExplicitContent()) {
-            throw new ShareException('This comic is not marked as explicit content.', 409);
-        }
-
-        $share->confirmAdult();
         $this->entityManager->flush();
 
         // Audit, not security, and deliberately not alertable: somebody
         // declaring their age is the feature working. Ids and the server's
         // timestamp only — the canonical evidence is ComicShare::adultConfirmedAt,
         // and nothing about what the comic contains belongs here.
-        $this->auditLogger->audit(SecurityAuditLogger::SHARE_ADULT_CONFIRMED, [
-            'actor_user_id' => $recipient->getId(),
-            'target_type' => 'share',
-            'target_id' => $share->getId(),
-            'comic_id' => $share->getComic()?->getId(),
-            'confirmed_at' => $share->getAdultConfirmedAt()?->format(DATE_ATOM),
-        ]);
+        foreach ($explicit as $member) {
+            $this->auditLogger->audit(SecurityAuditLogger::SHARE_ADULT_CONFIRMED, [
+                'actor_user_id' => $recipient->getId(),
+                'target_type' => 'share',
+                'target_id' => $member->getId(),
+                'comic_id' => $member->getComic()?->getId(),
+                'confirmed_at' => $member->getAdultConfirmedAt()?->format(DATE_ATOM),
+                'invitation_batch_id' => $member->getInvitationBatchId(),
+            ]);
+        }
 
         return $share;
     }
@@ -846,7 +929,7 @@ class ComicShareService
      *
      * @throws ShareException
      */
-    private function assertNoLiveInvitation(Comic $comic, string $email): ?ComicShare
+    private function assertNoLiveInvitation(?ComicShare $share): ?ComicShare
     {
         // Keyed on the comic, so this only ever finds a live relationship: a
         // tombstone holds a null comic and is invisible here by construction.
@@ -855,8 +938,6 @@ class ComicShareService
         // would rewrite their history and delete the explanation they were left
         // with. Re-inviting somebody after a deletion starts a fresh
         // relationship, and the null comic keeps it clear of the unique index.
-        $share = $this->shareRepository->findForComicAndRecipient($comic, $email);
-
         if ($share !== null && $share->getStatus() === ComicShare::STATUS_ACCEPTED) {
             throw new ShareException('This comic is already shared with that person.', 409);
         }
@@ -957,11 +1038,21 @@ class ComicShareService
      *                                     they shared one, so the notice can say
      *                                     where the comics came from
      */
-    public function notify(array $shares, User $owner, ?string $folderName = null): void
+    public function notify(array $shares, User $owner, ?string $folderName = null): ?string
     {
+        if ($shares === []) {
+            return null;
+        }
+
         $prepared = [];
 
-        foreach ($shares as $share) {
+        $isFolderBatch = $shares[0]->getInvitationBatchId() !== null;
+        $batchPlaintext = null;
+        if ($isFolderBatch) {
+            [$batchPlaintext, $batchHash] = ShareInvitationToken::generate();
+        }
+
+        foreach ($shares as $index => $share) {
             $comic = $share->getComic();
             if ($comic === null) {
                 continue;
@@ -969,14 +1060,29 @@ class ComicShareService
 
             $this->revokeOutstandingTokens($share);
 
-            [$plaintext, $hash] = ShareInvitationToken::generate();
-            $this->entityManager->persist(new ShareInvitationToken($share, $hash, $this->invitationExpiry()));
+            if ($isFolderBatch) {
+                // The token anchors the batch to one durable share row, but the
+                // decision it resolves covers every row with the same random
+                // batch id. Persist it once rather than minting N capabilities
+                // that all perform the same action.
+                if ($index === 0) {
+                    $this->entityManager->persist(new ShareInvitationToken(
+                        $share,
+                        (string) $batchHash,
+                        $this->invitationExpiry()
+                    ));
+                }
+                $plaintext = (string) $batchPlaintext;
+            } else {
+                [$plaintext, $hash] = ShareInvitationToken::generate();
+                $this->entityManager->persist(new ShareInvitationToken($share, $hash, $this->invitationExpiry()));
+            }
 
             $prepared[] = new PreparedInvitation($share, $comic, $plaintext);
         }
 
         if ($prepared === []) {
-            return;
+            return null;
         }
 
         // Flushed before the send so the hashes the email's links resolve
@@ -990,6 +1096,8 @@ class ComicShareService
         }
 
         $this->entityManager->flush();
+
+        return $this->invitationUrl($prepared[0]->plaintextToken);
     }
 
     /** The two records every new sharing relationship leaves behind. */
@@ -1076,26 +1184,27 @@ class ComicShareService
     /**
      * One message for a whole bulk share.
      *
-     * Each comic still carries its own link, because each invitation is still
-     * answered, expired and revoked on its own — grouping is about the notice,
-     * not about the access. The 18+ gate is applied per comic exactly as the
-     * single-comic template applies it, so one explicit comic in a batch is
-     * announced without a title while the rest are named normally.
+     * A hand-picked bulk share keeps one link per comic. A folder share carries
+     * one link for the whole snapshot, because it is accepted or declined as
+     * one invitation even though its resulting grants remain per comic.
      *
-     * Past {@see MAX_LISTED_INVITATIONS} the links come out and a summary goes
-     * in. Nothing about the shares changes — every one of them still has its own
-     * token, minted above and usable if it is ever sent on its own by a resend —
-     * only what this one message is willing to carry. The recipient is pointed
-     * at their Sharing page instead, where the same invitations are waiting and
-     * can be answered without a link that has to survive an inbox.
+     * For a hand-picked bulk share past {@see MAX_LISTED_INVITATIONS}, the links
+     * come out and a summary goes in; those independent invitations wait on the
+     * Sharing page. A folder batch is different: its summary keeps the single
+     * batch link, regardless of how many comics the folder contains.
      *
      * @param list<PreparedInvitation> $prepared
      */
     private function sendGroupedInvitationEmail(array $prepared, User $owner, ?string $folderName = null): void
     {
+        $isFolderBatch = $prepared[0]->share->getInvitationBatchId() !== null;
+        if ($isFolderBatch && $folderName === null) {
+            $folderName = $prepared[0]->share->getInvitationBatchName();
+        }
+
         // One comic is not a group. Falling back keeps the ordinary case on the
         // template that has always described it.
-        if (count($prepared) === 1) {
+        if (count($prepared) === 1 && !$isFolderBatch) {
             $only = $prepared[0];
             $this->sendInvitationEmail($only->share, $only->comic, $owner, $only->plaintextToken);
 
@@ -1105,7 +1214,7 @@ class ComicShareService
         $ownerName = $owner->getName() ?: '@'.$owner->getUsername();
         $recipient = $prepared[0]->share->getRecipientEmailNormalized();
         $expiresAt = $prepared[0]->share->getExpiresAt();
-        $listLinks = count($prepared) <= self::MAX_LISTED_INVITATIONS;
+        $listLinks = !$isFolderBatch && count($prepared) <= self::MAX_LISTED_INVITATIONS;
 
         $invitations = array_map(
             function (PreparedInvitation $invitation) use ($listLinks): array {
@@ -1130,6 +1239,10 @@ class ComicShareService
         $body = $this->twig->render('emails/share_comics.html.twig', [
             'invitations' => $invitations,
             'listLinks' => $listLinks,
+            'isFolderBatch' => $isFolderBatch,
+            'batchLink' => $isFolderBatch
+                ? $this->invitationUrl($prepared[0]->plaintextToken)
+                : null,
             // The same age gate the per-comic blocks apply, so a summary cannot
             // become the one place an explicit comic gets named.
             'sampleTitles' => $listLinks ? [] : $this->summaryTitles($invitations),
@@ -1148,8 +1261,19 @@ class ComicShareService
             ->replyTo((string) $owner->getEmail())
             ->to($recipient)
             ->subject($folderName === null
-                ? sprintf('%s shared %d comics with you!', $ownerName, count($invitations))
-                : sprintf('%s shared %d comics from "%s" with you!', $ownerName, count($invitations), $folderName))
+                ? sprintf(
+                    '%s shared %d %s with you!',
+                    $ownerName,
+                    count($invitations),
+                    count($invitations) === 1 ? 'comic' : 'comics'
+                )
+                : sprintf(
+                    '%s shared %d %s from "%s" with you!',
+                    $ownerName,
+                    count($invitations),
+                    count($invitations) === 1 ? 'comic' : 'comics',
+                    $folderName
+                ))
             ->html($body);
 
         $this->mailer->send($email);
@@ -1180,6 +1304,42 @@ class ComicShareService
         }
 
         return $titles;
+    }
+
+    /**
+     * All durable grants represented by the invitation that contains this row.
+     * Public so response presenters can describe the one decision accurately.
+     *
+     * @return list<ComicShare>
+     */
+    public function invitationMembers(ComicShare $share): array
+    {
+        return $this->shareRepository->findInvitationBatch($share);
+    }
+
+    /**
+     * Rows the recipient's next answer applies to.
+     *
+     * A grant the owner already withdrew is no longer being offered and does
+     * not make the rest of a folder impossible to accept. Expired rows remain
+     * here so assertAnswerable can reject the whole still-pending batch.
+     *
+     * @return list<ComicShare>
+     */
+    private function invitationDecisionShares(ComicShare $share): array
+    {
+        if ($share->getInvitationBatchId() === null || $share->getStatus() !== ComicShare::STATUS_PENDING) {
+            return [$share];
+        }
+
+        $pending = array_values(array_filter(
+            $this->invitationMembers($share),
+            static fn (ComicShare $member): bool => $member->getStatus() === ComicShare::STATUS_PENDING
+                && !$member->isTombstoned()
+                && $member->getComic() !== null
+        ));
+
+        return $pending === [] ? [$share] : $pending;
     }
 
     public function invitationUrl(string $plaintextToken): string

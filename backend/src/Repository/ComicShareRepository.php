@@ -54,6 +54,61 @@ class ComicShareRepository extends ServiceEntityRepository
     }
 
     /**
+     * Existing relationships for one recipient across a bulk offer, indexed by
+     * comic id so a large folder does not perform one lookup per comic.
+     *
+     * @param list<Comic> $comics
+     * @return array<int, ComicShare>
+     */
+    public function findForComicsAndRecipient(array $comics, string $email): array
+    {
+        if ($comics === []) {
+            return [];
+        }
+
+        $shares = $this->createQueryBuilder('s')
+            ->andWhere('s.comic IN (:comics)')
+            ->andWhere('s.recipientEmailNormalized = :email')
+            ->setParameter('comics', $comics)
+            ->setParameter('email', ComicShare::normaliseEmail($email))
+            ->getQuery()
+            ->getResult();
+
+        $indexed = [];
+        foreach ($shares as $share) {
+            $comicId = $share->getComic()?->getId();
+            if ($comicId !== null) {
+                $indexed[(int) $comicId] = $share;
+            }
+        }
+
+        return $indexed;
+    }
+
+    /**
+     * Every per-comic grant carried by one folder invitation.
+     *
+     * @return list<ComicShare>
+     */
+    public function findInvitationBatch(ComicShare $anchor): array
+    {
+        $batchId = $anchor->getInvitationBatchId();
+        if ($batchId === null) {
+            return [$anchor];
+        }
+
+        return $this->createQueryBuilder('s')
+            ->addSelect('c', 'o')
+            ->leftJoin('s.comic', 'c')
+            ->leftJoin('s.owner', 'o')
+            ->andWhere('s.invitationBatchId = :batchId')
+            ->setParameter('batchId', $batchId)
+            ->orderBy('s.id', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * The share granting this user access to this comic, if any.
      *
      * Matched on the email rather than the recipient user so an invitation sent
@@ -257,8 +312,8 @@ class ComicShareRepository extends ServiceEntityRepository
     /** Invitations awaiting this user's answer, for the navigation badge. */
     public function countPendingForRecipient(User $user): int
     {
-        return (int) $this->recipientQueryBuilder($user)
-            ->select('COUNT(s.id)')
+        $rows = $this->recipientQueryBuilder($user)
+            ->select('s.id', 's.invitationBatchId')
             ->andWhere('s.status = :pending')
             ->andWhere('s.unavailableAt IS NULL')
             ->andWhere('s.comic IS NOT NULL')
@@ -266,7 +321,17 @@ class ComicShareRepository extends ServiceEntityRepository
             ->setParameter('pending', ComicShare::STATUS_PENDING)
             ->setParameter('now', new \DateTimeImmutable())
             ->getQuery()
-            ->getSingleScalarResult();
+            ->getArrayResult();
+
+        $invitations = [];
+        foreach ($rows as $row) {
+            $key = $row['invitationBatchId'] === null
+                ? 'share:'.$row['id']
+                : 'batch:'.$row['invitationBatchId'];
+            $invitations[$key] = true;
+        }
+
+        return count($invitations);
     }
 
     /**
