@@ -40,7 +40,11 @@ export function jumpToComicCard(comicId, root = document) {
   if (!card) return false;
 
   card.scrollIntoView({ behavior: "smooth", block: "center" });
-  card.classList.add(...HIGHLIGHT_CLASSES);
-  setTimeout(() => card.classList.remove(...HIGHLIGHT_CLASSES), HIGHLIGHT_MS);
+  // Only take back what this flash added. The wrapper is otherwise unrounded;
+  // stripping every highlight class would also strip a `rounded-lg` the card
+  // already had.
+  const addedClasses = HIGHLIGHT_CLASSES.filter((className) => !card.classList.contains(className));
+  card.classList.add(...addedClasses);
+  setTimeout(() => card.classList.remove(...addedClasses), HIGHLIGHT_MS);
   return true;
 }

@@ -39,4 +39,25 @@ final class ShareInvitationNotification
         public readonly ?int $sourceFolderId = null,
     ) {
     }
+
+    /**
+     * Messenger's default serializer is native PHP serialize. A payload queued
+     * before folder sharing existed has no sourceFolderId, and a missing
+     * readonly property stays uninitialized — folderName() would then throw on
+     * a perfectly ordinary invitation. Default it here the same way the
+     * constructor does.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function __unserialize(array $data): void
+    {
+        $this->ownerId = (int) $data['ownerId'];
+        $this->shareIds = array_values(array_map(
+            static fn (mixed $id): int => (int) $id,
+            is_array($data['shareIds'] ?? null) ? $data['shareIds'] : []
+        ));
+        $this->sourceFolderId = array_key_exists('sourceFolderId', $data) && $data['sourceFolderId'] !== null
+            ? (int) $data['sourceFolderId']
+            : null;
+    }
 }

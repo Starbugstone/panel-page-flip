@@ -103,6 +103,36 @@ final class ShareNotificationTest extends AbstractApiTestCase
         self::assertStringNotContainsString('@', $serialised);
         self::assertSame([11, 12, 13], $notification->shareIds);
         self::assertSame(7, $notification->ownerId);
+        self::assertNull($notification->sourceFolderId);
+    }
+
+    /**
+     * A row sitting on the doctrine transport from before sourceFolderId
+     * existed has only the two original properties. Native unserialize would
+     * leave the new readonly field uninitialized, and folderName() reads it.
+     */
+    public function testALegacyQueuedNoticeWithoutAFolderStillUnserialises(): void
+    {
+        $class = ShareInvitationNotification::class;
+        $legacy = sprintf(
+            'O:%d:"%s":2:{s:7:"ownerId";i:7;s:8:"shareIds";a:1:{i:0;i:11;}}',
+            strlen($class),
+            $class
+        );
+
+        $notification = unserialize($legacy);
+
+        self::assertInstanceOf(ShareInvitationNotification::class, $notification);
+        self::assertSame(7, $notification->ownerId);
+        self::assertSame([11], $notification->shareIds);
+        self::assertNull($notification->sourceFolderId);
+    }
+
+    public function testUnserialisingANoticePreservesAProvidedFolderId(): void
+    {
+        $notification = unserialize(serialize(new ShareInvitationNotification(7, [11], 42)));
+
+        self::assertSame(42, $notification->sourceFolderId);
     }
 
     /**

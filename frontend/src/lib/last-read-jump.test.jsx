@@ -62,6 +62,16 @@ describe("jumpToComicCard", () => {
     expect(card.classList.length).toBe(0);
   });
 
+  it("leaves a rounded-lg the card already had", () => {
+    const card = document.querySelector('[data-comic-id="7"]');
+    card.classList.add("rounded-lg");
+
+    jumpToComicCard(7);
+    vi.runAllTimers();
+
+    expect([...card.classList]).toEqual(["rounded-lg"]);
+  });
+
   it("reports a card that is not on the page without scrolling anything", () => {
     expect(jumpToComicCard(999)).toBe(false);
     expect(scrollIntoView).not.toHaveBeenCalled();
