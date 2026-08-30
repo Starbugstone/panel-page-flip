@@ -24,7 +24,9 @@ export function useShareSelection({ isOpen, sharedByMe, initialComicIds, folder,
   // A folder gets the higher ceiling because the server will resolve it again
   // and can therefore vouch for what is in it. A selection somebody assembled
   // by hand keeps the one it always had.
-  const limit = folder ? MAX_FOLDER_COMICS : MAX_BULK_COMICS;
+  const limit = folder
+    ? (folder.limit === null ? Number.POSITIVE_INFINITY : (folder.limit ?? MAX_FOLDER_COMICS))
+    : MAX_BULK_COMICS;
 
   useEffect(() => {
     if (!isOpen) return undefined;
