@@ -30,7 +30,7 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         for ($i = 0; $i < $count; ++$i) {
             $ids[] = (int) ComicFactory::new()->ownedBy($owner)
                 ->create(['title' => sprintf('Court of Owls #%d', $i + 1)])
-                
+
                 ->getId();
         }
 
