@@ -4,12 +4,12 @@ namespace App\Tests\Factory;
 
 use App\Entity\Comic;
 use App\Entity\User;
-use Zenstruck\Foundry\Persistence\PersistentProxyObjectFactory;
+use Zenstruck\Foundry\Persistence\PersistentObjectFactory;
 
 /**
- * @extends PersistentProxyObjectFactory<Comic>
+ * @extends PersistentObjectFactory<Comic>
  */
-final class ComicFactory extends PersistentProxyObjectFactory
+final class ComicFactory extends PersistentObjectFactory
 {
     public static function class(): string
     {

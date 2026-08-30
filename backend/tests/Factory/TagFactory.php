@@ -4,12 +4,12 @@ namespace App\Tests\Factory;
 
 use App\Entity\Tag;
 use App\Entity\User;
-use Zenstruck\Foundry\Persistence\PersistentProxyObjectFactory;
+use Zenstruck\Foundry\Persistence\PersistentObjectFactory;
 
 /**
- * @extends PersistentProxyObjectFactory<Tag>
+ * @extends PersistentObjectFactory<Tag>
  */
-final class TagFactory extends PersistentProxyObjectFactory
+final class TagFactory extends PersistentObjectFactory
 {
     public static function class(): string
     {
