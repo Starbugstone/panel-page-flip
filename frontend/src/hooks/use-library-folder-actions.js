@@ -82,7 +82,7 @@ export function useLibraryFolderActions({ folders, activeFolderId, navigateFolde
     try {
       const contents = await api.get(`/api/shares/folders/${folder.id}/comics`);
 
-      if (contents.comicCount > contents.limit) {
+      if (contents.limit != null && contents.comicCount > contents.limit) {
         toast({
           title: "Too much to share at once",
           description: `“${folder.name}” holds ${contents.comicCount} comics, and a folder share carries at most ${contents.limit}.`,
@@ -104,6 +104,7 @@ export function useLibraryFolderActions({ folders, activeFolderId, navigateFolde
         folderName: folder.name,
         comicIds: contents.comicIds.map(String),
         unshareableCount: contents.unshareableCount,
+        limit: contents.limit,
       };
     } catch (requestError) {
       report("Could not read that folder")(requestError);

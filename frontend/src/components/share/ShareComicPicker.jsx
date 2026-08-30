@@ -23,7 +23,7 @@ export function ShareComicPicker({
         <div>
           <h3 className="font-semibold">{folder ? "1. What is in this folder" : "1. Choose comics"}</h3>
           <p className="text-xs text-muted-foreground">
-            {selectedComicIds.length}/{limit} selected
+            {Number.isFinite(limit) ? `${selectedComicIds.length}/${limit}` : selectedComicIds.length} selected
             {/* Named as a count and never as a list. Which comic cannot be
                 passed on is a fact about the library, and answering it here
                 would put a comic in a share dialog that is not going. */}
