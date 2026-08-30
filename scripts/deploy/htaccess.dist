@@ -102,16 +102,7 @@ Options -Indexes
     Header always set X-Frame-Options "DENY"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" "expr=%{HTTPS} == 'on'"
-    # Loosen 'unsafe-inline' below if you tighten Vite's CSS handling.
-    #
-    # The Google origins are the ones AdSense and the Google CMP fetch from, and
-    # they must stay in step with docker/nginx_frontend/security-headers.conf —
-    # this file is what the released Apache deployment actually serves, so a
-    # policy widened only there leaves advertising blocked on the real host.
-    # They cost nothing with ADSENSE_ENABLED=false: nothing reaches for them.
-    #
-    # Deliberately NOT here: script-src 'unsafe-inline'. Auto Ads and the CMP
-    # inject inline scripts, so an operator enabling advertising adds that or a
-    # nonce themselves — see docs/advertising.md.
-    Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com; script-src 'self' https://pagead2.googlesyndication.com https://partner.googleadservices.com https://tpc.googlesyndication.com https://www.googletagservices.com https://adservice.google.com https://fundingchoicesmessages.google.com; style-src 'self' 'unsafe-inline'; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://fundingchoicesmessages.google.com; connect-src 'self' https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://fundingchoicesmessages.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google; frame-ancestors 'none'"
+    # Symfony serves every HTML route and sets its Content-Security-Policy there,
+    # so the nonce in the header is the same one injected into the Vite scripts.
+    # A static Apache header here would intersect with and break that policy.
 </IfModule>

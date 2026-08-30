@@ -121,6 +121,9 @@ if [ "$USE_RSYNC" = "1" ]; then
         --exclude='backend/public/uploads/*' \
         --exclude='backend/var/log/' \
         --exclude='backend/var/cache/' \
+        --exclude='backend/.env.local' \
+        --exclude='backend/.env.local.php' \
+        --exclude='backend/.env.prod.local' \
         --exclude='.git/' \
         -e "$RSYNC_SSH" \
         "$REPO_ROOT/release/" \

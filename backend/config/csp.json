@@ -1,7 +1,9 @@
 {
-  "_comment": "The Content-Security-Policy served by every deployment target. One manifest because the same policy is emitted as an nginx add_header, an Apache Header always set, and a development variant, and Google adds origins from time to time — ep1/ep2.adtrafficquality.google are recent arrivals. Edited here and regenerated with `npm run check:csp --prefix frontend`; see docs/development-tooling.md.",
+  "_comment": "Shared CSP inputs. Advertising-enabled HTML receives a fresh nonce from Symfony (Apache) or nginx's request id (container), and script-src follows Google's supported strict-CSP shape. Non-script directives stay on audited origins rather than broad wildcards.",
   "directives": {
     "default-src": ["'self'"],
+    "object-src": ["'none'"],
+    "base-uri": ["'none'"],
     "img-src": [
       "'self'",
       "data:",
@@ -10,15 +12,6 @@
       "https://googleads.g.doubleclick.net",
       "https://tpc.googlesyndication.com",
       "https://www.google.com"
-    ],
-    "script-src": [
-      "'self'",
-      "https://pagead2.googlesyndication.com",
-      "https://partner.googleadservices.com",
-      "https://tpc.googlesyndication.com",
-      "https://www.googletagservices.com",
-      "https://adservice.google.com",
-      "https://fundingchoicesmessages.google.com"
     ],
     "style-src": ["'self'", "'unsafe-inline'"],
     "frame-src": [
@@ -35,19 +28,19 @@
       "https://fundingchoicesmessages.google.com",
       "https://ep1.adtrafficquality.google",
       "https://ep2.adtrafficquality.google"
-    ]
-  },
-  "apacheOnly": {
+    ],
     "frame-ancestors": ["'none'"]
   },
+  "scriptSrcWithoutAdvertising": ["'self'"],
+  "scriptSrcWithAdvertising": [
+    "'nonce-{nonce}'",
+    "'unsafe-inline'",
+    "'unsafe-eval'",
+    "'strict-dynamic'",
+    "https:",
+    "http:"
+  ],
   "developmentAdditions": {
-    "_comment": "What the Vite dev server needs on top: its inline scripts and its websocket. Development already allows inline scripts, so an operator trying AdSense locally sees Auto Ads behave as they would in production with the documented override applied.",
-    "script-src": ["'unsafe-inline'"],
     "connect-src": ["ws:", "http://localhost:*"]
-  },
-  "requiredScriptHosts": {
-    "_comment": "Asserted against frontend/src/lib/advertising.js so the policy and the code that loads these scripts cannot drift.",
-    "source": "frontend/src/lib/advertising.js",
-    "constants": ["ADSENSE_SCRIPT_HOST", "CONSENT_PLATFORM_HOST"]
   }
 }

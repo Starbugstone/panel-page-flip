@@ -42,15 +42,6 @@ framework:
                 adapter: cache.app
                 default_lifetime: 86400
 
-            # One batch's worth of bulk-upload access, per account. Its own
-            # pool so that clearing a page-index or provider cache cannot end
-            # every batch in progress, and so a session outlives nothing it
-            # should: the lifetime here is a ceiling, and the service writes its
-            # own shorter expiry on every entry.
-            upload.bulk_session.cache:
-                adapter: cache.app
-                default_lifetime: 7200
-
             # Threshold counters and cooldowns for administrator security
             # alerts. Its own pool so that clearing an application cache cannot
             # reset every cooldown at once and let a burst of alerts through,

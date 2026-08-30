@@ -154,10 +154,11 @@ function PrivacyRecipients({ advertising }) {
           </p>
           <p>
             Refusing advertising consent does not prevent you from registering,
-            signing in, uploading, organising or reading your comics. Where the
-            bulk uploader offers a rewarded advertisement, it is optional: single
-            comic upload is always available without watching one, and if no
-            rewarded advertisement can be served, bulk upload opens normally.
+            signing in, uploading, organising or reading your comics. Google may
+            present its own rewarded-ad choice through AdSense Offerwall on the
+            bulk-upload information page. Google owns any completion and access
+            entitlement; this application does not record that you watched an ad.
+            If no Offerwall is shown, bulk upload remains available normally.
             Showing an advertisement is not an endorsement of what it advertises.
           </p>
         </>

@@ -21,7 +21,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Administration for users, comics, shares, tags, Dropbox connections, cleanup, and audit history
 - Administrator notices warning one account about their activity, a comic, or something they shared, shown on their next visit and optionally emailed — see [administrator notices](docs/administrator-notices.md)
 - Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
-- Optional Google AdSense, off unless an operator turns it on, confined by an allowlist to pages that render no uploaded comic content, with consent left entirely to Google's certified platform and bulk upload optionally behind a rewarded advertisement that nothing depends on — see [advertising, consent, and the rewarded bulk-upload gate](docs/advertising.md)
+- Optional Google AdSense, off unless an operator turns it on, confined by an allowlist to pages that render no uploaded comic content, with consent and the bulk-upload Offerwall owned by Google's supported account-side products — see [advertising, consent, and AdSense Offerwall](docs/advertising.md)
 
 ## Technology
 
@@ -100,7 +100,7 @@ Only when running Symfony directly outside Docker, override `APP_URL` in `backen
 
 Generate suitable local secrets with `openssl rand -hex 32` for `APP_SECRET` and `openssl rand -base64 32` for `APP_DATA_KEY`.
 
-`backend/.env.example` documents every variable the application reads, with example values throughout. Use it as the reference when filling in `backend/.env.local` for development or `backend/.env.prod.local` for a bare-metal deployment.
+`backend/.env.example` documents every variable the application reads, with example values throughout. Use it as the reference when filling in `backend/.env.local` for development or production; deployments preserve this ignored host-local file.
 
 Important configuration variables:
 
@@ -121,8 +121,9 @@ Important configuration variables:
   Google's form (`ca-pub-` and sixteen digits); anything else logs a warning and
   leaves it off. There is deliberately no third setting — ad formats, page
   exclusions and the Offerwall live in the AdSense account, not here. Enabling
-  it also requires widening the Content-Security-Policy and configuring the
-  account, both in [`docs/advertising.md`](docs/advertising.md).
+  advertising-enabled HTML automatically receives Google's supported strict,
+  nonce-based Content-Security-Policy. Account configuration and verification
+  are documented in [`docs/advertising.md`](docs/advertising.md).
 - `METRON_SHARED_ENABLED` — whether this server may spend its own Metron account
   on behalf of every user. Off unless set; a user's personal Metron token is
   unaffected by it.
@@ -138,7 +139,7 @@ Important configuration variables:
   filenames whatever these say. See
   [`docs/metadata-enrichment.md`](docs/metadata-enrichment.md).
 
-Never commit `.env.local`, `.env.prod.local`, `scripts/.env.deploy`, credentials, or production keys.
+Never commit `.env.local`, `.env.prod.local`, `.env.local.php`, `scripts/.env.deploy`, credentials, or production keys.
 Before making the site public, set `PRIVACY_OPERATOR` to the operator's real
 legal identity and verify that `PRIVACY_EMAIL` is a monitored address. The
 generic development default is not a substitute for identifying the controller.
@@ -356,15 +357,15 @@ Production releases are backup-gated and intentionally separate from CI:
 - [SSH deployment guide](SSH-deploy.md) — recommended for a server with SSH and Git access
 - [FTP/FTPS deployment guide](deploy.md) — packaged releases for shared hosting
 
-The release tooling builds the React application, installs optimized production Composer dependencies, consolidates Symfony's production environment, and excludes user uploads from deployment.
+The release tooling builds the React application, installs optimized production Composer dependencies, preserves the server's `backend/.env.local`, and excludes user uploads from deployment. The default server-local mode does not run `composer dump-env`; compiled dotenv remains an explicit opt-in for portable releases.
 
 Do not deploy only `frontend/dist`: frontend and backend changes may depend on each other.
 
 Deploying with advertising enabled has steps of its own, most of them in the
-AdSense account rather than in this repository — the release environment reads
-`PROD_ADSENSE_ENABLED` and `PROD_ADSENSE_CLIENT` at build time, so editing
-`backend/.env` on the host after `composer dump-env prod` changes nothing. See
-the production checklist in [`docs/advertising.md`](docs/advertising.md).
+AdSense account rather than in this repository. In the default deployment mode,
+set `ADSENSE_ENABLED` and `ADSENSE_CLIENT` in the host's
+`backend/.env.local`; they do not need to be duplicated in
+`scripts/.env.deploy`. See [`docs/advertising.md`](docs/advertising.md).
 
 ## Project layout
 

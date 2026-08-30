@@ -3,7 +3,7 @@
 # scripts/server/backup-comics.sh
 # -----------------------------------------------------------------------------
 # Pre-deploy / daily backup for production. Backs up:
-#   1. MySQL/MariaDB dump (from DATABASE_URL in backend/.env.prod.local)
+#   1. MySQL/MariaDB dump (from DATABASE_URL in backend/.env.local)
 #   2. backend/public/uploads/
 #
 # Exits non-zero if either step fails. Point SSH_BACKUP_COMMAND at this script
@@ -33,12 +33,12 @@ command -v mysqldump >/dev/null 2>&1 || fail "mysqldump not found"
 command -v gzip >/dev/null 2>&1 || fail "gzip not found"
 
 ENV_FILE=""
-if [ -f "$APP_DIR/backend/.env.prod.local" ]; then
-    ENV_FILE="$APP_DIR/backend/.env.prod.local"
-elif [ -f "$APP_DIR/backend/.env.local" ]; then
+if [ -f "$APP_DIR/backend/.env.local" ]; then
     ENV_FILE="$APP_DIR/backend/.env.local"
+elif [ -f "$APP_DIR/backend/.env.prod.local" ]; then
+    ENV_FILE="$APP_DIR/backend/.env.prod.local"
 else
-    fail "No backend/.env.prod.local (or .env.local) to read DATABASE_URL from."
+    fail "No backend/.env.local (or legacy .env.prod.local) to read DATABASE_URL from."
 fi
 
 DATABASE_URL_LINE="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | tail -n1 || true)"

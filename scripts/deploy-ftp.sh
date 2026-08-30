@@ -82,6 +82,8 @@ command -v docker >/dev/null 2>&1 || fail "docker is required."
 COMMON_EXCLUDES=(
     --exclude-glob ".git*"
     --exclude-glob ".env.local"
+    --exclude-glob ".env.local.php"
+    --exclude-glob ".env.prod.local"
     --exclude-glob ".env.dev"
     --exclude-glob ".env.test"
     --exclude-glob "*.log"

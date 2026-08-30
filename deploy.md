@@ -137,6 +137,14 @@ the cache.
 
 Do this once per workstation. After this, every deploy is three commands.
 
+This FTP-only guide deliberately opts into `DEPLOY_CONFIG_MODE=compiled`,
+because a host with no SSH path cannot maintain its own ignored dotenv file.
+The project default is `server-local`: when you can edit
+`backend/.env.local` on the host, use that mode instead and production values —
+including AdSense — do not belong in `scripts/.env.deploy`. A compiled
+`.env.local.php` takes precedence over `.env.local` until it is regenerated or
+removed.
+
 ### 2.1 Create the deploy credentials file
 
 ```sh
@@ -149,6 +157,7 @@ This file is **gitignored**. Fill in:
 
 | Group           | Variables                                                                                                | Notes |
 | --------------- | -------------------------------------------------------------------------------------------------------- | ----- |
+| Config mode     | `DEPLOY_CONFIG_MODE=compiled`                                                                            | Explicit opt-in for this FTP-only workflow. |
 | FTP target      | `FTP_HOST`, `FTP_USER`, `FTP_PASSWORD`, `FTP_PROTOCOL`, `FTP_PORT`, `FTP_VERIFY_CERTIFICATE`, `FTP_REMOTE_ROOT`, `FTP_PARALLEL` | Use `ftps` with certificate verification whenever the host supports it. |
 | Public URL      | `PUBLIC_URL`                                                                                             | Single public origin used by post-deploy calls, backend links, canonical metadata, robots.txt, and sitemap.xml. |
 | Post-deploy     | `POST_DEPLOY_TOKEN`                                                                                      | Run `openssl rand -hex 32`. **Same value** is baked into `backend/.env.local.php` as `DEPLOY_TOKEN` and used as the `X-Deploy-Token` header. |

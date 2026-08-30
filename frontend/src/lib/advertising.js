@@ -21,7 +21,7 @@
  * grows a cover preview, a page thumbnail or anything read out of the archive,
  * it comes off this list.
  *
- * `/upload/bulk` is the rewarded-access gate, which is explanatory text and two
+ * `/upload/bulk` is the Offerwall target, which is explanatory text and two
  * buttons. `/upload/bulk/session` — the queue itself — is deliberately absent:
  * it shows filenames, progress and failures from real files.
  */
@@ -100,8 +100,8 @@ export function isAdvertisingActive(config) {
  * A promise that settles exactly once, and resolves `"unavailable"` if nothing
  * answers within the timeout.
  *
- * Both the script loader and the rewarded-ad request need this, for the same
- * reason: Google's callbacks can arrive late, more than once, or never. A
+ * The script loader needs this because browser load callbacks can arrive late,
+ * more than once, or never. A
  * second settle would leave a cached answer permanently contradicting what
  * actually happened, so the rule lives in one place.
  *

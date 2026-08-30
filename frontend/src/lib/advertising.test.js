@@ -14,7 +14,7 @@ import {
   publisherId,
   settleOnce,
 } from "@/lib/advertising";
-import { BULK_UPLOAD_ROUTE } from "@/lib/bulk-upload-session";
+import { BULK_UPLOAD_ROUTE } from "@/lib/bulk-upload-routes";
 
 /**
  * The route policy is the application-side boundary between Google and

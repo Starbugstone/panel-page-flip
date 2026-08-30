@@ -18,7 +18,7 @@ const bulkLink = () => screen.getByRole("link", { name: "Bulk Upload" });
 beforeEach(() => vi.clearAllMocks());
 
 /**
- * Bulk upload became two routes when the rewarded gate was added: the gate at
+ * Bulk upload uses two routes for the Offerwall boundary: the clean page at
  * /upload/bulk and the batch at /upload/bulk/session. The header was written
  * when it was one.
  */
