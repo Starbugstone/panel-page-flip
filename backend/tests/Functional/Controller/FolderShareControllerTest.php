@@ -15,6 +15,8 @@ use App\Tests\Functional\AbstractApiTestCase;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\MailerAssertionsTrait;
 
+use function Zenstruck\Foundry\Persistence\unproxy;
+
 /**
  * Sharing a whole folder in one act.
  *
@@ -32,20 +34,20 @@ final class FolderShareControllerTest extends AbstractApiTestCase
     public function testThePreviewWalksTheWholeSubtreeAndOffersOnlyWhatTheOwnerMayShare(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'dragonball@example.com']);
-        $stranger = UserFactory::createOne()->object();
+        $stranger = $this->user(UserFactory::createOne());
 
         $dragonBall = $this->folder($owner, 'DragonBall');
         $z = $this->folder($owner, 'Z', $dragonBall);
         $elsewhere = $this->folder($owner, 'Elsewhere');
 
-        $volumeOne = $this->file($owner, ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume 1'])->object(), $dragonBall);
-        $volumeTwo = $this->file($owner, ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume 2'])->object(), $z);
-        $this->file($owner, ComicFactory::new()->ownedBy($owner)->create(['title' => 'Unrelated'])->object(), $elsewhere);
+        $volumeOne = $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume 1'])), $dragonBall);
+        $volumeTwo = $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume 2'])), $z);
+        $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create(['title' => 'Unrelated'])), $elsewhere);
 
         // Filed into DragonBall by this viewer, but owned by somebody else. A
         // folder is a view rather than a container, so being filed next to a
         // comic the owner may share does not make this one shareable.
-        $received = ComicFactory::new()->ownedBy($stranger)->create(['title' => 'Borrowed'])->object();
+        $received = $this->comic(ComicFactory::new()->ownedBy($stranger)->create(['title' => 'Borrowed']));
         $this->em()->persist((new ComicShare($received, $stranger, (string) $owner->getEmail()))->markAccepted($owner));
         $this->em()->flush();
         $this->file($owner, $received, $z);
@@ -73,8 +75,8 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         $dragonBall = $this->folder($owner, 'DragonBall');
         $z = $this->folder($owner, 'Z', $dragonBall);
 
-        $first = $this->file($owner, ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume 1'])->object(), $dragonBall);
-        $second = $this->file($owner, ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume 2'])->object(), $z);
+        $first = $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume 1'])), $dragonBall);
+        $second = $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume 2'])), $z);
 
         $payload = $this->postJson('/api/shares/invitations/bulk', [
             'folderId' => $dragonBall->getId(),
@@ -114,8 +116,8 @@ final class FolderShareControllerTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser();
         $folder = $this->folder($owner, 'Manga');
-        $staying = $this->file($owner, ComicFactory::new()->ownedBy($owner)->create(['title' => 'Staying'])->object(), $folder);
-        $leaving = $this->file($owner, ComicFactory::new()->ownedBy($owner)->create(['title' => 'Leaving'])->object(), $folder);
+        $staying = $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create(['title' => 'Staying'])), $folder);
+        $leaving = $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create(['title' => 'Leaving'])), $folder);
 
         $preview = $this->getJson('/api/shares/folders/' . $folder->getId() . '/comics');
         self::assertCount(2, $preview['comicIds']);
@@ -154,7 +156,7 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         for ($volume = 1; $volume <= $count; ++$volume) {
             $this->file(
                 $owner,
-                ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume ' . $volume])->object(),
+                $this->comic(ComicFactory::new()->ownedBy($owner)->create(['title' => 'Volume ' . $volume])),
                 $folder
             );
         }
@@ -191,7 +193,7 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser();
         $comicIds = [];
         for ($i = 0; $i <= SharingWorkflowService::MAX_BULK_COMICS; ++$i) {
-            $comicIds[] = (int) ComicFactory::new()->ownedBy($owner)->create()->object()->getId();
+            $comicIds[] = (int) $this->comic(ComicFactory::new()->ownedBy($owner)->create())->getId();
         }
 
         $this->postJson('/api/shares/invitations/bulk', [
@@ -211,7 +213,7 @@ final class FolderShareControllerTest extends AbstractApiTestCase
 
         $overTheLimit = SharingWorkflowService::MAX_FOLDER_COMICS + 1;
         for ($i = 0; $i < $overTheLimit; ++$i) {
-            $this->file($owner, ComicFactory::new()->ownedBy($owner)->create()->object(), $folder);
+            $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create()), $folder);
         }
 
         $payload = $this->postJson('/api/shares/invitations/bulk', [
@@ -232,8 +234,8 @@ final class FolderShareControllerTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser();
         $folder = $this->folder($owner, 'Manga');
-        $filed = $this->file($owner, ComicFactory::new()->ownedBy($owner)->create()->object(), $folder);
-        $loose = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $filed = $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create()), $folder);
+        $loose = $this->comic(ComicFactory::new()->ownedBy($owner)->create());
 
         $this->postJson('/api/shares/invitations/bulk', [
             'folderId' => $folder->getId(),
@@ -250,11 +252,11 @@ final class FolderShareControllerTest extends AbstractApiTestCase
     public function testAnEmptyFolderAndAFolderOfBorrowedComicsAreBothRefused(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'empty@example.com']);
-        $stranger = UserFactory::createOne()->object();
+        $stranger = $this->user(UserFactory::createOne());
 
         $empty = $this->folder($owner, 'Empty');
         $borrowed = $this->folder($owner, 'Borrowed');
-        $received = ComicFactory::new()->ownedBy($stranger)->create()->object();
+        $received = $this->comic(ComicFactory::new()->ownedBy($stranger)->create());
         $this->em()->persist((new ComicShare($received, $stranger, (string) $owner->getEmail()))->markAccepted($owner));
         $this->em()->flush();
         $this->file($owner, $received, $borrowed);
@@ -283,9 +285,9 @@ final class FolderShareControllerTest extends AbstractApiTestCase
      */
     public function testAForeignFolderIsMissingToBothThePreviewAndTheShare(): void
     {
-        $stranger = UserFactory::createOne()->object();
+        $stranger = $this->user(UserFactory::createOne());
         $strangersFolder = $this->folder($stranger, 'Private');
-        $this->file($stranger, ComicFactory::new()->ownedBy($stranger)->create()->object(), $strangersFolder);
+        $this->file($stranger, $this->comic(ComicFactory::new()->ownedBy($stranger)->create()), $strangersFolder);
 
         $this->createAndLoginUser();
 
@@ -311,7 +313,7 @@ final class FolderShareControllerTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser();
         $folder = $this->folder($owner, 'Manga');
-        $this->file($owner, ComicFactory::new()->ownedBy($owner)->create()->object(), $folder);
+        $this->file($owner, $this->comic(ComicFactory::new()->ownedBy($owner)->create()), $folder);
 
         $this->postJson('/api/shares/invitations/bulk', [
             'folderId' => $folder->getId(),
@@ -325,7 +327,7 @@ final class FolderShareControllerTest extends AbstractApiTestCase
 
     public function testThePreviewRequiresAuthentication(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = $this->user(UserFactory::createOne());
         $folder = $this->folder($owner, 'Manga');
 
         $this->getJson('/api/shares/folders/' . $folder->getId() . '/comics');
@@ -347,6 +349,26 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         $item = (new LibraryFolderItem())->setUser($viewer)->setComic($comic)->setFolder($folder);
         $this->em()->persist($item);
         $this->em()->flush();
+
+        return $comic;
+    }
+
+    private function user(object $user): User
+    {
+        $user = unproxy($user);
+        if (!$user instanceof User) {
+            throw new \LogicException('Expected the user factory to create a User.');
+        }
+
+        return $user;
+    }
+
+    private function comic(object $comic): Comic
+    {
+        $comic = unproxy($comic);
+        if (!$comic instanceof Comic) {
+            throw new \LogicException('Expected the comic factory to create a Comic.');
+        }
 
         return $comic;
     }
