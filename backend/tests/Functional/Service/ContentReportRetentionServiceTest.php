@@ -12,7 +12,7 @@ final class ContentReportRetentionServiceTest extends AbstractApiTestCase
 {
     public function testOnlyExpiredClosedReportsWithoutLegalHoldAreRemoved(): void
     {
-        $admin = UserFactory::new()->admin()->create()->object();
+        $admin = UserFactory::new()->admin()->create();
         $expired = $this->report()->reviewAs($admin, ContentReport::STATUS_CLOSED);
         $open = $this->report();
         $held = $this->report()->reviewAs($admin, ContentReport::STATUS_REJECTED)->setLegalHold(true);

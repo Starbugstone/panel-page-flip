@@ -58,7 +58,7 @@ class AdminControllerTest extends AbstractApiTestCase
     public function testAdminStatsReflectStoredUsersAndComics(): void
     {
         $this->createAndLoginAdmin();
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         ComicFactory::new()->ownedBy($owner)->create(['fileSize' => 12345]);
 
         $payload = $this->getJson('/api/admin/stats');
@@ -142,7 +142,7 @@ class AdminControllerTest extends AbstractApiTestCase
     {
         $target = UserFactory::createOne([
             'dropboxAccessToken' => 'example-invalid-dropbox-token',
-        ])->object();
+        ]);
         $this->createAndLoginAdmin();
         $this->clearSecurityLog();
         $container = static::getContainer();

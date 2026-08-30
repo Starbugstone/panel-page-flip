@@ -24,7 +24,7 @@ final class UserContentStatsTest extends AbstractApiTestCase
 {
     public function testAnAccountWithNoComicsUsesNoStorage(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
 
         $stats = $this->statsFor($user);
 
@@ -35,7 +35,7 @@ final class UserContentStatsTest extends AbstractApiTestCase
 
     public function testStorageIsTheExactSumOfTheOwnedComicSizes(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $user, 'fileSize' => 1_000]);
         ComicFactory::createOne(['owner' => $user, 'fileSize' => 2_500]);
 
@@ -47,8 +47,8 @@ final class UserContentStatsTest extends AbstractApiTestCase
 
     public function testOneOwnersBytesNeverLeakIntoAnothers(): void
     {
-        $alice = UserFactory::createOne()->object();
-        $bob = UserFactory::createOne()->object();
+        $alice = UserFactory::createOne();
+        $bob = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $alice, 'fileSize' => 700]);
         ComicFactory::createOne(['owner' => $bob, 'fileSize' => 90]);
         ComicFactory::createOne(['owner' => $bob, 'fileSize' => 9]);
@@ -65,7 +65,7 @@ final class UserContentStatsTest extends AbstractApiTestCase
      */
     public function testCountAndStorageDescribeTheSameComics(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         ComicFactory::createMany(3, ['owner' => $user, 'fileSize' => 10]);
         TagFactory::createOne(['creator' => $user]);
 
@@ -82,8 +82,8 @@ final class UserContentStatsTest extends AbstractApiTestCase
      */
     public function testAComicSharedWithSomebodyElseStaysOnTheOwnersTotal(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $recipient = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
+        $recipient = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $owner, 'fileSize' => 4_096]);
 
         $stats = $this->repository()->getOwnedContentStats([$owner->getId(), $recipient->getId()]);
@@ -99,7 +99,7 @@ final class UserContentStatsTest extends AbstractApiTestCase
      */
     public function testComicsWithNoRecordedSizeAreReportedAsUnmeasured(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $user, 'fileSize' => 500]);
         ComicFactory::createOne(['owner' => $user, 'fileSize' => null]);
         ComicFactory::createOne(['owner' => $user, 'fileSize' => null]);
@@ -121,7 +121,7 @@ final class UserContentStatsTest extends AbstractApiTestCase
      */
     public function testTheReportedTotalIsWhatQuotaEnforcementCounts(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $user, 'fileSize' => 8_192]);
         ComicFactory::createOne(['owner' => $user, 'fileSize' => 64]);
         ComicFactory::createOne(['owner' => $user, 'fileSize' => null]);
@@ -137,8 +137,8 @@ final class UserContentStatsTest extends AbstractApiTestCase
 
     public function testTheInstallationTotalIsTheSumOfWhatTheOwnersUse(): void
     {
-        $alice = UserFactory::createOne()->object();
-        $bob = UserFactory::createOne()->object();
+        $alice = UserFactory::createOne();
+        $bob = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $alice, 'fileSize' => 5_000]);
         ComicFactory::createOne(['owner' => $bob, 'fileSize' => 1_500]);
         ComicFactory::createOne(['owner' => $bob, 'fileSize' => null]);
@@ -166,7 +166,7 @@ final class UserContentStatsTest extends AbstractApiTestCase
     /** A library past 2 GiB is ordinary here, and must not arrive as a string. */
     public function testLargeTotalsStayIntegers(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $user, 'fileSize' => 3_000_000_000]);
         ComicFactory::createOne(['owner' => $user, 'fileSize' => 3_000_000_000]);
 

@@ -29,14 +29,14 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
 
     public function testRecentRecipientsOnlyReturnsAddressesThisOwnerPreviouslyUsed(): void
     {
-        $owner = UserFactory::createOne(['email' => 'owner@example.com'])->object();
-        $other = UserFactory::createOne(['email' => 'other@example.com'])->object();
+        $owner = UserFactory::createOne(['email' => 'owner@example.com']);
+        $other = UserFactory::createOne(['email' => 'other@example.com']);
 
-        $first = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $third = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $incoming = ComicFactory::new()->ownedBy($other)->create()->object();
-        $otherComic = ComicFactory::new()->ownedBy($other)->create()->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create();
+        $second = ComicFactory::new()->ownedBy($owner)->create();
+        $third = ComicFactory::new()->ownedBy($owner)->create();
+        $incoming = ComicFactory::new()->ownedBy($other)->create();
+        $otherComic = ComicFactory::new()->ownedBy($other)->create();
 
         $this->persistPendingShare($first, $owner, 'jane@example.com');
         $this->persistPendingShare($second, $owner, 'bob@example.com');
@@ -62,8 +62,8 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     public function testBulkShareCreatesIndependentNormalShareRelationships(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'bulk-owner@example.com']);
-        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'First'])->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Second'])->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'First']);
+        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Second']);
 
         $payload = $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$first->getId(), $second->getId()],
@@ -89,10 +89,10 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
 
     public function testBulkShareCannotReshareAComicReceivedFromSomeoneElse(): void
     {
-        $originalOwner = UserFactory::createOne(['email' => 'original@example.com'])->object();
-        $recipient = UserFactory::createOne(['email' => 'recipient@example.com'])->object();
-        $receivedComic = ComicFactory::new()->ownedBy($originalOwner)->create()->object();
-        $ownComic = ComicFactory::new()->ownedBy($recipient)->create()->object();
+        $originalOwner = UserFactory::createOne(['email' => 'original@example.com']);
+        $recipient = UserFactory::createOne(['email' => 'recipient@example.com']);
+        $receivedComic = ComicFactory::new()->ownedBy($originalOwner)->create();
+        $ownComic = ComicFactory::new()->ownedBy($recipient)->create();
 
         $share = $this->persistPendingShare($receivedComic, $originalOwner, 'recipient@example.com');
         $share->markAccepted($recipient);
@@ -134,7 +134,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     public function testNamingYourselfAnyWayIsRefusedIdentically(callable $nameSelf): void
     {
         $owner = $this->createAndLoginUser(['email' => 'self@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $payload = $this->postJson('/api/shares/invitations/bulk', array_merge([
             'comicIds' => [$comic->getId()],
@@ -174,7 +174,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     public function testBulkShareStillRequiresTheSenderResponsibilityAcknowledgement(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'responsible@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $payload = $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -206,7 +206,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
 
         $shared = SharingWorkflowService::RECENT_RECIPIENT_LIMIT + 5;
         for ($i = 0; $i < $shared; ++$i) {
-            $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+            $comic = ComicFactory::new()->ownedBy($owner)->create();
             $this->persistPendingShare($comic, $owner, sprintf('friend%d@example.com', $i));
         }
 
@@ -227,9 +227,9 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'grouped@example.com', 'name' => 'Grouped Owner']);
         $comics = [
-            ComicFactory::new()->ownedBy($owner)->create(['title' => 'Batman Begins'])->object(),
-            ComicFactory::new()->ownedBy($owner)->create(['title' => 'Superman Returns'])->object(),
-            ComicFactory::new()->ownedBy($owner)->create(['title' => 'Wonder Woman'])->object(),
+            ComicFactory::new()->ownedBy($owner)->create(['title' => 'Batman Begins']),
+            ComicFactory::new()->ownedBy($owner)->create(['title' => 'Superman Returns']),
+            ComicFactory::new()->ownedBy($owner)->create(['title' => 'Wonder Woman']),
         ];
 
         $payload = $this->postJson('/api/shares/invitations/bulk', [
@@ -261,10 +261,10 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     public function testAGroupedInvitationEmailStillNamesNoExplicitComic(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'mixed@example.com']);
-        $ordinary = ComicFactory::new()->ownedBy($owner)->create(['title' => 'All Ages Adventure'])->object();
+        $ordinary = ComicFactory::new()->ownedBy($owner)->create(['title' => 'All Ages Adventure']);
         $explicit = ComicFactory::new()->ownedBy($owner)
             ->create(['title' => 'Very Explicit Title', 'explicitContent' => true])
-            ->object();
+            ;
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$ordinary->getId(), $explicit->getId()],
@@ -296,7 +296,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         // half the hourly allowance on its own.
         $comicIds = [];
         for ($i = 0; $i < 5; ++$i) {
-            $comicIds[] = (int) ComicFactory::new()->ownedBy($owner)->create()->object()->getId();
+            $comicIds[] = (int) ComicFactory::new()->ownedBy($owner)->create()->getId();
         }
 
         $this->postJson('/api/shares/invitations/bulk', [
@@ -340,7 +340,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     public function testBulkShareRejectsMoreComicsThanOneActionMayCarry(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'greedy@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $payload = $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => array_fill(0, SharingWorkflowService::MAX_BULK_COMICS + 1, (int) $comic->getId()),
@@ -356,8 +356,8 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     public function testBulkShareDoesNotSilentlyRecreateAPendingInvitation(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'repeat@example.com']);
-        $pending = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $fresh = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $pending = ComicFactory::new()->ownedBy($owner)->create();
+        $fresh = ComicFactory::new()->ownedBy($owner)->create();
         $existing = $this->persistPendingShare($pending, $owner, 'friend@example.com');
         // To the second: the column has no sub-second precision, and what
         // matters is that the clock was not restarted.
@@ -396,8 +396,8 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     {
         UserFactory::createOne(['email' => 'registered@example.com']);
         $owner = $this->createAndLoginUser(['email' => 'prober@example.com']);
-        $first = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create();
+        $second = ComicFactory::new()->ownedBy($owner)->create();
 
         $known = $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$first->getId()],
@@ -445,7 +445,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     public function testNamingARecipientTwoWaysIsRefused(array $recipient): void
     {
         $owner = $this->createAndLoginUser(['email' => 'ambiguous@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $payload = $this->postJson('/api/shares/invitations/bulk', $recipient + [
             'comicIds' => [$comic->getId()],
@@ -484,7 +484,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
     public function testNamingNoRecipientAtAllIsRefused(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'nameless@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $payload = $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -504,12 +504,12 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
      */
     public function testAMixedSelectionCreatesNothingAtAll(): void
     {
-        $stranger = UserFactory::createOne(['email' => 'somebody-else@example.com'])->object();
-        $theirs = ComicFactory::new()->ownedBy($stranger)->create()->object();
+        $stranger = UserFactory::createOne(['email' => 'somebody-else@example.com']);
+        $theirs = ComicFactory::new()->ownedBy($stranger)->create();
 
         $owner = $this->createAndLoginUser(['email' => 'mixed@example.com']);
-        $mine = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $alsoMine = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $mine = ComicFactory::new()->ownedBy($owner)->create();
+        $alsoMine = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$mine->getId(), $theirs->getId(), $alsoMine->getId()],
@@ -531,11 +531,11 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
      */
     public function testAMissingComicAndAForeignComicGiveTheSameAnswer(): void
     {
-        $stranger = UserFactory::createOne(['email' => 'not-mine@example.com'])->object();
-        $theirs = ComicFactory::new()->ownedBy($stranger)->create()->object();
+        $stranger = UserFactory::createOne(['email' => 'not-mine@example.com']);
+        $theirs = ComicFactory::new()->ownedBy($stranger)->create();
 
         $owner = $this->createAndLoginUser(['email' => 'prober@example.com']);
-        $mine = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $mine = ComicFactory::new()->ownedBy($owner)->create();
 
         $foreign = $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$mine->getId(), $theirs->getId()],

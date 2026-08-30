@@ -38,8 +38,8 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     public function testCreatingAShareRecordsTheSendersAcknowledgement(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'sender@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'An Ordinary Comic'])->object();
-        $recipient = UserFactory::createOne(['email' => 'invitee@test.local'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'An Ordinary Comic']);
+        $recipient = UserFactory::createOne(['email' => 'invitee@test.local']);
 
         $this->invite($comic, (string) $recipient->getEmail());
 
@@ -70,7 +70,7 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'careful-sender@test.local']);
         $comic = $this->explicitComic($owner);
-        $recipient = UserFactory::createOne(['email' => 'careful-invitee@test.local'])->object();
+        $recipient = UserFactory::createOne(['email' => 'careful-invitee@test.local']);
 
         $this->invite($comic, (string) $recipient->getEmail());
         $invitationUrl = $this->invitationUrlFromEmail();
@@ -86,7 +86,7 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'explicit-owner@test.local']);
         $comic = $this->explicitComic($owner);
-        $recipient = UserFactory::createOne(['email' => 'confirming@test.local'])->object();
+        $recipient = UserFactory::createOne(['email' => 'confirming@test.local']);
         $this->invite($comic, (string) $recipient->getEmail());
 
         $shareId = $this->shareIdFor($comic);
@@ -121,7 +121,7 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'gated-owner@test.local']);
         $comic = $this->explicitComic($owner);
-        $recipient = UserFactory::createOne(['email' => 'impatient@test.local'])->object();
+        $recipient = UserFactory::createOne(['email' => 'impatient@test.local']);
         $this->invite($comic, (string) $recipient->getEmail());
 
         $shareId = $this->shareIdFor($comic);
@@ -139,7 +139,7 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'gated-owner-2@test.local']);
         $comic = $this->explicitComic($owner);
-        $recipient = UserFactory::createOne(['email' => 'persistent@test.local'])->object();
+        $recipient = UserFactory::createOne(['email' => 'persistent@test.local']);
         $this->invite($comic, (string) $recipient->getEmail());
 
         $shareId = $this->shareIdFor($comic);
@@ -175,13 +175,13 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'third-party-owner@test.local']);
         $comic = $this->explicitComic($owner);
-        $recipient = UserFactory::createOne(['email' => 'intended@test.local'])->object();
+        $recipient = UserFactory::createOne(['email' => 'intended@test.local']);
         $this->invite($comic, (string) $recipient->getEmail());
 
         $token = $this->invitationTokenFromEmail();
 
         // Somebody who was forwarded the link, signed in as themselves.
-        $interloper = UserFactory::createOne(['email' => 'interloper@test.local'])->object();
+        $interloper = UserFactory::createOne(['email' => 'interloper@test.local']);
         $this->loginAs($interloper);
         $this->postJson('/api/shares/invitations/' . $token . '/confirm-adult', ['adultConfirmed' => true]);
         self::assertResponseStatusCodeSame(403);
@@ -194,7 +194,7 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     public function testReclassifyingAComicIsAuditedInBothDirections(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'reclassifier@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => self::EXPLICIT_TITLE])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => self::EXPLICIT_TITLE]);
 
         $this->patchJson('/api/comics/' . $comic->getId(), ['explicitContent' => true]);
         self::assertResponseIsSuccessful();
@@ -222,8 +222,8 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     public function testReclassificationRecordsHowManyRecipientsWereReGated(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'regater@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Innocuous For Now'])->object();
-        $recipient = UserFactory::createOne(['email' => 'already-reading@test.local'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Innocuous For Now']);
+        $recipient = UserFactory::createOne(['email' => 'already-reading@test.local']);
 
         $this->invite($comic, (string) $recipient->getEmail());
         $shareId = $this->shareIdFor($comic);
@@ -255,7 +255,7 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'regater2@test.local']);
         $comic = $this->explicitComic($owner);
-        $recipient = UserFactory::createOne(['email' => 'confirmed-reader@test.local'])->object();
+        $recipient = UserFactory::createOne(['email' => 'confirmed-reader@test.local']);
 
         $this->invite($comic, (string) $recipient->getEmail());
         $shareId = $this->shareIdFor($comic);
@@ -283,9 +283,9 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
     public function testDeletingAComicRecordsHowManyRecipientsLostAccess(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'deleter@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Doomed Comic'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Doomed Comic']);
         $comicId = $comic->getId();
-        $recipient = UserFactory::createOne(['email' => 'loses-access@test.local'])->object();
+        $recipient = UserFactory::createOne(['email' => 'loses-access@test.local']);
         $this->invite($comic, (string) $recipient->getEmail());
 
         $this->clearSecurityLog();
@@ -322,7 +322,7 @@ final class ShareAuditLoggingTest extends AbstractApiTestCase
 
     private function explicitComic(User $owner): Comic
     {
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => self::EXPLICIT_TITLE])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => self::EXPLICIT_TITLE]);
 
         $this->patchJson('/api/comics/' . $comic->getId(), ['explicitContent' => true]);
         self::assertResponseIsSuccessful();

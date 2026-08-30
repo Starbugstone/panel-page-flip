@@ -96,13 +96,13 @@ final class ComicPageIndexTest extends AbstractApiTestCase
      */
     private function createComicWithNoisyArchive(): array
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $filename = 'page-index-' . uniqid('', false) . '.cbz';
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'filePath' => $filename,
             'pageCount' => 2,
-        ])->object();
+        ]);
 
         $directory = self::getContainer()->getParameter('comics_directory') . '/' . $owner->getId();
         if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {

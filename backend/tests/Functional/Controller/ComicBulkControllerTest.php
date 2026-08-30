@@ -20,8 +20,8 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
     public function testSingleAndMultipleEditsUseTheSameBatchContract(): void
     {
         $owner = $this->createAndLoginUser();
-        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'First'])->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Second'])->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'First']);
+        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Second']);
 
         $payload = $this->patchJson('/api/comics', [
             'updates' => [
@@ -44,8 +44,8 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
     public function testOwnerCanAddTagToSelectedComics(): void
     {
         $owner = $this->createAndLoginUser();
-        $first = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create();
+        $second = ComicFactory::new()->ownedBy($owner)->create();
 
         $payload = $this->patchJson('/api/comics', [
             'updates' => [
@@ -66,8 +66,8 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
     public function testBulkTagReusesAnExistingTagDespiteCaseAndWhitespace(): void
     {
         $owner = $this->createAndLoginUser();
-        $existing = TagFactory::new()->createdBy($owner)->create(['name' => 'Sci Fi'])->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $existing = TagFactory::new()->createdBy($owner)->create(['name' => 'Sci Fi']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->patchJson('/api/comics', [
             'updates' => [
@@ -88,7 +88,7 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
     public function testRepeatedBulkTagSubmissionDoesNotAttachDuplicates(): void
     {
         $owner = $this->createAndLoginUser();
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $request = ['updates' => [['id' => $comic->getId(), 'changes' => ['addTags' => ['Weekend']]]]];
 
         $this->patchJson('/api/comics', $request);
@@ -105,8 +105,8 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
     public function testBulkTagRejectsAnotherUsersComicWithoutChangingAnyComic(): void
     {
         $owner = $this->createAndLoginUser();
-        $ownedComic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $otherComic = ComicFactory::createOne()->object();
+        $ownedComic = ComicFactory::new()->ownedBy($owner)->create();
+        $otherComic = ComicFactory::createOne();
 
         $this->patchJson('/api/comics', [
             'updates' => [
@@ -123,9 +123,9 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
     public function testOwnerCanBulkDeleteSelectedComics(): void
     {
         $owner = $this->createAndLoginUser();
-        $first = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $kept = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create();
+        $second = ComicFactory::new()->ownedBy($owner)->create();
+        $kept = ComicFactory::new()->ownedBy($owner)->create();
 
         $payload = $this->deleteJson('/api/comics', [
             'comicIds' => [$first->getId(), $second->getId()],
@@ -151,7 +151,7 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser();
         $comics = ComicFactory::new()->ownedBy($owner)->many(25)->create();
-        $comicIds = array_map(static fn ($comic): int => $comic->object()->getId(), $comics);
+        $comicIds = array_map(static fn ($comic): int => $comic->getId(), $comics);
 
         $this->deleteJson('/api/comics', [
             'comicIds' => $comicIds,
@@ -175,7 +175,7 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
         $comics = ComicFactory::new()->ownedBy($owner)->many(2)->create();
 
         $this->deleteJson('/api/comics', [
-            'comicIds' => array_map(static fn ($comic): int => $comic->object()->getId(), $comics),
+            'comicIds' => array_map(static fn ($comic): int => $comic->getId(), $comics),
             'confirmOrphaned' => true,
         ]);
         self::assertResponseIsSuccessful();
@@ -191,7 +191,7 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
         $orphanedComic = ComicFactory::new()->ownedBy($owner)->create([
             'title' => 'Missing archive',
             'filePath' => 'missing-archive.cbz',
-        ])->object();
+        ]);
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $share = new ComicShare($orphanedComic, $owner, 'recipient@example.com');
         $entityManager->persist($share);
@@ -229,8 +229,8 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
     public function testBulkDeleteRejectsMixedOwnershipWithoutDeletingAnything(): void
     {
         $owner = $this->createAndLoginUser();
-        $ownedComic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $otherComic = ComicFactory::createOne()->object();
+        $ownedComic = ComicFactory::new()->ownedBy($owner)->create();
+        $otherComic = ComicFactory::createOne();
 
         $this->deleteJson('/api/comics', [
             'comicIds' => [$ownedComic->getId(), $otherComic->getId()],
@@ -243,8 +243,8 @@ final class ComicBulkControllerTest extends AbstractApiTestCase
     public function testBatchUpdateRejectsInvalidMetadataWithoutPartialChanges(): void
     {
         $owner = $this->createAndLoginUser();
-        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Unchanged first'])->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Unchanged second'])->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Unchanged first']);
+        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Unchanged second']);
 
         $this->patchJson('/api/comics', [
             'updates' => [

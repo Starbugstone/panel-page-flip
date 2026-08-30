@@ -16,7 +16,7 @@ final class MetadataCredentialPersistenceIntegrityTest extends AbstractApiTestCa
     {
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $encryption = static::getContainer()->get(AppDataEncryptionService::class);
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
 
         $credential = (new UserMetadataCredential())
             ->setUser($user)
@@ -56,7 +56,7 @@ final class MetadataCredentialPersistenceIntegrityTest extends AbstractApiTestCa
     {
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $encryption = static::getContainer()->get(AppDataEncryptionService::class);
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
 
         $credential = (new UserMetadataCredential())
             ->setUser($user)

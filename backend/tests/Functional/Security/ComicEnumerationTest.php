@@ -67,8 +67,8 @@ final class ComicEnumerationTest extends AbstractApiTestCase
         string $template,
         array $payload
     ): void {
-        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()->object()])->object();
-        $this->loginAs(UserFactory::createOne()->object());
+        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()]);
+        $this->loginAs(UserFactory::createOne());
 
         $real = $this->call($method, sprintf($template, $comic->getId()), $payload);
         $invented = $this->call($method, sprintf($template, self::UNUSED_COMIC_ID), $payload);
@@ -83,12 +83,12 @@ final class ComicEnumerationTest extends AbstractApiTestCase
      */
     public function testACoverRevealsNeitherTheComicNorItsOwner(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
-        $this->loginAs(UserFactory::createOne()->object());
+        ]);
+        $this->loginAs(UserFactory::createOne());
 
         $real = $this->call('GET', sprintf('/api/comics/cover/%d/%d/cover.png', $owner->getId(), $comic->getId()));
         $invented = $this->call(
@@ -107,9 +107,9 @@ final class ComicEnumerationTest extends AbstractApiTestCase
      */
     public function testAnInvitedRecipientIsRefusedRatherThanToldItIsMissing(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $recipient = UserFactory::createOne(['email' => 'invited@test.local'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $recipient = UserFactory::createOne(['email' => 'invited@test.local']);
         $this->persistPendingShare($comic, $owner, $recipient);
 
         $this->loginAs($recipient);

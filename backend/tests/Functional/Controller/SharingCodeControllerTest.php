@@ -65,7 +65,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         $recipient = UserFactory::createOne([
             'email' => 'private-address@example.com',
             'name' => 'Jane Reader',
-        ])->object();
+        ]);
         $this->loginAs($recipient);
         $code = $this->getJson('/api/shares/user-code')['userCode'];
 
@@ -112,7 +112,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAContentCodePastedAsARecipientIsExplained(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'confused@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $comicCode = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
@@ -131,12 +131,12 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         $recipient = UserFactory::createOne([
             'email' => 'hidden@example.com',
             'name' => 'Hidden Reader',
-        ])->object();
+        ]);
         $this->loginAs($recipient);
         $code = $this->getJson('/api/shares/user-code')['userCode'];
 
         $owner = $this->createAndLoginUser(['email' => 'code-sender@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Shared By Code'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Shared By Code']);
 
         $payload = $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -175,12 +175,12 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
      */
     public function testTypingTheAddressLaterStopsHidingIt(): void
     {
-        $recipient = UserFactory::createOne(['email' => 'both-ways@example.com', 'name' => 'Both Ways'])->object();
+        $recipient = UserFactory::createOne(['email' => 'both-ways@example.com', 'name' => 'Both Ways']);
         $this->loginAs($recipient);
         $code = $this->getJson('/api/shares/user-code')['userCode'];
 
         $owner = $this->createAndLoginUser(['email' => 'switcher@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -216,7 +216,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAContentCodeCannotCarryMoreComicsThanAGroupMay(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'oversized@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/group-codes', [
             'comicIds' => array_fill(0, 500, (int) $comic->getId()),
@@ -231,12 +231,12 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
 
     public function testRecentRecipientsListACodeRecipientWithoutTheirAddress(): void
     {
-        $recipient = UserFactory::createOne(['email' => 'quiet@example.com', 'name' => 'Quiet Reader'])->object();
+        $recipient = UserFactory::createOne(['email' => 'quiet@example.com', 'name' => 'Quiet Reader']);
         $this->loginAs($recipient);
         $code = $this->getJson('/api/shares/user-code')['userCode'];
 
         $owner = $this->createAndLoginUser(['email' => 'reuser@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -259,7 +259,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAComicCodeIsShownOnceAndCountsDownAsItIsUsed(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'claim-owner@example.com', 'name' => 'Claim Owner']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Claimable'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Claimable']);
 
         $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
@@ -313,7 +313,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAnExhaustedCodeIsIndistinguishableFromOneThatNeverExisted(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'used-up@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $code = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
@@ -348,7 +348,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testTheAccountThatSpentTheLastUseCanStillReplayIt(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'single-use@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $code = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
@@ -379,7 +379,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAnExpiredContentCodeIsRefused(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'stale-code@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $code = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 5,
@@ -408,10 +408,10 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testRedeemingLeavesAnExplicitComicBehindTheAgeGate(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'explicit-owner@example.com']);
-        $ordinary = ComicFactory::new()->ownedBy($owner)->create(['title' => 'All Ages'])->object();
+        $ordinary = ComicFactory::new()->ownedBy($owner)->create(['title' => 'All Ages']);
         $explicit = ComicFactory::new()->ownedBy($owner)
             ->create(['title' => 'Adults Only', 'explicitContent' => true])
-            ->object();
+            ;
 
         // Two comics, so this is a group — and a group may mix the two, with
         // the ordinary half arriving and the explicit half waiting on the gate.
@@ -450,7 +450,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAnOwnerCannotRedeemTheirOwnContentCode(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'self-claim@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $code = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
@@ -465,8 +465,8 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
 
     public function testAContentCodeCannotCarrySomebodyElsesComic(): void
     {
-        $stranger = UserFactory::createOne(['email' => 'stranger@example.com'])->object();
-        $theirs = ComicFactory::new()->ownedBy($stranger)->create()->object();
+        $stranger = UserFactory::createOne(['email' => 'stranger@example.com']);
+        $theirs = ComicFactory::new()->ownedBy($stranger)->create();
 
         $this->createAndLoginUser(['email' => 'grabby@example.com']);
         $this->postJson('/api/shares/comic-codes', [
@@ -482,7 +482,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAContentCodeStillRequiresTheSenderResponsibilityAcknowledgement(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'unacknowledged@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $payload = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
@@ -498,7 +498,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAContentCodeMustBeUsableBetweenOneAndTenTimes(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'greedy-uses@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         foreach ([0, ShareClaimCode::MAX_USES + 1, -3] as $uses) {
             $this->postJson('/api/shares/comic-codes', [
@@ -520,7 +520,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testWithdrawingACodeStopsItWithoutTouchingWhatItAlreadyGaveOut(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'withdrawer@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 5,
@@ -554,7 +554,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testWithdrawingACodeTakesEffectImmediately(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'quick-change@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 10,
@@ -584,7 +584,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAnotherOwnerCannotWithdrawSomebodyElsesCode(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'code-owner@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 3,
@@ -605,7 +605,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testEveryIssuedTokenIsUniqueAcrossEveryKind(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'many-codes@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         // Compared without their prefixes. The prefix already makes a user code
         // and a comic code different strings; what is asserted here is the
@@ -639,7 +639,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testTheCleanupKeepsADeadCodeForAMonthAndThenRemovesIt(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'housekeeping@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
@@ -724,12 +724,12 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
 
     public function testRotatingLeavesExistingSharesUntouched(): void
     {
-        $recipient = UserFactory::createOne(['email' => 'keeps-comics@example.com', 'name' => 'Keeper'])->object();
+        $recipient = UserFactory::createOne(['email' => 'keeps-comics@example.com', 'name' => 'Keeper']);
         $this->loginAs($recipient);
         $original = $this->getJson('/api/shares/user-code')['userCode'];
 
         $owner = $this->createAndLoginUser(['email' => 'gave-comics@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Still Mine'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Still Mine']);
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
             'userCode' => $original,
@@ -763,7 +763,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
 
     public function testAnAdminCanRotateSomebodyElsesCodeWithoutSeeingIt(): void
     {
-        $target = UserFactory::createOne(['email' => 'needs-help@example.com'])->object();
+        $target = UserFactory::createOne(['email' => 'needs-help@example.com']);
         $this->loginAs($target);
         $original = $this->getJson('/api/shares/user-code')['userCode'];
 
@@ -785,7 +785,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
 
     public function testAnOrdinaryUserCannotRotateSomebodyElsesCode(): void
     {
-        $target = UserFactory::createOne(['email' => 'not-yours@example.com'])->object();
+        $target = UserFactory::createOne(['email' => 'not-yours@example.com']);
         $this->loginAs($target);
         $original = $this->getJson('/api/shares/user-code')['userCode'];
 
@@ -830,7 +830,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testOneAccountSpendsAtMostOneUseHoweverOftenItRedeems(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'ten-uses@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 10,
@@ -857,7 +857,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testDistinctAccountsEachSpendOneUseUntilTheCodeRunsOut(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'party@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $code = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 3,
@@ -885,7 +885,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
     public function testAClaimedShareInheritsTheOwnersAcknowledgementTimestamp(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'acknowledger@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $code = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,

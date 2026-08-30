@@ -26,7 +26,7 @@ final class AdminPrivilegeAuditTest extends AbstractApiTestCase
     public function testGrantingAdminRecordsTheRolesBeforeAndAfter(): void
     {
         $admin = $this->createAndLoginAdmin(['email' => 'grantor@test.local']);
-        $target = UserFactory::createOne(['email' => 'promoted@test.local'])->object();
+        $target = UserFactory::createOne(['email' => 'promoted@test.local']);
 
         $this->putJson('/api/users/' . $target->getId(), ['roles' => ['ROLE_ADMIN']]);
         self::assertResponseIsSuccessful();
@@ -41,7 +41,7 @@ final class AdminPrivilegeAuditTest extends AbstractApiTestCase
     public function testGrantingAdminAlertsTheAdministrators(): void
     {
         $this->createAndLoginAdmin(['email' => 'grantor2@test.local']);
-        $target = UserFactory::createOne(['email' => 'promoted2@test.local'])->object();
+        $target = UserFactory::createOne(['email' => 'promoted2@test.local']);
 
         $this->putJson('/api/users/' . $target->getId(), ['roles' => ['ROLE_ADMIN']]);
         self::assertResponseIsSuccessful();
@@ -57,7 +57,7 @@ final class AdminPrivilegeAuditTest extends AbstractApiTestCase
     public function testRemovingAdminAlertsTheAdministrators(): void
     {
         $this->createAndLoginAdmin(['email' => 'demoter@test.local']);
-        $target = UserFactory::new()->admin()->create(['email' => 'demoted@test.local'])->object();
+        $target = UserFactory::new()->admin()->create(['email' => 'demoted@test.local']);
 
         $this->putJson('/api/users/' . $target->getId(), ['roles' => ['ROLE_USER']]);
         self::assertResponseIsSuccessful();
@@ -75,7 +75,7 @@ final class AdminPrivilegeAuditTest extends AbstractApiTestCase
     public function testAnOrdinaryProfileEditIsNotAPrivilegeChange(): void
     {
         $this->createAndLoginAdmin(['email' => 'editor@test.local']);
-        $target = UserFactory::createOne(['email' => 'renamed@test.local'])->object();
+        $target = UserFactory::createOne(['email' => 'renamed@test.local']);
 
         $this->putJson('/api/users/' . $target->getId(), ['name' => 'A New Name']);
         self::assertResponseIsSuccessful();
@@ -88,7 +88,7 @@ final class AdminPrivilegeAuditTest extends AbstractApiTestCase
     public function testDeletingAnAdminAccountIsBothAuditedAndAlerted(): void
     {
         $admin = $this->createAndLoginAdmin(['email' => 'remover@test.local']);
-        $target = UserFactory::new()->admin()->create(['email' => 'removed-admin@test.local'])->object();
+        $target = UserFactory::new()->admin()->create(['email' => 'removed-admin@test.local']);
         $targetId = $target->getId();
 
         $this->deleteJson('/api/users/' . $targetId);

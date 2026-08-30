@@ -22,9 +22,9 @@ final class AdminShareControllerTest extends AbstractApiTestCase
 {
     private function share(array $comicAttributes = [], string $status = ComicShare::STATUS_ACCEPTED): ComicShare
     {
-        $owner = UserFactory::createOne()->object();
-        $recipient = UserFactory::createOne(['email' => uniqid('recipient', true) . '@example.com'])->object();
-        $comic = ComicFactory::createOne(['owner' => $owner] + $comicAttributes)->object();
+        $owner = UserFactory::createOne();
+        $recipient = UserFactory::createOne(['email' => uniqid('recipient', true) . '@example.com']);
+        $comic = ComicFactory::createOne(['owner' => $owner] + $comicAttributes);
 
         $share = new ComicShare($comic, $owner, (string) $recipient->getEmail());
         $share->linkRecipientUser($recipient);

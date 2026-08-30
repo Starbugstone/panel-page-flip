@@ -21,8 +21,8 @@ final class TagSearchScopeTest extends AbstractApiTestCase
 {
     public function testSearchReturnsOnlyGlobalTagsAndTheCallersOwn(): void
     {
-        $stranger = UserFactory::createOne()->object();
-        $caller = UserFactory::createOne()->object();
+        $stranger = UserFactory::createOne();
+        $caller = UserFactory::createOne();
 
         TagFactory::createOne(['name' => 'shared-heroes', 'creator' => null, 'isGlobal' => true]);
         TagFactory::createOne(['name' => 'shared-mine', 'creator' => $caller]);
@@ -38,7 +38,7 @@ final class TagSearchScopeTest extends AbstractApiTestCase
 
     public function testAdminContextSearchStillSeesEveryTag(): void
     {
-        $stranger = UserFactory::createOne()->object();
+        $stranger = UserFactory::createOne();
         TagFactory::createOne(['name' => 'admin-scope-theirs', 'creator' => $stranger]);
 
         $this->createAndLoginAdmin();
@@ -53,10 +53,10 @@ final class TagSearchScopeTest extends AbstractApiTestCase
      */
     public function testAdminContextIsIgnoredForNonAdmins(): void
     {
-        $stranger = UserFactory::createOne()->object();
+        $stranger = UserFactory::createOne();
         TagFactory::createOne(['name' => 'escalate-theirs', 'creator' => $stranger]);
 
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $payload = $this->getJson('/api/tags/search?q=escalate-&adminContext=true');
 
         self::assertSame([], $payload['tags']);
@@ -64,7 +64,7 @@ final class TagSearchScopeTest extends AbstractApiTestCase
 
     public function testSearchIsBounded(): void
     {
-        $caller = UserFactory::createOne()->object();
+        $caller = UserFactory::createOne();
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
 
         for ($i = 0; $i < TagRepository::SEARCH_LIMIT + 10; $i++) {

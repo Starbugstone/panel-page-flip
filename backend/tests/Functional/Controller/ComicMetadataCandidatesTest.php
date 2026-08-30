@@ -19,8 +19,8 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 {
     public function testOwnerGetsNoCandidatesWhileNoProviderIsConfigured(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
 
         $this->loginAs($owner);
         $response = $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()));
@@ -36,8 +36,8 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
      */
     public function testSaysWhichProvidersWouldAnswer(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
 
         $this->loginAs($owner);
         $response = $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()));
@@ -54,8 +54,8 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
      */
     public function testSearchesTheStagedValuesRatherThanOnlyTheSavedOnes(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => null, 'title' => 'untitled'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => null, 'title' => 'untitled']);
 
         $this->loginAs($owner);
         $response = $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()), [
@@ -71,9 +71,9 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
     /** A staged value is a search hint, never authority over another comic. */
     public function testStagedValuesDoNotWidenWhatMayBeEdited(): void
     {
-        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()->object()])->object();
+        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()]);
 
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()), [
             'query' => ['series' => 'Batman'],
         ]);
@@ -85,8 +85,8 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 
     public function testAComicWithNothingToSearchOnIsRejected(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => null, 'title' => ''])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => null, 'title' => '']);
 
         $this->loginAs($owner);
         $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()));
@@ -96,9 +96,9 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 
     public function testAStrangerIsRefused(): void
     {
-        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()->object()])->object();
+        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()]);
 
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()));
 
         self::assertResponseStatusCodeSame(404);
@@ -106,7 +106,7 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 
     public function testAnonymousIsRefused(): void
     {
-        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()->object()])->object();
+        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()]);
 
         $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()));
 
@@ -115,7 +115,7 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 
     public function testAMissingComicIsNotFound(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $this->postJson('/api/comics/99999999/metadata-candidates');
 
         self::assertResponseStatusCodeSame(404);
@@ -123,8 +123,8 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 
     public function testAnUnknownProviderIsRejected(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
 
         $this->loginAs($owner);
         $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()), ['provider' => 'nope']);
@@ -134,8 +134,8 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 
     public function testAKnownProviderIsAccepted(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
 
         $this->loginAs($owner);
         $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()), ['provider' => 'metron']);
@@ -149,8 +149,8 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
      */
     public function testAUserWithoutMetadataApiAccessIsToldSo(): void
     {
-        $owner = UserFactory::createOne(['metadataApiEnabled' => false])->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne(['metadataApiEnabled' => false]);
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
 
         $this->loginAs($owner);
         $response = $this->postJson(sprintf('/api/comics/%d/metadata-candidates', $comic->getId()));
@@ -165,8 +165,8 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
     /** Refreshing before anything was ever matched is a state, not an error. */
     public function testRefreshingAComicThatWasNeverMatchedSaysSo(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
 
         $this->loginAs($owner);
         $this->postJson(sprintf('/api/comics/%d/metadata-refresh', $comic->getId()));
@@ -176,8 +176,8 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 
     public function testFetchingARecordNeedsAProviderAndAnId(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
 
         $this->loginAs($owner);
         $this->postJson(sprintf('/api/comics/%d/metadata-record', $comic->getId()), ['provider' => 'metron']);
@@ -187,9 +187,9 @@ final class ComicMetadataCandidatesTest extends AbstractApiTestCase
 
     public function testFetchingARecordIsRefusedToAStranger(): void
     {
-        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()->object()])->object();
+        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()]);
 
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $this->postJson(sprintf('/api/comics/%d/metadata-record', $comic->getId()), [
             'provider' => 'metron',
             'externalId' => '1',

@@ -14,7 +14,7 @@ final class EmailVerificationServiceTest extends AbstractApiTestCase
 {
     public function testIssueReplacesEarlierTokensForTheSameUser(): void
     {
-        $user = UserFactory::new()->unverified()->create()->object();
+        $user = UserFactory::new()->unverified()->create();
         $service = self::getContainer()->get(EmailVerificationService::class);
         $first = $service->issue($user);
         $second = $service->issue($user);
