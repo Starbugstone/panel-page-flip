@@ -23,7 +23,7 @@
 #       ├── vendor/                     <-- composer install --no-dev
 #       ├── var/cache/prod/             <-- pre-warmed
 #       ├── .env
-#       ├── .env.local.php              <-- composer dump-env prod
+#       ├── .env.local.php              <-- only in explicit compiled mode
 #       ├── composer.json
 #       └── composer.lock
 #
@@ -33,7 +33,9 @@
 #   ./scripts/build-release.sh --skip-frontend
 #   ./scripts/build-release.sh --skip-backend
 #
-# Reads scripts/.env.deploy for the PROD_* and POST_DEPLOY_TOKEN values.
+# Server-local mode (the default) never puts production secrets in the release;
+# backend/.env.local remains authoritative on the host. Set
+# DEPLOY_CONFIG_MODE=compiled to retain the portable compiled-env workflow.
 # =============================================================================
 
 set -euo pipefail
@@ -114,6 +116,12 @@ set -a
 source "$ENV_FILE"
 set +a
 
+DEPLOY_CONFIG_MODE="${DEPLOY_CONFIG_MODE:-server-local}"
+case "$DEPLOY_CONFIG_MODE" in
+    server-local|compiled) ;;
+    *) fail "DEPLOY_CONFIG_MODE must be 'server-local' or 'compiled'." ;;
+esac
+
 # Try to read PHP_VERSION / NODE_VERSION from the project's .env if present.
 if [ -f "$REPO_ROOT/.env" ]; then
     # shellcheck disable=SC1091
@@ -122,15 +130,20 @@ fi
 PHP_VERSION="${PHP_VERSION:-$PHP_VERSION_DEFAULT}"
 NODE_VERSION="${NODE_VERSION:-$NODE_VERSION_DEFAULT}"
 
-# Required PROD_* values for backend env baking.
-REQUIRED_PROD_VARS=(
-    PROD_APP_SECRET
-    PROD_APP_DATA_KEY
-    PROD_DATABASE_URL
-    PROD_CORS_ALLOW_ORIGIN
-    PUBLIC_URL
-    POST_DEPLOY_TOKEN
-)
+# Only compiled mode bakes runtime configuration into the artefact. The default
+# server-local mode uses disposable non-production values while Composer builds,
+# then deletes them; the host's ignored backend/.env.local is never copied or
+# replaced.
+REQUIRED_PROD_VARS=(PUBLIC_URL)
+if [ "$DEPLOY_CONFIG_MODE" = "compiled" ]; then
+    REQUIRED_PROD_VARS+=(PROD_APP_SECRET PROD_APP_DATA_KEY PROD_DATABASE_URL PROD_CORS_ALLOW_ORIGIN POST_DEPLOY_TOKEN)
+else
+    PROD_APP_SECRET=build-only-not-deployed
+    PROD_APP_DATA_KEY=0000000000000000000000000000000000000000000000000000000000000000
+    PROD_DATABASE_URL='mysql://build:build@127.0.0.1:3306/build?serverVersion=8.0.32&charset=utf8mb4'
+    PROD_CORS_ALLOW_ORIGIN='^https://build\.invalid$'
+    POST_DEPLOY_TOKEN=build-only-not-deployed
+fi
 for v in "${REQUIRED_PROD_VARS[@]}"; do
     if [ -z "${!v:-}" ]; then
         fail "Missing $v in $ENV_FILE."
@@ -243,8 +256,9 @@ if [ "$DO_BACKEND" = "1" ]; then
     log "Installing public/_post-deploy.php"
     cp "$SCRIPT_DIR/deploy/_post-deploy.php.dist" "$RELEASE_DIR/backend/public/_post-deploy.php"
 
-    # Generate .env.prod.local from PROD_* vars (will be consolidated by dump-env).
-    log "Writing temporary .env.prod.local"
+    # Generate the disposable Composer environment. Only compiled mode retains
+    # its values in .env.local.php; server-local mode deletes it after building.
+    log "Writing temporary build environment"
     PROD_ENV_FILE="$RELEASE_DIR/backend/.env.prod.local"
     : > "$PROD_ENV_FILE"
 
@@ -270,6 +284,10 @@ if [ "$DO_BACKEND" = "1" ]; then
     # matching the raw value here would reject a publisher id the application
     # would have accepted, and abort the release over surrounding whitespace.
     PROD_ADSENSE_CLIENT="$(printf '%s' "${PROD_ADSENSE_CLIENT:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    if [ "$DEPLOY_CONFIG_MODE" = "server-local" ]; then
+        PROD_ADSENSE_ENABLED=false
+        PROD_ADSENSE_CLIENT=
+    fi
     if [ "${PROD_ADSENSE_ENABLED:-false}" = "true" ]; then
         case "$PROD_ADSENSE_CLIENT" in
             ca-pub-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
@@ -294,6 +312,7 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv MESSENGER_TRANSPORT_DSN "${PROD_MESSENGER_TRANSPORT_DSN:-doctrine://default?auto_setup=0}"
     write_dotenv LOCK_DSN "${PROD_LOCK_DSN:-flock}"
     write_dotenv MAX_CONCURRENT_UPLOADS "${PROD_MAX_CONCURRENT_UPLOADS:-3}"
+    write_dotenv MAX_PARALLEL_FILE_UPLOADS "${PROD_MAX_PARALLEL_FILE_UPLOADS:-2}"
     write_dotenv UPLOAD_USER_QUOTA_BYTES "${PROD_UPLOAD_USER_QUOTA_BYTES:-10737418240}"
     # Written explicitly so a release never inherits the development default
     # from a stray .env; the application defaults it on in any case.
@@ -312,11 +331,9 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv DROPBOX_APP_FOLDER "${PROD_DROPBOX_APP_FOLDER:-/}"
     write_dotenv DROPBOX_SYNC_LIMIT "${PROD_DROPBOX_SYNC_LIMIT:-10}"
     write_dotenv DROPBOX_RATE_LIMIT "${PROD_DROPBOX_RATE_LIMIT:-60}"
-    # Advertising. Off unless the operator sets PROD_ADSENSE_ENABLED, and
-    # baked in here because `composer dump-env prod` consolidates this file into
-    # .env.local.php — after which Symfony stops reading backend/.env entirely.
-    # Without these two lines an operator can edit .env on the server all day
-    # and AdvertisingConfiguration still reports "off". See docs/advertising.md.
+    # Only explicit compiled mode bakes these settings. In the default
+    # server-local mode they were forced off above and this disposable file is
+    # removed after Composer finishes.
     write_dotenv ADSENSE_ENABLED "${PROD_ADSENSE_ENABLED:-false}"
     write_dotenv ADSENSE_CLIENT "$PROD_ADSENSE_CLIENT"
     write_dotenv DEPLOY_TOKEN "$POST_DEPLOY_TOKEN"
@@ -334,6 +351,7 @@ if [ "$DO_BACKEND" = "1" ]; then
         -e COMPOSER_HOME=/tmp/composer \
         -e RELEASE_UID="$(id -u)" \
         -e RELEASE_GID="$(id -g)" \
+        -e DEPLOY_CONFIG_MODE="$DEPLOY_CONFIG_MODE" \
         "php:${PHP_VERSION}-cli" \
         sh -c '
             set -e
@@ -343,14 +361,17 @@ if [ "$DO_BACKEND" = "1" ]; then
             docker-php-ext-install -j"$(nproc)" zip intl pdo_mysql opcache >/dev/null
             curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer >/dev/null
             composer install --no-dev --optimize-autoloader --classmap-authoritative --no-interaction --no-progress
-            composer dump-env prod
+            if [ "${DEPLOY_CONFIG_MODE:-server-local}" = "compiled" ]; then composer dump-env prod; fi
             php bin/console cache:clear --env=prod --no-debug
             php bin/console cache:warmup --env=prod --no-debug
         '
 
-    # The .env.prod.local has been consolidated into .env.local.php. Drop the
-    # raw file so the production server never sees secrets in plaintext.
-    if [ -f "$RELEASE_DIR/backend/.env.local.php" ]; then
+    # The temporary dotenv file is never deployed. Compiled mode has already
+    # consolidated it; server-local mode deliberately ships no runtime config.
+    if [ "$DEPLOY_CONFIG_MODE" = "server-local" ]; then
+        log "Removing disposable build environment (server .env.local remains authoritative)"
+        rm -f "$PROD_ENV_FILE"
+    elif [ -f "$RELEASE_DIR/backend/.env.local.php" ]; then
         log "Removing raw .env.prod.local (consolidated into .env.local.php)"
         rm -f "$PROD_ENV_FILE"
     else

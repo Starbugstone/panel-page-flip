@@ -23,7 +23,7 @@ lives in [`docs/`](docs/):
 | [security-logging.md](docs/security-logging.md) | Security/audit channels, retention, alerts |
 | [content-reporting.md](docs/content-reporting.md) | Illegal-content notices and restrictions |
 | [administrator-notices.md](docs/administrator-notices.md) | Warning one account about their activity |
-| [advertising.md](docs/advertising.md) | Optional AdSense, consent, rewarded bulk upload |
+| [advertising.md](docs/advertising.md) | Optional AdSense, consent, AdSense Offerwall, strict CSP |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
 
@@ -67,7 +67,7 @@ lives in [`docs/`](docs/):
 - **Public Identity**: Every account has a required, case-insensitively unique `username` and a rotatable `U-` user code. `UsernamePolicy.php` is the one definition of what a username may be, `UsernameGenerator.php` invents friendly ones, `UsernameService.php` claims and changes them, and `UserIdentityListener.php` issues both identifiers on `prePersist` so no account can exist without them. See [Public identity: username and `U-` code](#public-identity-username-and-u--code)
 - **Sharing Codes**: `SharingCodeFormat.php` and `ShareCodeType.php` define one wire format in three flavours — `U-` identifies a person, `C-` carries exactly one comic, `G-` carries a package of 2–20. `SharingCodeService.php` issues and resolves user codes; `ShareClaimCodeService.php` mints and redeems content codes. See [Sharing codes](#sharing-codes)
 - **Content Code Lifetime**: `ShareContentCodeLifetime.php` turns `SHARE_CONTENT_CODE_TTL_DAYS` (default 7) into an absolute expiry stamped on each code at minting time, and refuses to construct on a nonsense value so a bad deployment fails on the way up
-- **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients` and `POST /api/shares/invitations/bulk` — the one path that opens a direct share. Recipients come only from the caller's own share history and never from a user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
+- **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients`, `GET /api/shares/folders/{id}/comics` and `POST /api/shares/invitations/bulk` — the one path that opens a direct share. Recipients come only from the caller's own share history and never from a user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
 - **Explicit Promotion**: `ExplicitContentPromoter.php` marks selected comics 18+ from inside the share flow, in the same unit of work as the share. It only ever promotes — an unticked box is the absence of a claim, not a claim that the comic is fine. It returns its audit records rather than writing them, so the service owning the transaction emits them only once the commit has made them true
 - **Lookup Flood Guard**: `IdentifierLookupGuard.php` charges every attempt to turn an identifier into a person *before* the repository is asked, so an exhausted caller cannot still resolve the identifiers that happen to be real. See [Why this is not a user directory](#why-this-is-not-a-user-directory)
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
@@ -374,6 +374,44 @@ bulk share of twenty comics costs the same one allowance as a single invitation 
 it is one email. That keeps what the limiter protects, how much mail one account
 can put in somebody's inbox, exactly where it was before bulk sharing existed.
 
+#### Sharing a folder
+
+`POST /api/shares/invitations/bulk` takes **either** `comicIds` **or** a
+`folderId`, never both — a request whose two halves disagree would still share
+something, and which something would be decided by the server rather than by the
+sender. Naming a folder shares its whole subtree, and
+`GET /api/shares/folders/{id}/comics` previews the same resolution before
+anybody is named.
+
+A folder share is a **snapshot**, not a standing grant. It expands to one
+ordinary `ComicShare` per comic, each accepted, expired and withdrawn on its
+own; a comic added to the folder afterwards is not shared by it. Nothing about
+the folder survives into the relationships, and the recipient never sees the
+owner's tree — they file what they accept wherever they like.
+
+| Rule | Value | Why |
+|---|---|---|
+| Comics per folder share | 200 (`MAX_FOLDER_COMICS`) | Somebody pointing at "DragonBall" means all of it; a cap of 20 would ask them to do by hand the thing they wanted one click for |
+| Comics per hand-written list | 20 (`MAX_BULK_COMICS`) | Unchanged. The larger ceiling is only offered to a request the server resolves itself |
+| Invitations listed in one email | 20 (`MAX_LISTED_INVITATIONS`) | Above this the notice is a summary with one link to `/sharing`; 200 buttons is not a message anybody reads, and Gmail clips past ~102KB |
+
+Because a folder is a *view* rather than a container, it can hold comics
+somebody else shared in. Those are filtered out by the same `COMIC_SHARE` voter
+check every other route asks, and reported as **a count and never a list** — which
+comic cannot be passed on is a fact about the library, not part of the share
+being prepared. A folder holding nothing shareable is refused with one sentence
+whether it is empty or borrowed, so the refusal says nothing about which.
+
+The share **re-resolves the folder at send time**. The ids the dialog shows came
+from a preview, so a comic filed out of the folder in between does not go — and
+a hand-written `folderId` reaches nothing the preview would not have shown its
+owner.
+
+A summarised notice mints **no invitation links at all**: a capability that was
+never rendered never entered the message, which is the same reason the queue
+carries ids only. The recipient answers on their Sharing page, where the
+invitations are waiting either way.
+
 #### One dialog, three entry points
 
 `ShareComicsDialog.jsx` is the only share workflow in the application. A grid
@@ -389,6 +427,7 @@ dialog opens:
 |---|---|---|
 | A comic card's menu | that comic, locked | `C-` (a group needs two) |
 | **Share selected** in the table | the existing selection, passed straight through | `C-` for one, `G-` for 2–20 |
+| **Share folder** in the folder bar | everything the owner may share in that folder's subtree, locked | `C-`/`G-` up to 20, withdrawn above that |
 | **Share comics** on `/sharing` | nothing; the dialog picks | whichever the picked count allows |
 
 The `C-`/`G-` choice is **derived from the count rather than asked**, because
@@ -1992,18 +2031,23 @@ backup:
 The scripts are `build-release.sh`, `deploy-ssh.sh`, `deploy-ftp.sh` and
 `post-deploy.sh`, with `scripts/server/` holding the install and backup helpers.
 They build the React application, install optimized production Composer
-dependencies, consolidate Symfony's production environment, and exclude
+dependencies, leave the host's `backend/.env.local` alone, and exclude
 `public/uploads/` from every transfer.
 
 Deployment configuration lives in `scripts/.env.deploy`, which is gitignored and
-never committed. The variables it holds — `PROD_*`, `SSH_*`, `FTP_*` and
+never committed. The variables it holds — `DEPLOY_CONFIG_MODE`, `PROD_*`, `SSH_*`, `FTP_*` and
 `POST_DEPLOY_TOKEN` — are documented in the two guides above rather than
 duplicated here, because they are the thing most likely to drift.
 
-Advertising is a build-time decision: `PROD_ADSENSE_ENABLED` and
-`PROD_ADSENSE_CLIENT` are read when the release is built, so editing
-`backend/.env` on the host after `composer dump-env prod` changes nothing. See
-the production checklist in [docs/advertising.md](docs/advertising.md).
+Runtime configuration is a deployment-mode decision. The default
+`DEPLOY_CONFIG_MODE=server-local` ships no dotenv file at all and reads the
+host's ignored `backend/.env.local`, so advertising is switched on there and
+`PROD_ADSENSE_*` in `scripts/.env.deploy` is not consulted. The opt-in
+`compiled` mode runs `composer dump-env prod` and bakes `PROD_*` into
+`backend/.env.local.php`, which Symfony then reads *instead of* `.env.local` —
+later edits to that file change nothing until the compiled one is regenerated or
+removed. See the production checklist in
+[docs/advertising.md](docs/advertising.md).
 
 ### Before every release
 

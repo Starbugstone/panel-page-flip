@@ -43,6 +43,25 @@ class ComicShareService
      */
     public const INVITATION_TTL = '+2 months';
 
+    /**
+     * How many invitations one email will carry a link for.
+     *
+     * Past this the notice becomes a summary: a headline, a sample of what is
+     * in it, and one link to the Sharing page where every invitation is waiting
+     * anyway. A folder share can carry two hundred comics, and two hundred
+     * buttons is not a message anybody reads — nor one most clients render
+     * whole, since Gmail clips a message past about 102KB and would take the
+     * ending with it.
+     *
+     * Deliberately equal to {@see SharingWorkflowService::MAX_BULK_COMICS}, so
+     * every share that was possible before folder sharing existed still gets
+     * exactly the email it always got.
+     */
+    public const MAX_LISTED_INVITATIONS = 20;
+
+    /** How many titles a summarised notice names before it stops counting. */
+    private const SUMMARY_SAMPLE_SIZE = 10;
+
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly ComicShareRepository $shareRepository,
@@ -107,7 +126,8 @@ class ComicShareService
         User $owner,
         string $recipientEmail,
         bool $senderResponsibilityAccepted,
-        ?SharingCodeRecipient $viaSharingCode = null
+        ?SharingCodeRecipient $viaSharingCode = null,
+        ?int $sourceFolderId = null
     ): array {
         $this->assertSenderResponsibility($senderResponsibilityAccepted);
         $email = $this->assertInvitableRecipient($owner, $recipientEmail);
@@ -186,7 +206,8 @@ class ComicShareService
                 array_values(array_map(
                     static fn (ComicShare $share): int => (int) $share->getId(),
                     $prepared
-                ))
+                )),
+                $sourceFolderId
             ));
         } catch (\Throwable $exception) {
             // The shares are committed and the owner has them. A broker that is
@@ -931,9 +952,12 @@ class ComicShareService
      * handler to record as failed, so "we tried and it did not work" and "we
      * have not tried yet" stay distinguishable on the owner's page.
      *
-     * @param list<ComicShare> $shares all addressed to the same recipient
+     * @param list<ComicShare> $shares     all addressed to the same recipient
+     * @param string|null      $folderName the folder the sender pointed at, when
+     *                                     they shared one, so the notice can say
+     *                                     where the comics came from
      */
-    public function notify(array $shares, User $owner): void
+    public function notify(array $shares, User $owner, ?string $folderName = null): void
     {
         $prepared = [];
 
@@ -959,7 +983,7 @@ class ComicShareService
         // against are committed by the time anybody can click one.
         $this->entityManager->flush();
 
-        $this->sendGroupedInvitationEmail($prepared, $owner);
+        $this->sendGroupedInvitationEmail($prepared, $owner, $folderName);
 
         foreach ($prepared as $invitation) {
             $invitation->share->markNotified();
@@ -1058,9 +1082,16 @@ class ComicShareService
      * single-comic template applies it, so one explicit comic in a batch is
      * announced without a title while the rest are named normally.
      *
+     * Past {@see MAX_LISTED_INVITATIONS} the links come out and a summary goes
+     * in. Nothing about the shares changes — every one of them still has its own
+     * token, minted above and usable if it is ever sent on its own by a resend —
+     * only what this one message is willing to carry. The recipient is pointed
+     * at their Sharing page instead, where the same invitations are waiting and
+     * can be answered without a link that has to survive an inbox.
+     *
      * @param list<PreparedInvitation> $prepared
      */
-    private function sendGroupedInvitationEmail(array $prepared, User $owner): void
+    private function sendGroupedInvitationEmail(array $prepared, User $owner, ?string $folderName = null): void
     {
         // One comic is not a group. Falling back keeps the ordinary case on the
         // template that has always described it.
@@ -1074,9 +1105,10 @@ class ComicShareService
         $ownerName = $owner->getName() ?: '@'.$owner->getUsername();
         $recipient = $prepared[0]->share->getRecipientEmailNormalized();
         $expiresAt = $prepared[0]->share->getExpiresAt();
+        $listLinks = count($prepared) <= self::MAX_LISTED_INVITATIONS;
 
         $invitations = array_map(
-            function (PreparedInvitation $invitation): array {
+            function (PreparedInvitation $invitation) use ($listLinks): array {
                 $explicit = $invitation->comic->isExplicitContent();
 
                 return [
@@ -1086,7 +1118,10 @@ class ComicShareService
                     'title' => $explicit ? null : $invitation->comic->getTitle(),
                     'author' => $explicit ? null : $invitation->comic->getAuthor(),
                     'explicitContent' => $explicit,
-                    'shareLink' => $this->invitationUrl($invitation->plaintextToken),
+                    // Not minted into the summary at all. A link that is not
+                    // rendered is a capability that never entered the message,
+                    // which is the same reason the queue carries ids only.
+                    'shareLink' => $listLinks ? $this->invitationUrl($invitation->plaintextToken) : null,
                 ];
             },
             $prepared
@@ -1094,6 +1129,12 @@ class ComicShareService
 
         $body = $this->twig->render('emails/share_comics.html.twig', [
             'invitations' => $invitations,
+            'listLinks' => $listLinks,
+            // The same age gate the per-comic blocks apply, so a summary cannot
+            // become the one place an explicit comic gets named.
+            'sampleTitles' => $listLinks ? [] : $this->summaryTitles($invitations),
+            'sharingUrl' => $this->publicUrl->to('/sharing'),
+            'folderName' => $folderName,
             'comicCount' => count($invitations),
             'explicitCount' => count(array_filter($invitations, static fn (array $i): bool => $i['explicitContent'])),
             'userName' => $ownerName,
@@ -1106,10 +1147,39 @@ class ComicShareService
             ->from(new Address($this->mailerFromAddress, $this->mailerFromName))
             ->replyTo((string) $owner->getEmail())
             ->to($recipient)
-            ->subject(sprintf('%s shared %d comics with you!', $ownerName, count($invitations)))
+            ->subject($folderName === null
+                ? sprintf('%s shared %d comics with you!', $ownerName, count($invitations))
+                : sprintf('%s shared %d comics from "%s" with you!', $ownerName, count($invitations), $folderName))
             ->html($body);
 
         $this->mailer->send($email);
+    }
+
+    /**
+     * A few titles, so a summary says what it is about rather than only how
+     * many. Explicit comics are skipped rather than truncated into: they are
+     * counted separately in the same email and naming one here would undo the
+     * gate every other part of this file keeps shut.
+     *
+     * @param list<array{title: string|null, explicitContent: bool}> $invitations
+     *
+     * @return list<string>
+     */
+    private function summaryTitles(array $invitations): array
+    {
+        $titles = [];
+        foreach ($invitations as $invitation) {
+            if ($invitation['explicitContent'] || $invitation['title'] === null) {
+                continue;
+            }
+
+            $titles[] = $invitation['title'];
+            if (count($titles) === self::SUMMARY_SAMPLE_SIZE) {
+                break;
+            }
+        }
+
+        return $titles;
     }
 
     public function invitationUrl(string $plaintextToken): string

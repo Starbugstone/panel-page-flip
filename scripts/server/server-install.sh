@@ -8,7 +8,7 @@
 # What it does:
 #   1. Verifies prerequisites (php >=8.2, composer, node, git, mysql client)
 #   2. Creates the app directory tree
-#   3. Bootstraps backend/.env.prod.local from a template if missing
+#   3. Bootstraps backend/.env.local from a template if missing
 #   4. Calls server-deploy.sh to do the actual build
 #   5. Prints next steps (nginx/apache config, certbot, first admin user)
 #
@@ -87,9 +87,9 @@ mkdir -p backend/var/cache backend/var/log backend/var/page-cache
 mkdir -p backend/public/uploads
 
 # =============================================================================
-# Bootstrap .env.prod.local
+# Bootstrap the editable, server-local production environment
 # =============================================================================
-ENV_FILE="$APP_DIR/backend/.env.prod.local"
+ENV_FILE="$APP_DIR/backend/.env.local"
 if [ ! -f "$ENV_FILE" ] && [ ! -f "$APP_DIR/backend/.env.local.php" ]; then
     log "Creating $ENV_FILE template — EDIT IT BEFORE CONTINUING"
     cat > "$ENV_FILE" <<'EOF'
@@ -110,6 +110,7 @@ MAILER_FROM_NAME="Panel Page Flip"
 
 MESSENGER_TRANSPORT_DSN=doctrine://default?auto_setup=0
 MAX_CONCURRENT_UPLOADS=3
+MAX_PARALLEL_FILE_UPLOADS=2
 UPLOAD_USER_QUOTA_BYTES=10737418240
 
 DROPBOX_APP_KEY=

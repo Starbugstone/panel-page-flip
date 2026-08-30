@@ -67,6 +67,12 @@ final class AdvertisingConfiguration
         return $this->enabled;
     }
 
+    /** Whether the configured value is a syntactically valid public publisher id. */
+    public function hasValidClient(): bool
+    {
+        return $this->client !== null;
+    }
+
     /** The publisher id, only once it is both configured and switched on. */
     public function client(): ?string
     {

@@ -79,7 +79,9 @@
             <p>Hi there,</p>
             <p>
                 <span class="highlight">{{ userName|e }}</span> would like to share
-                <span class="highlight">{{ comicCount }} comics</span> with you.
+                <span class="highlight">{{ comicCount }} comics</span>
+                {% if folderName %}from their folder <span class="highlight">{{ folderName|e }}</span>{% endif %}
+                with you.
             </p>
             {% if explicitCount > 0 %}
                 <p class="highlight">
@@ -89,33 +91,59 @@
                     are shown to you.
                 </p>
             {% endif %}
-            {# Each comic keeps its own link because each invitation is still
-               answered on its own: accepting one says nothing about the rest,
-               and the sender can withdraw any of them separately. The links only
-               ever open a preview — mail scanners and link-preview services
-               follow links without a person behind them, so nothing here may
-               accept or decline on the recipient's behalf. #}
-            <p>Each link below shows you what is being shared. Nothing is added to your account until you choose to accept it.</p>
+            {% if listLinks %}
+                {# Each comic keeps its own link because each invitation is still
+                   answered on its own: accepting one says nothing about the rest,
+                   and the sender can withdraw any of them separately. The links only
+                   ever open a preview — mail scanners and link-preview services
+                   follow links without a person behind them, so nothing here may
+                   accept or decline on the recipient's behalf. #}
+                <p>Each link below shows you what is being shared. Nothing is added to your account until you choose to accept it.</p>
 
-            {% for invitation in invitations %}
-                <div class="invitation">
-                    {# An explicit comic is not named here. The email is the one
-                       place the recipient cannot choose to open: it is previewed
-                       on lock screens and read by scanners, so the title stays
-                       behind the age gate along with everything else that
-                       identifies the comic. #}
-                    {% if invitation.explicitContent %}
-                        <p class="invitation-title">A comic marked as explicit content (18+)</p>
-                        <p class="invitation-author">Details are hidden until you confirm your age.</p>
-                    {% else %}
-                        <p class="invitation-title">{{ invitation.title|e }}</p>
-                        {% if invitation.author %}
-                            <p class="invitation-author">{{ invitation.author|e }}</p>
+                {% for invitation in invitations %}
+                    <div class="invitation">
+                        {# An explicit comic is not named here. The email is the one
+                           place the recipient cannot choose to open: it is previewed
+                           on lock screens and read by scanners, so the title stays
+                           behind the age gate along with everything else that
+                           identifies the comic. #}
+                        {% if invitation.explicitContent %}
+                            <p class="invitation-title">A comic marked as explicit content (18+)</p>
+                            <p class="invitation-author">Details are hidden until you confirm your age.</p>
+                        {% else %}
+                            <p class="invitation-title">{{ invitation.title|e }}</p>
+                            {% if invitation.author %}
+                                <p class="invitation-author">{{ invitation.author|e }}</p>
+                            {% endif %}
                         {% endif %}
-                    {% endif %}
-                    <a href="{{ invitation.shareLink|e('html_attr') }}" class="invitation-link" style="color: #ffffff;">Review invitation</a>
-                </div>
-            {% endfor %}
+                        <a href="{{ invitation.shareLink|e('html_attr') }}" class="invitation-link" style="color: #ffffff;">Review invitation</a>
+                    </div>
+                {% endfor %}
+            {% else %}
+                {# Too many to give one link each, so this is a summary and the
+                   invitations are answered on the Sharing page instead. Every
+                   one of them is still separate there — accepting one says
+                   nothing about the rest, and the sender can withdraw any of
+                   them on their own. #}
+                <p>
+                    That is more than one message can sensibly list, so they are all waiting
+                    together on your Sharing page. Nothing is added to your account until you
+                    choose to accept it, and you can accept or decline each one separately.
+                </p>
+
+                {% if sampleTitles is not empty %}
+                    <div class="invitation">
+                        <p class="invitation-title">Including</p>
+                        <p class="invitation-author">
+                            {% for title in sampleTitles %}{{ title|e }}{% if not loop.last %}, {% endif %}{% endfor %}{% if comicCount > sampleTitles|length %}, and {{ comicCount - sampleTitles|length }} more{% endif %}.
+                        </p>
+                    </div>
+                {% endif %}
+
+                <p style="text-align: center;">
+                    <a href="{{ sharingUrl|e('html_attr') }}" class="invitation-link" style="color: #ffffff;">Open your Sharing page</a>
+                </p>
+            {% endif %}
 
             <p>
                 To accept, you'll need to log in or create an account on
@@ -127,7 +155,8 @@
                 unavailable if they stop sharing or remove them.
             </p>
             <p>
-                These invitation links will expire on <span class="highlight">{{ expiresAt|date("F j, Y") }}</span>.
+                {% if listLinks %}These invitation links will expire{% else %}These invitations will expire{% endif %}
+                on <span class="highlight">{{ expiresAt|date("F j, Y") }}</span>.
             </p>
             <p>
                 You received this email because {{ userName|e }} asked {{ siteName|e }}

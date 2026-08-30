@@ -48,28 +48,28 @@ DirectoryIndex index.php
     RewriteCond %{ENV:REDIRECT_STATUS} =""
     RewriteRule ^index\.php(?:/(.*)|$) %{ENV:BASE}/$1 [R=301,L]
 
-    # If the requested filename exists (an asset, an image, the SPA's index.html...),
-    # let Apache serve it directly.
+    # The SPA shell is not a page of its own. Redirect rather than exclude it
+    # from the rule below: served off disk it is a second copy of the landing
+    # page carrying neither a canonical nor the response's CSP nonce.
+    RewriteRule ^index\.html$ %{ENV:BASE}/ [R=301,L]
+
+    # If the requested filename exists (an asset, an image, a favicon...), let
+    # Apache serve it directly.
     RewriteCond %{REQUEST_FILENAME} -f [OR]
     RewriteCond %{REQUEST_FILENAME} -d
     RewriteRule ^ - [L]
 
     # ads.txt is generated from the configured publisher id, so it is a Symfony
-    # route rather than a file on disk. Without this it falls through to the SPA
-    # rule below and answers the IAB crawler with the React application, which
-    # reads as "this domain declares no authorised seller".
+    # route rather than a file on disk. Named here rather than left to the
+    # catch-all so that what answers the IAB crawler stays an explicit decision:
+    # a wrong answer reads as "this domain declares no authorised seller".
     RewriteRule ^ads\.txt$ %{ENV:BASE}/index.php [QSA,L]
 
-    # Client-side routes belong to the React SPA. Keep API requests on
-    # Symfony, but send any other missing path (for example /admin or /library)
-    # to the built index.html so React Router can resolve it. This must remain
-    # after the real file/directory rule above and before the Symfony catch-all.
-    RewriteCond %{REQUEST_URI} !^/api(?:/|$) [NC]
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^ %{ENV:BASE}/index.html [L]
-
-    # API requests and any other backend route still go through Symfony.
+    # Everything left goes to Symfony: API routes and the client-side routes
+    # React Router owns alike. Serving index.html off disk for /login would be
+    # faster and would lose what FrontendController adds to it — the response's
+    # CSP nonce, the canonical for the path asked for, noindex where it belongs,
+    # and a real 404 for a path the application does not have.
     RewriteRule ^ %{ENV:BASE}/index.php [L]
 </IfModule>
 
@@ -102,16 +102,7 @@ Options -Indexes
     Header always set X-Frame-Options "DENY"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" "expr=%{HTTPS} == 'on'"
-    # Loosen 'unsafe-inline' below if you tighten Vite's CSS handling.
-    #
-    # The Google origins are the ones AdSense and the Google CMP fetch from, and
-    # they must stay in step with docker/nginx_frontend/security-headers.conf —
-    # this file is what the released Apache deployment actually serves, so a
-    # policy widened only there leaves advertising blocked on the real host.
-    # They cost nothing with ADSENSE_ENABLED=false: nothing reaches for them.
-    #
-    # Deliberately NOT here: script-src 'unsafe-inline'. Auto Ads and the CMP
-    # inject inline scripts, so an operator enabling advertising adds that or a
-    # nonce themselves — see docs/advertising.md.
-    Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com; script-src 'self' https://pagead2.googlesyndication.com https://partner.googleadservices.com https://tpc.googlesyndication.com https://www.googletagservices.com https://adservice.google.com https://fundingchoicesmessages.google.com; style-src 'self' 'unsafe-inline'; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://fundingchoicesmessages.google.com; connect-src 'self' https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://fundingchoicesmessages.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google; frame-ancestors 'none'"
+    # Symfony serves every HTML route and sets its Content-Security-Policy there,
+    # so the nonce in the header is the same one injected into the Vite scripts.
+    # A static Apache header here would intersect with and break that policy.
 </IfModule>

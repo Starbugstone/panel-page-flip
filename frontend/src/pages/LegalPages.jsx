@@ -4,7 +4,7 @@ import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
 import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
 import { adSafeRouteSentence } from "@/lib/advertising";
 
-const LAST_UPDATED = "22 August 2026";
+const LAST_UPDATED = "30 August 2026";
 
 /**
  * The operator's contact details, from the one public-config request the
@@ -154,10 +154,11 @@ function PrivacyRecipients({ advertising }) {
           </p>
           <p>
             Refusing advertising consent does not prevent you from registering,
-            signing in, uploading, organising or reading your comics. Where the
-            bulk uploader offers a rewarded advertisement, it is optional: single
-            comic upload is always available without watching one, and if no
-            rewarded advertisement can be served, bulk upload opens normally.
+            signing in, uploading, organising or reading your comics. Google may
+            present its own rewarded-ad choice through AdSense Offerwall on the
+            bulk-upload information page. Google owns any completion and access
+            entitlement; this application does not record that you watched an ad.
+            If no Offerwall is shown, bulk upload remains available normally.
             Showing an advertisement is not an endorsement of what it advertises.
           </p>
         </>
@@ -265,10 +266,20 @@ export function TermsOfService() {
       <p>
         You retain rights in content you upload. You grant the operator only the
         permission needed to store, process, display, and share that content as you
-        direct through the service. Upload content only when you are authorized to
-        host it, and use sharing only when you have the necessary right or authorization
-        to distribute it to the recipient. Owning or lawfully possessing a copy does
-        not necessarily grant a right to distribute it.
+        direct through the service.
+      </p>
+      <p>
+        You guarantee that you have the legal right to upload each file you add to
+        the service. Sharing is optional. If you choose to share content, you also
+        guarantee that you have the necessary right or authorization to distribute
+        it to the people you share it with. Owning or lawfully possessing a copy
+        does not necessarily grant a right to distribute it.
+      </p>
+      <p>
+        You are solely responsible for the content you upload and for any sharing
+        you choose to do. The operator does not review or endorse uploads, and is
+        not responsible for uploaded content, to the extent permitted by applicable
+        law.
       </p>
 
       <h2>Acceptable use</h2>
@@ -315,7 +326,8 @@ export function TermsOfService() {
 
       <h2>Liability</h2>
       <p>
-        To the extent permitted by applicable law, the service is provided “as is”.
+        To the extent permitted by applicable law, the service is provided “as is”
+        and the operator is not liable for content you or other users upload or share.
         Nothing in these terms excludes rights or liability that cannot legally be excluded.
       </p>
 

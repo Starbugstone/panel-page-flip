@@ -43,11 +43,6 @@ abstract class AbstractApiTestCase extends WebTestCase
         // full allowance, whichever order they run in.
         static::getContainer()->get('cache.rate_limiter')->clear();
 
-        // Same reasoning for bulk-upload sessions, which are keyed on the user
-        // id and live for two hours: a batch one test opened must not be an
-        // active batch for the recycled id the next test signs in as.
-        static::getContainer()->get('upload.bulk_session.cache')->clear();
-
         // A test that made the mail server fail must not leave it failing for
         // the next one; the switch is static, because the service it stands in
         // for cannot be replaced once the container has built it.

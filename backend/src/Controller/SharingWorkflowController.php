@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Entity\ComicShare;
+use App\Entity\LibraryFolder;
+use App\Service\LibraryFolderService;
 use App\Service\ShareException;
 use App\Service\SharingCodeRecipient;
 use App\Service\SharingCodeService;
@@ -26,7 +28,42 @@ final class SharingWorkflowController extends AbstractController
         private readonly SharingWorkflowService $workflow,
         private readonly SharingCodeService $sharingCodes,
         private readonly UsernameService $usernames,
+        private readonly LibraryFolderService $folders,
     ) {
+    }
+
+    /**
+     * What sharing this folder would hand over, before anybody is named.
+     *
+     * Read-only, and the reason folder sharing is one click: the client shows
+     * the count and the titles it is about to offer without the sender having
+     * to tick forty-two boxes. It is a preview and never the authority — the
+     * share itself re-resolves the folder, so a comic added, moved or revoked in
+     * between changes what is sent rather than what was previewed.
+     */
+    #[Route('/folders/{folderId}/comics', name: 'app_shares_folder_comics', methods: ['GET'], requirements: ['folderId' => '\d+'])]
+    public function folderComics(int $folderId): JsonResponse
+    {
+        $user = $this->requireUser();
+
+        $folder = $this->folders->findOwned($user, $folderId);
+        // Not found rather than forbidden, the same answer the folder API gives:
+        // confirming that an id exists would say something about another
+        // account's library.
+        if (!$folder instanceof LibraryFolder) {
+            return $this->json(['message' => 'Folder not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $contents = $this->workflow->folderShareContents($user, $folder);
+
+        return $this->json([
+            'folder' => ['id' => (int) $folder->getId(), 'name' => $folder->getName()],
+            'comicIds' => array_map(static fn ($comic): int => (int) $comic->getId(), $contents['comics']),
+            'comicCount' => count($contents['comics']),
+            'folderCount' => $contents['folderCount'],
+            'unshareableCount' => $contents['unshareableCount'],
+            'limit' => SharingWorkflowService::MAX_FOLDER_COMICS,
+        ]);
     }
 
     #[Route('/recent-recipients', name: 'app_shares_recent_recipients', methods: ['GET'])]
@@ -185,22 +222,47 @@ final class SharingWorkflowController extends AbstractController
             }
         }
 
-        $rawComicIds = $data['comicIds'] ?? null;
-        if (!is_array($rawComicIds) || $rawComicIds === []) {
-            return $this->json(['message' => 'Select at least one comic to share.'], Response::HTTP_BAD_REQUEST);
-        }
-        if (count($rawComicIds) > SharingWorkflowService::MAX_BULK_COMICS) {
+        // Two ways to say what is going, and exactly one of them per request:
+        // a list the sender assembled, or a folder they pointed at. Kept apart
+        // for the same reason the three recipient forms are — a request whose
+        // two halves disagree would still share something, and which something
+        // would be decided here rather than by the sender.
+        $namesFolder = ($data['folderId'] ?? null) !== null;
+        $namesComics = ($data['comicIds'] ?? null) !== null;
+
+        if ($namesFolder && $namesComics) {
             return $this->json([
-                'message' => sprintf(
-                    'You can share at most %d comics in one action.',
-                    SharingWorkflowService::MAX_BULK_COMICS
-                ),
+                'message' => 'Name what you are sharing one way only: a folder, or a list of comics.',
             ], Response::HTTP_BAD_REQUEST);
         }
 
-        $comicIds = ComicIdList::parse($rawComicIds);
-        if ($comicIds === null) {
-            return $this->json(['message' => 'Comic ids must be positive integers.'], Response::HTTP_BAD_REQUEST);
+        $sourceFolder = null;
+
+        if ($namesFolder) {
+            $resolved = $this->resolveShareableFolder($data['folderId'], $user);
+            if ($resolved instanceof JsonResponse) {
+                return $resolved;
+            }
+
+            [$sourceFolder, $comicIds] = $resolved;
+        } else {
+            $rawComicIds = $data['comicIds'] ?? null;
+            if (!is_array($rawComicIds) || $rawComicIds === []) {
+                return $this->json(['message' => 'Select at least one comic to share.'], Response::HTTP_BAD_REQUEST);
+            }
+            if (count($rawComicIds) > SharingWorkflowService::MAX_BULK_COMICS) {
+                return $this->json([
+                    'message' => sprintf(
+                        'You can share at most %d comics in one action.',
+                        SharingWorkflowService::MAX_BULK_COMICS
+                    ),
+                ], Response::HTTP_BAD_REQUEST);
+            }
+
+            $comicIds = ComicIdList::parse($rawComicIds);
+            if ($comicIds === null) {
+                return $this->json(['message' => 'Comic ids must be positive integers.'], Response::HTTP_BAD_REQUEST);
+            }
         }
 
         // The whole batch was refused before anything was created — an
@@ -216,7 +278,8 @@ final class SharingWorkflowController extends AbstractController
             // Promotion only. An absent or false flag is the absence of a
             // claim, never a claim that the comics are fine — clearing 18+ is
             // an intentional edit on the comic itself.
-            ($data['markExplicit'] ?? null) === true
+            ($data['markExplicit'] ?? null) === true,
+            $sourceFolder
         );
 
         $status = $result['created'] === $result['total']
@@ -224,6 +287,55 @@ final class SharingWorkflowController extends AbstractController
             : Response::HTTP_MULTI_STATUS;
 
         return $this->json($result, $status);
+    }
+
+    /**
+     * The folder being shared and everything in it the sender may pass on — or
+     * the response to return instead of sharing anything.
+     *
+     * The ids are resolved here rather than trusted from the request, which is
+     * what makes the larger folder ceiling safe to offer: the sender is not
+     * handing over a list of two hundred ids, they are pointing at a folder the
+     * server then walks. A hand-written `folderId` reaches nothing that
+     * {@see SharingWorkflowService::folderShareContents()} would not have given
+     * the owner in the preview.
+     *
+     * @return array{0: LibraryFolder, 1: list<int>}|JsonResponse
+     */
+    private function resolveShareableFolder(mixed $rawFolderId, \App\Entity\User $user): array|JsonResponse
+    {
+        if (!is_int($rawFolderId) && !(is_string($rawFolderId) && ctype_digit($rawFolderId))) {
+            return $this->json(['message' => 'A folder id must be a positive integer.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $folder = (int) $rawFolderId < 1 ? null : $this->folders->findOwned($user, (int) $rawFolderId);
+        if (!$folder instanceof LibraryFolder) {
+            return $this->json(['message' => 'Folder not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        $contents = $this->workflow->folderShareContents($user, $folder);
+        $comics = $contents['comics'];
+
+        if ($comics === []) {
+            // Said as one sentence whether the folder is empty or holds only
+            // comics somebody else shared in: the sender is looking at the
+            // folder and the answer they need is the same either way.
+            return $this->json([
+                'message' => 'There is nothing in that folder that you can share.',
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        if (count($comics) > SharingWorkflowService::MAX_FOLDER_COMICS) {
+            return $this->json([
+                'message' => sprintf(
+                    'That folder holds %d comics, and a folder share carries at most %d.',
+                    count($comics),
+                    SharingWorkflowService::MAX_FOLDER_COMICS
+                ),
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        return [$folder, array_map(static fn ($comic): int => (int) $comic->getId(), $comics)];
     }
 
     /**

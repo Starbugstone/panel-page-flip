@@ -35,6 +35,11 @@ parameters:
     share_notification_transport_dsn_default: 'sync://'
     max_concurrent_uploads: '%env(int:default:max_concurrent_uploads_default:MAX_CONCURRENT_UPLOADS)%'
     max_concurrent_uploads_default: 4
+    # How many files bulk upload sends at once. Deliberately separate from the
+    # request budget above, which those files share: raising this alone cannot
+    # put more requests in front of PHP-FPM than max_concurrent_uploads allows.
+    max_parallel_file_uploads: '%env(int:default:max_parallel_file_uploads_default:MAX_PARALLEL_FILE_UPLOADS)%'
+    max_parallel_file_uploads_default: 2
     upload_max_chunk_bytes: 2097152
     upload_max_total_bytes: 524288000
     upload_max_total_chunks: 600
@@ -223,10 +228,6 @@ services:
             $mailerFromName: '%mailer_from_name%'
             
     # Comic service with comics directory configuration
-    App\Service\BulkUploadSessionService:
-        arguments:
-            $bulkUploadSessionCache: '@upload.bulk_session.cache'
-
     App\Service\StorageQuotaService:
         arguments:
             $uploadUserQuotaBytes: '%upload_user_quota_bytes%'

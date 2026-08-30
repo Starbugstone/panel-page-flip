@@ -14,7 +14,7 @@ import {
   publisherId,
   settleOnce,
 } from "@/lib/advertising";
-import { BULK_UPLOAD_ROUTE } from "@/lib/bulk-upload-session";
+import { BULK_UPLOAD_QUEUE_ROUTE } from "@/lib/bulk-upload-routes";
 
 /**
  * The route policy is the application-side boundary between Google and
@@ -140,6 +140,24 @@ describe("the allowlist against the router", () => {
     expect(Object.keys(AD_SAFE_ROUTE_LABELS).sort()).toEqual([...AD_SAFE_ROUTES].sort());
   });
 
+  /**
+   * The operator-facing diagnostic (`app:diagnose-advertising`) prints this
+   * list so somebody can hold it up against their AdSense page exclusions. It
+   * cannot import the allowlist — it is PHP, on the other side of the release —
+   * so the copy is checked from here, where the authoritative list lives.
+   */
+  it("is the list the backend diagnostic reports to an operator", () => {
+    const command = readFileSync(
+      resolve(frontendDir, "..", "backend/src/Command/DiagnoseAdvertisingCommand.php"),
+      "utf8",
+    );
+    const declaration = command.match(/AD_SAFE_ROUTES = \[(.*?)\];/s);
+
+    expect(declaration).not.toBeNull();
+    expect([...declaration[1].matchAll(/'([^']+)'/g)].map((match) => match[1]))
+      .toEqual([...AD_SAFE_ROUTES]);
+  });
+
   it("reads the allowed pages as the sentence the privacy policy prints", () => {
     expect(adSafeRouteSentence()).toBe(
       "the landing page, the login page, the single-comic upload form and the bulk-upload information page",
@@ -147,14 +165,14 @@ describe("the allowlist against the router", () => {
   });
 
   /**
-   * The gate navigates to `BULK_UPLOAD_ROUTE` and App.jsx spells the same path
+   * The gate navigates to `BULK_UPLOAD_QUEUE_ROUTE` and App.jsx spells the same path
    * again as a literal. The two are what put the batch screen on the ad-free
    * side of the boundary, so a rename that reaches only one of them either
    * dead-ends the gate or lands the batch on a path nothing has classified.
    */
   it("routes the batch screen at the path the gate sends people to", () => {
-    expect(reactRoutes).toContain(BULK_UPLOAD_ROUTE);
-    expect(isAdSafeRoute(BULK_UPLOAD_ROUTE)).toBe(false);
+    expect(reactRoutes).toContain(BULK_UPLOAD_QUEUE_ROUTE);
+    expect(isAdSafeRoute(BULK_UPLOAD_QUEUE_ROUTE)).toBe(false);
   });
 });
 
@@ -196,25 +214,12 @@ describe("settling exactly once", () => {
     await expect(promise).resolves.toBe("unavailable");
   });
 
-  it("reports the outcome to onSettle once", async () => {
-    const onSettle = vi.fn();
-    const { promise, settle } = settleOnce(1000, { onSettle });
+  it("stops the clock once an answer arrives", async () => {
+    const { promise, settle } = settleOnce(1000);
 
     settle("ready");
-    settle("unavailable");
-    await promise;
-
-    expect(onSettle).toHaveBeenCalledTimes(1);
-    expect(onSettle).toHaveBeenCalledWith("ready");
-  });
-
-  it("stops the clock without settling once the outcome is on its way", async () => {
-    const { promise, settle, holdOpen } = settleOnce(1000);
-
-    holdOpen();
     vi.advanceTimersByTime(5000);
-    settle("viewed");
 
-    await expect(promise).resolves.toBe("viewed");
+    await expect(promise).resolves.toBe("ready");
   });
 });

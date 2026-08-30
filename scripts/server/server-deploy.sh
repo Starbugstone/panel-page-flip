@@ -4,7 +4,7 @@
 # -----------------------------------------------------------------------------
 # Runs ON the production server. Drives the post-pull build:
 #   1. composer install --no-dev --optimize-autoloader
-#   2. composer dump-env prod              (consolidates .env.prod.local)
+#   2. preserve and read backend/.env.local (or use an existing compiled env)
 #   3. (optional) build the React frontend if Node is available, OR
 #                copy a pre-uploaded backend/public/dist if you built locally
 #   4. doctrine:migrations:migrate --no-interaction
@@ -53,9 +53,9 @@ fail() { printf "\033[1;31m[fail]\033[0m   %s\n" "$*" >&2; exit 1; }
 
 [ -d "$APP_DIR/backend" ] || fail "$APP_DIR/backend does not exist."
 # ---- check the secret env file is present -----------------------------------
-if [ ! -f "$APP_DIR/backend/.env.prod.local" ] && [ ! -f "$APP_DIR/backend/.env.local.php" ]; then
-    fail "Neither backend/.env.prod.local nor backend/.env.local.php found.
-       Copy your prod env values to $APP_DIR/backend/.env.prod.local before
+if [ ! -f "$APP_DIR/backend/.env.local" ] && [ ! -f "$APP_DIR/backend/.env.prod.local" ] && [ ! -f "$APP_DIR/backend/.env.local.php" ]; then
+    fail "No backend/.env.local, backend/.env.prod.local or backend/.env.local.php found.
+       Copy your prod env values to $APP_DIR/backend/.env.local before
        deploying for the first time. See SSH-deploy.md section 4.4."
 fi
 
@@ -73,9 +73,10 @@ if [ "$SKIP_COMPOSER" != "1" ]; then
         --no-dev --optimize-autoloader --classmap-authoritative \
         --no-interaction --no-progress
 
-    if [ -f .env.prod.local ]; then
-        log "composer dump-env prod (consolidates .env into .env.local.php)"
-        APP_ENV=prod composer dump-env prod
+    if [ -f .env.local.php ]; then
+        warn ".env.local.php is active; Symfony will ignore later .env.local edits until the compiled file is regenerated or removed."
+    else
+        log "Using editable server-local dotenv configuration (no composer dump-env)"
     fi
 else
     warn "Skipping composer install (SKIP_COMPOSER=1)"

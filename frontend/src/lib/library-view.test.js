@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyViewFilter,
   buildLibraryUrl,
+  nextComicForReader,
   resolveLibraryLocation,
   sortComics,
 } from "./library-view";
@@ -145,5 +146,43 @@ describe("sortComics", () => {
     const original = [...comics];
     sortComics(comics, "title-desc");
     expect(comics).toEqual(original);
+  });
+});
+
+describe("nextComicForReader", () => {
+  const current = {
+    id: 20,
+    title: "Current",
+    libraryFolderId: 7,
+    tags: [{ id: 1, name: "Hero" }, { id: 2, name: "Space" }],
+  };
+
+  it("prefers the comic's actual folder over a stronger tag match elsewhere", () => {
+    const sameFolder = { id: 30, title: "Zeta", libraryFolderId: 7, tags: [] };
+    const allTagsElsewhere = { id: 40, title: "Delta", libraryFolderId: 9, tags: current.tags };
+
+    expect(nextComicForReader([allTagsElsewhere, sameFolder], current)).toBe(sameFolder);
+  });
+
+  it("matches all tags first, then progressively fewer tags", () => {
+    const noTags = { id: 30, title: "Delta", libraryFolderId: 7, tags: [] };
+    const oneTag = { id: 40, title: "Echo", libraryFolderId: 7, tags: ["Hero"] };
+    const allTags = { id: 50, title: "Foxtrot", libraryFolderId: 7, tags: current.tags };
+
+    expect(nextComicForReader([noTags, oneTag, allTags], current)).toBe(allTags);
+    expect(nextComicForReader([noTags, oneTag], current)).toBe(oneTag);
+  });
+
+  it("uses alphabetical order to break equal folder and tag matches", () => {
+    const later = { id: 30, title: "Foxtrot", libraryFolderId: 7, tags: ["Hero"] };
+    const earlier = { id: 40, title: "Echo", libraryFolderId: 7, tags: ["Hero"] };
+
+    expect(nextComicForReader([later, earlier], current)).toBe(earlier);
+  });
+
+  it("never moves backward alphabetically or returns the current comic", () => {
+    const before = { id: 10, title: "Alpha", libraryFolderId: 7, tags: current.tags };
+
+    expect(nextComicForReader([current, before], current)).toBeNull();
   });
 });

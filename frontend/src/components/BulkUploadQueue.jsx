@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, RotateCcw, Trash2, Upload } from "lucide-react";
 import { createUploadRequestPool, uploadComicInChunks } from "@/hooks/use-chunked-upload";
 import { useAuth } from "@/hooks/use-auth";
 import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
-import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile } from "@/lib/comic-upload";
-import { closeBulkUploadSession } from "@/lib/bulk-upload-session";
-import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
+import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile, resolveParallelFiles } from "@/lib/comic-upload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +15,6 @@ import { FolderDestinationSelect } from "@/components/library/FolderDestinationS
 import { useLibraryFolders } from "@/hooks/use-library-folders";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-export const MAX_PARALLEL_FILES = 2;
 const ACTIVE_STATUSES = new Set(["initialising", "uploading", "completing"]);
 /** Not in flight and not uploaded: a row "Start all" would still pick up. */
 const RETRYABLE_STATUSES = ["idle", "error", "cancelled"];
@@ -42,10 +39,10 @@ export default function BulkUploadQueue() {
   const { toast } = useToast();
   const { refreshSession } = useAuth();
   const { config } = useConfig();
-  const { isActive: advertisingActive } = useAdSense();
   const [searchParams] = useSearchParams();
-  const { folders, isLoading: foldersLoading } = useLibraryFolders();
+  const { folders, isLoading: foldersLoading, createFolder } = useLibraryFolders();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 4;
+  const parallelFiles = resolveParallelFiles(config.upload?.maxParallelFileUploads);
   const requestPool = useMemo(
     () => createUploadRequestPool(concurrentChunks),
     [concurrentChunks]
@@ -63,8 +60,6 @@ export default function BulkUploadQueue() {
   // captured when the run began, so without this a file removed mid-run would
   // still be uploaded after it had left the screen.
   const removedRef = useRef(new Set());
-  /** Whether "Start all" has run: only then is there a batch to settle. */
-  const batchRanRef = useRef(false);
   const inputRef = useRef(null);
   const completed = rows.filter((row) => row.status === "done").length;
   const failed = rows.filter((row) => row.status === "error" || row.status === "cancelled").length;
@@ -140,39 +135,8 @@ export default function BulkUploadQueue() {
         await uploadRow(row);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_FILES, selectedRows.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(parallelFiles, selectedRows.length) }, worker));
   };
-
-  /**
-   * The batch is what a rewarded session covers, so it ends when the batch does
-   * — but only once there is nothing left to retry. Closing it while files are
-   * still failed would charge a second advertisement for finishing the batch
-   * the first one paid for, which issue #73 rules out explicitly. A session
-   * nobody closes expires on its own two hours later.
-   *
-   * Both ways a batch can settle come through here. A retry that rescues the
-   * last failure ends the batch exactly as a clean run does, and a session left
-   * open by that path would hand the *next* batch a free pass until it expired.
-   *
-   * Skipped where advertising is off, because the gate opens a session only on
-   * the offer path and the offer is only made where advertising is running —
-   * so there is nothing to close, and this would be an authenticated request to
-   * delete something that does not exist after every batch, for every
-   * self-hosted user. Nothing about uploading depended on the session, so
-   * nothing here checks whether it closed.
-   */
-  useEffect(() => {
-    if (!batchRanRef.current || running) return;
-    // Read off the rows themselves rather than a count each caller works out.
-    // Every way a batch can settle — a clean run, a retry that rescues the last
-    // failure, removing the last outstanding file — is the same question, and
-    // three separate answers to it disagreed about a row whose title was
-    // cleared. Rows are never stale here: an effect sees the render they are in.
-    if (rows.some((row) => row.status !== "done")) return;
-
-    batchRanRef.current = false;
-    if (advertisingActive) void closeBulkUploadSession();
-  }, [rows, running, advertisingActive]);
 
   const startAll = async () => {
     const pending = rows.filter((row) => RETRYABLE_STATUSES.includes(row.status) && row.title.trim());
@@ -183,7 +147,6 @@ export default function BulkUploadQueue() {
     }
     // Only removals made during this run may cancel work in it.
     removedRef.current = new Set();
-    batchRanRef.current = true;
     setRunning(true);
     await runQueue(pending);
     setRunning(false);
@@ -193,7 +156,10 @@ export default function BulkUploadQueue() {
     <Card className="w-full max-w-6xl">
       <CardHeader>
         <CardTitle className="text-2xl font-comic">Bulk upload comics</CardTitle>
-        <CardDescription>Add enabled comic formats ({comicFormats.join(", ").toUpperCase()}). Two comics upload at a time.</CardDescription>
+        <CardDescription>
+          Add enabled comic formats ({comicFormats.join(", ").toUpperCase()}).{" "}
+          {parallelFiles === 1 ? "One comic uploads" : `${parallelFiles} comics upload`} at a time.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div
@@ -213,7 +179,14 @@ export default function BulkUploadQueue() {
           <Label htmlFor="bulk-tags">Tags applied to every comic (comma-separated)</Label>
           <Input id="bulk-tags" value={tagsInput} onChange={(event) => setTagsInput(event.target.value)} placeholder="manga, favorites, sci-fi" disabled={running} />
         </div>
-        <FolderDestinationSelect id="bulk-folder-destination" folders={folders} value={selectedFolderId} onChange={setFolderId} disabled={running || foldersLoading} />
+        <FolderDestinationSelect
+          id="bulk-folder-destination"
+          folders={folders}
+          value={selectedFolderId}
+          onChange={setFolderId}
+          onCreateFolder={createFolder}
+          disabled={running || foldersLoading}
+        />
 
         {rows.length > 0 && (
           <Table>

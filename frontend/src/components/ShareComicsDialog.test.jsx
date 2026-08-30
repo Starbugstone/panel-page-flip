@@ -661,6 +661,91 @@ describe("ShareComicsDialog", () => {
     expect(screen.getByText(/3 comics will be offered/)).toBeInTheDocument();
   });
 
+  /* ------------------------------------------------------------------------ */
+  /* Sharing a folder                                                          */
+  /* ------------------------------------------------------------------------ */
+
+  const dragonBall = {
+    folderId: 7,
+    folderName: "DragonBall",
+    comicIds: ["1", "2"],
+    unshareableCount: 0,
+  };
+
+  it("names the folder rather than the comics it happens to hold", async () => {
+    open({ initialComicIds: dragonBall.comicIds, folder: dragonBall, lockSelection: true });
+
+    expect(await screen.findByText("Share “DragonBall”")).toBeInTheDocument();
+    expect(screen.getByText(/2 comics from “DragonBall” will be offered/)).toBeInTheDocument();
+  });
+
+  /**
+   * The ids on screen came from a preview taken when the dialog opened. Sending
+   * those would share the folder as it was rather than as it is, so the request
+   * names the folder and lets the server walk it again.
+   */
+  it("shares a folder by naming it, not by listing what the preview returned", async () => {
+    const user = userEvent.setup();
+    answerResolveAndShare({ created: 2, total: 2, results: [
+      { comicId: 1, status: "created" }, { comicId: 2, status: "created" },
+    ] });
+
+    open({ initialComicIds: dragonBall.comicIds, folder: dragonBall, lockSelection: true });
+    await screen.findByText("Batman #1");
+    await confirmRecipient(user, { username: "SilverOtter4821" });
+    await acknowledge(user);
+    await user.click(screen.getByRole("button", { name: "Send invitations" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/shares/invitations/bulk",
+      expect.objectContaining({ folderId: 7 })
+    ));
+    expect(api.post).not.toHaveBeenCalledWith(
+      "/api/shares/invitations/bulk",
+      expect.objectContaining({ comicIds: expect.anything() })
+    );
+  });
+
+  /**
+   * A count and never a list. Which comic cannot be passed on is a fact about
+   * the library, and naming one here would put a comic in a share dialog that
+   * is not going.
+   */
+  it("says how much of a folder was left out without naming any of it", async () => {
+    open({
+      initialComicIds: dragonBall.comicIds,
+      folder: { ...dragonBall, unshareableCount: 3 },
+      lockSelection: true,
+    });
+
+    expect(await screen.findByText(/3 not yours to share were left out/)).toBeInTheDocument();
+    expect(screen.queryByText("Received Comic")).not.toBeInTheDocument();
+  });
+
+  /**
+   * A group code carries comic ids rather than a folder, so it keeps the
+   * ordinary ceiling. Offering the fork for a folder past that ceiling would be
+   * offering a button whose only outcome is a refusal.
+   */
+  it("withdraws the code option for a folder too large for one", async () => {
+    open({
+      initialComicIds: Array.from({ length: 21 }, (unused, index) => String(index + 1)),
+      folder: { ...dragonBall, comicIds: [] },
+      lockSelection: true,
+    });
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics?ownership=mine"));
+    expect(screen.queryByRole("tab", { name: "Create a code" })).not.toBeInTheDocument();
+    expect(screen.getByText(/21 comics from “DragonBall” will be offered/)).toBeInTheDocument();
+  });
+
+  it("still offers the code option for a folder that fits inside one", async () => {
+    open({ initialComicIds: dragonBall.comicIds, folder: dragonBall, lockSelection: true });
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics?ownership=mine"));
+    expect(screen.getByRole("tab", { name: "Create a code" })).toBeInTheDocument();
+  });
+
   /**
    * The case where the two counts diverge completely.
    *

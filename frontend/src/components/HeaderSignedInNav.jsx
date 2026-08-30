@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { BookOpen, Cloud, Files, Settings, Share2, SlidersHorizontal, Upload, User } from "lucide-react";
 
 import { Button } from "./ui/button.jsx";
+import { BulkUploadEntryLink } from "./BulkUploadEntryLink.jsx";
 
 /**
  * The signed-in navigation.
@@ -11,6 +12,13 @@ import { Button } from "./ui/button.jsx";
  * survive.
  */
 export function SignedInNav({ location, inBulkUpload, isAdmin, pendingInvitations, onLogout }) {
+  const bulkUploadLabel = (
+    <>
+      <span className="hidden lg:inline">Bulk Upload</span>
+      <Files className="inline lg:hidden h-5 w-5" />
+    </>
+  );
+
   return (
     <>
 
@@ -25,16 +33,21 @@ export function SignedInNav({ location, inBulkUpload, isAdmin, pendingInvitation
                 <span className="hidden md:inline">Upload Comic</span>
                 <Upload className="inline md:hidden h-5 w-5" />
               </Link>
-              {/* Bulk upload is two routes now — the gate at /upload/bulk and the
-                  batch at /upload/bulk/session — so the highlight has to cover
-                  both or it goes dark for the whole time the queue is on screen.
-                  The link points at wherever the user already is, because
-                  sending somebody mid-batch back through the gate unmounts the
-                  queue and loses every title, tag and progress bar in it. */}
-              <Link to={inBulkUpload ? location.pathname : "/upload/bulk"} aria-label="Bulk Upload" className={`${inBulkUpload ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}>
-                <span className="hidden lg:inline">Bulk Upload</span>
-                <Files className="inline lg:hidden h-5 w-5" />
-              </Link>
+              {/* Bulk upload is two routes, so the highlight has to cover both
+                  or it goes dark for the whole time the queue is on screen.
+                  Mid-batch the link stays where the user already is, and stays a
+                  router navigation: BulkUploadEntryLink may reload the page, and
+                  reloading here would lose the titles, tags and uploads in
+                  flight. */}
+              {inBulkUpload ? (
+                <Link to={`${location.pathname}${location.search}`} aria-label="Bulk Upload" className="text-comic-purple">
+                  {bulkUploadLabel}
+                </Link>
+              ) : (
+                <BulkUploadEntryLink aria-label="Bulk Upload" className="text-foreground hover:text-comic-purple">
+                  {bulkUploadLabel}
+                </BulkUploadEntryLink>
+              )}
               {/* The count is part of the accessible name, not decoration: the
                   label collapses to an icon at narrow widths and "Sharing"
                   alone would not say that anything is waiting. */}

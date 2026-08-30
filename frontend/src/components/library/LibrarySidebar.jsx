@@ -19,6 +19,8 @@ export function LibrarySidebar({ folders, activeFolderId, activeView, onFolderSe
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const { usage } = useStorageUsage();
+  const activeFolder = folders.find((folder) => Number(folder.id) === Number(activeFolderId));
+  const createLabel = activeFolder ? `Create subfolder in ${activeFolder.name}` : "Create folder";
 
   const create = async (event) => {
     event.preventDefault();
@@ -44,14 +46,17 @@ export function LibrarySidebar({ folders, activeFolderId, activeView, onFolderSe
       <div>
         <div className="mb-2 flex items-center justify-between px-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Folders</h2>
-          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => setCreating((value) => !value)} aria-label="Create folder">
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => setCreating((value) => !value)} aria-label={createLabel} title={createLabel}>
             <FolderPlus className="h-4 w-4" />
           </Button>
         </div>
         {creating && (
-          <form onSubmit={create} className="mb-2 flex gap-1">
-            <Input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Folder name" maxLength={100} aria-label="Folder name" />
-            <Button type="submit" size="sm" disabled={!name.trim()}>Add</Button>
+          <form onSubmit={create} className="mb-2 space-y-1" aria-label={createLabel}>
+            {activeFolder && <p className="px-1 text-xs text-muted-foreground">New subfolder in “{activeFolder.name}”</p>}
+            <div className="flex gap-1">
+              <Input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder={activeFolder ? "Subfolder name" : "Folder name"} maxLength={100} aria-label="Folder name" />
+              <Button type="submit" size="sm" disabled={!name.trim()}>Add</Button>
+            </div>
           </form>
         )}
         <Button type="button" variant={activeFolderId == null && activeView === "folders" ? "secondary" : "ghost"} className="h-9 w-full justify-start" onClick={() => onFolderSelect(null)}>

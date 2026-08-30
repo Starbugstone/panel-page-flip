@@ -8,6 +8,23 @@ export const CHUNK_SIZE_BYTES = 1024 * 1024;
 export const COMIC_EXTENSIONS = ["cbz", "cbr", "cb7", "cbt", "pdf"];
 export const comicFileAccept = (extensions) => extensions.map((extension) => `.${extension}`).join(",");
 
+export const DEFAULT_PARALLEL_FILES = 2;
+
+/**
+ * How many comics a bulk upload sends at once, from `MAX_PARALLEL_FILE_UPLOADS`.
+ *
+ * Anything unusable falls back rather than throwing: this arrives over the
+ * network from /api/config, and a misconfigured server should slow the queue
+ * down to the shipped default, not break uploading entirely. Deliberately not
+ * capped by `MAX_CONCURRENT_UPLOADS` — the files share one request pool, so a
+ * number above it makes them wait for a request instead of for a slot, which
+ * costs the server nothing.
+ */
+export function resolveParallelFiles(configured) {
+  const files = Math.floor(Number(configured));
+  return Number.isFinite(files) && files > 0 ? files : DEFAULT_PARALLEL_FILES;
+}
+
 const EXTENSION_SUFFIX = new RegExp(`\\.(${COMIC_EXTENSIONS.join("|")})$`, "i");
 
 export function generateTitleFromFilename(filename) {

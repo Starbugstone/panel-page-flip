@@ -42,3 +42,19 @@ export function describeComicSelection(comics, selectedIds, { canShare = true } 
     bulkShareImpact: describeBulkShareImpactOfDeletion(selectedComics),
   };
 }
+
+/**
+ * The ids from one comic to another, inclusive, in the order they are shown.
+ *
+ * Range selection is anchored to positions in the list a user can see, so a
+ * comic no longer on screen — filtered away since the anchor was set — yields
+ * no range at all rather than one measured from a stale index.
+ */
+export function comicIdsInRange(comics, fromId, toId) {
+  const from = comics.findIndex((comic) => comic.id === fromId);
+  const to = comics.findIndex((comic) => comic.id === toId);
+  if (from === -1 || to === -1) return [];
+
+  const [start, end] = from <= to ? [from, to] : [to, from];
+  return comics.slice(start, end + 1).map((comic) => comic.id);
+}

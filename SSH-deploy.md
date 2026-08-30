@@ -12,7 +12,7 @@ hosts that can't do SSH.
 # One-time setup, on your laptop
 cp scripts/.env.deploy.example scripts/.env.deploy
 chmod 600 scripts/.env.deploy
-$EDITOR scripts/.env.deploy           # fill in SSH_*, PROD_*
+$EDITOR scripts/.env.deploy           # fill in SSH_* (PROD_* is not needed)
 
 # One-time setup, on the server (over SSH)
 ssh deploy@server.yourdomain.com
@@ -20,7 +20,7 @@ sudo mkdir -p /var/www/comics && sudo chown $USER:$USER /var/www/comics
 git clone git@github.com:youruser/panel-page-flip.git /var/www/comics
 cd /var/www/comics
 APP_DIR=/var/www/comics ./scripts/server/server-install.sh
-$EDITOR backend/.env.prod.local       # fill in DB, mailer, secrets…
+$EDITOR backend/.env.local       # fill in DB, mailer, secrets…
 APP_DIR=/var/www/comics ./scripts/server/server-install.sh
 
 # Every release, from your laptop
@@ -55,7 +55,7 @@ and troubleshooting.
 | -------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------- |
 | Build location       | Locally in Docker, mirror result over FTP                         | On the server (`git pull` + `composer install` + `npm run build`) |
 | Migration runner     | Token-protected `_post-deploy.php` over HTTPS                     | `php bin/console doctrine:migrations:migrate` over SSH directly  |
-| Secrets storage      | Baked into release/.env.local.php on laptop, mirrored             | Lives only on the server (`backend/.env.prod.local`)             |
+| Secrets storage      | Server-local by default; compiled mode is an explicit opt-in       | Lives only on the server (`backend/.env.local`)             |
 | Server requirements  | Only PHP runtime + MySQL                                          | PHP CLI + Composer + git + (Node OR pre-built dist)              |
 | Speed                | Limited by FTP throughput, full vendor/ uploaded each time         | Just the diff via git, no asset uploads needed                  |
 | Atomicity            | Files updated one-by-one; brief inconsistent state                | Same problem here unless you use the symlink trick (see §8)     |
@@ -172,7 +172,7 @@ SSH_BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh # must back u
 ```
 
 The `PROD_*` block in the same file is **only used by the FTP flow**. For SSH
-deploys, the secrets live on the server in `backend/.env.prod.local` (see
+deploys, the secrets live on the server in `backend/.env.local` (see
 §4.4). You can leave the `PROD_*` block empty if you only deploy via SSH.
 
 Verify SSH connectivity:
@@ -212,13 +212,13 @@ cd /var/www/comics
 APP_DIR=/var/www/comics ./scripts/server/server-install.sh
 ```
 
-The first run notices `backend/.env.prod.local` doesn't exist and writes a
+The first run notices `backend/.env.local` doesn't exist and writes a
 template. It stops right there and prints the path to edit.
 
-### 4.4 Fill in `backend/.env.prod.local`
+### 4.4 Fill in `backend/.env.local`
 
 ```sh
-$EDITOR /var/www/comics/backend/.env.prod.local
+$EDITOR /var/www/comics/backend/.env.local
 ```
 
 Critical values:
@@ -237,6 +237,7 @@ MAILER_FROM_ADDRESS=noreply@yourdomain.com
 MAILER_FROM_NAME="Panel Page Flip"
 MESSENGER_TRANSPORT_DSN=doctrine://default?auto_setup=0
 MAX_CONCURRENT_UPLOADS=3
+MAX_PARALLEL_FILE_UPLOADS=2
 UPLOAD_USER_QUOTA_BYTES=10737418240
 DROPBOX_APP_KEY=...
 DROPBOX_APP_SECRET=...
@@ -248,7 +249,7 @@ DEPLOY_TOKEN=$(openssl rand -hex 32)                   # only if you also use _p
 ```
 
 ```sh
-chmod 600 backend/.env.prod.local
+chmod 600 backend/.env.local
 ```
 
 ### 4.5 Create the database
@@ -279,7 +280,7 @@ deploys via `deploy-ssh.sh`, the real `SSH_BACKUP_COMMAND` runs first.
 
 1. Runs `BACKUP_COMMAND` and stops unless it succeeds.
 2. Runs `composer install --no-dev --optimize-autoloader`.
-3. Consolidates `.env.prod.local` into `.env.local.php`.
+3. Reads the editable `.env.local` directly; it does not run `composer dump-env`.
 4. Builds and installs the frontend while retaining the previous asset bundle for rollback.
 5. Runs Doctrine migrations, Dropbox token encryption, and the file-size backfill.
 6. Clears and warms the production cache.
@@ -424,7 +425,7 @@ server {
     server_name comics.yourdomain.com;
 
     root /var/www/comics/backend/public;
-    index index.php index.html;
+    index index.php;
 
     # Comic uploads can be big.
     client_max_body_size 100M;
@@ -434,19 +435,20 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    # Security headers
+    # Security headers. Deliberately no Content-Security-Policy: Symfony sends
+    # one per response, carrying the nonce it injected into the page's scripts,
+    # and a second add_header here would be enforced alongside it — the
+    # intersection of the two blocks every script on the page.
     add_header X-Content-Type-Options "nosniff"           always;
     add_header X-Frame-Options        "DENY"              always;
     add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
 
-    # SPA: serve index.html for any non-file, non-API path.
+    # Everything that is not a file on disk goes to Symfony, SPA routes
+    # included. Serving index.html directly would be faster and would lose the
+    # CSP nonce, the per-path canonical, the noindex header, the 404 status for
+    # an unknown path, and the generated /ads.txt.
     location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API: hand to Symfony.
-    location /api {
         try_files $uri /index.php$is_args$args;
     }
 
@@ -625,7 +627,7 @@ does not wait on SMTP. To do it, run a worker **and** point the transport at the
 queue:
 
 ```dotenv
-# backend/.env.prod.local
+# backend/.env.local
 SHARE_NOTIFICATION_TRANSPORT_DSN=doctrine://default?auto_setup=0
 ```
 
@@ -771,7 +773,7 @@ release-symlink layout:
 │   ├── 2026-05-07_21-30-00/
 │   └── ...
 └── shared/
-    ├── .env.prod.local                        # symlinked into each release
+    ├── .env.local                        # symlinked into each release
     ├── uploads/                               # symlinked into each release/public/
     └── var/log/                               # symlinked into each release/var/log/
 ```
@@ -917,7 +919,7 @@ in `php.ini` so PHP picks up changes automatically (slightly slower runtime).
 
 ### "Mixed content" warnings in the browser after enabling HTTPS
 
-Production uses HTTPS but `APP_URL` in `backend/.env.prod.local` still says
+Production uses HTTPS but `APP_URL` in `backend/.env.local` still says
 `http://`. Update it and redeploy.
 
 ### React app shows a blank page
@@ -939,7 +941,8 @@ backup + the server's daily snapshot.
 
 ## 11. Security notes
 
-1. **`backend/.env.prod.local` lives only on the server.** Never commit it,
+1. **`backend/.env.local` lives only on the server.** Deploy tooling explicitly
+   preserves it, including rsync delete mode. Never commit it,
    never copy it back to your laptop. If you need to read a value, SSH in
    and `cat` it.
 2. **`scripts/.env.deploy` (laptop side) only stores the SSH credentials**
@@ -988,8 +991,8 @@ backup + the server's daily snapshot.
 | `scripts/server/server-deploy.sh`          | Server-side build: composer + npm + migrate + cache + chown + hook. |
 | `scripts/server/backup-comics.sh`          | Pre-deploy / cron backup of DB + `backend/public/uploads/`. Point `SSH_BACKUP_COMMAND` here. |
 | `scripts/post-deploy.sh`                   | Optional: same actions over HTTP/SSH for the FTP flow. SSH mode reuses the same `SSH_*` vars. |
-| `backend/.env.prod.local` *(server-only)*  | Holds prod secrets. NEVER committed, NEVER on the laptop.       |
-| `backend/.env.local.php` *(server-only)*   | Generated by `composer dump-env prod` from `.env.prod.local`.   |
+| `backend/.env.local` *(server-only)*  | Holds prod secrets. NEVER committed, NEVER on the laptop.       |
+| `backend/.env.local.php` *(optional)*      | Explicit compiled-env mode only. If present, it takes precedence over `.env.local`. |
 
 ---
 
@@ -1006,7 +1009,7 @@ sudo mkdir -p /var/www/comics && sudo chown $USER:$USER /var/www/comics
 git clone git@github.com:youruser/panel-page-flip.git /var/www/comics
 cd /var/www/comics
 APP_DIR=/var/www/comics ./scripts/server/server-install.sh   # writes env template
-$EDITOR backend/.env.prod.local
+$EDITOR backend/.env.local
 APP_DIR=/var/www/comics ./scripts/server/server-install.sh   # actually builds
 # Wire backup (required before laptop deploys):
 # SSH_BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh

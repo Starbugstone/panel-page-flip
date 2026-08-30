@@ -28,6 +28,7 @@ final class ConfigControllerTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertArrayHasKey('maxConcurrentUploads', $payload['upload']);
+        self::assertArrayHasKey('maxParallelFileUploads', $payload['upload']);
         self::assertContains('cbz', $payload['upload']['comicFormats']);
         self::assertIsArray($payload['metadataProviders']);
         foreach ($payload['metadataProviders'] as $provider) {
@@ -36,5 +37,33 @@ final class ConfigControllerTest extends AbstractApiTestCase
             self::assertArrayNotHasKey('credentials', $provider);
             self::assertArrayNotHasKey('apiKey', $provider);
         }
+    }
+
+    /**
+     * The two upload limits answer different questions — how many comics move
+     * at once, and how many requests that is allowed to cost — so the payload
+     * has to keep them apart. Reporting the request budget as the file count is
+     * exactly the confusion this setting exists to end.
+     */
+    public function testParallelFileUploadsIsReportedSeparatelyFromTheRequestBudget(): void
+    {
+        $this->createAndLoginUser();
+
+        $payload = $this->getJson('/api/config');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame(
+            (int)static::getContainer()->getParameter('max_parallel_file_uploads'),
+            $payload['upload']['maxParallelFileUploads']
+        );
+        self::assertSame(
+            (int)static::getContainer()->getParameter('max_concurrent_uploads'),
+            $payload['upload']['maxConcurrentUploads']
+        );
+        self::assertNotSame(
+            $payload['upload']['maxConcurrentUploads'],
+            $payload['upload']['maxParallelFileUploads'],
+            'The test environment sets these to different values so a controller reading the wrong parameter fails here.'
+        );
     }
 }

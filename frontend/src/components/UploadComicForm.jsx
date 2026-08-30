@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+
+import { BulkUploadEntryLink } from "@/components/BulkUploadEntryLink.jsx";
 import { Loader2, Upload, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useChunkedUpload } from "@/hooks/use-chunked-upload";
@@ -35,7 +37,7 @@ export default function UploadComicForm() {
   const { refreshSession } = useAuth();
   const { config } = useConfig();
   const { tags: availableTags, addTagToCache } = useTags();
-  const { folders, isLoading: foldersLoading } = useLibraryFolders();
+  const { folders, isLoading: foldersLoading, createFolder } = useLibraryFolders();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 4;
   const comicFormats = config.upload?.comicFormats || DEFAULT_COMIC_FORMATS;
   const { start, cancel, status, progress } = useChunkedUpload({ concurrentChunks });
@@ -104,7 +106,7 @@ export default function UploadComicForm() {
       <CardHeader>
         <CardTitle className="text-2xl font-comic">Upload New Comic</CardTitle>
         <CardDescription>
-          Upload one comic here, or <Link className="text-comic-purple underline" to={`/upload/bulk?folder=${selectedFolderId == null ? "root" : selectedFolderId}`}>upload several at once</Link>.
+          Upload one comic here, or <BulkUploadEntryLink className="text-comic-purple underline" search={`?folder=${selectedFolderId == null ? "root" : selectedFolderId}`}>upload several at once</BulkUploadEntryLink>.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -194,7 +196,13 @@ export default function UploadComicForm() {
               ))}
             </div>
           </div>
-          <FolderDestinationSelect folders={folders} value={selectedFolderId} onChange={setFolderId} disabled={uploading} />
+          <FolderDestinationSelect
+            folders={folders}
+            value={selectedFolderId}
+            onChange={setFolderId}
+            onCreateFolder={createFolder}
+            disabled={uploading || foldersLoading}
+          />
         </form>
       </CardContent>
       <CardFooter className="justify-between">

@@ -2,6 +2,9 @@
 
 namespace App\Tests\Functional\Controller;
 
+use App\Service\AdvertisingConfiguration;
+use App\Service\ContentSecurityPolicy;
+use Psr\Log\NullLogger;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 
 class FrontendControllerTest extends WebTestCase
@@ -16,6 +19,10 @@ class FrontendControllerTest extends WebTestCase
 
         self::assertResponseIsSuccessful();
         self::assertResponseHeaderSame('Content-Type', 'text/html; charset=UTF-8');
+        self::assertResponseHeaderSame(
+            'Content-Security-Policy',
+            "default-src 'self'; object-src 'none'; base-uri 'none'; img-src 'self' data: blob: https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com; style-src 'self' 'unsafe-inline'; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://fundingchoicesmessages.google.com; connect-src 'self' https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://fundingchoicesmessages.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google; frame-ancestors 'none'; script-src 'self'"
+        );
 
         if ($shouldBeIndexed) {
             self::assertResponseHeaderNotSame('X-Robots-Tag', 'noindex, follow');
@@ -37,6 +44,26 @@ class FrontendControllerTest extends WebTestCase
         self::assertResponseStatusCodeSame(404);
         self::assertResponseHeaderSame('X-Robots-Tag', 'noindex, follow');
         self::assertStringContainsString('<div id="root">', (string) $client->getResponse()->getContent());
+    }
+
+    public function testAdvertisingResponseCouplesItsStrictCspToEveryInitialScript(): void
+    {
+        $client = static::createClient();
+        $advertising = new AdvertisingConfiguration(true, 'ca-pub-1234567890123456', new NullLogger());
+        static::getContainer()->set(AdvertisingConfiguration::class, $advertising);
+        static::getContainer()->set(
+            ContentSecurityPolicy::class,
+            new ContentSecurityPolicy($advertising, dirname(__DIR__, 3).'/config/csp.json')
+        );
+
+        $client->request('GET', '/');
+
+        $header = (string) $client->getResponse()->headers->get('Content-Security-Policy');
+        self::assertMatchesRegularExpression("/script-src 'nonce-([A-Za-z0-9_-]+)' 'unsafe-inline' 'unsafe-eval' 'strict-dynamic' https: http:/", $header);
+        preg_match("/'nonce-([A-Za-z0-9_-]+)'/", $header, $match);
+        $content = (string) $client->getResponse()->getContent();
+        self::assertStringContainsString('<script nonce="'.$match[1].'"', $content);
+        self::assertSame(substr_count(strtolower($content), '<script'), substr_count($content, '<script nonce="'.$match[1].'"'));
     }
 
     public function testRegexMetacharactersInThePathAreNotExpandedIntoTheCanonical(): void

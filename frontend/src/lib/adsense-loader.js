@@ -37,10 +37,8 @@ const INJECTED_AD_SELECTOR = INJECTED_AD_SELECTORS.join(",");
  * How long to wait for the site code before giving up on it.
  *
  * Some blockers neither serve the script nor fail the request, so waiting on the
- * `error` event alone can wait for ever — and something *is* waiting: the
- * bulk-upload gate holds a spinner until it knows whether a rewarded
- * advertisement can be offered. Five seconds is long enough for a slow
- * connection and short enough not to read as a broken page.
+ * `error` event alone can wait for ever. Five seconds is long enough for a slow
+ * connection and keeps the diagnostic status from remaining "loading" forever.
  */
 const SCRIPT_TIMEOUT_MS = 5000;
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\MessageHandler;
 
 use App\Entity\ComicShare;
+use App\Entity\LibraryFolder;
 use App\Entity\User;
 use App\Message\ShareInvitationNotification;
 use App\Repository\ComicShareRepository;
@@ -66,7 +67,7 @@ final class ShareInvitationNotificationHandler
         }
 
         try {
-            $this->shareService->notify($shares, $owner);
+            $this->shareService->notify($shares, $owner, $this->folderName($notification, $owner));
         } catch (\Throwable $exception) {
             // Logged first. `notify()` persists and flushes token rows before
             // it sends, so a Doctrine failure inside it closes the manager —
@@ -97,5 +98,27 @@ final class ShareInvitationNotificationHandler
             // is visible in the failure transport instead of being swallowed.
             throw $exception;
         }
+    }
+
+    /**
+     * What the folder this share came from is called, right now.
+     *
+     * Read here rather than carried on the message so a rename between the
+     * share and the send cannot put a name in an email that no longer exists.
+     * A folder that has since been deleted, or that turns out not to be this
+     * owner's, simply drops out of the notice — the shares are real either way,
+     * and where they were filed is decoration on top of them.
+     */
+    private function folderName(ShareInvitationNotification $notification, User $owner): ?string
+    {
+        if ($notification->sourceFolderId === null) {
+            return null;
+        }
+
+        $folder = $this->entityManager->find(LibraryFolder::class, $notification->sourceFolderId);
+
+        return $folder instanceof LibraryFolder && $folder->getOwner()?->getId() === $owner->getId()
+            ? $folder->getName()
+            : null;
     }
 }
