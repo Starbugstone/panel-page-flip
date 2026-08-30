@@ -21,7 +21,7 @@
  * grows a cover preview, a page thumbnail or anything read out of the archive,
  * it comes off this list.
  *
- * `/upload/bulk` is the rewarded-access gate, which is explanatory text and two
+ * `/upload/bulk` is the Offerwall target, which is explanatory text and two
  * buttons. `/upload/bulk/session` — the queue itself — is deliberately absent:
  * it shows filenames, progress and failures from real files.
  */
@@ -100,19 +100,14 @@ export function isAdvertisingActive(config) {
  * A promise that settles exactly once, and resolves `"unavailable"` if nothing
  * answers within the timeout.
  *
- * Both the script loader and the rewarded-ad request need this, for the same
- * reason: Google's callbacks can arrive late, more than once, or never. A
- * second settle would leave a cached answer permanently contradicting what
- * actually happened, so the rule lives in one place.
- *
- * `holdOpen` stops the timeout without settling — for the point where Google
- * has confirmed it has something to show and the wait is over, but the outcome
- * is not known yet.
+ * The script loader needs this because browser load callbacks can arrive late,
+ * more than once, or never. A second settle would leave a cached answer
+ * permanently contradicting what actually happened, so the rule lives in one
+ * place.
  *
  * @param {number} timeoutMs
- * @param {{ onSettle?: (outcome: string) => void }} [options]
  */
-export function settleOnce(timeoutMs, { onSettle } = {}) {
+export function settleOnce(timeoutMs) {
   let settled = false;
   let timer;
   let settle;
@@ -122,12 +117,11 @@ export function settleOnce(timeoutMs, { onSettle } = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      onSettle?.(outcome);
       resolve(outcome);
     };
   });
 
   timer = setTimeout(() => settle("unavailable"), timeoutMs);
 
-  return { promise, settle, holdOpen: () => clearTimeout(timer) };
+  return { promise, settle };
 }

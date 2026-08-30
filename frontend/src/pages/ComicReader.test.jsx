@@ -17,7 +17,11 @@ import { FakeImage } from "@/test/fake-image";
  * render, which re-runs those effects forever — the component is fine, the mock
  * is the loop. Hoisted so the factories below can close over one instance each.
  */
-const mocks = vi.hoisted(() => ({ toast: vi.fn(), updateComicProgress: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  catalog: [],
+  toast: vi.fn(),
+  updateComicProgress: vi.fn(),
+}));
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
@@ -112,13 +116,14 @@ describe("ComicReader", () => {
   beforeEach(() => {
     FakeImage.reset();
     mocks.toast.mockClear();
+    mocks.catalog = [{ id: 42, title: "Sandman" }];
     mocks.updateComicProgress.mockClear();
     vi.stubGlobal("Image", FakeImage);
     vi.mocked(api.get).mockReset();
     vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
       path === "/api/reader/preferences"
         ? { preferences: PAGED_PREFERENCES }
-        : comic()
+        : path === "/api/comics" ? { comics: mocks.catalog } : comic()
     ));
     vi.mocked(api.post).mockResolvedValue({ progress: { currentPage: 1, revision: 1 } });
     vi.mocked(api.put).mockReset();
@@ -251,6 +256,36 @@ describe("ComicReader", () => {
   });
 
   describe("shared navigation and logical progress", () => {
+    it("opens the next comic alphabetically from the final page", async () => {
+      mocks.catalog = [
+        { id: 7, title: "Zeta", coverImagePath: "/api/comics/cover/1/7/zeta.jpg" },
+        { id: 42, title: "Sandman" },
+        { id: 3, title: "Alpha" },
+      ];
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: "Next page" }));
+      await user.click(screen.getByRole("button", { name: "Next page" }));
+
+      const nextComic = screen.getByRole("button", { name: "Read next comic: Zeta" });
+      expect(nextComic).toBeEnabled();
+      expect(nextComic).toHaveTextContent("Next comic");
+      expect(nextComic).toHaveTextContent("Zeta");
+      expect(nextComic.querySelector("img")).toHaveAttribute("src", "/api/comics/cover/1/7/zeta.jpg");
+      await user.click(nextComic);
+
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics/7"));
+    });
+
+    it("loads the full library for ranking even when the reader was opened directly", async () => {
+      renderReader();
+
+      await page(1);
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics"));
+    });
+
     it("uses the same next and previous operations for keyboard navigation", async () => {
       const user = userEvent.setup();
       renderReader();

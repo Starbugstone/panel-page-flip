@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, RefreshCw } from "lucide-react";
 
+import { ReaderNextComicButton } from "@/components/reader/ReaderNextComicButton";
 import { ReaderPageJump } from "@/components/reader/ReaderPageJump";
 import { Button } from "@/components/ui/button.jsx";
 import { Progress } from "@/components/ui/progress.jsx";
@@ -26,8 +27,12 @@ export function ReaderPageControls({
   onNext,
   onGoToPage,
   onForceReload,
+  nextComic,
+  onNextComic,
 }) {
   const buttonBackground = isFullscreen ? "" : "bg-card";
+  const isLastPage = pageCount > 0 && progressUpTo >= pageCount;
+  const showNextComic = isLastPage && nextComic;
 
   return (
     <div
@@ -43,6 +48,8 @@ export function ReaderPageControls({
           className="h-1 w-full rounded-none bg-muted/60"
         />
       )}
+
+      {showNextComic && <ReaderNextComicButton comic={nextComic} onClick={onNextComic} />}
 
       <div className="flex w-full items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -84,17 +91,21 @@ export function ReaderPageControls({
           onGoToPage={onGoToPage}
         />
 
-        <Button
-          variant="outline"
-          onClick={onNext}
-          disabled={!canGoNext}
-          aria-label="Next page"
-          aria-keyshortcuts="ArrowRight"
-          title="Next page (Right arrow)"
-          className={`shrink-0 ${buttonBackground}`}
-        >
-          <span className="hidden sm:inline">Next</span><ArrowRight className="h-4 w-4 sm:ml-2" />
-        </Button>
+        {showNextComic ? (
+          <span className="h-10 w-10 shrink-0 sm:w-[5.75rem]" aria-hidden="true" />
+        ) : (
+          <Button
+            variant="outline"
+            onClick={onNext}
+            disabled={!canGoNext}
+            aria-label="Next page"
+            aria-keyshortcuts="ArrowRight"
+            title="Next page (Right arrow)"
+            className={`shrink-0 ${buttonBackground}`}
+          >
+            <span className="hidden sm:inline">Next</span><ArrowRight className="h-4 w-4 sm:ml-2" />
+          </Button>
+        )}
       </div>
     </div>
   );

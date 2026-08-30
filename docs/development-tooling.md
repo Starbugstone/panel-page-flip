@@ -24,34 +24,30 @@ Three things in this repository are generated, committed, and never rebuilt on t
 npm run check:routes   # nginx SPA route manifest vs frontend/index.html
 npm run check:tools    # conversion-tool zips and their published checksums
 npm run check:seo      # sitemap, robots.txt, canonicals, crawlable landing copy
-npm run check:csp      # Content-Security-Policy across all three deployment targets
+npm run check:csp      # strict Content-Security-Policy across nginx targets
 ```
 
 `check:seo` reads `APP_URL` and inspects a build, so run `npm run build` with the same `APP_URL` first. It also requires the built `index.html` to contain the public landing copy from `src/lib/landing-copy.js`, because production serves that file to crawlers that never run the React tree. `check:tools` is what stops an edit to a script under `scripts/comic-conversion/` shipping a download that no longer matches the checksum displayed beside it.
 
 ### Content-Security-Policy
 
-`backend/config/csp.json` is the policy. `scripts/generate-csp.mjs` emits it into
-the three places that actually serve it:
+`backend/config/csp.json` contains the shared policy inputs. Symfony reads it to
+build Apache responses with a cryptographic per-response nonce.
+`scripts/generate-csp.mjs` emits the equivalent `$request_id` nonce policy into
+the two nginx targets:
 
 | File | Form |
 | --- | --- |
 | `docker/nginx_frontend/security-headers.conf` | nginx `add_header`, production |
-| `scripts/deploy/htaccess.dist` | Apache `Header always set`, plus `frame-ancestors` |
 | `docker/nginx_frontend/nginx.dev.conf` | nginx, plus what the Vite dev server needs |
 
 Run `node scripts/generate-csp.mjs` after editing the manifest, and
 `npm run check:csp --prefix frontend` to verify — CI runs the check.
 
-Hand-editing three copies in two syntaxes fails in whichever target you are not
-testing, and fails silently: fix development only and production blocks
-advertising; fix nginx only and the Apache release — which is what
-`build-release.sh` ships — blocks it. Google adds origins periodically;
-`ep1`/`ep2.adtrafficquality.google` were recent arrivals.
-
-The generator also asserts that `script-src` permits the hosts
-`frontend/src/lib/advertising.js` actually loads scripts from, so the policy and
-the loader cannot drift apart either.
+Apache `.htaccess` must not add CSP: a second static policy would intersect with
+the dynamic Symfony header and reject its nonce. The nonce and
+`strict-dynamic` replace the unsupported static Google script-origin list;
+non-script sources remain explicit in the manifest.
 
 ### Crawlable landing page
 

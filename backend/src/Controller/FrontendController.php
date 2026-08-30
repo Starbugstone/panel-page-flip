@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Service\FrontendRouteRegistry;
+use App\Service\ContentSecurityPolicy;
 use App\Service\PublicUrl;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
@@ -16,6 +17,7 @@ class FrontendController extends AbstractController
     public function __construct(
         private readonly FrontendRouteRegistry $routes,
         private readonly PublicUrl $publicUrl,
+        private readonly ContentSecurityPolicy $contentSecurityPolicy,
     ) {
     }
 
@@ -87,6 +89,13 @@ class FrontendController extends AbstractController
             }
             $content = str_replace('</head>', "    ".implode("\n    ", $missingTags)."\n  </head>", $content);
         }
+
+        $nonce = null;
+        if ($this->contentSecurityPolicy->advertisingEnabled()) {
+            $nonce = $this->contentSecurityPolicy->nonce();
+            $content = $this->contentSecurityPolicy->nonceScripts($content, $nonce);
+        }
+        $headers['Content-Security-Policy'] = $this->contentSecurityPolicy->header($nonce);
 
         return new Response($content, $status, $headers);
     }

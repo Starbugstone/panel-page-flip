@@ -82,6 +82,7 @@ command -v docker >/dev/null 2>&1 || fail "docker is required."
 COMMON_EXCLUDES=(
     --exclude-glob ".git*"
     --exclude-glob ".env.local"
+    --exclude-glob ".env.prod.local"
     --exclude-glob ".env.dev"
     --exclude-glob ".env.test"
     --exclude-glob "*.log"
@@ -97,6 +98,14 @@ COMMON_EXCLUDES=(
     # cache the server would then have to rebuild a page at a time.
     --exclude-glob "var/page-cache/*"
 )
+
+# The host's compiled env is production state in the default server-local mode,
+# where the release deliberately contains none — so protect it. Compiled mode is
+# the opposite case: .env.local.php is the configuration the build just made,
+# and excluding it would mirror a release that cannot boot.
+if [ "${DEPLOY_CONFIG_MODE:-server-local}" != "compiled" ]; then
+    COMMON_EXCLUDES+=(--exclude-glob ".env.local.php")
+fi
 
 DELETE_FLAG=""
 if [ "$ALLOW_DELETE" = "1" ]; then

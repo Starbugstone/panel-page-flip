@@ -116,11 +116,21 @@ if [ "$USE_RSYNC" = "1" ]; then
     RSYNC_SSH="ssh -p $SSH_PORT"
     [ -n "${SSH_KEY:-}" ] && RSYNC_SSH="$RSYNC_SSH -i $SSH_KEY"
 
+    # --delete-after would otherwise remove the host's own dotenv files, which
+    # are the runtime configuration in the default server-local mode. Compiled
+    # mode is the one case where .env.local.php belongs to the release rather
+    # than to the server, so it is uploaded instead of protected.
+    ENV_EXCLUDES=(--exclude='backend/.env.local' --exclude='backend/.env.prod.local')
+    if [ "${DEPLOY_CONFIG_MODE:-server-local}" != "compiled" ]; then
+        ENV_EXCLUDES+=(--exclude='backend/.env.local.php')
+    fi
+
     rsync -azv --delete-after \
         --exclude='backend/public/uploads/' \
         --exclude='backend/public/uploads/*' \
         --exclude='backend/var/log/' \
         --exclude='backend/var/cache/' \
+        "${ENV_EXCLUDES[@]}" \
         --exclude='.git/' \
         -e "$RSYNC_SSH" \
         "$REPO_ROOT/release/" \

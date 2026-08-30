@@ -10,8 +10,8 @@
  *   POST https://yourdomain.com/_post-deploy.php?token=XXX&action=cache-clear
  *
  * Security:
- *   - The token comes from $_ENV['DEPLOY_TOKEN'] (set in backend/.env.prod.local
- *     and consolidated by `composer dump-env prod`).
+ *   - The token comes from $_ENV['DEPLOY_TOKEN'] (normally set in the host's
+ *     backend/.env.local; compiled dotenv is also supported).
  *   - The script ONLY runs when APP_ENV === 'prod'.
  *   - Use HTTPS or this entire endpoint is a credential leak.
  *   - Rotate DEPLOY_TOKEN regularly (e.g. on every deploy, see post-deploy.sh).

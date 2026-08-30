@@ -1,337 +1,232 @@
-# Advertising, consent, and the rewarded bulk-upload gate
+# Advertising, consent, and AdSense Offerwall
 
-This installation can show Google AdSense advertising to help cover hosting
-costs. It is off unless an operator turns it on, and it is arranged so that
-turning it on cannot cost a user a feature, and cannot put an advertisement
-beside a comic somebody uploaded.
+Advertising is optional and fail-open. The application loads Google only when
+`ADSENSE_ENABLED=true` and `ADSENSE_CLIENT` is a valid `ca-pub-` id. Uploading,
+reading, sharing and account features never depend on an ad being available or
+on advertising consent.
 
-Two rules drive every decision in this document:
+Run the safe application-side diagnostic after changing configuration:
 
-1. **Advertising is an enhancement, never a dependency.** Missing configuration,
-   an ad blocker, a failed script, a refused consent, no rewarded inventory —
-   each of them leaves the whole application working.
-2. **Once user-uploaded comic content is rendered, advertising must not be
-   rendered on that page.** Google holds the publisher responsible for the page
-   an advertisement appears on, and this application cannot vouch for the
-   contents of every private library.
-
-## Configuration: two settings
-
-```env
-ADSENSE_ENABLED=false
-ADSENSE_CLIENT=
+```bash
+cd backend
+APP_ENV=prod php bin/console app:diagnose-advertising
 ```
 
-There is deliberately no third. Which ad formats run, which pages are excluded,
-which areas are excluded and whether an Offerwall appears are all configured in
-the AdSense account — putting them in `.env` as well would be the same decision
-in two places, free to disagree.
+It reports effective enablement, publisher-id validity, whether `/ads.txt` is
+expected, dotenv mode, the ad-safe routes, the native Offerwall integration and
+the strict-CSP mode. It does not print the publisher id or any secret.
 
-Advertising is active only when `ADSENSE_ENABLED=true` **and** `ADSENSE_CLIENT`
-holds a publisher id in Google's form: `ca-pub-` followed by sixteen digits.
-Anything else logs
+## Runtime configuration
+
+The supported O2Switch/default deployment mode keeps production settings in:
 
 ```text
-WARNING: AdSense is enabled but ADSENSE_CLIENT is missing or invalid.
-Advertising disabled; all application functionality remains available.
+backend/.env.local
 ```
 
-and leaves advertising off. `App\Service\AdvertisingConfiguration` is the single
-place this is decided; the browser is told the outcome and never the inputs.
+That file is ignored by Git and excluded by both FTP and rsync deployment. A
+release does not overwrite or delete it. `scripts/build-release.sh` defaults to
+`DEPLOY_CONFIG_MODE=server-local`, uses disposable build-only values, ships no
+runtime dotenv file, and does not run `composer dump-env prod`. Advertising
+therefore does not need to be duplicated in `scripts/.env.deploy`.
 
-### What the browser is told
+An operator may explicitly choose `DEPLOY_CONFIG_MODE=compiled` for a portable
+release. That generates `backend/.env.local.php`. Symfony gives that compiled
+file precedence and stops reading normal dotenv files; later edits to
+`.env.local` will not take effect until `.env.local.php` is regenerated or
+removed. The diagnostic warns when compiled mode is active.
 
-`GET /api/public-config` (public — the landing and login pages need it before
-anybody has signed in):
+Minimum host-local settings are:
+
+```dotenv
+APP_ENV=prod
+APP_DEBUG=0
+ADSENSE_ENABLED=true
+ADSENSE_CLIENT=ca-pub-1234567890123456
+```
+
+The public configuration endpoint then returns:
 
 ```json
-{
-  "adsense": { "enabled": true, "client": "ca-pub-1234567890123456" },
-  "operator": "Example Operator",
-  "privacyEmail": "privacy@example.com",
-  "legalEmail": "legal@example.com"
-}
+{"adsense":{"enabled":true,"client":"ca-pub-1234567890123456"}}
 ```
 
-The publisher id is public by design; it appears in the page code Google issues.
-Nothing else about the account is exposed, and the frontend parses no
-environment variables of its own.
+An invalid id disables advertising safely and logs a warning. When advertising
+is active, `/ads.txt` returns Google's seller record derived from the same id.
 
-This is the only public configuration endpoint. The operator contact details
-used to have their own (`/api/legal-config`), which meant the privacy and cookie
-pages made two anonymous round trips on the same render for two halves of the
-same public answer. A functional test pins the exact key list, so adding a field
-here is a deliberate decision to publish it.
+## Advertising boundary
 
-### `ads.txt`
-
-Served by Symfony from the configured publisher id, not committed as a file:
+AdSense site code may load only on these application-owned routes:
 
 ```text
-google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0
+/
+/login
+/upload
+/upload/bulk
 ```
 
-A checked-in `ads.txt` is a copy of `ADSENSE_CLIENT` that nothing keeps in step,
-and a stale one names somebody else as entitled to sell this domain's inventory.
-With advertising off the path 404s, because an installation with no AdSense
-account has no authorised seller to declare.
+`frontend/src/lib/advertising.js` is the source of truth. Everything not on the
+allowlist is ad-free, including `/dashboard`, `/read/*`, `/sharing`, `/share/*`,
+`/settings`, `/admin/*`, and `/upload/bulk/session`. The last route contains real
+filenames and batch state; `/upload/bulk` is intentionally a separate clean
+information page.
 
-Both nginx configurations, `backend/public/.htaccess` and the released Apache
-configuration (`scripts/deploy/htaccess.dist`) route `/ads.txt` to Symfony. The
-last of those is the one the build script installs on the production host, so a
-rule added only to the development file leaves the real deployment answering the
-IAB crawler with the React application. A deployment on some other web server
-needs the equivalent rule.
+Mirror this boundary with AdSense page exclusions. Account-side exclusions are
+a second safeguard, not a replacement for the application allowlist.
 
-## Where advertising may appear
+## Native Offerwall bulk flow
 
-`frontend/src/lib/advertising.js` holds an **allowlist**, and everything absent
-from it is ad-free:
+Panel Page Flip uses AdSense **Privacy & messaging → Offerwall → Rewarded ad**.
+Google implements the rewarded format, decides whether inventory is available,
+records completion and grants the configured entitlement — for this deployment,
+a page-view grant counted in loads of `/upload/bulk`, set in the account rather
+than here. The application does not call the H5-game `adBreak()` API and does
+not create a fake completion signal.
+
+The flow is:
 
 ```text
-/            landing
-/login       sign in and sign up
-/upload      the single-comic uploader
-/upload/bulk the rewarded-access gate
+/upload/bulk          clean Offerwall target and normal Continue action
+        ↓
+/upload/bulk/session  ad-free upload queue
 ```
 
-The direction matters more than the contents. A denylist would leave every new
-route one forgotten edit away from carrying an advertisement beside somebody's
-artwork; an allowlist leaves it one deliberate edit away from being allowed to.
+`BulkUploadEntryLink` is the only way in, and decides how. With advertising on
+it is a plain anchor, so entering the gate is a real document load: Google's
+messaging APIs expose no way to re-evaluate a message after a client-side route
+change, so a router navigation would reach the gate without ever giving the
+Offerwall a chance. One load of `/upload/bulk` is one such chance, and the unit
+the entitlement below is counted in.
 
-Explicitly ad-free, and not an exhaustive list: `/dashboard`, `/read/*`,
-`/upload/bulk/session`, `/sharing`, `/share/*`, `/dropbox-sync`, `/settings`,
-`/admin/*`, `/privacy`, `/terms`, `/cookies`, `/report-content`,
-`/forgot-password`, `/reset-password/*`, `/email-verification`.
+While `/api/public-config` is still loading, the link uses a router navigation
+to the gate. If advertising is enabled, the site code is then loaded there for
+the first time; a fast click cannot bypass the Offerwall target. **Once
+advertising is confirmed off, the gate is skipped entirely** and the link is an
+ordinary router navigation to the queue. The header's link back from the batch
+screen also stays a router navigation and preserves its folder query, because
+reloading or resetting that route mid-batch would lose the queue in flight.
 
-`/upload` earns its place only while it stays a plain uploader — a file picker,
-the limits, and the selected filename. **If it ever grows a cover preview, a page
-thumbnail, or anything read out of the archive, take it off the list.** The
-matching is exact, which is why `/upload/bulk` may carry advertising while
-`/upload/bulk/session` cannot.
+There is no application-owned “watch ad” prompt, rewarded audit flag or
+server-side reward session; the two-hour session that predated this design was
+removed with the rest of it. Consequently no stale session can hide a failed
+integration and no reset endpoint is needed. If the site code is blocked,
+consent is refused, Google has no rewarded inventory, or Offerwall does not
+render for any other reason, the normal Continue action remains available.
 
-### How the boundary is enforced
+Configure the account exactly as follows:
 
-`AdSenseProvider` is the only place Google's site code is loaded. It:
+1. In AdSense, open **Privacy & messaging → Offerwall** and create/publish a
+   message for `starbugstone.com`.
+2. Add one page inclusion for `/upload/bulk`.
+3. Add a page exclusion for `/upload/bulk/session`. Exclusions override
+   inclusions.
+4. Enable the Rewarded ad choice and select the intended rewarded ad unit.
+5. Set a **page-view** entitlement, at the smallest value offered. Page views
+   rather than time because `/upload/bulk` is the only included URL and
+   `/upload/bulk/session` is excluded, and Google confirms excluded pages do not
+   count towards a visitor's threshold — so the only page view this installation
+   produces is one load of the gate, which is one attempt to start a batch. An
+   entitlement of *N* covers the next *N* loads before the Offerwall returns.
 
-- fetches the script the first time the user is on an ad-safe route, and never
-  on any other — an installation whose users go straight to their library never
-  loads it at all;
-- loads it once, and treats a blocked or silent script as `unavailable` after
-  five seconds rather than waiting for ever;
-- sweeps `ins.adsbygoogle` and Google's frames off the page on every navigation
-  into an ad-free route. A single-page application cannot unload a script, so
-  once the site code has run on the landing page it is still resident when the
-  reader opens a comic; the sweep is what keeps the boundary real.
+   One advertisement per batch is not reachable: grants are expressed as
+   *additional* page views, so even the smallest still covers the next visit.
+   Treat "every other batch" as the floor. The value stays in the account —
+   nothing here can read it back, so a copy would only ever be the wrong one.
+6. Set the metering threshold to the smallest value offered. Google does not
+   document whether a threshold of *N* gates the *N*th or the *N+1*th page view,
+   so confirm the real frequency in the account rather than against this page.
+   For deterministic account-side testing use Google's Privacy & messaging
+   testing flow/`fc=alwaysshow`; it cannot override an excluded URL.
 
-Google-side page exclusions are configured **as well**. They are a second
-safeguard, not a replacement — the application must be correct on an account
-nobody configured.
+Google no longer requires ordinary subdomains to be registered as separate
+AdSense sites. The approved `starbugstone.com` site can serve code on
+`comics.starbugstone.com`; do not add a duplicate subdomain site requirement.
+See Google's [subdomain management change](https://support.google.com/adsense/answer/12170421)
+and [site readiness guidance](https://support.google.com/adsense/answer/9261307).
 
 ## Consent
 
-Consent is handled entirely by a Google-certified CMP (AdSense → Privacy &
-messaging), which the site code installs. This application:
+The AdSense European-regulations message is separately created and published
+under **Privacy & messaging**. Auto Ads being enabled does not create it.
+`AdSenseProvider` loads site code only on ad-safe pages. The permanent **Privacy
+choices** footer action loads Google's consent platform without advertising on
+other routes and calls `googlefc.showRevocationMessage()`.
 
-- never reads, stores, or synthesises a consent state — a second opinion about
-  consent is worse than none;
-- does not run a competing banner. The existing cookie notice is dismissal-only
-  and, where advertising is on, says only what storage is used and points at the
-  consent panel for the choice;
-- offers a permanent **Privacy choices** entry in the footer of every page
-  outside the reader, which has no footer
-  (`googlefc.showRevocationMessage()`), so consent can be changed or withdrawn
-  long after the banner is gone. It is absent where advertising is off, because
-  there is then nothing to revisit.
+Test from a fresh/incognito EEA session. Reject must remain as accessible as
+accept, withdrawing consent must work, and refusal must not block application
+features. Useful console checks are:
 
-The control has to work on pages the advertising site code never loads — the
-reader, the library, settings — which are exactly the pages somebody is on when
-they change their mind. It therefore fetches Google's Funding Choices script on
-demand: that is the consent half of AdSense without the advertising half, so it
-is safe on a page rendering somebody's comic. Consent that can be given and not
-withdrawn is not consent, and a control that only works on four routes is not a
-withdrawal mechanism.
+```js
+typeof window.googlefc
+document.getElementById("google-cmp")?.src
+```
 
-## The rewarded bulk-upload gate
+## Strict Content Security Policy
 
-Single-file upload is never gated. Somebody who does not want to watch an
-advertisement uploads their collection one file at a time, and that is also the
-fallback whenever a rewarded advertisement cannot be served.
+Google supports AdSense with a strict nonce-based CSP because its resource
+domains change. A static, hand-maintained `script-src` origin list is not a
+supported integration.
 
-Bulk upload is more expensive per click — concurrent uploads, archive
-inspection, image extraction, metadata work — so entering it *may* offer a
-rewarded advertisement:
+Advertising-enabled HTML uses a fresh per-response nonce and Google's documented
+script shape:
 
 ```text
-/upload/bulk           the gate: this application's own text and two buttons
-/upload/bulk/session   the batch: filenames, progress, failures — always ad-free
+script-src 'nonce-<random>' 'unsafe-inline' 'unsafe-eval' 'strict-dynamic' https: http:
 ```
 
-The decision, in `resolveBulkUploadAccess`:
+The compatibility tokens are present because Google explicitly documents them;
+they are not an inferred wildcard relaxation. CSP3 browsers use the nonce and
+`strict-dynamic`, so `unsafe-inline` and the scheme fallbacks do not authorize
+untrusted script. Non-script directives retain the explicit audited origins in
+`backend/config/csp.json`.
 
-| Situation | Outcome |
-| --- | --- |
-| Advertising off or unconfigured | uploader opens |
-| Site code blocked, failed, or silent | uploader opens |
-| Session endpoint unreachable | uploader opens |
-| A batch is already open | uploader opens |
-| Advertising on **and** site code ready | the choice is offered |
+Reference: [Integrate the AdSense ad code with a Content Security Policy](https://support.google.com/adsense/answer/16283098).
 
-Only the last row offers. Accepting records one batch server-side and opens the
-uploader; declining goes to the single uploader. One advertisement covers the
-whole batch, and a file that fails can be retried inside it without another.
+On Apache/Symfony, `FrontendController` creates a cryptographic nonce, injects it
+into every initial Vite script and emits the matching response header. Every HTML
+route reaches it: `scripts/deploy/htaccess.dist` rewrites client-side paths to
+`index.php` rather than serving the built `index.html` off disk, because a static
+shell arrives with no policy and no nonce. The `.htaccess` deliberately adds no
+CSP header of its own — `Header always set` replaces rather than merges, so a
+second policy there would overwrite the nonce header and block every script.
 
-### The session, and what it does not prove
+Advertising-off Symfony responses keep the tighter `script-src 'self'` policy.
+The nginx headers cannot: they are baked into the image and the container never
+sees `ADSENSE_ENABLED`, so both nginx targets carry the advertising shape
+unconditionally and use the per-request `$request_id` in the header and in the
+`sub_filter` that nonces the script tags. Those targets are the local Docker
+stack; the released deployments are Apache/Symfony.
 
-`BulkUploadSessionService` keeps a per-account, cache-backed record that expires
-after two hours or when the batch finishes, whichever comes first. It is
-server-side because a `localStorage` flag is not a scope: cleared, copied or
-edited it answers "may I skip the offer" with whatever suits, and it never
-expires by itself.
+After changing `backend/config/csp.json`, run:
 
-**How the advertisement is actually shown.** `frontend/src/lib/rewarded-ad.js`
-asks Google through the Ad Placement API (`adBreak` with `type: "reward"`),
-which the site code provides and which does report completion: `adViewed` is the
-only thing that produces a watched result. Google plays the advertisement — this
-application draws no player, counts no seconds and renders no skip control,
-which is both the policy requirement and the only way to stay on the right side
-of it. An Offerwall configured in the console is the alternative route to the
-same place and needs no code here.
-
-**The honest limit:** the browser is still the one reporting the outcome, and an
-Offerwall shown by Google's own message surface publishes no callback at all. So
-`rewarded: true` is what the browser said, not something the server verified. It
-is an audit note, and nothing treats it as permission:
-
-- the upload endpoints do not consult it, and must not start to;
-- `POST /api/upload/bulk/session` never refuses;
-- the gate is an offer, not a lock. Someone who bookmarks
-  `/upload/bulk/session` skips it, exactly as someone with an ad blocker does.
-
-That is the specified design, not an oversight: bulk upload is a feature of this
-application, and an installation with no advertising has to reach it unchanged.
-
-**When the batch counts as finished.** Only when nothing in the queue is still
-waiting to be uploaded — failures to retry, and rows "Start all" left behind for
-having no title. A row without a title is not uploadable, so it is work the
-batch still owes; ending the session over it would charge a second
-advertisement to finish what the first one paid for. Titles are derived from the
-filename and fall back to the filename itself, so a row arrives titled and only
-becomes untitled if somebody clears it.
-
-Removing the last outstanding file settles the batch as surely as uploading it
-does, and closes the session for the same reason the retry path does: a session
-left open hands the *next* batch a free pass until it expires two hours later,
-which is one advertisement paying for two batches.
-
-## Content Security Policy
-
-`backend/config/csp.json` lists the Google origins AdSense and the CMP fetch
-from, in `script-src`, `frame-src`, `img-src` and `connect-src`. Named origins,
-no wildcards. They cost nothing on an installation with advertising off, because
-nothing ever reaches for them.
-
-`scripts/generate-csp.mjs` emits that manifest into the three files that serve
-it — `docker/nginx_frontend/security-headers.conf`,
-`scripts/deploy/htaccess.dist` (the released Apache deployment) and
-`docker/nginx_frontend/nginx.dev.conf`. Edit the manifest, run the generator,
-and `npm run check:csp --prefix frontend` keeps them in step; CI runs the check.
-They used to be hand-maintained, and a policy widened in only one of them left
-advertising blocked on whichever host nobody tested. See
-`docs/development-tooling.md`.
-
-**What is deliberately not shipped is `script-src 'unsafe-inline'`.** Auto Ads
-and the CMP inject inline scripts, so an installation that turns advertising on
-will need either that or a per-response nonce — and neither belongs in a header
-that every self-hosted, ad-free deployment inherits. An operator enabling
-advertising adds it themselves:
-
-```jsonc
-// In backend/config/csp.json, extend script-src, then run
-// node scripts/generate-csp.mjs
-"script-src": ["'self'", "'unsafe-inline'", "https://pagead2.googlesyndication.com", ...]
+```bash
+node scripts/generate-csp.mjs
+npm run check:csp --prefix frontend
 ```
 
-Verify with the browser console after enabling: blocked-script CSP violations are
-the usual reason Auto Ads render nothing on an otherwise correct setup. The
-development configuration already allows inline scripts, because Vite needs them.
+For a new production policy, first deploy the candidate as
+`Content-Security-Policy-Report-Only`, inspect real violations, then enforce it.
+Do not grow a guessed list of Google script hosts.
 
-## Developing and testing
+## Auto Ads production diagnosis
 
-Advertising stays off in development, in tests, in review deployments, and in
-ordinary self-hosted installations. No Google script is loaded, no consent panel
-appears, and bulk upload opens directly.
+No visible ad is not itself a deterministic failure: Auto Ads may find no
+suitable placement or inventory. Check each layer separately.
 
-**Google publishes no sandbox publisher id for AdSense on the web.** The
-`ca-pub-3940256099942544` id that circulates is AdMob's mobile-SDK test
-publisher and does not serve AdSense web inventory; there is nothing to paste
-into `ADSENSE_CLIENT` for a trial run. What there is instead:
+1. **Application:** run `app:diagnose-advertising`; verify `/api/public-config`
+   and `/ads.txt` agree.
+2. **Browser script:** on `/` and `/login`, with blockers disabled, verify the
+   request to `pagead2.googlesyndication.com/pagead/js/adsbygoogle.js` and check
+   `document.getElementById("adsense-site-code")?.src`.
+3. **CSP:** inspect the real console/report collector for blocked scripts,
+   frames, connections or inline execution. Verify the initial script nonce
+   matches the response header.
+4. **AdSense account:** under **Ads → starbugstone.com → Edit/preview**, verify
+   Auto Ads, desired formats, page exclusions and excluded areas. Confirm the
+   preview recognizes code on `comics.starbugstone.com`.
+5. **Fill:** once configuration, script, CSP and account state are healthy,
+   treat lack of fill as Google's runtime decision rather than an application
+   error.
 
-- **Nothing that marks a placement as a test.** Auto Ads are configured entirely
-  in the AdSense account and Google exposes no page-side test flag for them, so
-  there is deliberately no `testMode` in the runtime configuration: a flag there
-  could only promise a safety it does not deliver. Pointing a real publisher id
-  at a development machine records real impressions on traffic nobody made,
-  which is the kind of traffic AdSense suspends accounts over. Leave
-  `ADSENSE_ENABLED=false` outside production.
-- **The invalid-configuration path.** Setting `ADSENSE_ENABLED=true` with an
-  empty or malformed client exercises the warning and the fail-open behaviour
-  end to end without contacting Google at all.
-- **The route policy, the gate and the legal text are covered by tests**
-  (`frontend/src/lib/advertising.test.js`,
-  `frontend/src/lib/adsense-loader.test.jsx`,
-  `frontend/src/lib/rewarded-ad.test.js`,
-  `frontend/src/components/ads/AdSenseProvider.test.jsx`,
-  `frontend/src/components/ads/PrivacyChoicesButton.test.jsx`,
-  `frontend/src/components/CookieNotice.advertising.test.jsx`,
-  `frontend/src/pages/LegalPages.test.jsx`,
-  `frontend/src/pages/BulkUploadGate.test.jsx`), so the boundary can be changed
-  with something other than a manual sweep of every page. `advertising.test.js`
-  reads the routes out of `App.jsx`, so a route added or renamed there has to be
-  classified here rather than becoming ad-free by accident.
-
-## Production checklist
-
-Application side:
-
-1. Set `PROD_ADSENSE_ENABLED=true` and `PROD_ADSENSE_CLIENT` in the release
-   environment before running `scripts/build-release.sh`. These are what reach
-   the server: the script runs `composer dump-env prod`, after which Symfony
-   reads `.env.local.php` and stops reading `backend/.env` altogether, so
-   editing `.env` on the host afterwards changes nothing. The build refuses a
-   malformed publisher id rather than shipping advertising quietly switched off.
-2. Confirm `https://<your-domain>/ads.txt` returns the record, not HTML.
-3. Extend `script-src` with `'unsafe-inline'` or a nonce in
-   `backend/config/csp.json`, then run `node scripts/generate-csp.mjs` so every
-   deployment target gets it. All three ship the same Google origins and all
-   three omit `'unsafe-inline'`.
-4. Confirm the startup log carries no `ADSENSE_CLIENT is missing or invalid`
-   warning.
-
-AdSense account side — most of the behaviour deliberately lives here:
-
-5. Add and approve the production domain.
-6. Configure the European regulations message (Privacy & messaging → GDPR).
-7. Configure Auto Ads conservatively: in-page/banner formats only; low density;
-   vignette, anchor/sticky, side rails and ad-intent formats **off**.
-8. Add page exclusions for every ad-free route listed above — at minimum
-   `/dashboard`, `/read/*`, `/upload/bulk/session`, `/sharing`, `/share/*`,
-   `/dropbox-sync`, `/settings`, `/admin/*`.
-9. Add excluded areas wherever Google proposes a placement close to a control.
-10. Create the Offerwall rewarded-ad message and target it at `/upload/bulk`
-    only — **not** at `/upload/bulk/session`, which shows uploaded filenames.
-11. Add the exact `ads.txt` entry AdSense supplies, if it differs from the
-    generated one.
-
-Then verify:
-
-12. From an EEA location with fresh browser storage: the consent message
-    appears, rejecting is as easy as accepting, and no advertising request is
-    made before a choice.
-13. Rejecting consent still permits registration, sign-in, single upload, bulk
-    upload and reading.
-14. No advertisement on the reader, library, covers, comic details, sharing
-    screens or the bulk-upload batch screen.
-15. With an ad blocker on: the application behaves identically and bulk upload
-    opens directly.
-16. Check the AdSense Policy Center a few days after launch.
+Never click production ads to test them. Use Google's preview and Offerwall test
+facilities.

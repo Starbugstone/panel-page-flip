@@ -153,4 +153,25 @@ describe("the terms", () => {
     expect(await screen.findByText(/Test operator/)).toBeInTheDocument();
     expect(screen.queryByText(/advertising is not an endorsement/i)).not.toBeInTheDocument();
   });
+
+  /**
+   * The hosting disclaimer and the user's warranty are the two things this
+   * page has to say about uploads. An instruction ("upload only when
+   * authorized") is not a guarantee, and being responsible for account
+   * activity is not a statement that the operator is not responsible for
+   * the files.
+   */
+  it("makes the user guarantee the right to upload, and to share if they share", async () => {
+    renderPage(<TermsOfService />);
+
+    expect(await screen.findByText(/you guarantee that you have the.{0,40}right to upload/i))
+      .toBeInTheDocument();
+    expect(screen.getByText(/if you choose to share.{0,80}guarantee/i)).toBeInTheDocument();
+  });
+
+  it("says the operator is not responsible for uploaded content", async () => {
+    renderPage(<TermsOfService />);
+
+    expect(await screen.findByText(/not responsible for uploaded content/i)).toBeInTheDocument();
+  });
 });

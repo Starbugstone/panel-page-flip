@@ -23,7 +23,7 @@ const stageWidthClass = ({ effectiveMode, fit, isZoomed }) =>
  * elements the gesture and measurement hooks need, and `actions` is everything
  * that can be done to any of it.
  */
-export function ReaderView({ book, view, refs, actions, suggestions }) {
+export function ReaderView({ book, view, refs, actions, suggestions, nextComic, onNextComic }) {
   const { settings, profile, transform, isZoomed, isFullscreen, isChromeHidden } = view;
   const contextLabel = describeViewportContext(profile);
 
@@ -105,6 +105,8 @@ export function ReaderView({ book, view, refs, actions, suggestions }) {
         onNext={actions.goNext}
         onGoToPage={actions.goToReaderPage}
         onForceReload={actions.forceReload}
+        nextComic={nextComic}
+        onNextComic={onNextComic}
       />
     </>
   );

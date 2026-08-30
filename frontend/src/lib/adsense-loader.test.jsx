@@ -56,7 +56,7 @@ describe("loading Google's site code", () => {
   /**
    * Some blockers neither serve the script nor fail the request. Without the
    * timeout the bulk-upload gate would spin for ever waiting to know whether it
-   * can offer a rewarded advertisement.
+   * can render Auto Ads or the account-side Offerwall.
    */
   it("gives up on a script that never answers", async () => {
     vi.useFakeTimers();

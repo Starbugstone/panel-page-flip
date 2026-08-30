@@ -14,6 +14,7 @@ import { useReaderFullscreen } from "@/hooks/use-reader-fullscreen";
 import { useReaderKeyboard } from "@/hooks/use-reader-keyboard";
 import { useReaderLayout } from "@/hooks/use-reader-layout";
 import { useReaderNavigation } from "@/hooks/use-reader-navigation";
+import { useReaderNextComic } from "@/hooks/use-reader-next-comic";
 import { useReaderPageReload } from "@/hooks/use-reader-page-reload";
 import { useReaderPageSupply } from "@/hooks/use-reader-page-supply";
 import { useReaderPageTurns } from "@/hooks/use-reader-page-turns";
@@ -78,6 +79,7 @@ export default function ComicReader() {
   }, [resetPage]);
   const { comic, loadError, isFetching } = useComicReaderData({ comicId, navigate, toast, onStart, onLoaded });
   useReaderProgress({ comic, comicId, pageCount, currentPage, toast, onSaved: updateComicProgress });
+  const nextComic = useReaderNextComic(comic);
 
   const { geometry: pageGeometry } = usePageGeometry(comicId, pageCount, currentPage);
   const layout = useReaderLayout({ settings, profile, pageCount, pageGeometry, currentPage });
@@ -164,6 +166,8 @@ export default function ComicReader() {
         refs={{ container: containerRef, image: imageRef, controls: controlsRef }}
         actions={actions}
         suggestions={suggestions}
+        nextComic={nextComic}
+        onNextComic={() => navigate(`/read/${nextComic.id}`)}
       />
     </ReaderShell>
   );
