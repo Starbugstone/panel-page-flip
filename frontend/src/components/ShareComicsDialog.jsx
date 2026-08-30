@@ -18,7 +18,7 @@ import { useShareSelection } from "@/hooks/use-share-selection";
 import { useShareSubmission } from "@/hooks/use-share-submission";
 import { useToast } from "@/hooks/use-toast";
 import { SHARE_CODE_TYPES } from "@/lib/sharing";
-import { MODES, TARGETS } from "@/lib/sharing-workflow";
+import { MAX_BULK_COMICS, MODES, TARGETS } from "@/lib/sharing-workflow";
 
 /**
  * The one share workflow, wherever it is opened from.
@@ -47,13 +47,29 @@ export function ShareComicsDialog({
    */
   initialResolved = null,
   initialComicIds = [],
+  /**
+   * The folder these comics came from, as
+   * `{ folderId, folderName, comicIds, unshareableCount }`, when the sender
+   * pointed at one instead of picking comics.
+   *
+   * It changes three things and nothing else: the ceiling rises, the request
+   * names the folder so the server resolves it fresh, and the wording says what
+   * the sender actually did.
+   */
+  folder = null,
   /** Hide the picker: the caller has already chosen, and re-picking is a step. */
   lockSelection = false,
   initialMode = MODES.DIRECT,
   onShared,
 }) {
   const { toast } = useToast();
-  const [mode, setMode] = useState(initialMode);
+  // A group code carries comic ids rather than a folder, so it tops out at the
+  // ordinary bulk ceiling however the comics were chosen. A folder share past
+  // that ceiling therefore has only one way to go, and the fork is withdrawn
+  // rather than offered as a button whose only outcome is a refusal.
+  const codeAvailable = initialComicIds.length <= MAX_BULK_COMICS;
+  const [requestedMode, setMode] = useState(initialMode);
+  const mode = codeAvailable ? requestedMode : MODES.DIRECT;
   const [markExplicit, setMarkExplicit] = useState(false);
   const [responsibilityAccepted, setResponsibilityAccepted] = useState(false);
   const [error, setError] = useState(null);
@@ -62,17 +78,17 @@ export function ShareComicsDialog({
     initialRecipient, initialUsername, initialUserCode, initialResolved, mode, onError: setError,
   });
   const selection = useShareSelection({
-    isOpen, sharedByMe, initialComicIds, mode,
+    isOpen, sharedByMe, initialComicIds, folder, mode,
     target: recipient.target, recipientEmail: recipient.recipientEmail, onError: setError,
   });
   const submission = useShareSubmission({
-    mode, codeType: selection.codeType, selectedComicIds: selection.selectedComicIds,
+    mode, codeType: selection.codeType, selectedComicIds: selection.selectedComicIds, folder,
     recipientPayload: recipient.payload, recipientLabel: recipient.label,
     isDirectEmail: recipient.target === TARGETS.EMAIL,
     responsibilityAccepted, markExplicit, toast, onShared, onClose, onError: setError,
   });
 
-  const summary = shareSummary({ mode, selection, recipient, usesValue: submission.usesValue });
+  const summary = shareSummary({ mode, selection, recipient, folder, usesValue: submission.usesValue });
   const canSubmit = selection.selectedComicIds.length > 0 && responsibilityAccepted && recipient.recipientChosen;
 
   return (
@@ -81,12 +97,16 @@ export function ShareComicsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Share2 className="h-5 w-5" />
-            Share comics
+            {folder ? `Share “${folder.folderName}”` : "Share comics"}
           </DialogTitle>
           <DialogDescription>
-            Choose comics you own, then share them with somebody by username, by their U- code or
-            by email — or put them behind a code anyone you give it to can redeem. Registered
-            users are never searched or listed.
+            {folder
+              ? "Everything you own in this folder and its subfolders, offered as one act. "
+                + "Each comic is still accepted and withdrawn on its own. Share it with somebody by "
+                + "username, by their U- code or by email; registered users are never searched or listed."
+              : "Choose comics you own, then share them with somebody by username, by their U- code or "
+                + "by email — or put them behind a code anyone you give it to can redeem. Registered "
+                + "users are never searched or listed."}
           </DialogDescription>
         </DialogHeader>
 
@@ -97,11 +117,12 @@ export function ShareComicsDialog({
           </div>
         ) : (
           <div className="space-y-6 py-2">
-            <ShareComicPicker {...selection} lockSelection={lockSelection} />
+            <ShareComicPicker {...selection} lockSelection={lockSelection} folder={folder} />
             <ShareRecipientPicker
               {...recipient}
               {...submission}
               mode={mode}
+              codeAvailable={codeAvailable}
               setMode={(value) => { setMode(value); setError(null); }}
               recentRecipients={selection.recentRecipients}
               selectedComicIds={selection.selectedComicIds}
@@ -154,11 +175,14 @@ const submitLabel = ({ mode, codeType, count }) => mode === MODES.CODE
  * fetched, and "Select at least one comic above" printed over a request
  * carrying three describes somebody else's share.
  */
-function shareSummary({ mode, selection, recipient, usesValue }) {
+function shareSummary({ mode, selection, recipient, folder, usesValue }) {
   const { selectedComicIds, codeType } = selection;
-  if (selectedComicIds.length === 0) return "Select at least one comic above.";
+  if (selectedComicIds.length === 0) {
+    return folder ? "There is nothing here you can share." : "Select at least one comic above.";
+  }
 
-  const comics = `${selectedComicIds.length} ${selectedComicIds.length === 1 ? "comic" : "comics"}`;
+  const comics = `${selectedComicIds.length} ${selectedComicIds.length === 1 ? "comic" : "comics"}`
+    + (folder ? ` from “${folder.folderName}”` : "");
   if (mode === MODES.CODE) {
     return `${comics} will be put behind ${codeType === SHARE_CODE_TYPES.GROUP ? "one group code" : "a comic code"} `
       + `that ${usesValue === 1 ? "one person" : `up to ${usesValue} people`} can claim. `

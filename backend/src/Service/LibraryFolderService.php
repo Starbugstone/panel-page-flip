@@ -172,20 +172,40 @@ class LibraryFolderService
         });
     }
 
-    /** @return array{folderCount:int, comicCount:int, destinationFolderId:?int} */
-    public function deletionSummary(User $user, LibraryFolder $folder): array
+    /**
+     * Everything one viewer can currently see anywhere under a folder.
+     *
+     * The whole subtree, because a folder is what a person points at and its
+     * subfolders are part of what they mean by it. Comics are resolved through
+     * {@see ComicLibraryQueryService} rather than read off the placement rows,
+     * so a placement left behind by a revoked or tombstoned share cannot put a
+     * comic in an answer the viewer may no longer reach.
+     *
+     * @return array{comics: list<Comic>, folderCount: int}
+     */
+    public function subtreeContents(User $viewer, LibraryFolder $root): array
     {
-        $subtree = $this->subtree($user, $folder);
-        $items = $this->itemRepository->findInFolders($user, $subtree);
+        $subtree = $this->subtree($viewer, $root);
+        $items = $this->itemRepository->findInFolders($viewer, $subtree);
         $comicIds = array_values(array_unique(array_map(
             static fn (LibraryFolderItem $item): int => (int) $item->getComic()?->getId(),
             $items
         )));
-        $visible = $this->libraryQuery->findVisibleByIds($user, $comicIds);
 
         return [
+            'comics' => $this->libraryQuery->findVisibleByIds($viewer, $comicIds),
             'folderCount' => count($subtree),
-            'comicCount' => count($visible),
+        ];
+    }
+
+    /** @return array{folderCount:int, comicCount:int, destinationFolderId:?int} */
+    public function deletionSummary(User $user, LibraryFolder $folder): array
+    {
+        $contents = $this->subtreeContents($user, $folder);
+
+        return [
+            'folderCount' => $contents['folderCount'],
+            'comicCount' => count($contents['comics']),
             'destinationFolderId' => $folder->getParent()?->getId(),
         ];
     }

@@ -294,6 +294,7 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv MESSENGER_TRANSPORT_DSN "${PROD_MESSENGER_TRANSPORT_DSN:-doctrine://default?auto_setup=0}"
     write_dotenv LOCK_DSN "${PROD_LOCK_DSN:-flock}"
     write_dotenv MAX_CONCURRENT_UPLOADS "${PROD_MAX_CONCURRENT_UPLOADS:-3}"
+    write_dotenv MAX_PARALLEL_FILE_UPLOADS "${PROD_MAX_PARALLEL_FILE_UPLOADS:-2}"
     write_dotenv UPLOAD_USER_QUOTA_BYTES "${PROD_UPLOAD_USER_QUOTA_BYTES:-10737418240}"
     # Written explicitly so a release never inherits the development default
     # from a stray .env; the application defaults it on in any case.

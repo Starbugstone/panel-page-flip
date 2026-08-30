@@ -4,6 +4,11 @@ import { SHARE_STATUS } from "@/lib/sharing";
 // ceiling, which are the same number. The backend remains the authority; this
 // only stops the UI inviting somebody to select work the request will reject.
 export const MAX_BULK_COMICS = 20;
+
+// SharingWorkflowService::MAX_FOLDER_COMICS. Only reachable by pointing at a
+// folder, because that ceiling is only offered to a request the server resolves
+// itself — a hand-assembled list of this many ids is still refused.
+export const MAX_FOLDER_COMICS = 200;
 export const MIN_GROUP_COMICS = 2;
 export const MAX_CODE_USES = 10;
 

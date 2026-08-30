@@ -61,6 +61,39 @@ folder's parent, or to the root if it had none. The comic count in the summary
 counts only comics the viewer can currently see, so a tombstoned or revoked
 share is not reported as something they are about to lose.
 
+## Sharing a folder
+
+A folder can be handed over in one act: **Share folder** in the folder bar
+resolves the folder to comics and opens the ordinary share workflow with them
+already chosen.
+
+It is a **snapshot of what is in the folder now**, expanded into one
+`ComicShare` per comic. The folder itself is not shared and no grant survives on
+it, so a comic filed in tomorrow is not shared by yesterday's act — and the
+recipient gets comics, never a copy of the sender's tree, which they then file
+wherever they like.
+
+The subtree goes, not just the folder: sharing "DragonBall" shares
+"DragonBall/Z" too, because that is what a person pointing at a folder means.
+
+Because a folder is a view rather than a container, it can hold comics somebody
+else shared with this viewer. Those are filtered out by the same `COMIC_SHARE`
+check every other route asks — a comic is not passed on by being filed next to
+one that can be — and are reported to the sender as a count rather than a list.
+
+| Rule | Value | Why |
+|---|---|---|
+| Comics per folder share | 200 | A folder is not a selection; asking somebody to pick twenty of forty-two volumes is the work they wanted one click for |
+| Comics per hand-picked share | 20 | Unchanged. The larger ceiling is only offered to a request the server resolves itself |
+
+The share names the folder and the server walks it again, so what is sent is the
+folder as it is rather than as the dialog previewed it. A folder holding nothing
+the sender may share is refused with one sentence whether it is empty or full of
+borrowed comics, because the answer they need does not depend on which.
+
+See [One dialog, three entry points](../DEV_README.md#one-dialog-three-entry-points)
+for the workflow this joins, and the notice it sends.
+
 ## Uploading into a folder
 
 An upload may name a destination folder. If that folder has been deleted by the
@@ -80,6 +113,7 @@ tree.
 | `/api/library/folders/{id}` | `PATCH` | Rename and/or reparent |
 | `/api/library/folders/{id}` | `DELETE` | Delete, with the confirmation above |
 | `/api/library/folders/move-comics` | `POST` | Place up to 500 comics in a folder, or `null` for the root |
+| `/api/shares/folders/{id}/comics` | `GET` | What sharing this folder would offer: the ids, the subfolder count, and how many were left out |
 
 A folder id that does not belong to the caller is reported as not found rather
 than as forbidden: confirming that an id exists would say something about
@@ -98,13 +132,21 @@ answer.
 - `components/library/LibraryFolderTree.jsx` — the tree itself
 - `components/library/LibraryFolderCard.jsx` — a folder shown among comics
 - `components/library/LibraryBreadcrumbs.jsx` — where you are
+- `components/library/LibraryFolderBar.jsx` — where you are and what can be done to it, including **Share folder**
+- `components/library/CreateFolderDialog.jsx` — create a root folder or a subfolder in the current location
 - `components/library/MoveToFolderDialog.jsx` — the move, including the bulk one
 - `components/library/FolderDestinationSelect.jsx` — the upload destination
 - `hooks/use-library-folders.jsx` — loading and mutating the tree
+- `hooks/use-library-folder-actions.js` — acting on the folder currently open,
+  including reading what sharing it would offer before the dialog opens
+- `lib/last-read-jump.js` — the folder bar's "Last read" button, grid view
+  only: scrolls to and briefly highlights the comic in the current view with
+  the newest `readingProgress.lastReadAt`, so a long folder reopens where
+  reading stopped
 
 ## Related
 
 - [Who may reach a comic](comic-access.md) — folders are a view over what the
-  voter already permits, and never widen it
+  voter already permits, and never widen it; sharing a folder is no exception
 - [Storage accounting and the per-user quota](storage-quota.md) — folders hold
   no bytes and count towards nothing

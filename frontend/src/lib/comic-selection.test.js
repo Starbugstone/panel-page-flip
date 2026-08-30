@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeComicSelection, MAX_SHAREABLE_SELECTION } from "./comic-selection";
+import { comicIdsInRange, describeComicSelection, MAX_SHAREABLE_SELECTION } from "./comic-selection";
 
 const owned = (id) => ({ id, title: `Comic ${id}` });
 const received = (id) => ({ id, title: `Comic ${id}`, canEdit: false, canDelete: false, canShare: false });
@@ -56,5 +56,26 @@ describe("describeComicSelection", () => {
 
   it("cannot share nothing", () => {
     expect(select(comics, []).canShareSelection).toBe(false);
+  });
+});
+
+describe("comicIdsInRange", () => {
+  const comics = [owned(1), owned(2), owned(3), owned(4)];
+
+  it("covers both ends of the range", () => {
+    expect(comicIdsInRange(comics, 2, 4)).toEqual([2, 3, 4]);
+  });
+
+  it("reads the same range backwards", () => {
+    expect(comicIdsInRange(comics, 4, 2)).toEqual([2, 3, 4]);
+  });
+
+  it("is a single comic when both ends are the same", () => {
+    expect(comicIdsInRange(comics, 3, 3)).toEqual([3]);
+  });
+
+  it("has no range to an end that is not on the list", () => {
+    expect(comicIdsInRange(comics, 1, 99)).toEqual([]);
+    expect(comicIdsInRange(comics, 99, 1)).toEqual([]);
   });
 });

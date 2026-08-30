@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { describeComicSelection } from "@/lib/comic-selection";
+import { comicIdsInRange, describeComicSelection } from "@/lib/comic-selection";
 
 /**
  * A table's tick boxes, and the bulk operations they enable.
@@ -10,6 +10,7 @@ import { describeComicSelection } from "@/lib/comic-selection";
  */
 export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMove, canShare }) {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [anchor, setAnchor] = useState(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [orphanedComics, setOrphanedComics] = useState([]);
 
@@ -18,15 +19,41 @@ export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMo
     [canShare, comics, selectedIds]
   );
 
-  const clear = () => setSelectedIds(new Set());
+  const clear = () => {
+    setSelectedIds(new Set());
+    setAnchor(null);
+  };
 
-  const toggleAll = (checked) => setSelectedIds(checked ? new Set(comics.map((comic) => comic.id)) : new Set());
+  const toggleAll = (checked) => {
+    setSelectedIds(checked ? new Set(comics.map((comic) => comic.id)) : new Set());
+    setAnchor(null);
+  };
 
-  const toggle = (comicId, checked) => setSelectedIds((current) => {
-    const next = new Set(current);
-    if (checked) next.add(comicId); else next.delete(comicId);
-    return next;
-  });
+  /**
+   * @param {boolean} checked
+   * @param {{extendFromAnchor?: boolean}} options shift-clicking covers every
+   *   comic between the last plain click and this one, the way a file manager
+   *   does.
+   *
+   * The range takes the *anchor's* state rather than the clicked box's own
+   * toggle: shift-clicking back inside a range you just selected should shorten
+   * it, not invert the half you clicked through. The anchor also stays put, so
+   * successive shift-clicks resize one range instead of walking it along.
+   */
+  const toggle = (comicId, checked, { extendFromAnchor = false } = {}) => {
+    const range = extendFromAnchor && anchor ? comicIdsInRange(comics, anchor.id, comicId) : [];
+    const selecting = range.length > 0 ? anchor.checked : checked;
+
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const id of range.length > 0 ? range : [comicId]) {
+        if (selecting) next.add(id); else next.delete(id);
+      }
+      return next;
+    });
+
+    if (range.length === 0) setAnchor({ id: comicId, checked });
+  };
 
   /** @returns {boolean} whether the tag was applied */
   const addTag = async (name) => {

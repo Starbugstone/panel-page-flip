@@ -11,30 +11,36 @@ import { MODES } from "@/lib/sharing-workflow";
  * question — where is this going — and splitting them into separate dialogs
  * would make the choice look like a setting rather than a fork in one task.
  */
-export function ShareRecipientPicker({ mode, setMode, isSending, issuedCode, ...rest }) {
+export function ShareRecipientPicker({ mode, setMode, isSending, issuedCode, codeAvailable = true, ...rest }) {
   return (
     <section className="space-y-3">
       <h3 className="font-semibold">2. Share with</h3>
 
-      <div className="flex flex-wrap gap-1 rounded-md border p-1" role="tablist">
-        {[
-          [MODES.DIRECT, "Someone I know"],
-          [MODES.CODE, "Create a code"],
-        ].map(([value, label]) => (
-          <Button
-            key={value}
-            type="button"
-            role="tab"
-            size="sm"
-            variant={mode === value ? "default" : "ghost"}
-            aria-selected={mode === value}
-            disabled={isSending || issuedCode !== null}
-            onClick={() => setMode(value)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
+      {/* A selection too large for a group code leaves only one way to share
+          it, and one way is not a choice. The fork disappears rather than
+          being shown disabled: a greyed tab invites somebody to work out what
+          they did wrong. */}
+      {codeAvailable && (
+        <div className="flex flex-wrap gap-1 rounded-md border p-1" role="tablist">
+          {[
+            [MODES.DIRECT, "Someone I know"],
+            [MODES.CODE, "Create a code"],
+          ].map(([value, label]) => (
+            <Button
+              key={value}
+              type="button"
+              role="tab"
+              size="sm"
+              variant={mode === value ? "default" : "ghost"}
+              aria-selected={mode === value}
+              disabled={isSending || issuedCode !== null}
+              onClick={() => setMode(value)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      )}
 
       {mode === MODES.DIRECT && <ShareDirectRecipient {...rest} isSending={isSending} />}
       {mode === MODES.CODE && (

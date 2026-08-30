@@ -32,7 +32,7 @@ function describeInvitations({ created, refused, reason, sentTo, notificationFai
  * somebody to send the same share twice.
  */
 export function useShareSubmission({
-  mode, codeType, selectedComicIds, recipientPayload, recipientLabel, isDirectEmail,
+  mode, codeType, selectedComicIds, folder, recipientPayload, recipientLabel, isDirectEmail,
   responsibilityAccepted, markExplicit, toast, onShared, onClose, onError,
 }) {
   // Held as text, so the field can be emptied and retyped. Clamping every
@@ -90,7 +90,11 @@ export function useShareSubmission({
   const sendInvitations = async () => {
     const data = await api.post("/api/shares/invitations/bulk", {
       ...recipientPayload(),
-      comicIds: selectedComicIds.map(Number),
+      // A folder share names the folder and lets the server walk it again. The
+      // ids this dialog is showing came from a preview taken when it opened,
+      // and sending those instead would share a folder as it was rather than as
+      // it is — including a comic filed out of it a moment ago.
+      ...(folder ? { folderId: folder.folderId } : { comicIds: selectedComicIds.map(Number) }),
       senderResponsibilityAccepted: true,
       markExplicit,
     });

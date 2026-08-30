@@ -26,7 +26,7 @@ export function ComicCard({
 
   return (
     <>
-      <div className="relative">
+      <div className="relative" data-comic-id={comic.id}>
         <Link to={`/read/${comic.id}`} className="group block">
           <Card className="overflow-hidden border-2 transition-all duration-300 hover:border-comic-purple hover:shadow-lg">
             <ComicCardCover

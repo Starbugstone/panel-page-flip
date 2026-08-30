@@ -21,12 +21,22 @@ namespace App\Message;
 final class ShareInvitationNotification
 {
     /**
-     * @param list<int> $shareIds the relationships this one notice covers; a
-     *                            bulk share sends one email, not one per comic
+     * @param list<int> $shareIds       the relationships this one notice covers; a
+     *                                  bulk share sends one email, not one per comic
+     * @param int|null  $sourceFolderId the folder the sender pointed at, when they
+     *                                  shared one. An id rather than a name for the
+     *                                  same reason as everything else here: the
+     *                                  worker reads the current name at send time,
+     *                                  and a folder renamed or deleted in between
+     *                                  cannot leave a stale one in an email. Null
+     *                                  for every share that did not come from a
+     *                                  folder, including messages queued before
+     *                                  folder sharing existed.
      */
     public function __construct(
         public readonly int $ownerId,
         public readonly array $shareIds,
+        public readonly ?int $sourceFolderId = null,
     ) {
     }
 }

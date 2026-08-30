@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatFileSize, generateTitleFromFilename, isComicFile } from "./comic-upload";
+import { DEFAULT_PARALLEL_FILES, formatFileSize, generateTitleFromFilename, isComicFile, resolveParallelFiles } from "./comic-upload";
 
 describe("comic upload helpers", () => {
   it.each([
@@ -34,4 +34,28 @@ describe("comic upload helpers", () => {
   ])("formats %d bytes", (bytes, expected) => {
     expect(formatFileSize(bytes)).toBe(expected);
   });
+});
+
+describe("resolving how many comics upload at once", () => {
+  it("takes a configured positive count", () => {
+    expect(resolveParallelFiles(5)).toBe(5);
+    expect(resolveParallelFiles("3")).toBe(3);
+  });
+
+  it("floors a fractional count rather than starting a fraction of a worker", () => {
+    expect(resolveParallelFiles(3.7)).toBe(3);
+  });
+
+  /**
+   * The value crosses the network from /api/config, so a server that answers
+   * with nonsense has to cost the queue its speed and nothing else. Zero and
+   * negatives matter most: `Array.from({ length: -1 })` throws, and a length of
+   * zero starts no workers at all, so "Start all" would silently do nothing.
+   */
+  it.each([undefined, null, 0, -1, "", "many", NaN, Infinity])(
+    "falls back to the default for %p",
+    (configured) => {
+      expect(resolveParallelFiles(configured)).toBe(DEFAULT_PARALLEL_FILES);
+    }
+  );
 });

@@ -4,6 +4,7 @@ namespace App\Service;
 
 use App\Entity\Comic;
 use App\Entity\ComicShare;
+use App\Entity\LibraryFolder;
 use App\Entity\User;
 use App\Enum\ShareCodeType;
 use App\Security\Voter\ComicVoter;
@@ -28,6 +29,26 @@ final class SharingWorkflowService
      */
     public const MAX_BULK_COMICS = 20;
 
+    /**
+     * How many comics one folder share may carry.
+     *
+     * Higher than {@see MAX_BULK_COMICS} because a folder is not a selection:
+     * somebody who points at "DragonBall" means all forty-two volumes, and a
+     * cap that made them pick twenty of them would be asking them to do by hand
+     * the exact thing they asked for one click for.
+     *
+     * The extra room is only reachable by naming a folder the server can then
+     * resolve itself. A hand-written list of two hundred ids is still refused,
+     * because the reason to trust the larger number is that the sender pointed
+     * at something they own rather than assembled it.
+     *
+     * What the old ceiling protected — the size of one invitation email — is
+     * protected instead by {@see ComicShareService::MAX_LISTED_INVITATIONS},
+     * which turns a large notice into a summary rather than two hundred
+     * buttons.
+     */
+    public const MAX_FOLDER_COMICS = 200;
+
     public const RECENT_RECIPIENT_LIMIT = 20;
 
     public function __construct(
@@ -35,7 +56,46 @@ final class SharingWorkflowService
         private readonly ComicShareService $shareService,
         private readonly ExplicitContentPromoter $explicitContent,
         private readonly AuthorizationCheckerInterface $authorizationChecker,
+        private readonly LibraryFolderService $folders,
     ) {
+    }
+
+    /**
+     * What sharing a folder would actually hand over.
+     *
+     * The subtree, because sharing "DragonBall" plainly means DragonBall/Z as
+     * well, and then filtered through the same {@see ComicVoter::SHARE} check
+     * every other route asks. A folder is a view rather than a container, so it
+     * can hold comics somebody else shared with this viewer, a quarantined one,
+     * or one this account is restricted from passing on — none of which become
+     * shareable by being filed next to something that is.
+     *
+     * Those are counted rather than reported one by one. The owner needs to
+     * know the folder holds something they cannot pass on; which comic it is
+     * belongs to the library, not to a share they are in the middle of.
+     *
+     * @return array{comics: list<Comic>, folderCount: int, unshareableCount: int}
+     */
+    public function folderShareContents(User $owner, LibraryFolder $folder): array
+    {
+        $contents = $this->folders->subtreeContents($owner, $folder);
+
+        $shareable = [];
+        $unshareable = 0;
+        foreach ($contents['comics'] as $comic) {
+            if ($this->authorizationChecker->isGranted(ComicVoter::SHARE, $comic)) {
+                $shareable[] = $comic;
+                continue;
+            }
+
+            ++$unshareable;
+        }
+
+        return [
+            'comics' => $shareable,
+            'folderCount' => $contents['folderCount'],
+            'unshareableCount' => $unshareable,
+        ];
     }
 
     /**
@@ -142,7 +202,11 @@ final class SharingWorkflowService
      * {@see ComicShareService::inviteMany()}, so a bulk share cannot drift away
      * from what a single invitation does.
      *
-     * @param list<int> $comicIds
+     * @param list<int>          $comicIds
+     * @param LibraryFolder|null $sourceFolder the folder these ids were resolved
+     *                                         from, when the sender pointed at
+     *                                         one — carried only so the notice
+     *                                         can say where they came from
      *
      * @return array{created: int, total: int, results: list<array<string, mixed>>}
      *
@@ -154,7 +218,8 @@ final class SharingWorkflowService
         string $recipientEmail,
         bool $senderResponsibilityAccepted,
         ?SharingCodeRecipient $viaSharingCode = null,
-        bool $markExplicit = false
+        bool $markExplicit = false,
+        ?LibraryFolder $sourceFolder = null
     ): array {
         $ids = array_values(array_unique(array_map('intval', $comicIds)));
         $shareable = [];
@@ -198,7 +263,8 @@ final class SharingWorkflowService
             $owner,
             $recipientEmail,
             $senderResponsibilityAccepted,
-            $viaSharingCode
+            $viaSharingCode,
+            $sourceFolder?->getId()
         );
 
         // A reclassification is a change to the owner's own library and does

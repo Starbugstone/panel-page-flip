@@ -5,7 +5,7 @@ import { createUploadRequestPool, uploadComicInChunks } from "@/hooks/use-chunke
 import { useAuth } from "@/hooks/use-auth";
 import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
-import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile } from "@/lib/comic-upload";
+import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile, resolveParallelFiles } from "@/lib/comic-upload";
 import { closeBulkUploadSession } from "@/lib/bulk-upload-session";
 import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,6 @@ import { FolderDestinationSelect } from "@/components/library/FolderDestinationS
 import { useLibraryFolders } from "@/hooks/use-library-folders";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-export const MAX_PARALLEL_FILES = 2;
 const ACTIVE_STATUSES = new Set(["initialising", "uploading", "completing"]);
 /** Not in flight and not uploaded: a row "Start all" would still pick up. */
 const RETRYABLE_STATUSES = ["idle", "error", "cancelled"];
@@ -44,8 +43,9 @@ export default function BulkUploadQueue() {
   const { config } = useConfig();
   const { isActive: advertisingActive } = useAdSense();
   const [searchParams] = useSearchParams();
-  const { folders, isLoading: foldersLoading } = useLibraryFolders();
+  const { folders, isLoading: foldersLoading, createFolder } = useLibraryFolders();
   const concurrentChunks = config.upload?.maxConcurrentUploads || 4;
+  const parallelFiles = resolveParallelFiles(config.upload?.maxParallelFileUploads);
   const requestPool = useMemo(
     () => createUploadRequestPool(concurrentChunks),
     [concurrentChunks]
@@ -140,7 +140,7 @@ export default function BulkUploadQueue() {
         await uploadRow(row);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_FILES, selectedRows.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(parallelFiles, selectedRows.length) }, worker));
   };
 
   /**
@@ -193,7 +193,10 @@ export default function BulkUploadQueue() {
     <Card className="w-full max-w-6xl">
       <CardHeader>
         <CardTitle className="text-2xl font-comic">Bulk upload comics</CardTitle>
-        <CardDescription>Add enabled comic formats ({comicFormats.join(", ").toUpperCase()}). Two comics upload at a time.</CardDescription>
+        <CardDescription>
+          Add enabled comic formats ({comicFormats.join(", ").toUpperCase()}).{" "}
+          {parallelFiles === 1 ? "One comic uploads" : `${parallelFiles} comics upload`} at a time.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div
@@ -213,7 +216,14 @@ export default function BulkUploadQueue() {
           <Label htmlFor="bulk-tags">Tags applied to every comic (comma-separated)</Label>
           <Input id="bulk-tags" value={tagsInput} onChange={(event) => setTagsInput(event.target.value)} placeholder="manga, favorites, sci-fi" disabled={running} />
         </div>
-        <FolderDestinationSelect id="bulk-folder-destination" folders={folders} value={selectedFolderId} onChange={setFolderId} disabled={running || foldersLoading} />
+        <FolderDestinationSelect
+          id="bulk-folder-destination"
+          folders={folders}
+          value={selectedFolderId}
+          onChange={setFolderId}
+          onCreateFolder={createFolder}
+          disabled={running || foldersLoading}
+        />
 
         {rows.length > 0 && (
           <Table>

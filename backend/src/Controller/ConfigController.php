@@ -27,6 +27,7 @@ class ConfigController extends AbstractController
         return $this->json([
             'upload' => [
                 'maxConcurrentUploads' => (int)$params->get('max_concurrent_uploads'),
+                'maxParallelFileUploads' => (int)$params->get('max_parallel_file_uploads'),
                 'comicFormats' => array_map(
                     static fn ($type): string => $type->value,
                     array_values(array_filter($comicFormats->enabled(), $comicFormats->isEnabled(...)))

@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { EXPLICIT_FLAG_LABEL } from "@/lib/sharing";
-import { MAX_BULK_COMICS } from "@/lib/sharing-workflow";
 
 /**
  * Step one: which of the owner's comics are going.
@@ -14,17 +13,23 @@ import { MAX_BULK_COMICS } from "@/lib/sharing-workflow";
  * table selection in a second list is a step that can only go wrong.
  */
 export function ShareComicPicker({
-  lockSelection, search, setSearch, filteredComics, selectedComics, selectedIds,
+  lockSelection, folder, search, setSearch, filteredComics, selectedComics, selectedIds,
   selectedComicIds, alreadySharedIds, visibleSelectable, allVisibleSelected,
-  selectionLimitReached, toggleComic, toggleVisible,
+  selectionLimitReached, limit, toggleComic, toggleVisible,
 }) {
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="font-semibold">1. Choose comics</h3>
+          <h3 className="font-semibold">{folder ? "1. What is in this folder" : "1. Choose comics"}</h3>
           <p className="text-xs text-muted-foreground">
-            {selectedComicIds.length}/{MAX_BULK_COMICS} selected
+            {selectedComicIds.length}/{limit} selected
+            {/* Named as a count and never as a list. Which comic cannot be
+                passed on is a fact about the library, and answering it here
+                would put a comic in a share dialog that is not going. */}
+            {folder?.unshareableCount > 0 && (
+              <> · {folder.unshareableCount} not yours to share {folder.unshareableCount === 1 ? "was" : "were"} left out</>
+            )}
           </p>
         </div>
         {!lockSelection && visibleSelectable.length > 0 && (

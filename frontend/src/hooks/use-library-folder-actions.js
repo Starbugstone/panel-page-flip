@@ -1,7 +1,8 @@
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast.js";
 
 /**
- * Creating, renaming, moving and deleting the folder currently open.
+ * Creating, sharing, renaming, moving and deleting the folder currently open.
  *
  * Deleting asks twice on purpose. The first refusal carries a count of what
  * would be swept up with it, and the second confirmation quotes those numbers
@@ -63,6 +64,53 @@ export function useLibraryFolderActions({ folders, activeFolderId, navigateFolde
     }
   };
 
+  /**
+   * What sharing this folder would offer, or null when there is nothing to
+   * offer and the sender has been told why.
+   *
+   * The ids come from the server rather than from the comics the library
+   * happens to have loaded: the page may be showing one subfolder, a search, or
+   * a table selection, and none of those describe the folder somebody just
+   * pointed at. They are a preview — the share itself names the folder again
+   * and the server re-resolves it — so the dialog can show what is going
+   * without becoming the authority on it.
+   */
+  const shareCurrentFolder = async () => {
+    const folder = currentFolder();
+    if (!folder) return null;
+
+    try {
+      const contents = await api.get(`/api/shares/folders/${folder.id}/comics`);
+
+      if (contents.comicCount > contents.limit) {
+        toast({
+          title: "Too much to share at once",
+          description: `“${folder.name}” holds ${contents.comicCount} comics, and a folder share carries at most ${contents.limit}.`,
+          variant: "destructive",
+        });
+        return null;
+      }
+
+      if (!contents.comicCount) {
+        toast({
+          title: "Nothing to share",
+          description: `“${folder.name}” holds no comics of yours. Comics other people shared with you cannot be passed on.`,
+        });
+        return null;
+      }
+
+      return {
+        folderId: folder.id,
+        folderName: folder.name,
+        comicIds: contents.comicIds.map(String),
+        unshareableCount: contents.unshareableCount,
+      };
+    } catch (requestError) {
+      report("Could not read that folder")(requestError);
+      return null;
+    }
+  };
+
   const moveCurrentFolder = async (parentId) => {
     try {
       await updateFolder(activeFolderId, { parentId });
@@ -73,5 +121,5 @@ export function useLibraryFolderActions({ folders, activeFolderId, navigateFolde
     }
   };
 
-  return { currentFolder, createLibraryFolder, renameCurrentFolder, deleteCurrentFolder, moveCurrentFolder };
+  return { currentFolder, createLibraryFolder, shareCurrentFolder, renameCurrentFolder, deleteCurrentFolder, moveCurrentFolder };
 }

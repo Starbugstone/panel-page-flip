@@ -15,6 +15,7 @@ import { useLibraryFolders } from "@/hooks/use-library-folders";
 import { useLibraryLocation } from "@/hooks/use-library-location";
 import { useLibrarySearch } from "@/hooks/use-library-search";
 import { useSharing } from "@/hooks/use-sharing.jsx";
+import { jumpToComicCard, latestReadComic } from "@/lib/last-read-jump";
 
 /**
  * The library: where the URL points, what came back, and what can be done to it.
@@ -34,10 +35,14 @@ export default function Dashboard() {
   const [editingComic, setEditingComic] = useState(null);
   const [movingComic, setMovingComic] = useState(null);
   const [movingFolder, setMovingFolder] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
   // The comics the share workflow should open with, or null when it is closed.
   // One dialog for the card menu and for the table selection, so the two cannot
   // grow different ideas of what a share is.
   const [sharingComicIds, setSharingComicIds] = useState(null);
+  // The folder the share workflow should open with, once the server has said
+  // what is in it, or null when it is closed.
+  const [sharingFolder, setSharingFolder] = useState(null);
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const location = useLibraryLocation({ folders, foldersLoading, onNavigate: closeSidebar });
@@ -57,6 +62,10 @@ export default function Dashboard() {
   const { visibleComics, childFolders, folderNames } = useLibraryContents({
     comics, folders, activeView, activeFolderId, isSearchActive, isFolderView, sort,
   });
+
+  // Only the grid renders the cards the jump scrolls to, and only a comic
+  // someone has opened counts as a place to return to.
+  const lastReadComic = viewMode === "grid" ? latestReadComic(visibleComics) : null;
 
   const showSkeleton = (isLoading || foldersLoading) && !isSearching;
   const hasContent = visibleComics.length > 0 || childFolders.length > 0;
@@ -102,9 +111,12 @@ export default function Dashboard() {
               folders={folders}
               activeFolderId={activeFolderId}
               onNavigate={navigateFolder}
+              onCreate={() => setCreatingFolder(true)}
+              onShare={async () => setSharingFolder(await folderActions.shareCurrentFolder())}
               onMove={() => setMovingFolder(true)}
               onRename={folderActions.renameCurrentFolder}
               onDelete={folderActions.deleteCurrentFolder}
+              onJumpToLastRead={lastReadComic && (() => jumpToComicCard(lastReadComic.id))}
             />
           )}
 
@@ -143,9 +155,14 @@ export default function Dashboard() {
       <LibraryDialogs
         folders={folders}
         editing={{ comic: editingComic, onClose: () => setEditingComic(null) }}
-        sharing={{ comicIds: sharingComicIds, onClose: () => setSharingComicIds(null) }}
+        sharing={{
+          comicIds: sharingComicIds,
+          folder: sharingFolder,
+          onClose: () => { setSharingComicIds(null); setSharingFolder(null); },
+        }}
         movingComic={{ comic: movingComic, onClose: () => setMovingComic(null) }}
         movingFolder={{ open: movingFolder, folderId: activeFolderId, onOpenChange: setMovingFolder }}
+        creatingFolder={{ open: creatingFolder, parent: folderActions.currentFolder() ?? null, onOpenChange: setCreatingFolder }}
         folderActions={folderActions}
         onMoveComics={comicActions.moveComicsToFolder}
         onSaveComic={comicActions.saveComic}

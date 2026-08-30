@@ -22,7 +22,11 @@ export function ComicTableRow({ comic, checked, folderNames, onToggle, onEdit })
       <TableCell>
         <Checkbox
           checked={checked}
-          onCheckedChange={(next) => onToggle(comic.id, next)}
+          // The click carries the modifier keys the checkbox's own change event
+          // drops, and a shift-click has to reach the selection with them.
+          onClick={(event) => onToggle(comic.id, !checked, { extendFromAnchor: event.shiftKey })}
+          // Shift-clicking otherwise drags a text selection across the rows.
+          onMouseDown={(event) => { if (event.shiftKey) event.preventDefault(); }}
           aria-label={`Select ${comic.title}`}
         />
       </TableCell>

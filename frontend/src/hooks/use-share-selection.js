@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { SHARE_CODE_TYPES } from "@/lib/sharing";
-import { MAX_BULK_COMICS, MIN_GROUP_COMICS, MODES, TARGETS, liveComicIdsForRecipient } from "@/lib/sharing-workflow";
+import { MAX_BULK_COMICS, MAX_FOLDER_COMICS, MIN_GROUP_COMICS, MODES, TARGETS, liveComicIdsForRecipient } from "@/lib/sharing-workflow";
 
 /**
  * Which comics are going, out of the ones this owner may actually share.
@@ -13,7 +13,7 @@ import { MAX_BULK_COMICS, MIN_GROUP_COMICS, MODES, TARGETS, liveComicIdsForRecip
  * counting what the library returned would describe a different share from the
  * one about to be sent.
  */
-export function useShareSelection({ isOpen, sharedByMe, initialComicIds, mode, target, recipientEmail, onError }) {
+export function useShareSelection({ isOpen, sharedByMe, initialComicIds, folder, mode, target, recipientEmail, onError }) {
   const [comics, setComics] = useState([]);
   const [recentRecipients, setRecentRecipients] = useState([]);
   const [search, setSearch] = useState("");
@@ -21,6 +21,10 @@ export function useShareSelection({ isOpen, sharedByMe, initialComicIds, mode, t
   const [selectedIds, setSelectedIds] = useState(
     () => new Set((initialComicIds || []).map((id) => String(id)))
   );
+  // A folder gets the higher ceiling because the server will resolve it again
+  // and can therefore vouch for what is in it. A selection somebody assembled
+  // by hand keeps the one it always had.
+  const limit = folder ? MAX_FOLDER_COMICS : MAX_BULK_COMICS;
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -87,7 +91,7 @@ export function useShareSelection({ isOpen, sharedByMe, initialComicIds, mode, t
     setSelectedIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
-      else if (selectedComicIds.length < MAX_BULK_COMICS) next.add(id);
+      else if (selectedComicIds.length < limit) next.add(id);
       return next;
     });
   };
@@ -100,7 +104,7 @@ export function useShareSelection({ isOpen, sharedByMe, initialComicIds, mode, t
         return next;
       }
 
-      let slots = MAX_BULK_COMICS - [...next].filter((id) => !alreadySharedIds.has(id)).length;
+      let slots = limit - [...next].filter((id) => !alreadySharedIds.has(id)).length;
       for (const comic of visibleSelectable) {
         if (slots <= 0) break;
         const id = String(comic.id);
@@ -116,8 +120,8 @@ export function useShareSelection({ isOpen, sharedByMe, initialComicIds, mode, t
   return {
     comics, recentRecipients, isLoading, search, setSearch, selectedIds,
     alreadySharedIds, filteredComics, selectedComicIds, selectedComics,
-    visibleSelectable, allVisibleSelected, toggleComic, toggleVisible,
-    selectionLimitReached: selectedComicIds.length >= MAX_BULK_COMICS,
+    visibleSelectable, allVisibleSelected, toggleComic, toggleVisible, limit,
+    selectionLimitReached: selectedComicIds.length >= limit,
     // One comic is a C-, two or more a G-; that is the entire difference, and
     // it is decided here rather than asked of the user.
     codeType: selectedComicIds.length >= MIN_GROUP_COMICS ? SHARE_CODE_TYPES.GROUP : SHARE_CODE_TYPES.COMIC,
