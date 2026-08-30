@@ -32,10 +32,15 @@ export function useShareSelection({ isOpen, sharedByMe, initialComicIds, folder,
     if (!isOpen) return undefined;
     let ignore = false;
 
-    Promise.all([
-      api.get("/api/comics?ownership=mine"),
-      api.get("/api/shares/recent-recipients"),
-    ])
+    // A folder has already been resolved by the folder-preview endpoint. It
+    // needs recipient history, but not a second copy of the entire library.
+    // Fetching that library caused the dialog to mount hundreds of cover URLs
+    // and could overwhelm the image endpoint before a share was even sent.
+    const libraryRequest = folder
+      ? Promise.resolve({ comics: [] })
+      : api.get("/api/comics?ownership=mine");
+
+    Promise.all([libraryRequest, api.get("/api/shares/recent-recipients")])
       .then(([library, recipients]) => {
         if (ignore) return;
         // ownership=mine is already scoped server-side; canShare is a second UI
@@ -54,7 +59,7 @@ export function useShareSelection({ isOpen, sharedByMe, initialComicIds, folder,
       });
 
     return () => { ignore = true; };
-  }, [isOpen, onError]);
+  }, [folder, isOpen, onError]);
 
   // Only meaningful for an email recipient. A username or code names somebody
   // the sender cannot match against their own list, and a content code names
