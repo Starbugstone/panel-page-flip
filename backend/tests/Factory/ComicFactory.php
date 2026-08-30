@@ -4,30 +4,19 @@ namespace App\Tests\Factory;
 
 use App\Entity\Comic;
 use App\Entity\User;
-use Zenstruck\Foundry\ModelFactory;
-use Zenstruck\Foundry\Proxy;
-use Zenstruck\Foundry\RepositoryProxy;
+use Zenstruck\Foundry\Persistence\PersistentProxyObjectFactory;
 
 /**
- * @extends ModelFactory<Comic>
- *
- * @method        Comic|Proxy create(array|callable $attributes = [])
- * @method static Comic|Proxy createOne(array $attributes = [])
- * @method static Comic|Proxy find(object|array|mixed $criteria)
- * @method static Comic|Proxy findOrCreate(array $attributes)
- * @method static Comic[]|Proxy[] all()
- * @method static Comic[]|Proxy[] createMany(int $number, array|callable $attributes = [])
- * @method static Comic[]|Proxy[] findBy(array $attributes)
- * @method static RepositoryProxy repository()
+ * @extends PersistentProxyObjectFactory<Comic>
  */
-final class ComicFactory extends ModelFactory
+final class ComicFactory extends PersistentProxyObjectFactory
 {
-    protected static function getClass(): string
+    public static function class(): string
     {
         return Comic::class;
     }
 
-    protected function getDefaults(): array
+    protected function defaults(): array
     {
         $title = self::faker()->sentence(3);
 
@@ -49,11 +38,11 @@ final class ComicFactory extends ModelFactory
 
     public function ownedBy(User $user): self
     {
-        return $this->addState(['owner' => $user]);
+        return $this->with(['owner' => $user]);
     }
 
     public function explicit(): self
     {
-        return $this->addState(['explicitContent' => true]);
+        return $this->with(['explicitContent' => true]);
     }
 }
