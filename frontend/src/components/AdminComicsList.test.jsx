@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -95,5 +95,74 @@ describe("the admin comics list", () => {
     expect(screen.getByRole("alertdialog")).toHaveTextContent(
       /permanently deletes the comic and its files.*active shares.*end/i
     );
+  });
+});
+
+describe("the admin comics list in bulk", () => {
+  const LIBRARY = [
+    comic({ id: 11, title: "Sandman #1" }),
+    comic({ id: 12, title: "Sandman #2" }),
+    comic({ id: 13, title: "Preacher #1", owner: { id: 3, name: "Sam Owner", email: "sam@example.com" } }),
+  ];
+
+  beforeEach(() => vi.clearAllMocks());
+
+  const box = (title) => screen.getByRole("checkbox", { name: `Select ${title}` });
+
+  it("deletes every ticked comic through the endpoint the row button uses", async () => {
+    const user = userEvent.setup();
+    stubList(LIBRARY);
+    vi.mocked(api.delete).mockResolvedValue({});
+    renderList();
+    await screen.findByText("Sandman #1");
+
+    await user.click(box("Sandman #1"));
+    await user.click(box("Sandman #2"));
+    await user.click(screen.getByRole("button", { name: /Delete selected/ }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledTimes(2));
+    expect(api.delete.mock.calls.map(([path]) => path)).toEqual(["/api/comics/11", "/api/comics/12"]);
+    expect(mocks.toast).toHaveBeenCalledWith({ title: "2 comics deleted" });
+  });
+
+  it("shift-clicking takes every comic between the two clicks", async () => {
+    const user = userEvent.setup();
+    stubList(LIBRARY);
+    renderList();
+    await screen.findByText("Sandman #1");
+
+    await user.click(box("Sandman #1"));
+    await user.keyboard("{Shift>}");
+    await user.click(box("Preacher #1"));
+    await user.keyboard("{/Shift}");
+
+    expect(screen.getByText("3 of 3 comics selected")).toBeInTheDocument();
+  });
+
+  /**
+   * One message, sent once per comic, so the owner of two of them hears about
+   * both. Naming the recipients by owner rather than by comic keeps the
+   * heading honest when a selection spans several libraries.
+   */
+  it("warns the owner of each ticked comic", async () => {
+    const user = userEvent.setup();
+    stubList(LIBRARY);
+    vi.mocked(api.post).mockResolvedValue({ message: "Warning sent." });
+    renderList();
+    await screen.findByText("Sandman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all comics" }));
+    await user.click(screen.getByRole("button", { name: /Warn owners/ }));
+
+    expect(screen.getByRole("heading", { name: "Warn about 3 comics" })).toBeInTheDocument();
+    expect(screen.getByText(/2 owners will see this/)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Message"), "Take these down.");
+    await user.click(screen.getByRole("button", { name: "Send 3 warnings" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(3));
+    expect(api.post.mock.calls.map(([, body]) => body.comicId)).toEqual([11, 12, 13]);
+    expect(mocks.toast).toHaveBeenCalledWith({ title: "3 warnings sent" });
   });
 });

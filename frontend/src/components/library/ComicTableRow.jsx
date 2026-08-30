@@ -2,9 +2,9 @@ import { Link } from "react-router-dom";
 import { Edit, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { TableCell, TableRow } from "@/components/ui/table";
+import { SelectionCheckbox } from "@/components/SelectionCheckbox";
 import { TagBadge } from "@/components/TagBadge";
 import { getComicProgressState } from "@/lib/comic-progress";
 import { formatDate } from "@/lib/format";
@@ -20,14 +20,10 @@ export function ComicTableRow({ comic, checked, folderNames, onToggle, onEdit })
   return (
     <TableRow className={cn(progress.rowClass, checked && "ring-1 ring-inset ring-primary")}>
       <TableCell>
-        <Checkbox
+        <SelectionCheckbox
           checked={checked}
-          // The click carries the modifier keys the checkbox's own change event
-          // drops, and a shift-click has to reach the selection with them.
-          onClick={(event) => onToggle(comic.id, !checked, { extendFromAnchor: event.shiftKey })}
-          // Shift-clicking otherwise drags a text selection across the rows.
-          onMouseDown={(event) => { if (event.shiftKey) event.preventDefault(); }}
-          aria-label={`Select ${comic.title}`}
+          onToggle={(next, options) => onToggle(comic.id, next, options)}
+          label={`Select ${comic.title}`}
         />
       </TableCell>
       <TableCell>

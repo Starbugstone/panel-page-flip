@@ -113,3 +113,77 @@ describe("the admin shares list", () => {
       .toBeInTheDocument();
   });
 });
+
+describe("the admin shares list in bulk", () => {
+  const LIVE = [
+    share({ id: 5, comic: { id: 3, title: "Sandman #1" } }),
+    share({ id: 6, comic: { id: 4, title: "Sandman #2" } }),
+    share({ id: 7, comic: { id: 5, title: "Preacher #1" }, status: "revoked", canRevoke: false }),
+  ];
+
+  beforeEach(() => vi.clearAllMocks());
+
+  const box = (title) => screen.getByRole("checkbox", { name: `Select the share of ${title}` });
+
+  it("revokes every ticked share through the endpoint the row button uses", async () => {
+    const user = userEvent.setup();
+    stubList(LIVE);
+    vi.mocked(api.post).mockResolvedValue({ message: "Revoked." });
+    renderList();
+    await screen.findByText("Sandman #1");
+
+    await user.click(box("Sandman #1"));
+    await user.click(box("Sandman #2"));
+    await user.click(screen.getByRole("button", { name: /Revoke selected/ }));
+    await user.click(screen.getByRole("button", { name: "Revoke access" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(api.post.mock.calls.map(([path]) => path))
+      .toEqual(["/api/admin/shares/5/revoke", "/api/admin/shares/6/revoke"]);
+    expect(mocks.toast).toHaveBeenCalledWith({ title: "2 shares revoked" });
+  });
+
+  /**
+   * A share already revoked has nothing left to take away. Skipping it here
+   * keeps it out of a failure summary it would only add noise to.
+   */
+  it("leaves shares that are no longer live out of a whole-page revoke", async () => {
+    const user = userEvent.setup();
+    stubList(LIVE);
+    vi.mocked(api.post).mockResolvedValue({ message: "Revoked." });
+    renderList();
+    await screen.findByText("Sandman #1");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all shares" }));
+
+    expect(screen.getByText(/Revoke selected: 2 of 3 eligible/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Revoke selected/ }));
+    await user.click(screen.getByRole("button", { name: "Revoke access" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(api.post).not.toHaveBeenCalledWith("/api/admin/shares/7/revoke", {});
+  });
+
+  it("warns whoever made each ticked share", async () => {
+    const user = userEvent.setup();
+    stubList(LIVE);
+    vi.mocked(api.post).mockResolvedValue({ message: "Warning sent." });
+    renderList();
+    await screen.findByText("Sandman #1");
+
+    await user.click(box("Sandman #1"));
+    await user.click(box("Sandman #2"));
+    await user.click(screen.getByRole("button", { name: /Warn sharers/ }));
+
+    expect(screen.getByRole("heading", { name: "Warn about 2 shares" })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Message"), "Stop sharing this.");
+    await user.click(screen.getByRole("button", { name: "Send 2 warnings" }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(api.post.mock.calls.map(([, body]) => body.shareId)).toEqual([5, 6]);
+    expect(mocks.toast).toHaveBeenCalledWith({ title: "2 warnings sent" });
+  });
+});
+

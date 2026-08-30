@@ -1,6 +1,7 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AdminPagination } from "@/components/AdminPagination";
 import { AdminUserRow } from "@/components/admin/AdminUserRow";
+import { SelectAllCheckbox } from "@/components/SelectionCheckbox";
 
 const COLUMNS = ["Name / Email", "Role", "Verified?", "Created", "Last login", "Comics", "Storage", "Actions"];
 
@@ -16,12 +17,15 @@ const headClass = (column) => {
  * spinner, so the layout does not collapse and move the next button out from
  * under the cursor.
  */
-export function AdminUsersTable({ users, pagination, isLoading, emptyMessage, label, onPageChange, onLimitChange, rowActions }) {
+export function AdminUsersTable({ users, selection, pagination, isLoading, emptyMessage, label, onPageChange, onLimitChange, rowActions }) {
   return (
     <div className="overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-12">
+              <SelectAllCheckbox state={selection.headerState} onToggleAll={selection.toggleAll} label={`Select all ${label}`} />
+            </TableHead>
             {COLUMNS.map((column) => <TableHead key={column} className={headClass(column)}>{column}</TableHead>)}
           </TableRow>
         </TableHeader>
@@ -30,6 +34,8 @@ export function AdminUsersTable({ users, pagination, isLoading, emptyMessage, la
             <AdminUserRow
               key={user.id}
               user={user}
+              checked={selection.isChecked(user)}
+              onToggle={(checked, options) => selection.toggle(user.id, checked, options)}
               onEdit={() => rowActions.onEdit(user)}
               onWarn={() => rowActions.onWarn(user)}
               onDelete={() => rowActions.onDelete(user)}
@@ -38,7 +44,7 @@ export function AdminUsersTable({ users, pagination, isLoading, emptyMessage, la
             />
           )) : (
             <TableRow>
-              <TableCell colSpan={COLUMNS.length} className="py-8 text-center">{emptyMessage}</TableCell>
+              <TableCell colSpan={COLUMNS.length + 1} className="py-8 text-center">{emptyMessage}</TableCell>
             </TableRow>
           )}
         </TableBody>

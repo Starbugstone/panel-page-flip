@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Checkbox } from "@/components/ui/checkbox";
+import { SelectAllCheckbox } from "@/components/SelectionCheckbox";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ComicBulkActionsBar } from "@/components/library/ComicBulkActionsBar";
 import { ComicBulkDeleteDialog } from "@/components/library/ComicBulkDeleteDialog";
@@ -48,10 +48,10 @@ export function ComicTableView({ comics, folders = [], onEditComic, onBulkAddTag
           <TableHeader>
             <TableRow>
               <TableHead className="w-12">
-                <Checkbox
-                  checked={selection.allSelected ? true : selectedCount > 0 ? "indeterminate" : false}
-                  onCheckedChange={selection.toggleAll}
-                  aria-label="Select all comics"
+                <SelectAllCheckbox
+                  state={selection.headerState}
+                  onToggleAll={selection.toggleAll}
+                  label="Select all comics"
                 />
               </TableHead>
               {COLUMNS.map((column) => (
