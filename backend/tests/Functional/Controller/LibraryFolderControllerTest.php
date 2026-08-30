@@ -37,7 +37,7 @@ final class LibraryFolderControllerTest extends AbstractApiTestCase
         $folders = $this->getJson('/api/library/folders')['folders'];
         self::assertSame(['Marvel', 'Spider-Verse'], array_column($folders, 'name'));
 
-        $other = UserFactory::createOne()->object();
+        $other = UserFactory::createOne();
         $this->loginAs($other);
         self::assertSame([], $this->getJson('/api/library/folders')['folders']);
         $this->patchJson('/api/library/folders/' . $marvel['id'], ['name' => 'Stolen']);
@@ -79,8 +79,8 @@ final class LibraryFolderControllerTest extends AbstractApiTestCase
     public function testMovingComicsIsSparseViewerSpecificAndFolderFiltered(): void
     {
         $owner = $this->createAndLoginUser();
-        $rootComic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'At root'])->object();
-        $filedComic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Filed'])->object();
+        $rootComic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'At root']);
+        $filedComic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Filed']);
         $folder = $this->postJson('/api/library/folders', ['name' => 'Marvel'])['folder'];
 
         $moved = $this->postJson('/api/library/folders/move-comics', [
@@ -116,9 +116,9 @@ final class LibraryFolderControllerTest extends AbstractApiTestCase
 
     public function testARecipientCanFileASharedComicWithoutChangingTheOwner(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $recipient = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Shared'])->object();
+        $owner = UserFactory::createOne();
+        $recipient = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Shared']);
         $share = (new ComicShare($comic, $owner, (string) $recipient->getEmail()))->markAccepted($recipient);
         $this->em()->persist($share);
         $this->em()->flush();
@@ -140,8 +140,8 @@ final class LibraryFolderControllerTest extends AbstractApiTestCase
     public function testMoveRejectsForeignFoldersAndInaccessibleComicsWithoutDisclosure(): void
     {
         $attacker = $this->createAndLoginUser();
-        $foreignUser = UserFactory::createOne()->object();
-        $foreignComic = ComicFactory::new()->ownedBy($foreignUser)->create()->object();
+        $foreignUser = UserFactory::createOne();
+        $foreignComic = ComicFactory::new()->ownedBy($foreignUser)->create();
         $foreignFolder = $this->folder($foreignUser, 'Private folder');
 
         $payload = $this->postJson('/api/library/folders/move-comics', [
@@ -164,7 +164,7 @@ final class LibraryFolderControllerTest extends AbstractApiTestCase
     public function testAnExplicitlyFoundHiddenComicCanStillBeOrganised(): void
     {
         $owner = $this->createAndLoginUser();
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Hidden but accessible'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Hidden but accessible']);
         $tag = (new Tag())->setName('Hidden')->setIsGlobal(true)->setHideFromLibrary(true);
         $comic->addTag($tag);
         $this->em()->persist($tag);
@@ -187,7 +187,7 @@ final class LibraryFolderControllerTest extends AbstractApiTestCase
     public function testConfirmedSubtreeDeletionMovesComicsToTheParentAndNeverDeletesThem(): void
     {
         $owner = $this->createAndLoginUser();
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Safe'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Safe']);
         $parent = $this->postJson('/api/library/folders', ['name' => 'Parent'])['folder'];
         $child = $this->postJson('/api/library/folders', ['name' => 'Child', 'parentId' => $parent['id']])['folder'];
         $grandchild = $this->postJson('/api/library/folders', ['name' => 'Grandchild', 'parentId' => $child['id']])['folder'];

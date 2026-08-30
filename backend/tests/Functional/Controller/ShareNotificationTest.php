@@ -37,9 +37,9 @@ final class ShareNotificationTest extends AbstractApiTestCase
     {
         $owner = $this->createAndLoginUser(['email' => 'notifier@example.com']);
         $comics = [
-            (int) ComicFactory::new()->ownedBy($owner)->create(['title' => 'First'])->object()->getId(),
-            (int) ComicFactory::new()->ownedBy($owner)->create(['title' => 'Second'])->object()->getId(),
-            (int) ComicFactory::new()->ownedBy($owner)->create(['title' => 'Third'])->object()->getId(),
+            (int) ComicFactory::new()->ownedBy($owner)->create(['title' => 'First'])->getId(),
+            (int) ComicFactory::new()->ownedBy($owner)->create(['title' => 'Second'])->getId(),
+            (int) ComicFactory::new()->ownedBy($owner)->create(['title' => 'Third'])->getId(),
         ];
 
         $payload = $this->postJson('/api/shares/invitations/bulk', [
@@ -72,7 +72,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
             'name' => null,
             'username' => 'PublicOwner1234',
         ]);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -112,7 +112,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
     public function testAFailedNoticeLeavesTheShareStandingAndSaysSo(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'unlucky@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Still Shared'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Still Shared']);
 
         $this->breakTheMailer();
 
@@ -134,7 +134,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
     public function testASuccessfulNoticeIsRecordedAsSent(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'lucky@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -155,7 +155,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
     public function testResendingRecoversFromAFailedNotice(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'retrier@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->breakTheMailer();
         $this->postJson('/api/shares/invitations/bulk', [
@@ -182,7 +182,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
     public function testAFailedResendReportsItselfWithoutTouchingTheShare(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'persistent@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -211,7 +211,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
     public function testANoticeForARevokedShareIsQuietlyDropped(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'changed-mind@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -244,8 +244,8 @@ final class ShareNotificationTest extends AbstractApiTestCase
      */
     public function testANewShareStartsWithItsNoticeOutstanding(): void
     {
-        $owner = UserFactory::createOne(['email' => 'about-to-share@example.com'])->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $owner = UserFactory::createOne(['email' => 'about-to-share@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $share = new ComicShare($comic, $owner, 'pending-notice@example.com');
         $share->markPending(new \DateTimeImmutable('+1 day'))->awaitNotification();
@@ -270,7 +270,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
     public function testAQueueThatIsDownStillReportsTheShareAsCreated(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'unqueued@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         SwitchableMessageBus::failEverything();
 

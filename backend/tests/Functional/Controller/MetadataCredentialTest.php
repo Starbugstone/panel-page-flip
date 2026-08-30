@@ -19,7 +19,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
 {
     public function testSavingATokenReportsItAsConfiguredWithoutReturningIt(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
 
@@ -35,7 +35,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
 
     public function testKeepsThePersonalTokenEncryptedAtRest(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
 
         $stored = self::getContainer()->get(EntityManagerInterface::class)
@@ -52,7 +52,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
     /** There is no read endpoint, and the show route is not one. */
     public function testThereIsNoWayToReadATokenBackOut(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
 
         $this->getJson('/api/me/metadata-credentials');
@@ -65,7 +65,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
 
     public function testReplacingOneTokenLeavesTheOtherAlone(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
         $response = $this->putJson('/api/me/metadata-credentials', ['comicVineApiKey' => 'personal-comicvine-key']);
@@ -76,7 +76,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
 
     public function testAnExplicitNullRemovesOneToken(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->putJson('/api/me/metadata-credentials', [
             'metronToken' => 'personal-metron-token',
@@ -91,7 +91,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
     /** A row holding no secrets is only a row. */
     public function testRemovingTheLastTokenRemovesTheRecord(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
 
         $response = $this->deleteJson('/api/me/metadata-credentials');
@@ -108,7 +108,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
     /** Deleted with the account, which is the promise that justifies storing it. */
     public function testTheCredentialGoesWithTheAccount(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $this->loginAs($user);
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
 
@@ -124,11 +124,11 @@ final class MetadataCredentialTest extends AbstractApiTestCase
 
     public function testOneUserCannotSeeAnotherUsersCredentialState(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $this->loginAs($owner);
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
 
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $response = $this->getJson('/api/me/metadata-credentials');
 
         self::assertFalse($response['configured']['metron']);
@@ -143,7 +143,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
 
     public function testATokenLongerThanAnyProviderIssuesIsRejected(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => str_repeat('a', 1_000)]);
 
@@ -157,7 +157,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
      */
     public function testAMultibyteTokenThatWouldOverflowTheColumnIsRejected(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         // Well inside any character limit, four bytes each.
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => str_repeat('🔑', 300)]);
@@ -168,7 +168,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
     /** A token right at the limit still round-trips through encryption. */
     public function testATokenAtTheLimitIsStored(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $longest = str_repeat('a', AppDataEncryptionService::maxPlaintextBytes(1024));
 
         $response = $this->putJson('/api/me/metadata-credentials', ['metronToken' => $longest]);
@@ -179,7 +179,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
 
     public function testANonStringTokenIsRejected(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => ['not', 'a', 'string']]);
 
@@ -194,7 +194,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
         mixed $value,
         string $message
     ): void {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $payload = $this->putJson('/api/me/metadata-credentials', [$field => $value]);
 
@@ -234,7 +234,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
      */
     public function testTestingWithNoTokenSaysSo(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $response = $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'metron']);
 
@@ -244,7 +244,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
 
     public function testTestingAnUnknownProviderIsRejected(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'nope']);
 
@@ -254,7 +254,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
     /** Somebody with lookups withdrawn has nothing to test a token against. */
     public function testAUserWithoutApiAccessCannotTestAToken(): void
     {
-        $this->loginAs(UserFactory::createOne(['metadataApiEnabled' => false])->object());
+        $this->loginAs(UserFactory::createOne(['metadataApiEnabled' => false]));
 
         $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'metron']);
 
@@ -267,7 +267,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
      */
     public function testSaysWhetherEachProviderWouldAnswer(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $providers = $this->getJson('/api/me/metadata-credentials')['providers'];
         $byKey = array_column($providers, null, 'key');
@@ -283,7 +283,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
     public function testATokenCannotBeAddedWhenTheServerDoesNotAcceptThem(): void
     {
         $this->disablePersonalCredentials();
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
 
@@ -293,7 +293,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
     public function testATokenCannotBeTestedWhenTheServerDoesNotAcceptThem(): void
     {
         $this->disablePersonalCredentials();
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'metron']);
 
@@ -306,7 +306,7 @@ final class MetadataCredentialTest extends AbstractApiTestCase
      */
     public function testAStoredTokenSurvivesTheSwitchAndIsStillRemovable(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $this->loginAs($user);
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
 

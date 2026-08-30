@@ -229,7 +229,7 @@ final class ComicPageVariantTest extends AbstractApiTestCase
     public function testAnotherUserCannotReadAVariantOrTheManifest(): void
     {
         [, $comic] = $this->createComicWithArchive();
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->browser()->request('GET', sprintf('/api/comics/%d/pages/1?variant=thumb', $comic->getId()));
         self::assertResponseStatusCodeSame(404);
@@ -284,13 +284,13 @@ final class ComicPageVariantTest extends AbstractApiTestCase
      */
     private function createComicWithArchive(): array
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $filename = 'variants-'.uniqid('', false).'.cbz';
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'filePath' => $filename,
             'pageCount' => 3,
-        ])->object();
+        ]);
 
         $directory = self::getContainer()->getParameter('comics_directory').'/'.$owner->getId();
         if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {

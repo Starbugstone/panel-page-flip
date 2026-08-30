@@ -4,30 +4,19 @@ namespace App\Tests\Factory;
 
 use App\Entity\Tag;
 use App\Entity\User;
-use Zenstruck\Foundry\ModelFactory;
-use Zenstruck\Foundry\Proxy;
-use Zenstruck\Foundry\RepositoryProxy;
+use Zenstruck\Foundry\Persistence\PersistentObjectFactory;
 
 /**
- * @extends ModelFactory<Tag>
- *
- * @method        Tag|Proxy create(array|callable $attributes = [])
- * @method static Tag|Proxy createOne(array $attributes = [])
- * @method static Tag|Proxy find(object|array|mixed $criteria)
- * @method static Tag|Proxy findOrCreate(array $attributes)
- * @method static Tag[]|Proxy[] all()
- * @method static Tag[]|Proxy[] createMany(int $number, array|callable $attributes = [])
- * @method static Tag[]|Proxy[] findBy(array $attributes)
- * @method static RepositoryProxy repository()
+ * @extends PersistentObjectFactory<Tag>
  */
-final class TagFactory extends ModelFactory
+final class TagFactory extends PersistentObjectFactory
 {
-    protected static function getClass(): string
+    public static function class(): string
     {
         return Tag::class;
     }
 
-    protected function getDefaults(): array
+    protected function defaults(): array
     {
         return [
             'name' => self::faker()->unique()->word(),
@@ -37,6 +26,6 @@ final class TagFactory extends ModelFactory
 
     public function createdBy(User $user): self
     {
-        return $this->addState(['creator' => $user]);
+        return $this->with(['creator' => $user]);
     }
 }

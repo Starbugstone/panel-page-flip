@@ -13,11 +13,11 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
 
     public function testOwnerReceivesPlaceholderWhenStoredCoverIsMissing(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
+        ]);
         $this->loginAs($owner);
 
         $this->browser()->request('GET', sprintf('/api/comics/cover/%d/%d/cover.png', $owner->getId(), $comic->getId()));
@@ -28,12 +28,12 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
 
     public function testAnotherUserCannotReadAnOwnersCover(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
-        $this->loginAs(UserFactory::createOne()->object());
+        ]);
+        $this->loginAs(UserFactory::createOne());
 
         $this->browser()->request('GET', sprintf('/api/comics/cover/%d/%d/cover.png', $owner->getId(), $comic->getId()));
 
@@ -46,12 +46,12 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
 
     public function testAdminCanReadAnotherUsersCover(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
-        $this->loginAs(UserFactory::new()->admin()->create()->object());
+        ]);
+        $this->loginAs(UserFactory::new()->admin()->create());
 
         $this->browser()->request('GET', sprintf('/api/comics/cover/%d/%d/cover.png', $owner->getId(), $comic->getId()));
 
@@ -91,7 +91,7 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
         // The same URL under a different account. An admin is the only other
         // account allowed to read it, and a cache entry that ignored the cookie
         // would be the one holding the previous session's copy.
-        $this->loginAs(UserFactory::new()->admin()->create()->object());
+        $this->loginAs(UserFactory::new()->admin()->create());
         $this->browser()->request('GET', $url);
 
         self::assertResponseIsSuccessful();
@@ -130,11 +130,11 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
 
     public function testPlaceholderIsCacheableButStaysRevalidatable(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
+        ]);
         $this->loginAs($owner);
         $url = sprintf('/api/comics/cover/%d/%d/cover.png', $owner->getId(), $comic->getId());
 
@@ -158,11 +158,11 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
 
     public function testCoverFilenameMustMatchTheStoredCover(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
+        ]);
         $this->loginAs($owner);
 
         $this->browser()->request('GET', sprintf('/api/comics/cover/%d/%d/other.png', $owner->getId(), $comic->getId()));
@@ -178,12 +178,12 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
      */
     private function createComicWithCoverFile(): array
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $filename = 'cover-' . uniqid('', false) . '.png';
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'coverImagePath' => 'covers/stored/' . $filename,
-        ])->object();
+        ]);
 
         $directory = self::getContainer()->getParameter('comics_directory')
             . '/' . $owner->getId() . '/covers/stored';

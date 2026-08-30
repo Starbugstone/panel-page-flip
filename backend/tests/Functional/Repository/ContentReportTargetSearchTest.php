@@ -15,14 +15,14 @@ final class ContentReportTargetSearchTest extends AbstractApiTestCase
     public function testWildcardAndEscapeCharactersAreSearchedLiterally(): void
     {
         $users = [
-            ['query' => '100%', 'literal' => UserFactory::createOne(['name' => 'Owner 100% Literal'])->object(), 'decoy' => UserFactory::createOne(['name' => 'Owner 100X Literal'])->object()],
-            ['query' => 'owner_', 'literal' => UserFactory::createOne(['name' => 'owner_literal'])->object(), 'decoy' => UserFactory::createOne(['name' => 'ownerXliteral'])->object()],
-            ['query' => 'path \\', 'literal' => UserFactory::createOne(['name' => 'path \\ literal'])->object(), 'decoy' => UserFactory::createOne(['name' => 'path X literal'])->object()],
+            ['query' => '100%', 'literal' => UserFactory::createOne(['name' => 'Owner 100% Literal']), 'decoy' => UserFactory::createOne(['name' => 'Owner 100X Literal'])],
+            ['query' => 'owner_', 'literal' => UserFactory::createOne(['name' => 'owner_literal']), 'decoy' => UserFactory::createOne(['name' => 'ownerXliteral'])],
+            ['query' => 'path \\', 'literal' => UserFactory::createOne(['name' => 'path \\ literal']), 'decoy' => UserFactory::createOne(['name' => 'path X literal'])],
         ];
         $comics = [
-            ['query' => '100%', 'literal' => ComicFactory::createOne(['title' => 'Edition 100% Literal'])->object(), 'decoy' => ComicFactory::createOne(['title' => 'Edition 100X Literal'])->object()],
-            ['query' => 'issue_', 'literal' => ComicFactory::createOne(['title' => 'issue_literal'])->object(), 'decoy' => ComicFactory::createOne(['title' => 'issueXliteral'])->object()],
-            ['query' => 'path \\', 'literal' => ComicFactory::createOne(['title' => 'path \\ literal'])->object(), 'decoy' => ComicFactory::createOne(['title' => 'path X literal'])->object()],
+            ['query' => '100%', 'literal' => ComicFactory::createOne(['title' => 'Edition 100% Literal']), 'decoy' => ComicFactory::createOne(['title' => 'Edition 100X Literal'])],
+            ['query' => 'issue_', 'literal' => ComicFactory::createOne(['title' => 'issue_literal']), 'decoy' => ComicFactory::createOne(['title' => 'issueXliteral'])],
+            ['query' => 'path \\', 'literal' => ComicFactory::createOne(['title' => 'path \\ literal']), 'decoy' => ComicFactory::createOne(['title' => 'path X literal'])],
         ];
 
         foreach ($users as $case) {

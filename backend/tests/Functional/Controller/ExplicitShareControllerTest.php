@@ -33,7 +33,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testAComicIsNotExplicitUntilItsOwnerSaysSo(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'classifier@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         self::assertFalse($this->getJson('/api/comics/' . $comic->getId())['comic']['explicitContent']);
 
@@ -50,9 +50,9 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testHidingAComicFromTheLibraryIsNotAnAgeClassification(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'shelver@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
-        $hidden = TagFactory::new()->createdBy($owner)->create(['name' => 'private-shelf'])->object();
+        $hidden = TagFactory::new()->createdBy($owner)->create(['name' => 'private-shelf']);
         $this->managed(Tag::class, (int) $hidden->getId())->setHideFromLibrary(true);
         $this->flush();
 
@@ -65,7 +65,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         self::assertFalse($this->getJson('/api/comics/' . $comic->getId())['comic']['explicitContent']);
 
         // So sharing it behaves exactly like sharing anything else: no gate.
-        $recipient = UserFactory::createOne(['email' => 'unbothered@test.local'])->object();
+        $recipient = UserFactory::createOne(['email' => 'unbothered@test.local']);
         $this->postInvitation((int) $comic->getId(), (string) $recipient->getEmail());
         self::assertResponseStatusCodeSame(201);
 
@@ -78,7 +78,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testAScalarJsonBodyIsRejectedRatherThanFatal(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'malformed@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         // `5` is valid JSON, so it decodes without error and reaches the field
         // handling as an int. Reading a key off it must not take the request
@@ -102,7 +102,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testChangingTagsNeverTouchesTheExplicitFlag(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'tagger@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
 
         $this->patchJson('/api/comics/' . $comic->getId(), ['tags' => ['horror', 'noir']]);
         self::assertResponseIsSuccessful();
@@ -117,7 +117,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testAnInvitationWithoutTheSenderAcknowledgementIsRejected(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'unacknowledged@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         foreach ([[], ['senderResponsibilityAccepted' => false], ['senderResponsibilityAccepted' => 'true']] as $body) {
             $payload = $this->postJson(
@@ -136,7 +136,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testAnAcknowledgedInvitationStoresAServerGeneratedTimestamp(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'acknowledger@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $before = new \DateTimeImmutable('-1 minute');
         $this->postInvitation((int) $comic->getId(), 'guest@example.com');
@@ -151,7 +151,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testAClientCannotSupplyItsOwnSenderAcknowledgementTimestamp(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'forger@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postInvitation((int) $comic->getId(), 'guest@example.com', [
             'senderResponsibilityAcceptedAt' => '1999-01-01T00:00:00+00:00',
@@ -167,7 +167,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testTheAcknowledgementIsNotExposedAsATimestampToClients(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'discreet@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postInvitation((int) $comic->getId(), 'guest@example.com');
         $share = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
@@ -180,7 +180,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testResendingKeepsTheOriginalSenderAcknowledgement(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'resender@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postInvitation((int) $comic->getId(), 'guest@example.com');
         $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
@@ -205,13 +205,13 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testAnExplicitPendingShareRevealsNothingThatIdentifiesTheComic(): void
     {
-        $owner = UserFactory::createOne(['name' => 'Alex Owner'])->object();
+        $owner = UserFactory::createOne(['name' => 'Alex Owner']);
         $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create([
             'title' => 'Secret Title',
             'author' => 'Secret Author',
             'pageCount' => 42,
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
+        ]);
         $recipient = $this->createAndLoginUser(['email' => 'unconfirmed@test.local']);
         $this->persistShare($comic, $owner, (string) $recipient->getEmail());
 
@@ -234,12 +234,12 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testASignedOutTokenHolderLearnsNothingAboutAnExplicitComic(): void
     {
-        $owner = UserFactory::createOne(['name' => 'Alex Owner'])->object();
+        $owner = UserFactory::createOne(['name' => 'Alex Owner']);
         $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create([
             'title' => 'Secret Title',
             'author' => 'Secret Author',
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
+        ]);
         [, $plaintext] = $this->createPendingInvitation($comic, $owner, 'invited@test.local');
 
         // Possession of the link is not an age declaration — nobody has said who
@@ -259,12 +259,12 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testConfirmingDoesNotUnlockTheInvitationForEveryoneElseHoldingTheLink(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create([
             'title' => 'Still Secret',
             'author' => 'Still Secret Author',
             'pageCount' => 42,
-        ])->object();
+        ]);
         $recipient = $this->createAndLoginUser(['email' => 'the-one@test.local']);
         [$share, $plaintext] = $this->createPendingInvitation($comic, $owner, (string) $recipient->getEmail());
 
@@ -305,8 +305,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testAnUnconfirmedExplicitInvitationCannotBeAccepted(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
         $recipient = $this->createAndLoginUser(['email' => 'eager@test.local']);
         $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
 
@@ -320,8 +320,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testAnUnconfirmedExplicitLinkCannotBeAcceptedAndKeepsItsToken(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
         $recipient = $this->createAndLoginUser(['email' => 'linked@test.local']);
         [, $plaintext] = $this->createPendingInvitation($comic, $owner, (string) $recipient->getEmail());
 
@@ -343,8 +343,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testASpentLinkCannotBeUsedToConfirmAnAgeEither(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
         $recipient = $this->createAndLoginUser(['email' => 'spent@test.local']);
         [$share, $plaintext] = $this->createPendingInvitation($comic, $owner, (string) $recipient->getEmail());
 
@@ -366,8 +366,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testOnlyTheIntendedRecipientCanConfirmTheirAge(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
         $share = $this->persistShare($comic, $owner, 'intended@test.local');
 
         // Reported as missing rather than forbidden, so share ids cannot be
@@ -382,8 +382,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testATokenHolderWhoIsNotTheRecipientCannotConfirm(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
         [, $plaintext] = $this->createPendingInvitation($comic, $owner, 'intended@test.local');
 
         $this->createAndLoginUser(['email' => 'forwarded-to@test.local']);
@@ -396,8 +396,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testConfirmationRequiresTheDeclarationItself(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
         $recipient = $this->createAndLoginUser(['email' => 'silent@test.local']);
         $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
 
@@ -413,8 +413,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testAnAgeDeclarationCannotBeMadeByACrossSiteRequest(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
         $recipient = $this->createAndLoginUser(['email' => 'csrf@test.local']);
         $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
 
@@ -439,13 +439,13 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testConfirmingUnlocksTheMetadataAndStoresTheTimestampOnTheSameShare(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create([
             'title' => 'Now Visible',
             'author' => 'Some Author',
             'pageCount' => 42,
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
+        ]);
         $recipient = $this->createAndLoginUser(['email' => 'grown-up@test.local']);
         $this->postInvitationAsOwner($comic, $owner, (string) $recipient->getEmail());
         $this->loginAs($recipient);
@@ -475,8 +475,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testTheConfirmationTimestampIsTheServersAndSurvivesRepetition(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
         $recipient = $this->createAndLoginUser(['email' => 'insistent@test.local']);
         $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
 
@@ -509,8 +509,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         ];
 
         foreach ($cases as $label => $spoil) {
-            $owner = UserFactory::createOne()->object();
-            $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
+            $owner = UserFactory::createOne();
+            $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
             $recipient = $this->createAndLoginUser(['email' => $label . '@test.local']);
             $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
 
@@ -527,8 +527,8 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testANonExplicitShareHasNothingToConfirm(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $recipient = $this->createAndLoginUser(['email' => 'ordinary@test.local']);
         $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
 
@@ -546,10 +546,10 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testAConfirmedRecipientReadsAnExplicitComicNormally(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create([
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
+        ]);
         $recipient = $this->createAndLoginUser(['email' => 'reader@test.local']);
         $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
 
@@ -567,11 +567,11 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testMarkingAnAlreadySharedComicExplicitClosesTheGateAgain(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::new()->ownedBy($owner)->create([
             'coverImagePath' => 'covers/missing/cover.png',
-        ])->object();
-        $recipient = UserFactory::createOne(['email' => 'regated@test.local'])->object();
+        ]);
+        $recipient = UserFactory::createOne(['email' => 'regated@test.local']);
 
         $this->loginAs($recipient);
         $share = $this->createAcceptedShare($comic, $owner, $recipient);
@@ -614,13 +614,13 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testRegatingTouchesOnlyTheSharesThatHaveSomethingToReset(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         // Explicit from the start: a confirmation can only exist on a comic that
         // was asking for one, so this is the only way to arrive at a share that
         // has something to withdraw.
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
-        $confirmed = UserFactory::createOne(['email' => 'confirmed@test.local'])->object();
-        $neverAsked = UserFactory::createOne(['email' => 'never-asked@test.local'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
+        $confirmed = UserFactory::createOne(['email' => 'confirmed@test.local']);
+        $neverAsked = UserFactory::createOne(['email' => 'never-asked@test.local']);
 
         $this->loginAs($confirmed);
         $confirmedShare = $this->persistShare($comic, $owner, (string) $confirmed->getEmail());
@@ -648,9 +648,9 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testRegatingReachesSharesThatAreAlreadyLoaded(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create()->object();
-        $recipient = UserFactory::createOne(['email' => 'in-memory@test.local'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create();
+        $recipient = UserFactory::createOne(['email' => 'in-memory@test.local']);
 
         $this->loginAs($recipient);
         $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
@@ -684,9 +684,9 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testUnmarkingAComicRestoresAccessImmediately(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $recipient = UserFactory::createOne(['email' => 'reprieved@test.local'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $recipient = UserFactory::createOne(['email' => 'reprieved@test.local']);
 
         $this->loginAs($recipient);
         $this->createAcceptedShare($comic, $owner, $recipient);
@@ -712,9 +712,9 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     {
         // The edit dialog on the dashboard saves through PATCH /api/comics, not
         // the single-comic route, so the re-gate has to hold on both.
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $recipient = UserFactory::createOne(['email' => 'batched@test.local'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $recipient = UserFactory::createOne(['email' => 'batched@test.local']);
 
         $this->loginAs($recipient);
         $this->createAcceptedShare($comic, $owner, $recipient);
@@ -732,9 +732,9 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
     public function testATombstoneOfAnUnconfirmedExplicitComicStillWithholdsItsTitle(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create(['title' => 'Never Revealed'])->object();
-        $recipient = UserFactory::createOne(['email' => 'bereaved@test.local'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create(['title' => 'Never Revealed']);
+        $recipient = UserFactory::createOne(['email' => 'bereaved@test.local']);
 
         $this->loginAs($recipient);
         $this->persistShare($comic, $owner, (string) $recipient->getEmail());
@@ -755,7 +755,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
     public function testAnOwnerSeesTheirOwnExplicitComicUnredacted(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'proprietor@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create(['title' => 'Mine To See'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->explicit()->create(['title' => 'Mine To See']);
 
         $this->postInvitation((int) $comic->getId(), 'guest@example.com');
 

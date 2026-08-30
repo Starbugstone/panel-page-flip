@@ -19,14 +19,14 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
 {
     public function testProposesAnExistingTagThatMatchesThePublisher(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         TagFactory::createOne(['name' => 'marvel', 'creator' => $owner]);
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'title' => 'Amazing Spider-Man',
             'publisher' => 'Marvel Comics',
             'tags' => [],
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
         $tags = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'];
@@ -39,9 +39,9 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
 
     public function testProposesAGlobalTagAsWellAsTheUsersOwn(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         TagFactory::createOne(['name' => 'marvel', 'isGlobal' => true]);
-        $comic = ComicFactory::createOne(['owner' => $owner, 'publisher' => 'Marvel', 'tags' => []])->object();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'publisher' => 'Marvel', 'tags' => []]);
 
         $this->loginAs($owner);
         $tags = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'];
@@ -53,9 +53,9 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
     /** Somebody else's private tag is not in this library and is not proposed. */
     public function testNeverProposesAnotherUsersTag(): void
     {
-        $owner = UserFactory::createOne()->object();
-        TagFactory::createOne(['name' => 'marvel', 'creator' => UserFactory::createOne()->object()]);
-        $comic = ComicFactory::createOne(['owner' => $owner, 'publisher' => 'Marvel', 'tags' => []])->object();
+        $owner = UserFactory::createOne();
+        TagFactory::createOne(['name' => 'marvel', 'creator' => UserFactory::createOne()]);
+        $comic = ComicFactory::createOne(['owner' => $owner, 'publisher' => 'Marvel', 'tags' => []]);
 
         $this->loginAs($owner);
 
@@ -68,14 +68,14 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
      */
     public function testDoesNotMatchOnPartOfAWord(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         TagFactory::createOne(['name' => 'dc', 'creator' => $owner]);
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'title' => 'Abduction',
             'publisher' => 'Image',
             'tags' => [],
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
 
@@ -85,14 +85,14 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
     /** A multi-word tag matches across punctuation, which titles are full of. */
     public function testMatchesAMultiWordTagAcrossPunctuation(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         TagFactory::createOne(['name' => 'spider man', 'creator' => $owner]);
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'title' => 'The Amazing Spider-Man',
             'publisher' => null,
             'tags' => [],
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
         $tags = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'];
@@ -103,13 +103,13 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
 
     public function testDoesNotProposeATagTheComicAlreadyHas(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $tag = TagFactory::createOne(['name' => 'marvel', 'creator' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $tag = TagFactory::createOne(['name' => 'marvel', 'creator' => $owner]);
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'publisher' => 'Marvel',
             'tags' => [$tag],
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
 
@@ -118,14 +118,14 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
 
     public function testSaysNothingWhenNoTagLooksRelevant(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         TagFactory::createOne(['name' => 'manga', 'creator' => $owner]);
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'title' => 'Saga',
             'publisher' => 'Image',
             'tags' => [],
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
 
@@ -141,8 +141,8 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
      */
     public function testAnAdministratorSeesTheOwnersTagsNotTheirOwn(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $administrator = UserFactory::new()->admin()->create()->object();
+        $owner = UserFactory::createOne();
+        $administrator = UserFactory::new()->admin()->create();
         // Both would match the comic, so ownership is the only thing that can
         // separate them.
         TagFactory::createOne(['name' => 'marvel', 'creator' => $owner]);
@@ -153,7 +153,7 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
             'publisher' => 'Marvel',
             'title' => 'Detective Comics',
             'tags' => [],
-        ])->object();
+        ]);
 
         $this->loginAs($administrator);
         $names = array_column(
@@ -172,9 +172,9 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
      */
     public function testATagSavedOnAnothersComicBelongsToTheOwner(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $administrator = UserFactory::new()->admin()->create()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'tags' => []])->object();
+        $owner = UserFactory::createOne();
+        $administrator = UserFactory::new()->admin()->create();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'tags' => []]);
 
         $this->loginAs($administrator);
         $this->putJson(sprintf('/api/comics/%d', $comic->getId()), [
@@ -191,9 +191,9 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
     /** Reading suggestions must not attach anything. */
     public function testProposingATagDoesNotApplyIt(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         TagFactory::createOne(['name' => 'marvel', 'creator' => $owner]);
-        $comic = ComicFactory::createOne(['owner' => $owner, 'publisher' => 'Marvel', 'tags' => []])->object();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'publisher' => 'Marvel', 'tags' => []]);
 
         $this->loginAs($owner);
         $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));
@@ -209,13 +209,13 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
      */
     public function testProposesGenresFromTheFileWithoutCreatingTags(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'title' => 'The Boys',
             'tags' => [],
             'classification' => new Classification(genres: ['Superhero', 'Crime']),
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
         $tags = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'];
@@ -238,7 +238,7 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
      */
     public function testDoesNotProposeCharactersTeamsOrStoryArcsAsTags(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'tags' => [],
@@ -248,7 +248,7 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
                 locations: ['New York'],
                 storyArcs: ['Herogasm'],
             ),
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
         $response = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));
@@ -262,13 +262,13 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
     /** The user's own spelling wins, so accepting cannot make a near-duplicate. */
     public function testPrefersTheSpellingOfATagTheLibraryAlreadyHas(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         TagFactory::createOne(['name' => 'Science Fiction', 'creator' => $owner]);
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'tags' => [],
             'classification' => new Classification(genres: ['science fiction']),
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
         $tags = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'];
@@ -281,13 +281,13 @@ final class ComicTagSuggestionTest extends AbstractApiTestCase
     /** Once it is on the comic, proposing it again is noise. */
     public function testDoesNotProposeAGenreTheComicAlreadyCarries(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $tag = TagFactory::createOne(['name' => 'Superhero', 'creator' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $tag = TagFactory::createOne(['name' => 'Superhero', 'creator' => $owner]);
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'tags' => [$tag],
             'classification' => new Classification(genres: ['Superhero', 'Crime']),
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
         $tags = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()))['tags'];

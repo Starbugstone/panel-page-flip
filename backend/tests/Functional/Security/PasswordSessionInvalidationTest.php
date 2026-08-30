@@ -14,7 +14,7 @@ final class PasswordSessionInvalidationTest extends AbstractApiTestCase
 {
     public function testSessionCreatedBeforePasswordResetIsRejectedAfterward(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $this->loginAs($user);
         $cookies = $this->browser()->getCookieJar()->all();
 

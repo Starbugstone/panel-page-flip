@@ -31,7 +31,7 @@ final class MalformedJsonPayloadTest extends AbstractApiTestCase
 
     public function testUpdatingAUserRejectsATruncatedBody(): void
     {
-        $target = UserFactory::createOne()->object();
+        $target = UserFactory::createOne();
         $this->createAndLoginAdmin();
 
         $this->requestRaw('PUT', '/api/users/' . $target->getId(), '{"name": ');
@@ -41,7 +41,7 @@ final class MalformedJsonPayloadTest extends AbstractApiTestCase
 
     public function testUpdatingAUserRejectsAJsonScalar(): void
     {
-        $target = UserFactory::createOne()->object();
+        $target = UserFactory::createOne();
         $this->createAndLoginAdmin();
 
         $this->requestRaw('PUT', '/api/users/' . $target->getId(), '"not an object"');
@@ -52,7 +52,7 @@ final class MalformedJsonPayloadTest extends AbstractApiTestCase
     public function testUpdatingAComicRejectsATruncatedBody(): void
     {
         $owner = $this->createAndLoginUser();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
 
         $this->requestRaw('PUT', '/api/comics/' . $comic->getId(), '{"title": ');
 
@@ -62,7 +62,7 @@ final class MalformedJsonPayloadTest extends AbstractApiTestCase
     public function testRecordingReadingProgressRejectsATruncatedBody(): void
     {
         $owner = $this->createAndLoginUser();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
 
         $this->postRaw('/api/comics/' . $comic->getId() . '/progress', '{"page":');
 

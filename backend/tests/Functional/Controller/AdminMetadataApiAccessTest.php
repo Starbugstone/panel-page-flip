@@ -19,7 +19,7 @@ final class AdminMetadataApiAccessTest extends AbstractApiTestCase
 {
     public function testAnAdministratorCanWithdrawApiAccessFromAUser(): void
     {
-        $target = UserFactory::createOne()->object();
+        $target = UserFactory::createOne();
         $this->createAndLoginAdmin();
 
         $this->patchJson(sprintf('/api/users/%d', $target->getId()), ['metadataApiEnabled' => false]);
@@ -30,7 +30,7 @@ final class AdminMetadataApiAccessTest extends AbstractApiTestCase
 
     public function testAccessIsOnByDefault(): void
     {
-        $target = UserFactory::createOne()->object();
+        $target = UserFactory::createOne();
 
         self::assertTrue($this->reload($target)->isMetadataApiEnabled());
     }
@@ -46,7 +46,7 @@ final class AdminMetadataApiAccessTest extends AbstractApiTestCase
      */
     public function testAUserCannotGrantThemselvesApiAccess(): void
     {
-        $user = UserFactory::createOne(['metadataApiEnabled' => false])->object();
+        $user = UserFactory::createOne(['metadataApiEnabled' => false]);
         $this->loginAs($user);
 
         $this->patchJson(sprintf('/api/users/%d', $user->getId()), ['metadataApiEnabled' => true]);
@@ -57,7 +57,7 @@ final class AdminMetadataApiAccessTest extends AbstractApiTestCase
 
     public function testARejectedValueIsNotABoolean(): void
     {
-        $target = UserFactory::createOne()->object();
+        $target = UserFactory::createOne();
         $this->createAndLoginAdmin();
 
         $payload = $this->patchJson(sprintf('/api/users/%d', $target->getId()), ['metadataApiEnabled' => 'no']);
@@ -91,12 +91,12 @@ final class AdminMetadataApiAccessTest extends AbstractApiTestCase
      */
     public function testLocalSuggestionsStillWorkWithoutApiAccess(): void
     {
-        $owner = UserFactory::createOne(['metadataApiEnabled' => false])->object();
+        $owner = UserFactory::createOne(['metadataApiEnabled' => false]);
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'series' => null,
             'originalFilename' => 'Batman - 007 (2011) (Digital).cbz',
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
         $response = $this->getJson(sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));

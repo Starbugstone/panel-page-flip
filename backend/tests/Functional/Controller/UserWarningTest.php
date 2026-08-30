@@ -33,7 +33,7 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testAnAdministratorCanWarnAnAccountAndTheAccountSeesIt(): void
     {
-        $reader = UserFactory::createOne(['email' => 'warned@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'warned@example.com']);
 
         $this->createAndLoginAdmin();
         $this->postJson('/api/admin/warnings', [
@@ -56,7 +56,7 @@ final class UserWarningTest extends AbstractApiTestCase
      */
     public function testTheRecipientIsNotToldWhichAdministratorSentIt(): void
     {
-        $reader = UserFactory::createOne(['email' => 'anonymous-sender@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'anonymous-sender@example.com']);
 
         $admin = $this->createAndLoginAdmin();
         $this->postJson('/api/admin/warnings', [
@@ -73,7 +73,7 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testDismissingClearsItFromTheScreenAndKeepsTheRecord(): void
     {
-        $reader = UserFactory::createOne(['email' => 'dismisser@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'dismisser@example.com']);
 
         $this->createAndLoginAdmin();
         $created = $this->postJson('/api/admin/warnings', [
@@ -97,7 +97,7 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testSomebodyElsesWarningCannotBeDismissed(): void
     {
-        $reader = UserFactory::createOne(['email' => 'target@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'target@example.com']);
 
         $this->createAndLoginAdmin();
         $created = $this->postJson('/api/admin/warnings', [
@@ -119,8 +119,8 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testWarningAboutAComicWarnsItsOwnerAndNamesIt(): void
     {
-        $owner = UserFactory::createOne(['email' => 'comic-owner@example.com'])->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'Questionable Comic'])->object();
+        $owner = UserFactory::createOne(['email' => 'comic-owner@example.com']);
+        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'Questionable Comic']);
 
         $this->createAndLoginAdmin();
         $this->postJson('/api/admin/warnings', [
@@ -143,8 +143,8 @@ final class UserWarningTest extends AbstractApiTestCase
      */
     public function testTheComicNameSurvivesTheComicBeingDeleted(): void
     {
-        $owner = UserFactory::createOne(['email' => 'about-to-lose-it@example.com'])->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'Doomed Comic'])->object();
+        $owner = UserFactory::createOne(['email' => 'about-to-lose-it@example.com']);
+        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'Doomed Comic']);
 
         $this->createAndLoginAdmin();
         $this->postJson('/api/admin/warnings', [
@@ -163,9 +163,9 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testWarningAboutAShareWarnsWhoeverMadeIt(): void
     {
-        $owner = UserFactory::createOne(['email' => 'sharer@example.com'])->object();
-        $recipient = UserFactory::createOne(['email' => 'holder@example.com'])->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'Shared Comic'])->object();
+        $owner = UserFactory::createOne(['email' => 'sharer@example.com']);
+        $recipient = UserFactory::createOne(['email' => 'holder@example.com']);
+        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'Shared Comic']);
 
         $share = new ComicShare($comic, $owner, (string) $recipient->getEmail());
         $share->markAccepted($recipient);
@@ -195,7 +195,7 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testAMessageIsRequired(): void
     {
-        $reader = UserFactory::createOne(['email' => 'no-message@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'no-message@example.com']);
 
         $this->createAndLoginAdmin();
 
@@ -210,7 +210,7 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testAnOverlongMessageIsRefusedRatherThanTruncated(): void
     {
-        $reader = UserFactory::createOne(['email' => 'verbose@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'verbose@example.com']);
 
         $this->createAndLoginAdmin();
         $payload = $this->postJson('/api/admin/warnings', [
@@ -228,8 +228,8 @@ final class UserWarningTest extends AbstractApiTestCase
      */
     public function testExactlyOneTargetIsRequired(): void
     {
-        $reader = UserFactory::createOne(['email' => 'ambiguous@example.com'])->object();
-        $comic = ComicFactory::createOne(['owner' => $reader])->object();
+        $reader = UserFactory::createOne(['email' => 'ambiguous@example.com']);
+        $comic = ComicFactory::createOne(['owner' => $reader]);
 
         $this->createAndLoginAdmin();
 
@@ -260,7 +260,7 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testOnlyAdministratorsMayIssueWarnings(): void
     {
-        $reader = UserFactory::createOne(['email' => 'not-yours-to-warn@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'not-yours-to-warn@example.com']);
 
         $this->createAndLoginUser(['email' => 'ordinary-user@example.com']);
         $this->postJson('/api/admin/warnings', [
@@ -277,7 +277,7 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testNoEmailIsSentUnlessOneIsAskedFor(): void
     {
-        $reader = UserFactory::createOne(['email' => 'no-mail@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'no-mail@example.com']);
 
         $this->createAndLoginAdmin();
         $created = $this->postJson('/api/admin/warnings', [
@@ -292,7 +292,7 @@ final class UserWarningTest extends AbstractApiTestCase
     /** A missing key is the absence of a request to email anybody. */
     public function testATruthyStringIsNotARequestToEmail(): void
     {
-        $reader = UserFactory::createOne(['email' => 'not-truthy@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'not-truthy@example.com']);
 
         $this->createAndLoginAdmin();
         $created = $this->postJson('/api/admin/warnings', [
@@ -307,7 +307,7 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testTheEmailedCopyCarriesTheSameMessage(): void
     {
-        $reader = UserFactory::createOne(['email' => 'mailed@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'mailed@example.com']);
 
         $this->createAndLoginAdmin();
         $created = $this->postJson('/api/admin/warnings', [
@@ -331,7 +331,7 @@ final class UserWarningTest extends AbstractApiTestCase
 
     public function testFailedEmailCopyIsReportedHonestly(): void
     {
-        $reader = UserFactory::createOne(['email' => 'unreachable-warning@example.com'])->object();
+        $reader = UserFactory::createOne(['email' => 'unreachable-warning@example.com']);
         $this->createAndLoginAdmin();
         SwitchableMailer::failEverything();
 

@@ -14,7 +14,7 @@ final class LogoutTest extends AbstractApiTestCase
         $user = UserFactory::createOne([
             'email' => 'logout-session@test.local',
             'password' => 'Valid!Password123',
-        ])->object();
+        ]);
 
         $this->postJson('/api/login', [
             'email' => $user->getEmail(),

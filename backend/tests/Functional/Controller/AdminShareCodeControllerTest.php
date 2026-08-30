@@ -28,7 +28,7 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
     public function testOrdinaryUsersCannotReachAnyOfIt(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'ordinary@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
@@ -50,9 +50,9 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
 
     public function testAnAdministratorSeesIssuedCodesWithoutEverSeeingACode(): void
     {
-        $owner = UserFactory::createOne(['email' => 'issuer@example.com', 'name' => 'Issuer'])->object();
+        $owner = UserFactory::createOne(['email' => 'issuer@example.com', 'name' => 'Issuer']);
         $this->loginAs($owner);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Handed Out'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Handed Out']);
         $plaintext = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 4,
@@ -84,13 +84,13 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
 
     public function testTheListPagesAndFiltersByStatus(): void
     {
-        $owner = UserFactory::createOne(['email' => 'prolific@example.com'])->object();
-        $other = UserFactory::createOne(['email' => 'somebody-else@example.com'])->object();
+        $owner = UserFactory::createOne(['email' => 'prolific@example.com']);
+        $other = UserFactory::createOne(['email' => 'somebody-else@example.com']);
         $this->loginAs($owner);
 
         $ids = [];
         for ($i = 0; $i < 3; ++$i) {
-            $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+            $comic = ComicFactory::new()->ownedBy($owner)->create();
             $ids[] = $this->postJson('/api/shares/comic-codes', [
                 'comicIds' => [$comic->getId()],
                 'maxUses' => 1,
@@ -99,7 +99,7 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         }
 
         $this->loginAs($other);
-        $othersComic = ComicFactory::new()->ownedBy($other)->create()->object();
+        $othersComic = ComicFactory::new()->ownedBy($other)->create();
         $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$othersComic->getId()],
             'maxUses' => 1,
@@ -136,9 +136,9 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
 
     public function testAnAdministratorCanStopACodeWithoutTakingBackWhatItAlreadyGaveOut(): void
     {
-        $owner = UserFactory::createOne(['email' => 'reported@example.com'])->object();
+        $owner = UserFactory::createOne(['email' => 'reported@example.com']);
         $this->loginAs($owner);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 5,
@@ -172,9 +172,9 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
 
     public function testAdministrativeRevocationIsAudited(): void
     {
-        $owner = UserFactory::createOne(['email' => 'audited-owner@example.com'])->object();
+        $owner = UserFactory::createOne(['email' => 'audited-owner@example.com']);
         $this->loginAs($owner);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 2,
@@ -200,12 +200,12 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
 
     public function testManualCleanupRemovesOnlyWhatTheScheduledSweepWould(): void
     {
-        $owner = UserFactory::createOne(['email' => 'housekeeper@example.com'])->object();
+        $owner = UserFactory::createOne(['email' => 'housekeeper@example.com']);
         $this->loginAs($owner);
 
         $codeIds = [];
         for ($i = 0; $i < 3; ++$i) {
-            $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+            $comic = ComicFactory::new()->ownedBy($owner)->create();
             $codeIds[] = $this->postJson('/api/shares/comic-codes', [
                 'comicIds' => [$comic->getId()],
                 'maxUses' => 1,
@@ -240,9 +240,9 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
 
     public function testManualCleanupNeverRemovesTheSharesACodeProduced(): void
     {
-        $owner = UserFactory::createOne(['email' => 'gave-away@example.com'])->object();
+        $owner = UserFactory::createOne(['email' => 'gave-away@example.com']);
         $this->loginAs($owner);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Claimed Long Ago'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Claimed Long Ago']);
         $created = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
@@ -279,9 +279,9 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
 
     public function testManualCleanupIsAuditedWithWhoRanItAndWhatWentAway(): void
     {
-        $owner = UserFactory::createOne(['email' => 'old-codes@example.com'])->object();
+        $owner = UserFactory::createOne(['email' => 'old-codes@example.com']);
         $this->loginAs($owner);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $codeId = $this->postJson('/api/shares/comic-codes', [
             'comicIds' => [$comic->getId()],
             'maxUses' => 1,
@@ -312,12 +312,12 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
      */
     public function testTheAdminSweepAndTheScheduledOneAreTheSameSweep(): void
     {
-        $owner = UserFactory::createOne(['email' => 'both-ways@example.com'])->object();
+        $owner = UserFactory::createOne(['email' => 'both-ways@example.com']);
         $this->loginAs($owner);
 
         $ids = [];
         for ($i = 0; $i < 2; ++$i) {
-            $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+            $comic = ComicFactory::new()->ownedBy($owner)->create();
             $ids[] = $this->postJson('/api/shares/comic-codes', [
                 'comicIds' => [$comic->getId()],
                 'maxUses' => 1,
@@ -357,8 +357,8 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
     public function testACodeWithAMissingComicIsNotListedAsActive(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'broken-package@example.com']);
-        $first = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create();
+        $second = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/group-codes', [
             'comicIds' => [$first->getId(), $second->getId()],

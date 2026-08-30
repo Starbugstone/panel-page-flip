@@ -20,7 +20,7 @@ final class StorageQuotaServiceTest extends AbstractApiTestCase
      */
     public function testTheEffectiveQuotaIsTheConfiguredLimit(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $quota = static::getContainer()->get(StorageQuotaService::class);
 
         self::assertSame(
@@ -31,7 +31,7 @@ final class StorageQuotaServiceTest extends AbstractApiTestCase
 
     public function testAUserOverrideWinsOverTheConfiguredDefault(): void
     {
-        $user = UserFactory::createOne(['storageQuotaOverrideBytes' => 4_096])->object();
+        $user = UserFactory::createOne(['storageQuotaOverrideBytes' => 4_096]);
         $quota = static::getContainer()->get(StorageQuotaService::class);
 
         self::assertSame(4_096, $quota->getQuotaBytes($user));
@@ -40,7 +40,7 @@ final class StorageQuotaServiceTest extends AbstractApiTestCase
 
     public function testAZeroOverrideIsExplicitlyUnlimited(): void
     {
-        $user = UserFactory::createOne(['storageQuotaOverrideBytes' => 0])->object();
+        $user = UserFactory::createOne(['storageQuotaOverrideBytes' => 0]);
         $quota = static::getContainer()->get(StorageQuotaService::class);
 
         self::assertSame(0, $quota->getQuotaBytes($user));
@@ -50,7 +50,7 @@ final class StorageQuotaServiceTest extends AbstractApiTestCase
     /** Reporting the quota changed nothing about being held to it. */
     public function testAdmissionStillRefusesAnUploadPastTheQuota(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $quota = static::getContainer()->get(StorageQuotaService::class);
 
         $this->expectException(StorageQuotaExceededException::class);
@@ -59,7 +59,7 @@ final class StorageQuotaServiceTest extends AbstractApiTestCase
 
     public function testSecondAdmissionForSameUserCannotRaceTheFirst(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $quota = static::getContainer()->get(StorageQuotaService::class);
         $lockFactory = static::getContainer()->get(LockFactory::class);
         $first = $lockFactory->createLock($quota->lockResource($user), 300.0, true);

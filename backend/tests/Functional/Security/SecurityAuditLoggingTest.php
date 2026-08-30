@@ -171,7 +171,7 @@ final class SecurityAuditLoggingTest extends AbstractApiTestCase
     public function testAnAdminSubRouteCountsAsAnAdminSurface(): void
     {
         $this->createAndLoginUser(['email' => 'sub-prober@test.local']);
-        $target = UserFactory::createOne(['email' => 'verify-target@test.local'])->object();
+        $target = UserFactory::createOne(['email' => 'verify-target@test.local']);
 
         $this->postJson('/api/users/' . $target->getId() . '/verify');
         self::assertResponseStatusCodeSame(403);
@@ -192,7 +192,7 @@ final class SecurityAuditLoggingTest extends AbstractApiTestCase
     public function testReadingAnotherAccountIsNotCountedAsAdminProbing(): void
     {
         $this->createAndLoginUser(['email' => 'stale-link@test.local']);
-        $other = UserFactory::createOne(['email' => 'somebody-else@test.local'])->object();
+        $other = UserFactory::createOne(['email' => 'somebody-else@test.local']);
 
         for ($attempt = 0; $attempt < 3; $attempt++) {
             $this->getJson('/api/users/' . $other->getId());
@@ -215,7 +215,7 @@ final class SecurityAuditLoggingTest extends AbstractApiTestCase
     public function testAPasswordChangeIsAuditedWithoutTheValueOrTheHash(): void
     {
         $admin = $this->createAndLoginAdmin(['email' => 'operator@test.local']);
-        $target = UserFactory::createOne(['email' => 'reset-me@test.local'])->object();
+        $target = UserFactory::createOne(['email' => 'reset-me@test.local']);
 
         $this->putJson('/api/users/' . $target->getId(), ['password' => 'ANewPassword!9Here']);
         self::assertResponseIsSuccessful();
@@ -249,7 +249,7 @@ final class SecurityAuditLoggingTest extends AbstractApiTestCase
             'email' => $email,
             'password' => self::PASSWORD,
             'isEmailVerified' => $verified,
-        ])->object();
+        ]);
     }
 
     private function login(string $email, string $password): void

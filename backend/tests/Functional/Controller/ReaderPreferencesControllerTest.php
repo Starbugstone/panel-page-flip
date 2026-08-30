@@ -32,7 +32,7 @@ final class ReaderPreferencesControllerTest extends AbstractApiTestCase
 
     public function testUnsafePreferenceWriteRequiresCsrfProtection(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $this->browser()->loginUser($user);
         $preferences = static::getContainer()->get(ReaderPreferences::class)->defaults();
 
@@ -86,7 +86,7 @@ final class ReaderPreferencesControllerTest extends AbstractApiTestCase
 
     public function testRejectsAnOverrideForAContextThatDoesNotExist(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $defaults = static::getContainer()->get(ReaderPreferences::class)->defaults();
         $user->setReaderPreferences($defaults);
         static::getContainer()->get(EntityManagerInterface::class)->flush();
@@ -106,7 +106,7 @@ final class ReaderPreferencesControllerTest extends AbstractApiTestCase
 
     public function testRejectsUnsupportedAndUnknownValuesWithoutChangingStoredData(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $defaults = static::getContainer()->get(ReaderPreferences::class)->defaults();
         $user->setReaderPreferences($defaults);
         static::getContainer()->get(EntityManagerInterface::class)->flush();
@@ -156,7 +156,7 @@ final class ReaderPreferencesControllerTest extends AbstractApiTestCase
 
     public function testPreferencesAreIsolatedBetweenUsers(): void
     {
-        $firstUser = UserFactory::createOne()->object();
+        $firstUser = UserFactory::createOne();
         $preferences = static::getContainer()->get(ReaderPreferences::class)->defaults();
         $preferences['settings']['fit'] = 'original';
         $firstUser->setReaderPreferences($preferences);

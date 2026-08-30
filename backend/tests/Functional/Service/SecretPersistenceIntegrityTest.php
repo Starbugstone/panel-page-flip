@@ -17,7 +17,7 @@ final class SecretPersistenceIntegrityTest extends AbstractApiTestCase
     {
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $encryption = static::getContainer()->get(AppDataEncryptionService::class);
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $user->setDropboxRefreshToken('old-refresh');
         $entityManager->flush();
         $id = $user->getId();
@@ -69,7 +69,7 @@ final class SecretPersistenceIntegrityTest extends AbstractApiTestCase
     {
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $encryption = static::getContainer()->get(AppDataEncryptionService::class);
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $id = $user->getId();
         $entityManager->clear();
 

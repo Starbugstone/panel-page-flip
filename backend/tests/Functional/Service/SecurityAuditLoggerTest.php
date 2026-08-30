@@ -113,7 +113,7 @@ final class SecurityAuditLoggerTest extends AbstractApiTestCase
     public function testReadingAComicIsNotAnAuditEvent(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'reader@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $this->clearSecurityLog();
 
         $this->getJson('/api/comics/' . $comic->getId());

@@ -132,7 +132,7 @@ class UserControllerSecurityTest extends AbstractApiTestCase
     public function testAdminCannotCascadeDeleteAUsersComics(): void
     {
         $this->createAndLoginAdmin();
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         ComicFactory::new()->ownedBy($owner)->create();
 
         $payload = $this->deleteJson('/api/users/' . $owner->getId());
@@ -148,9 +148,9 @@ class UserControllerSecurityTest extends AbstractApiTestCase
         $target = UserFactory::createOne([
             'email' => 'admin-delete-me@test.local',
             'name' => 'Admin Delete Me',
-        ])->object();
-        $comicOwner = UserFactory::createOne()->object();
-        $comic = ComicFactory::new()->ownedBy($comicOwner)->create()->object();
+        ]);
+        $comicOwner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($comicOwner)->create();
 
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $share = (new ComicShare($comic, $comicOwner, $target->getEmail()))
@@ -188,7 +188,7 @@ class UserControllerSecurityTest extends AbstractApiTestCase
         $this->createAndLoginAdmin();
         $targetAdmin = UserFactory::new()->admin()->create([
             'email' => 'second-admin@test.local',
-        ])->object();
+        ]);
         $targetId = $targetAdmin->getId();
 
         $payload = $this->deleteJson('/api/users/' . $targetId);
@@ -204,7 +204,7 @@ class UserControllerSecurityTest extends AbstractApiTestCase
     public function testAuditHistorySurvivesAdministratorDeletion(): void
     {
         $this->createAndLoginAdmin();
-        $formerAdmin = UserFactory::new()->admin()->create()->object();
+        $formerAdmin = UserFactory::new()->admin()->create();
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $audit = (new AdminAuditLog())
             ->setAdminUser($formerAdmin)
@@ -226,7 +226,7 @@ class UserControllerSecurityTest extends AbstractApiTestCase
     public function testRegularUserCannotReadAnotherUserProfile(): void
     {
         $currentUser = $this->createAndLoginUser();
-        $otherUser = UserFactory::createOne()->object();
+        $otherUser = UserFactory::createOne();
         self::assertNotSame($currentUser->getId(), $otherUser->getId());
 
         $this->getJson('/api/users/' . $otherUser->getId());

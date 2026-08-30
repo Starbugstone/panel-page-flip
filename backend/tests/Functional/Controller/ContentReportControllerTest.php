@@ -120,8 +120,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function testInvitationResolvesPrivatelyButPublicResponsesStayGeneric(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $share = new ComicShare($comic, $owner, 'recipient@example.com');
         [$plaintext, $hash] = ShareInvitationToken::generate();
         $token = new ShareInvitationToken($share, $hash, new \DateTimeImmutable('+7 days'));
@@ -162,10 +162,10 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function testExactContentAndUserCodesResolveWhileGroupCodeOnlyOffersCandidates(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $owner->assignUserCode('123456789ABC');
-        $first = ComicFactory::createOne(['owner' => $owner, 'title' => 'First candidate'])->object();
-        $second = ComicFactory::createOne(['owner' => $owner, 'title' => 'Second candidate'])->object();
+        $first = ComicFactory::createOne(['owner' => $owner, 'title' => 'First candidate']);
+        $second = ComicFactory::createOne(['owner' => $owner, 'title' => 'Second candidate']);
         $comicToken = 'ABCDEF123456';
         $groupToken = '987654321ABC';
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
@@ -337,9 +337,9 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function testContradictoryTargetsAndStaleUserActionsAreRejected(): void
     {
-        $firstOwner = UserFactory::createOne()->object();
-        $secondOwner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $secondOwner])->object();
+        $firstOwner = UserFactory::createOne();
+        $secondOwner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $secondOwner]);
         $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 153', 'This allegation has enough information to support a review of the selected canonical target.');
         $report->linkUser($firstOwner)->linkComic($comic);
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
@@ -366,8 +366,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function testCanonicalSelectionAuditsChangesAndSnapshotSurvivesComicDeletion(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'Durable title'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'Durable title']);
         $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 153', 'This allegation has enough information to support a review and durable target correlation.');
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $entityManager->persist($report);
@@ -403,8 +403,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
      */
     public function testAdminCanClearALinkedTarget(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 161', 'This allegation has enough information to support a review and a target that turns out to be wrong.');
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $entityManager->persist($report);
@@ -440,8 +440,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
     /** @dataProvider incompleteCanonicalTargetProvider */
     public function testCanonicalTargetTypeAndIdMustAlwaysBeSentTogether(array $selection): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 161B', 'This allegation has enough information to verify that an incomplete update cannot clear its target.');
         $report->linkComic($comic)->linkUser($owner)->snapshotTarget('test');
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
@@ -478,9 +478,9 @@ final class ContentReportControllerTest extends AbstractApiTestCase
      */
     public function testARefusedTargetSelectionLeavesTheEarlierTargetIntact(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $stranger = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $stranger = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 163', 'This allegation has enough information to support a review of a comic and an unrelated account.');
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $entityManager->persist($report);
@@ -514,8 +514,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
      */
     public function testSavingAReviewAnswersWithTheChosenTargetRatherThanASearch(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'The Reported Work'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'title' => 'The Reported Work']);
         $report = new ContentReport('Reporter', 'reporter@example.com', ContentReport::CATEGORY_COPYRIGHT, 'Reference 164', 'This allegation names a work by title so that a candidate search would return several rows.');
         $report->identifyTarget(ReportedReferenceType::Comic->value, 'The Reported Work', null, null);
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
@@ -538,9 +538,9 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function testAdminCanReviewLinkAndRestrictAReportedComic(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $recipient = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $recipient = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $report = new ContentReport(
             'Reporter',
             'reporter@example.com',
@@ -590,8 +590,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function testOwnerNoticeUsesTheConfiguredProductNameAndHumanActionLabel(): void
     {
-        $owner = UserFactory::createOne(['email' => 'notified-owner@example.com'])->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne(['email' => 'notified-owner@example.com']);
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $report = new ContentReport(
             'Reporter',
             'reporter@example.com',
@@ -625,8 +625,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function testAdminCanLiftARestrictionWithoutRecreatingShares(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $comic->restrictSharing();
         $report = new ContentReport(
             'Reporter',
@@ -656,8 +656,8 @@ final class ContentReportControllerTest extends AbstractApiTestCase
 
     public function testQuarantineBlocksTheOwnerButPreservesAdministratorAccess(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $report = new ContentReport(
             'Reporter',
             'reporter@example.com',

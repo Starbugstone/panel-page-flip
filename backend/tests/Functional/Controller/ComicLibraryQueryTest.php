@@ -18,7 +18,7 @@ final class ComicLibraryQueryTest extends AbstractApiTestCase
 {
     public function testTheLibraryEndpointReturnsTagsAndReadingProgress(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $this->seedLibrary($user, 1);
         $this->loginAs($user);
 
@@ -39,9 +39,9 @@ final class ComicLibraryQueryTest extends AbstractApiTestCase
      */
     public function testTheLibraryEndpointDoesNotQueryPerComic(): void
     {
-        $smallLibraryUser = UserFactory::createOne()->object();
+        $smallLibraryUser = UserFactory::createOne();
         $this->seedLibrary($smallLibraryUser, 2);
-        $largeLibraryUser = UserFactory::createOne()->object();
+        $largeLibraryUser = UserFactory::createOne();
         $this->seedLibrary($largeLibraryUser, 6);
 
         $this->loginAs($smallLibraryUser);
@@ -70,7 +70,7 @@ final class ComicLibraryQueryTest extends AbstractApiTestCase
     public function testTheAdminLibraryDoesNotQueryPerOwner(): void
     {
         $this->seedLibraryAcrossNewOwners(2);
-        $this->loginAs(UserFactory::new()->admin()->create()->object());
+        $this->loginAs(UserFactory::new()->admin()->create());
 
         $this->getJson('/api/comics?adminContext=true');
         self::assertResponseIsSuccessful();
@@ -105,7 +105,7 @@ final class ComicLibraryQueryTest extends AbstractApiTestCase
     private function seedLibraryAcrossNewOwners(int $ownerCount): void
     {
         for ($index = 0; $index < $ownerCount; $index++) {
-            $this->seedLibrary(UserFactory::createOne()->object(), 1);
+            $this->seedLibrary(UserFactory::createOne(), 1);
         }
     }
 
@@ -113,13 +113,13 @@ final class ComicLibraryQueryTest extends AbstractApiTestCase
     {
         /** @var EntityManagerInterface $entityManager */
         $entityManager = self::getContainer()->get(EntityManagerInterface::class);
-        $tag = TagFactory::createOne(['name' => 'Serialized', 'creator' => $user])->object();
+        $tag = TagFactory::createOne(['name' => 'Serialized', 'creator' => $user]);
 
         for ($index = 0; $index < $comicCount; $index++) {
             $comic = ComicFactory::createOne([
                 'owner' => $user,
                 'coverImagePath' => 'covers/1/cover-' . $index . '.png',
-            ])->object();
+            ]);
             $comic->addTag($tag);
 
             $progress = (new ComicReadingProgress())

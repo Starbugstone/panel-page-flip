@@ -22,7 +22,7 @@ final class EmailVerificationControllerTest extends AbstractApiTestCase
 
     public function testVerifyMarksAnUnverifiedAccountAndRedirectsToSuccess(): void
     {
-        $user = UserFactory::new()->unverified()->create()->object();
+        $user = UserFactory::new()->unverified()->create();
         $plainToken = self::getContainer()->get(EmailVerificationService::class)->issue($user);
 
         $this->browser()->request('GET', '/api/email-verification/verify/' . $plainToken);
@@ -37,7 +37,7 @@ final class EmailVerificationControllerTest extends AbstractApiTestCase
 
     public function testVerifySaysAlreadyVerifiedWhenTheAccountAlreadyIs(): void
     {
-        $user = UserFactory::new()->unverified()->create()->object();
+        $user = UserFactory::new()->unverified()->create();
         $service = self::getContainer()->get(EmailVerificationService::class);
         $plainToken = $service->issue($user);
         $service->verify($plainToken);

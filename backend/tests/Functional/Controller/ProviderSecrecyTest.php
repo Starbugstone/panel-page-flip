@@ -48,8 +48,8 @@ final class ProviderSecrecyTest extends AbstractApiTestCase
     {
         $this->configureSharedCredentials();
 
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'The Boys'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'The Boys']);
 
         // Set through the paired setter — provider and external id are stored
         // together on purpose, so there is no individual one for a factory.
@@ -94,7 +94,7 @@ final class ProviderSecrecyTest extends AbstractApiTestCase
     public function testTheProviderDescriptorIsReducedToWhatTheUserNeeds(): void
     {
         $this->configureSharedCredentials();
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         foreach ($this->getJson('/api/config')['metadataProviders'] as $provider) {
             self::assertSame(
@@ -114,7 +114,7 @@ final class ProviderSecrecyTest extends AbstractApiTestCase
      */
     public function testAUserIsToldWhenTheirOwnAccountIsTheReason(): void
     {
-        $this->loginAs(UserFactory::createOne(['metadataApiEnabled' => false])->object());
+        $this->loginAs(UserFactory::createOne(['metadataApiEnabled' => false]));
 
         $providers = $this->getJson('/api/config')['metadataProviders'];
         $reasons = array_column($providers, 'reason');
@@ -128,11 +128,11 @@ final class ProviderSecrecyTest extends AbstractApiTestCase
      */
     public function testEveryServerSideRefusalReadsTheSame(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $withoutAnything = array_column($this->getJson('/api/config')['metadataProviders'], 'reason', 'key');
 
         $this->configureSharedCredentials();
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $configuredButOff = array_column($this->getJson('/api/config')['metadataProviders'], 'reason', 'key');
 
         self::assertSame(
@@ -169,13 +169,13 @@ final class ProviderSecrecyTest extends AbstractApiTestCase
     /** A user's own credential state stays visible to them, and only them. */
     public function testAUserStillSeesTheirOwnCredentialState(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $this->loginAs($owner);
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-token']);
 
         self::assertTrue($this->getJson('/api/me/metadata-credentials')['configured']['metron']);
 
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         self::assertFalse($this->getJson('/api/me/metadata-credentials')['configured']['metron']);
     }
 

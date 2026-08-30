@@ -207,7 +207,7 @@ final class AdminPaginationTest extends AbstractApiTestCase
     public function testUserDetailIncludesTheDropboxSummaryForAnAdmin(): void
     {
         $this->createAndLoginAdmin();
-        $target = UserFactory::createOne()->object();
+        $target = UserFactory::createOne();
 
         $payload = $this->getJson('/api/users/' . $target->getId());
 
@@ -219,7 +219,7 @@ final class AdminPaginationTest extends AbstractApiTestCase
     public function testAdminComicListIsPagedAndFilteredByOwner(): void
     {
         $admin = $this->createAndLoginAdmin();
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         ComicFactory::new()->ownedBy($owner)->many(4)->create();
         ComicFactory::new()->ownedBy($admin)->many(3)->create();
 
@@ -236,7 +236,7 @@ final class AdminPaginationTest extends AbstractApiTestCase
     public function testOwnerIdIsIgnoredForANonAdmin(): void
     {
         $caller = $this->createAndLoginUser();
-        $other = UserFactory::createOne()->object();
+        $other = UserFactory::createOne();
         ComicFactory::new()->ownedBy($other)->many(3)->create();
         ComicFactory::new()->ownedBy($caller)->create();
 
@@ -251,13 +251,13 @@ final class AdminPaginationTest extends AbstractApiTestCase
     public function testAdminComicSearchMatchesTheOwnerAndCountsOnce(): void
     {
         $this->createAndLoginAdmin();
-        $owner = UserFactory::createOne(['name' => 'Selina Kyle', 'email' => 'cat@example.com'])->object();
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $owner = UserFactory::createOne(['name' => 'Selina Kyle', 'email' => 'cat@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         // Two matching tags on one comic must not count that comic twice.
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $managed = $entityManager->find(\App\Entity\Comic::class, $comic->getId());
-        $managed->addTag(TagFactory::new()->createdBy($owner)->create(['name' => 'Selina A'])->object());
-        $managed->addTag(TagFactory::new()->createdBy($owner)->create(['name' => 'Selina B'])->object());
+        $managed->addTag(TagFactory::new()->createdBy($owner)->create(['name' => 'Selina A']));
+        $managed->addTag(TagFactory::new()->createdBy($owner)->create(['name' => 'Selina B']));
         $entityManager->flush();
 
         $payload = $this->getJson('/api/comics?adminContext=true&search=selina');
@@ -270,7 +270,7 @@ final class AdminPaginationTest extends AbstractApiTestCase
     public function testAdminTagListIsPagedAndFilteredByCreator(): void
     {
         $this->createAndLoginAdmin();
-        $creator = UserFactory::createOne()->object();
+        $creator = UserFactory::createOne();
         TagFactory::new()->createdBy($creator)->many(3)->create();
         TagFactory::createMany(2);
         TagFactory::createOne(['name' => 'Everyone', 'isGlobal' => true, 'creator' => null]);
@@ -288,7 +288,7 @@ final class AdminPaginationTest extends AbstractApiTestCase
     public function testAdminTagListDistinguishesGlobalTagsAndReportsUsage(): void
     {
         $admin = $this->createAndLoginAdmin();
-        $tag = TagFactory::createOne(['name' => 'Everyone', 'isGlobal' => true, 'creator' => null])->object();
+        $tag = TagFactory::createOne(['name' => 'Everyone', 'isGlobal' => true, 'creator' => null]);
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         foreach (ComicFactory::new()->ownedBy($admin)->many(2)->create() as $comic) {
             $entityManager->find(\App\Entity\Comic::class, $comic->getId())
@@ -308,7 +308,7 @@ final class AdminPaginationTest extends AbstractApiTestCase
     public function testCreatorIdDoesNotLeakAnotherUsersTagsToANonAdmin(): void
     {
         $this->createAndLoginUser();
-        $other = UserFactory::createOne()->object();
+        $other = UserFactory::createOne();
         TagFactory::new()->createdBy($other)->create(['name' => 'Private Tag']);
 
         $payload = $this->getJson('/api/tags?all=true&adminContext=true&creatorId=' . $other->getId());

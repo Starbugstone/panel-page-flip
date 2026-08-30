@@ -22,10 +22,10 @@ final class AdminUserStorageTest extends AbstractApiTestCase
 {
     public function testTheUserListReportsUsageAndQuotaPerAccount(): void
     {
-        $heavy = UserFactory::createOne()->object();
+        $heavy = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $heavy, 'fileSize' => 6_000]);
         ComicFactory::createOne(['owner' => $heavy, 'fileSize' => 4_000]);
-        $empty = UserFactory::createOne()->object();
+        $empty = UserFactory::createOne();
 
         $this->createAndLoginAdmin();
         $users = array_column($this->getJson('/api/users?limit=50')['items'], null, 'id');
@@ -42,7 +42,7 @@ final class AdminUserStorageTest extends AbstractApiTestCase
 
     public function testComicsWithNoRecordedSizeAreFlaggedRatherThanHidden(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $user, 'fileSize' => 2_048]);
         ComicFactory::createOne(['owner' => $user, 'fileSize' => null]);
 
@@ -55,7 +55,7 @@ final class AdminUserStorageTest extends AbstractApiTestCase
 
     public function testTheDetailEndpointAgreesWithTheList(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $user, 'fileSize' => 1_234]);
         ComicFactory::createOne(['owner' => $user, 'fileSize' => null]);
 
@@ -70,7 +70,7 @@ final class AdminUserStorageTest extends AbstractApiTestCase
 
     public function testTheAdminCanSetAndClearAQuotaOverride(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $admin = $this->createAndLoginAdmin();
 
         $updated = $this->patchJson('/api/users/' . $user->getId() . '/storage-quota', [
@@ -106,7 +106,7 @@ final class AdminUserStorageTest extends AbstractApiTestCase
 
     public function testTheAdminCanMakeAnAccountExplicitlyUnlimited(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $this->createAndLoginAdmin();
 
         $updated = $this->patchJson('/api/users/' . $user->getId() . '/storage-quota', [
@@ -135,7 +135,7 @@ final class AdminUserStorageTest extends AbstractApiTestCase
      */
     public function testInvalidQuotaOverridesAreRejected(mixed $override): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $this->createAndLoginAdmin();
 
         $payload = $this->patchJson('/api/users/' . $user->getId() . '/storage-quota', [
@@ -158,7 +158,7 @@ final class AdminUserStorageTest extends AbstractApiTestCase
 
     public function testStorageSurvivesSearchAndPaging(): void
     {
-        $found = UserFactory::createOne(['name' => 'Storage Search Target'])->object();
+        $found = UserFactory::createOne(['name' => 'Storage Search Target']);
         ComicFactory::createOne(['owner' => $found, 'fileSize' => 777]);
 
         $this->createAndLoginAdmin();
@@ -219,7 +219,7 @@ final class AdminUserStorageTest extends AbstractApiTestCase
     /** A comic shared with you is the owner's file; it costs you nothing. */
     public function testComicsSharedWithAnAccountDoNotCountAgainstIt(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         ComicFactory::createOne(['owner' => $owner, 'fileSize' => 9_000]);
 
         $this->createAndLoginUser(['email' => 'borrower@example.com']);

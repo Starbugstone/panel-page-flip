@@ -106,7 +106,7 @@ abstract class AbstractApiTestCase extends WebTestCase
 
     protected function createAndLoginUser(array $attributes = []): User
     {
-        $user = UserFactory::createOne($attributes)->object();
+        $user = UserFactory::createOne($attributes);
         $this->loginAs($user);
 
         return $user;
@@ -114,7 +114,7 @@ abstract class AbstractApiTestCase extends WebTestCase
 
     protected function createAndLoginAdmin(array $attributes = []): User
     {
-        $user = UserFactory::new()->admin()->create($attributes)->object();
+        $user = UserFactory::new()->admin()->create($attributes);
         $this->loginAs($user);
 
         return $user;
