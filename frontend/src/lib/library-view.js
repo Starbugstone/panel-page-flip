@@ -75,3 +75,44 @@ const COMPARATORS = {
 export function sortComics(comics, sort) {
   return [...comics].sort(COMPARATORS[sort] ?? COMPARATORS["title-asc"]);
 }
+
+const tagKey = (tag) => {
+  if (tag && typeof tag === "object") {
+    return `name:${String(tag.name || "").toLocaleLowerCase()}`;
+  }
+  return `name:${String(tag || "").toLocaleLowerCase()}`;
+};
+
+const comicTagKeys = (comic) => new Set((comic?.tags || []).map(tagKey).filter((key) => key !== "name:"));
+const folderKey = (comic) => comic?.libraryFolderId == null ? "root" : String(comic.libraryFolderId);
+const titleOrder = (left, right) => (left.title || "").localeCompare(right.title || "")
+  || String(left.id).localeCompare(String(right.id), undefined, { numeric: true });
+
+/**
+ * Pick the next A–Z title, preferring the current comic's actual folder and
+ * then the greatest tag overlap. Restricting the candidates to titles after
+ * the current one keeps repeated "Next comic" actions moving forward.
+ */
+export function nextComicForReader(comics, currentComic) {
+  if (!currentComic) return null;
+
+  const currentTags = comicTagKeys(currentComic);
+  const currentFolder = folderKey(currentComic);
+  const candidates = (comics || []).filter((candidate) => (
+    String(candidate.id) !== String(currentComic.id)
+    && titleOrder(candidate, currentComic) > 0
+  ));
+
+  candidates.sort((left, right) => {
+    const folderDifference = Number(folderKey(right) === currentFolder) - Number(folderKey(left) === currentFolder);
+    if (folderDifference !== 0) return folderDifference;
+
+    const leftOverlap = [...comicTagKeys(left)].filter((tag) => currentTags.has(tag)).length;
+    const rightOverlap = [...comicTagKeys(right)].filter((tag) => currentTags.has(tag)).length;
+    if (leftOverlap !== rightOverlap) return rightOverlap - leftOverlap;
+
+    return titleOrder(left, right);
+  });
+
+  return candidates[0] ?? null;
+}
