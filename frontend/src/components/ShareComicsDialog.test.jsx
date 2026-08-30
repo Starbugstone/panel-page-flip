@@ -691,7 +691,7 @@ describe("ShareComicsDialog", () => {
     ] });
 
     open({ initialComicIds: dragonBall.comicIds, folder: dragonBall, lockSelection: true });
-    await screen.findByText("Batman #1");
+    await screen.findByText("2 comics will be shared.");
     await confirmRecipient(user, { username: "SilverOtter4821" });
     await acknowledge(user);
     await user.click(screen.getByRole("button", { name: "Send invitations" }));
@@ -734,7 +734,8 @@ describe("ShareComicsDialog", () => {
       lockSelection: true,
     });
 
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics?ownership=mine"));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/shares/recent-recipients"));
+    expect(api.get).not.toHaveBeenCalledWith("/api/comics?ownership=mine");
     expect(screen.queryByRole("tab", { name: "Create a code" })).not.toBeInTheDocument();
     expect(screen.getByText(/21 comics from “DragonBall” will be offered/)).toBeInTheDocument();
   });
@@ -742,7 +743,8 @@ describe("ShareComicsDialog", () => {
   it("still offers the code option for a folder that fits inside one", async () => {
     open({ initialComicIds: dragonBall.comicIds, folder: dragonBall, lockSelection: true });
 
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics?ownership=mine"));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/shares/recent-recipients"));
+    expect(api.get).not.toHaveBeenCalledWith("/api/comics?ownership=mine");
     expect(screen.getByRole("tab", { name: "Create a code" })).toBeInTheDocument();
   });
 
