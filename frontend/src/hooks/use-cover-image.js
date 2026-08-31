@@ -43,6 +43,7 @@ export function useCoverImage(url, { eager = false, slots = coverSlots, maxAttem
 
   const ticketRef = useRef(null);
   const retryTimerRef = useRef(null);
+  const retryLifecycleRef = useRef(null);
 
   // A new cover URL for the same card — a regenerated cover, a recycled row —
   // starts over. Derived rather than reset from an effect, so the first render
@@ -62,6 +63,22 @@ export function useCoverImage(url, { eager = false, slots = coverSlots, maxAttem
     ticketRef.current?.release();
     ticketRef.current = null;
   }, []);
+
+  // A retry belongs to the URL that failed. Cancel it before effects for a
+  // replacement URL can start a new request; otherwise the old timer can fire
+  // after the replacement has loaded and reset the card back to "loading".
+  useEffect(() => {
+    const controller = new AbortController();
+    retryLifecycleRef.current?.abort();
+    retryLifecycleRef.current = controller;
+    clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+
+    return () => {
+      controller.abort();
+      clearTimeout(retryTimerRef.current);
+    };
+  }, [url]);
 
   // A callback ref rather than a ref object: React 19 runs the returned
   // cleanup when the node goes away, and a hook that handed its ref object back
@@ -89,26 +106,35 @@ export function useCoverImage(url, { eager = false, slots = coverSlots, maxAttem
     // the rest of the grid has lost.
     releaseTicket();
 
-    const ticket = slots.acquire();
-    let abandoned = false;
+    const controller = new AbortController();
+    const ticket = slots.acquire({ signal: controller.signal });
     let held = false;
 
     ticket.granted.then((isGranted) => {
       if (!isGranted) return;
-      // Released between asking and being let in: hand the slot straight back,
-      // or it is held for a card that has stopped waiting for it.
-      if (abandoned) {
+      // Aborted between asking and being let in: hand the slot straight back,
+      // or it is held for a card that has stopped waiting for it. The explicit
+      // release also preserves this hook's contract with injected slot pools
+      // that predate AbortSignal support.
+      if (controller.signal.aborted) {
         ticket.release();
         return;
       }
       held = true;
-      ticketRef.current = ticket;
+      ticketRef.current = {
+        release: () => {
+          controller.abort();
+          ticket.release();
+        },
+      };
       update({ granted: attempt });
     });
 
     return () => {
-      abandoned = true;
-      if (!held) ticket.release();
+      if (!held) {
+        controller.abort();
+        ticket.release();
+      }
     };
   }, [attempt, granted, isVisible, loaded, releaseTicket, slots, update, url]);
 
@@ -130,10 +156,15 @@ export function useCoverImage(url, { eager = false, slots = coverSlots, maxAttem
     if (attempt + 1 >= maxAttempts) return;
 
     clearTimeout(retryTimerRef.current);
+    const lifecycle = retryLifecycleRef.current;
     retryTimerRef.current = setTimeout(
       // Only bumps the attempt. Whether that turns into a request is the
       // effect's decision, so a cover that failed off screen waits there.
-      () => update((base) => ({ attempt: base.attempt + 1, failed: false })),
+      () => {
+        retryTimerRef.current = null;
+        if (lifecycle?.signal.aborted) return;
+        update((base) => ({ attempt: base.attempt + 1, failed: false }));
+      },
       coverRetryDelay(attempt)
     );
   }, [attempt, maxAttempts, releaseTicket, update]);

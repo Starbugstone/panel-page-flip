@@ -67,7 +67,9 @@ describe("a comic's cover in the grid", () => {
       }
 
       expect(coverState()).toBe("failed");
-      await act(async () => { screen.getByRole("button", { name: "Retry" }).click(); });
+      await act(async () => {
+        screen.getByRole("button", { name: "Retry cover for Watchmen" }).click();
+      });
 
       expect(coverImage()).toHaveAttribute("src", "/api/comics/cover/1/7/cover.jpg?retry=4");
     } finally {

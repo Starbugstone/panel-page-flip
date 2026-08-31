@@ -26,24 +26,31 @@ export function ComicCard({
 
   return (
     <>
-      <div className="relative" data-comic-id={comic.id}>
-        <Link to={`/read/${comic.id}`} className="group block">
-          <Card className="overflow-hidden border-2 transition-all duration-300 hover:border-comic-purple hover:shadow-lg">
-            <ComicCardCover
-              comic={comic}
-              coverPriority={coverPriority}
-              isSharedWithMe={capabilities.isSharedWithMe}
-              onResetProgress={() => actions.open("reset")}
-            />
-            <ComicCardDetails comic={comic} locationName={locationName} />
-            <CardFooter className="px-4 pb-4 pt-0">
-              <Button variant="secondary" className="w-full">
+      <div className="group relative" data-comic-id={comic.id}>
+        <Card className="relative overflow-hidden border-2 transition-all duration-300 hover:border-comic-purple hover:shadow-lg">
+          <Link
+            to={`/read/${comic.id}`}
+            aria-label={`Read ${comic.title}`}
+            className="absolute inset-0 z-[1] rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          />
+
+          <ComicCardCover
+            comic={comic}
+            coverPriority={coverPriority}
+            isSharedWithMe={capabilities.isSharedWithMe}
+            onResetProgress={() => actions.open("reset")}
+          />
+          <ComicCardDetails comic={comic} locationName={locationName} />
+          <CardFooter className="px-4 pb-4 pt-0">
+            <Button variant="secondary" className="w-full" asChild>
+              <span>
                 <BookOpen className="mr-2 h-4 w-4" />
                 {comic.lastReadPage !== undefined ? "Continue Reading" : "Start Reading"}
-              </Button>
-            </CardFooter>
-          </Card>
-        </Link>
+              </span>
+            </Button>
+          </CardFooter>
+
+        </Card>
 
         <ComicCardMenu
           comic={comic}

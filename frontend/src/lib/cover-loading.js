@@ -71,6 +71,9 @@ export function createRequestSlots({ limit = COVER_REQUEST_LIMIT } = {}) {
   // Idempotent: a card releases on unmount as well as when its image settles,
   // and a release that freed a slot twice would raise the limit for everybody.
   const release = (ticket) => {
+    ticket.detachAbort?.();
+    ticket.detachAbort = null;
+
     if (ticket.state === "granted") {
       ticket.state = "released";
       active -= 1;
@@ -87,14 +90,23 @@ export function createRequestSlots({ limit = COVER_REQUEST_LIMIT } = {}) {
 
   return {
     /**
+     * @param {{signal?: AbortSignal}} options
      * @returns {{granted: Promise<boolean>, release: () => void}} `granted`
      * resolves true when the holder may start, and false when the ticket was
      * released before its turn came.
      */
-    acquire() {
-      const ticket = { state: "waiting", settle: () => {} };
+    acquire({ signal } = {}) {
+      const ticket = { state: "waiting", settle: () => {}, detachAbort: null };
       ticket.granted = new Promise((resolve) => { ticket.settle = resolve; });
       waiting.push(ticket);
+
+      if (signal) {
+        const abort = () => release(ticket);
+        ticket.detachAbort = () => signal.removeEventListener("abort", abort);
+        if (signal.aborted) abort();
+        else signal.addEventListener("abort", abort, { once: true });
+      }
+
       pump();
 
       return { granted: ticket.granted, release: () => release(ticket) };

@@ -73,6 +73,34 @@ describe("cover request slots", () => {
     expect(outcomes[3].granted).toBe(false);
   });
 
+  it("removes an aborted ticket from the waiting line", async () => {
+    const slots = createRequestSlots({ limit: 1 });
+    const active = slots.acquire();
+    const controller = new AbortController();
+    const abandoned = slots.acquire({ signal: controller.signal });
+
+    controller.abort();
+    await expect(abandoned.granted).resolves.toBe(false);
+
+    expect(slots.activeCount).toBe(1);
+    expect(slots.waitingCount).toBe(0);
+    active.release();
+  });
+
+  it("hands an aborted active slot to the next ticket", async () => {
+    const slots = createRequestSlots({ limit: 1 });
+    const controller = new AbortController();
+    const active = slots.acquire({ signal: controller.signal });
+    const next = slots.acquire();
+    await expect(active.granted).resolves.toBe(true);
+
+    controller.abort();
+
+    await expect(next.granted).resolves.toBe(true);
+    expect(slots.activeCount).toBe(1);
+    next.release();
+  });
+
   it("caps the whole library, not each card", () => {
     expect(COVER_REQUEST_LIMIT).toBeLessThan(10);
   });

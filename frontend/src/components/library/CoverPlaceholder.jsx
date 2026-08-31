@@ -65,13 +65,9 @@ export function CoverFailureArt({ title, onRetry }) {
       <p className="text-xs text-muted-foreground">Cover unavailable</p>
       <button
         type="button"
-        onClick={(event) => {
-          // Inside the card's Link; without this, retrying opens the reader.
-          event.preventDefault();
-          event.stopPropagation();
-          onRetry();
-        }}
-        className="inline-flex items-center gap-1 rounded border border-input bg-background px-2 py-1 text-xs font-medium hover:bg-accent"
+        onClick={onRetry}
+        aria-label={`Retry cover for ${title}`}
+        className="relative z-10 inline-flex items-center gap-1 rounded border border-input bg-background px-2 py-1 text-xs font-medium hover:bg-accent"
       >
         <RefreshCw className="h-3 w-3" aria-hidden="true" />
         Retry

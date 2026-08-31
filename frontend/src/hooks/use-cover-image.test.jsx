@@ -102,6 +102,17 @@ describe("requesting a cover", () => {
     // was waiting for goes to something still on screen.
     expect(requestedUrls()).toEqual(["/covers/a.jpg", "/covers/c.jpg"]);
   });
+
+  it("aborts an in-flight ticket when its card unmounts", async () => {
+    const slots = createRequestSlots({ limit: 1 });
+    const view = renderCovers(["/covers/a.jpg"], { slots });
+    await scrollTo("/covers/a.jpg");
+    expect(slots.activeCount).toBe(1);
+
+    view.unmount();
+
+    expect(slots.activeCount).toBe(0);
+  });
 });
 
 describe("a cover that comes back broken", () => {
@@ -145,6 +156,23 @@ describe("a cover that comes back broken", () => {
     await scrollTo("/covers/a.jpg");
 
     expect(requestedUrls()).toEqual(["/covers/a.jpg?retry=1"]);
+  });
+
+  it("does not let an old retry reset a replacement cover that has loaded", async () => {
+    const slots = createRequestSlots({ limit: 4 });
+    const view = render(<Cover url="/covers/old.jpg" slots={slots} />);
+    await scrollTo("/covers/old.jpg");
+
+    settle("/covers/old.jpg", "error");
+    view.rerender(<Cover url="/covers/new.jpg" slots={slots} />);
+    await flush();
+    settle("/covers/new.jpg", "load");
+    expect(statusOf("/covers/new.jpg")).toBe("loaded");
+
+    await waitOutTheBackoff();
+
+    expect(statusOf("/covers/new.jpg")).toBe("loaded");
+    expect(requestedUrls()).toEqual(["/covers/new.jpg"]);
   });
 
   it("holds its request slot for the whole retry, not the whole backoff", async () => {

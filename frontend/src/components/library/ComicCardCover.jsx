@@ -68,13 +68,8 @@ export function ComicCardCover({ comic, coverPriority, isSharedWithMe, onResetPr
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0 text-white hover:text-red-400"
-            onClick={(event) => {
-              // Inside the card's Link; without this the reset opens the reader.
-              event.preventDefault();
-              event.stopPropagation();
-              onResetProgress();
-            }}
+            className="relative z-10 h-7 w-7 p-0 text-white hover:text-red-400"
+            onClick={onResetProgress}
             aria-label={`Reset reading progress for ${comic.title}`}
           >
             <RotateCcw size={16} />

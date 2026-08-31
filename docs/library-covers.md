@@ -27,6 +27,13 @@ granted**. Fast scrolling therefore drains the queue towards what is on screen
 now rather than towards wherever the reader was a second ago. Without that, the
 cap would only spread the same doomed burst over a longer period.
 
+Each ticket accepts an `AbortSignal`. Leaving the preload margin, replacing a
+cover URL, or unmounting a card aborts ownership of any ticket that no longer
+has a consumer, including one that was granted during the same turn. Native
+`<img>` requests do not accept an `AbortSignal`; removing or replacing their
+`src` is deliberately left to the browser so its normal image cache remains in
+use rather than routing every cover through fetched blobs and object URLs.
+
 The browser still does the fetching. This decides who may start, not how — so
 HTTP caching, decoding and `alt` text on failure all behave normally. Covers are
 served `private, immutable` with a long max-age, so returning to the library
@@ -49,6 +56,11 @@ original problem wearing a hat.
 Backoff doubles from 600 ms to a ceiling of 8 s and is **jittered**, because
 covers fail in bursts: a saturated server refuses a screenful together, and a
 fixed delay would bring that whole screenful back together too.
+
+The retry lifecycle also has an `AbortController` scoped to the cover URL. A
+replacement URL aborts the old lifecycle and clears its timer, while the signal
+guard prevents an already-queued callback from resetting a replacement cover
+that has since loaded.
 
 After `COVER_MAX_ATTEMPTS` (four, counting the first), the card stops and shows
 a Retry button. By then the failure has outlived a burst of load, and a reader
