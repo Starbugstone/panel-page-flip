@@ -137,11 +137,6 @@ class UserWarning
         return $this->recipient;
     }
 
-    public function getIssuedBy(): ?User
-    {
-        return $this->issuedBy;
-    }
-
     public function getMessage(): string
     {
         return $this->message;
@@ -183,11 +178,6 @@ class UserWarning
     public function getComic(): ?Comic
     {
         return $this->comic;
-    }
-
-    public function getShare(): ?ComicShare
-    {
-        return $this->share;
     }
 
     /** Idempotent: dismissing twice is one dismissal, and keeps the first time. */

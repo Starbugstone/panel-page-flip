@@ -331,11 +331,6 @@ class ComicShare
         return $this->recipientAliasName;
     }
 
-    public function getRecipientUserCode(): ?string
-    {
-        return $this->recipientUserCode;
-    }
-
     public function getNotificationState(): string
     {
         return $this->notificationState;
@@ -407,23 +402,9 @@ class ComicShare
         return $this->recipientUser;
     }
 
-    public function setRecipientUser(?User $recipientUser): self
-    {
-        $this->recipientUser = $recipientUser;
-
-        return $this;
-    }
-
     public function getRecipientEmailNormalized(): string
     {
         return $this->recipientEmailNormalized;
-    }
-
-    public function setRecipientEmail(string $email): self
-    {
-        $this->recipientEmailNormalized = self::normaliseEmail($email);
-
-        return $this;
     }
 
     public function getStatus(): string

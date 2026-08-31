@@ -50,19 +50,9 @@ class PendingFileDeletion
         return $this->attempts;
     }
 
-    public function getLastError(): ?string
-    {
-        return $this->lastError;
-    }
-
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
-    }
-
-    public function getLastAttemptAt(): ?\DateTimeImmutable
-    {
-        return $this->lastAttemptAt;
     }
 
     public function recordFailure(string $message): void

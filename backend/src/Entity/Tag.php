@@ -90,25 +90,6 @@ class Tag
         return $this->comics;
     }
 
-    public function addComic(Comic $comic): static
-    {
-        if (!$this->comics->contains($comic)) {
-            $this->comics->add($comic);
-            $comic->addTag($this);
-        }
-
-        return $this;
-    }
-
-    public function removeComic(Comic $comic): static
-    {
-        if ($this->comics->removeElement($comic)) {
-            $comic->removeTag($this);
-        }
-
-        return $this;
-    }
-
     public function getCreator(): ?User
     {
         return $this->creator;

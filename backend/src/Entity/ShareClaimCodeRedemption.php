@@ -61,18 +61,8 @@ class ShareClaimCodeRedemption
         return $this->id;
     }
 
-    public function getClaimCode(): ?ShareClaimCode
-    {
-        return $this->claimCode;
-    }
-
     public function getRecipient(): ?User
     {
         return $this->recipient;
-    }
-
-    public function getRedeemedAt(): \DateTimeImmutable
-    {
-        return $this->redeemedAt;
     }
 }

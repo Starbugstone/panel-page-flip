@@ -265,13 +265,6 @@ class ShareClaimCode
         return $this->comics;
     }
 
-    public function removeComic(Comic $comic): self
-    {
-        $this->comics->removeElement($comic);
-
-        return $this;
-    }
-
     public function getUsesRemaining(): int
     {
         return $this->usesRemaining;

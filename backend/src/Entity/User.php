@@ -383,11 +383,6 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->sharingRestrictedAt !== null;
     }
 
-    public function getSharingRestrictedAt(): ?\DateTimeImmutable
-    {
-        return $this->sharingRestrictedAt;
-    }
-
     public function restrictSharing(): static
     {
         $this->sharingRestrictedAt ??= new \DateTimeImmutable();
@@ -450,12 +445,6 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->updatedAt;
     }
 
-    public function setUpdatedAt(\DateTimeImmutable $updatedAt): static
-    {
-        $this->updatedAt = $updatedAt;
-        return $this;
-    }
-
     public function getLastLoginAt(): ?\DateTimeImmutable
     {
         return $this->lastLoginAt;
@@ -514,26 +503,6 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->comics;
     }
 
-    public function addComic(Comic $comic): static
-    {
-        if (!$this->comics->contains($comic)) {
-            $this->comics->add($comic);
-            $comic->setOwner($this);
-        }
-        return $this;
-    }
-
-    public function removeComic(Comic $comic): static
-    {
-        if ($this->comics->removeElement($comic)) {
-            // set the owning side to null (unless already changed)
-            if ($comic->getOwner() === $this) {
-                $comic->setOwner(null);
-            }
-        }
-        return $this;
-    }
-    
     /**
      * @return Collection<int, ComicReadingProgress>
      */
@@ -542,108 +511,12 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->readingProgress;
     }
     
-    public function addReadingProgress(ComicReadingProgress $progress): static
-    {
-        if (!$this->readingProgress->contains($progress)) {
-            $this->readingProgress->add($progress);
-            $progress->setUser($this);
-        }
-        return $this;
-    }
-    
-    public function removeReadingProgress(ComicReadingProgress $progress): static
-    {
-        if ($this->readingProgress->removeElement($progress)) {
-            if ($progress->getUser() === $this) {
-                $progress->setUser(null);
-            }
-        }
-        return $this;
-    }
-    
     /**
      * @return Collection<int, Tag>
      */
     public function getCreatedTags(): Collection
     {
         return $this->createdTags;
-    }
-    
-    public function addCreatedTag(Tag $tag): static
-    {
-        if (!$this->createdTags->contains($tag)) {
-            $this->createdTags->add($tag);
-            $tag->setCreator($this);
-        }
-        return $this;
-    }
-    
-    public function removeCreatedTag(Tag $tag): static
-    {
-        if ($this->createdTags->removeElement($tag)) {
-            if ($tag->getCreator() === $this) {
-                $tag->setCreator(null);
-            }
-        }
-        return $this;
-    }
-    
-    /**
-     * @return Collection<int, ResetPasswordToken>
-     */
-    public function getResetPasswordTokens(): Collection
-    {
-        return $this->resetPasswordTokens;
-    }
-    
-    public function addResetPasswordToken(ResetPasswordToken $token): static
-    {
-        if (!$this->resetPasswordTokens->contains($token)) {
-            $this->resetPasswordTokens->add($token);
-            $token->setUser($this);
-        }
-        return $this;
-    }
-    
-    public function removeResetPasswordToken(ResetPasswordToken $token): static
-    {
-        if ($this->resetPasswordTokens->removeElement($token)) {
-            // set the owning side to null (unless already changed)
-            if ($token->getUser() === $this) {
-                $token->setUser(null);
-            }
-        }
-
-        return $this;
-    }
-
-    /**
-     * @return Collection<int, EmailVerificationToken>
-     */
-    public function getEmailVerificationTokens(): Collection
-    {
-        return $this->emailVerificationTokens;
-    }
-
-    public function addEmailVerificationToken(EmailVerificationToken $token): static
-    {
-        if (!$this->emailVerificationTokens->contains($token)) {
-            $this->emailVerificationTokens->add($token);
-            $token->setUser($this);
-        }
-
-        return $this;
-    }
-
-    public function removeEmailVerificationToken(EmailVerificationToken $token): static
-    {
-        if ($this->emailVerificationTokens->removeElement($token)) {
-            if ($token->getUser() === $this) {
-                $token->setUser(null);
-            }
-        }
-
-        return $this;
     }
     
 }

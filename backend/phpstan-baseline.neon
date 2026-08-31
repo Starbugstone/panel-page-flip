@@ -205,6 +205,12 @@ parameters:
 			path: src/Entity/Comic.php
 
 		-
+			message: '#^Property App\\Entity\\Comic\:\:\$readingProgresses is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/Comic.php
+
+		-
 			message: '#^Property App\\Entity\\Comic\:\:\$readingProgresses with generic interface Doctrine\\Common\\Collections\\Collection does not specify its types\: TKey, T$#'
 			identifier: missingType.generics
 			count: 1
@@ -271,6 +277,18 @@ parameters:
 			path: src/Entity/PendingFileDeletion.php
 
 		-
+			message: '#^Property App\\Entity\\PendingFileDeletion\:\:\$lastAttemptAt is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/PendingFileDeletion.php
+
+		-
+			message: '#^Property App\\Entity\\PendingFileDeletion\:\:\$lastError is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/PendingFileDeletion.php
+
+		-
 			message: '#^Property App\\Entity\\ResetPasswordToken\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
 			identifier: property.unusedType
 			count: 1
@@ -307,8 +325,20 @@ parameters:
 			path: src/Entity/ShareClaimCode.php
 
 		-
+			message: '#^Property App\\Entity\\ShareClaimCodeRedemption\:\:\$claimCode is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/ShareClaimCodeRedemption.php
+
+		-
 			message: '#^Property App\\Entity\\ShareClaimCodeRedemption\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
 			identifier: property.unusedType
+			count: 1
+			path: src/Entity/ShareClaimCodeRedemption.php
+
+		-
+			message: '#^Property App\\Entity\\ShareClaimCodeRedemption\:\:\$redeemedAt is never read, only written\.$#'
+			identifier: property.onlyWritten
 			count: 1
 			path: src/Entity/ShareClaimCodeRedemption.php
 
@@ -343,14 +373,32 @@ parameters:
 			path: src/Entity/Tag.php
 
 		-
+			message: '#^Property App\\Entity\\User\:\:\$emailVerificationTokens is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/User.php
+
+		-
 			message: '#^Property App\\Entity\\User\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
 			identifier: property.unusedType
 			count: 1
 			path: src/Entity/User.php
 
 		-
+			message: '#^Property App\\Entity\\User\:\:\$resetPasswordTokens is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/User.php
+
+		-
 			message: '#^Property App\\Entity\\UserWarning\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
 			identifier: property.unusedType
+			count: 1
+			path: src/Entity/UserWarning.php
+
+		-
+			message: '#^Property App\\Entity\\UserWarning\:\:\$share is never read, only written\.$#'
+			identifier: property.onlyWritten
 			count: 1
 			path: src/Entity/UserWarning.php
 
