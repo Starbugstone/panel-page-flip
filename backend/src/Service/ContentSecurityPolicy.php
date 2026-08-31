@@ -16,12 +16,18 @@ final class ContentSecurityPolicy
         private readonly AdvertisingConfiguration $advertising,
         #[Autowire('%kernel.project_dir%/config/csp.json')]
         private readonly string $manifestPath,
+        private readonly ?GoogleAnalyticsConfiguration $analytics = null,
     ) {
     }
 
     public function advertisingEnabled(): bool
     {
         return $this->advertising->isEnabled();
+    }
+
+    public function googleScriptsEnabled(): bool
+    {
+        return $this->advertising->isEnabled() || ($this->analytics?->isEnabled() ?? false);
     }
 
     /** A base64url value that is safe in both an HTML attribute and CSP. */
@@ -34,13 +40,13 @@ final class ContentSecurityPolicy
     {
         $manifest = $this->manifest();
         $directives = $manifest['directives'];
-        $scriptSources = $this->advertising->isEnabled()
+        $scriptSources = $this->googleScriptsEnabled()
             ? $manifest['scriptSrcWithAdvertising']
             : $manifest['scriptSrcWithoutAdvertising'];
 
-        if ($this->advertising->isEnabled()) {
+        if ($this->googleScriptsEnabled()) {
             if ($nonce === null || $nonce === '') {
-                throw new \InvalidArgumentException('An advertising-enabled CSP requires a nonce.');
+                throw new \InvalidArgumentException('A Google-script-enabled CSP requires a nonce.');
             }
             $scriptSources = array_map(
                 static fn (string $source): string => str_replace('{nonce}', $nonce, $source),

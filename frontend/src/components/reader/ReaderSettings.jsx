@@ -9,6 +9,7 @@ import { ReaderZoomSlider } from "@/components/reader/ReaderZoomSlider";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { READER_DIRECTIONS, READER_FITS, READER_MODES } from "@/lib/reader-preferences";
+import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
 
 function SettingSwitch({ id, label, description, checked, onCheckedChange, disabled }) {
   return (
@@ -143,6 +144,8 @@ export function ReaderSettings({
             <RotateCcw className="mr-2 h-4 w-4" /> Reset defaults
           </Button>
         </div>
+
+        <PrivacyChoicesButton className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground" />
       </PopoverContent>
     </Popover>
   );

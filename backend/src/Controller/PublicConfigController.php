@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\AdvertisingConfiguration;
+use App\Service\GoogleAnalyticsConfiguration;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -31,6 +32,7 @@ final class PublicConfigController extends AbstractController
 {
     public function __construct(
         private readonly AdvertisingConfiguration $advertising,
+        private readonly GoogleAnalyticsConfiguration $analytics,
         #[Autowire('%privacy_operator%')]
         private readonly string $privacyOperator,
         #[Autowire('%privacy_email%')]
@@ -45,6 +47,13 @@ final class PublicConfigController extends AbstractController
     {
         return $this->json([
             'adsense' => $this->advertising->publicConfiguration(),
+            'analytics' => $this->analytics->publicConfiguration(),
+            'googleConsent' => [
+                'enabled' => $this->advertising->isEnabled() || $this->analytics->isEnabled(),
+                'client' => $this->advertising->isEnabled()
+                    ? $this->advertising->consentClient()
+                    : $this->analytics->consentClient(),
+            ],
             'operator' => $this->privacyOperator,
             'privacyEmail' => $this->privacyEmail,
             'legalEmail' => $this->legalEmail,

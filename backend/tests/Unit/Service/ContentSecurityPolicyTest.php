@@ -6,6 +6,7 @@ namespace App\Tests\Unit\Service;
 
 use App\Service\AdvertisingConfiguration;
 use App\Service\ContentSecurityPolicy;
+use App\Service\GoogleAnalyticsConfiguration;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
@@ -55,5 +56,19 @@ final class ContentSecurityPolicyTest extends TestCase
 
         self::assertStringContainsString("script-src 'self'", $policy->header());
         self::assertStringNotContainsString('unsafe-eval', $policy->header());
+    }
+
+    public function testAnalyticsAloneReceivesTheNoncePolicyNeededForTheCmpAndTag(): void
+    {
+        $advertising = new AdvertisingConfiguration(false, 'ca-pub-1234567890123456', new NullLogger());
+        $analytics = new GoogleAnalyticsConfiguration(true, 'G-PSW1MY7HB4', $advertising, new NullLogger());
+        $policy = new ContentSecurityPolicy($advertising, $this->manifest, $analytics);
+
+        $header = $policy->header('analytics-nonce');
+
+        self::assertTrue($policy->googleScriptsEnabled());
+        self::assertStringContainsString("script-src 'nonce-analytics-nonce'", $header);
+        self::assertStringContainsString('https://*.google-analytics.com', $header);
+        self::assertStringContainsString('https://www.googletagmanager.com', $header);
     }
 }

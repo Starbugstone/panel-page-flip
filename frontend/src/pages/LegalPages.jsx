@@ -26,15 +26,18 @@ function useLegalConfig() {
  * do. A privacy policy that lists a processor nobody uses is as wrong as one
  * that omits a processor they do.
  */
-function useAdvertisingInUse() {
-  const { isLoading, isActive } = useAdSense();
+function useGoogleServicesInUse() {
+  const { analytics, isLoading, isActive } = useAdSense();
 
   // Null, not false, until the answer arrives. These pages carry absolute
   // claims in both directions — "we do not use advertising networks" is a
   // statement of fact on an indexable page — and defaulting to the negative one
   // for the length of a round trip publishes the wrong fact on every load of an
   // installation that does show advertising. Unknown renders neither claim.
-  return isLoading ? null : isActive;
+  return isLoading ? null : {
+    advertising: isActive,
+    analytics: Boolean(analytics?.enabled && analytics.measurementId),
+  };
 }
 
 function Contact({ email }) {
@@ -86,7 +89,9 @@ function LegalLayout({ title, children }) {
  * Who else sees the data, including the advertising disclosures that only
  * apply where the operator has actually turned advertising on.
  */
-function PrivacyRecipients({ advertising }) {
+function PrivacyRecipients({ services }) {
+  const advertising = services?.advertising;
+  const analytics = services?.analytics;
   return (
     <>
       <h2>Who receives data</h2>
@@ -95,9 +100,13 @@ function PrivacyRecipients({ advertising }) {
         Email delivery providers receive recipient addresses and message content.
         If you connect Dropbox, Dropbox receives API requests needed to list and
         import the files you select. Dropbox is optional and can be disconnected.
-        {advertising === null ? null : advertising
-          ? " Google serves advertising on a small number of pages, described below. We do not use third-party analytics."
-          : " We do not use advertising networks or third-party analytics."}
+        {services === null ? null : advertising && analytics
+          ? " Google serves advertising on a small number of pages and provides optional audience measurement, as described below."
+          : advertising
+            ? " Google serves advertising on a small number of pages, described below. We do not use third-party analytics."
+            : analytics
+              ? " We use Google Analytics for optional audience measurement, as described below. We do not use advertising networks."
+              : " We do not use advertising networks or third-party analytics."}
       </p>
       <p>
         <strong>Metadata providers.</strong> When you explicitly search for a comic’s
@@ -149,8 +158,8 @@ function PrivacyRecipients({ advertising }) {
             as accepting; and you can change or withdraw your choices at any time
             using{" "}
             <PrivacyChoicesButton className="underline">privacy choices</PrivacyChoicesButton>
-            , which also appears in the footer of every page outside the comic
-            reader.
+            , which also appears in every normal page footer and in the comic
+            reader’s settings.
           </p>
           <p>
             Refusing advertising consent does not prevent you from registering,
@@ -163,6 +172,35 @@ function PrivacyRecipients({ advertising }) {
           </p>
         </>
       )}
+
+      {analytics && (
+        <>
+          <h2>Optional audience measurement</h2>
+          <p>
+            When the certified platform reports analytics consent, or that the applicable
+            consent rules do not require it, Google Analytics measures visits to a limited
+            set of application-owned routes so the operator can understand which features
+            are used and improve the service. It receives a pseudonymous browser identifier,
+            a fixed page category, and general device, browser and approximate-location
+            information. We do not send a referrer.
+          </p>
+          <p>
+            We never send Google your account id, email address, comic ids, titles,
+            filenames, metadata, tags, searches, reading activity, sharing recipients,
+            Dropbox paths, reset tokens or invitation tokens. Reader, administration,
+            invitation, verification and password-reset routes are excluded. URL query
+            strings and user-entered values are not sent.
+          </p>
+          <p>
+            The Analytics tag is blocked until the certified consent platform reports
+            analytics consent, and it remains blocked if the platform is unavailable or
+            misconfigured. Google Signals and advertising-personalisation signals are
+            disabled. You can refuse or withdraw without losing any feature through{" "}
+            <PrivacyChoicesButton className="underline">privacy choices</PrivacyChoicesButton>,
+            available in the footer and in reader settings.
+          </p>
+        </>
+      )}
     </>
   );
 }
@@ -170,7 +208,8 @@ function PrivacyRecipients({ advertising }) {
 export function PrivacyPolicy() {
   const { operator, privacyEmail } = useLegalConfig();
 
-  const advertising = useAdvertisingInUse();
+  const services = useGoogleServicesInUse();
+  const analytics = services?.analytics;
 
   return (
     <LegalLayout title="Privacy Policy">
@@ -202,9 +241,10 @@ export function PrivacyPolicy() {
         <li><strong>Contract:</strong> to create your account and provide the library, reader, sharing, and optional Dropbox features you request.</li>
         <li><strong>Legitimate interests:</strong> to secure, troubleshoot, and administer the service, prevent abuse, and keep proportionate audit records.</li>
         <li><strong>Legal obligations:</strong> where records must be retained or disclosed under applicable law.</li>
+        {analytics && <li><strong>Consent:</strong> to perform optional audience measurement with Google Analytics.</li>}
       </ul>
 
-      <PrivacyRecipients advertising={advertising} />
+      <PrivacyRecipients services={services} />
 
       <h2>Retention</h2>
       <ul>
@@ -213,6 +253,7 @@ export function PrivacyPolicy() {
         <li>Administrator audit records are deleted after 12 months.</li>
         <li>Expired verification, password-reset, and share tokens are removed by scheduled cleanup.</li>
         <li>Infrastructure access logs are retained according to the hosting configuration and should be limited to the shortest operationally necessary period.</li>
+        {analytics && <li>Google Analytics user-level and event-level data is configured for a two-month retention period; aggregated reports may remain available for longer.</li>}
         <li>Closed or rejected content reports are normally deleted after two years. Open cases and records subject to a legal hold or ongoing legal obligation are retained while needed.</li>
       </ul>
 
@@ -246,7 +287,8 @@ export function PrivacyPolicy() {
 
 export function TermsOfService() {
   const { operator, privacyEmail, legalEmail } = useLegalConfig();
-  const advertising = useAdvertisingInUse();
+  const services = useGoogleServicesInUse();
+  const advertising = services?.advertising;
 
   return (
     <LegalLayout title="Terms of Service">
@@ -352,13 +394,21 @@ export function TermsOfService() {
 }
 
 export function CookieNoticePage() {
-  const advertising = useAdvertisingInUse();
+  const services = useGoogleServicesInUse();
+  const advertising = services?.advertising;
+  const analytics = services?.analytics;
+  const googleServices = Boolean(advertising || analytics);
+  const optionalStorageSummary = advertising && analytics
+    ? "Google advertising and optional Google Analytics use"
+    : advertising
+      ? "Google advertising uses"
+      : "Optional Google Analytics uses";
 
   return (
     <LegalLayout title="Cookie Notice">
       <p>
-        {advertising === null ? null : advertising
-          ? "Panel Page Flip uses storage needed to operate the service and remember your theme preference. On a small number of pages it also shows Google advertising, which uses storage of its own — you decide whether to allow that."
+        {services === null ? null : googleServices
+          ? `Panel Page Flip uses storage needed to operate the service and remember your theme preference. ${optionalStorageSummary} additional storage only according to your privacy choices.`
           : "Panel Page Flip does not use advertising or analytics cookies. It uses only storage needed to operate the service and remember your theme preference."}
       </p>
 
@@ -368,7 +418,7 @@ export function CookieNoticePage() {
         <li><strong>XSRF-TOKEN:</strong> protects authenticated actions against cross-site request forgery.</li>
         <li><strong>comic-reader-theme:</strong> remembers light or dark appearance for up to 365 days.</li>
         <li><strong>Local browser storage:</strong> remembers the theme during migration and whether you dismissed the cookie notice.</li>
-        {advertising && (
+        {googleServices && (
           <li>
             <strong>Consent choices:</strong> the Google-certified consent platform stores the
             choices you made, so it does not ask again on every visit.
@@ -384,6 +434,16 @@ export function CookieNoticePage() {
             consent panel is where the current answer lives.
           </li>
         )}
+        {analytics && (
+          <li>
+            <strong>Google Analytics storage:</strong> when allowed by your consent choice,
+            or where the certified platform reports that those consent rules do not apply,
+            Google sets first-party <code>_ga</code> cookies containing pseudonymous
+            identifiers to distinguish visits and sessions. They expire no later than
+            thirteen months after first use and are not refreshed on each visit.
+            Withdrawing consent disables collection and removes these cookies from this site.
+          </li>
+        )}
       </ul>
 
       <h2>Your choices</h2>
@@ -391,15 +451,15 @@ export function CookieNoticePage() {
         Session and security storage are necessary for signed-in features. You can
         clear site data in your browser. Doing so signs you out and resets preferences.
       </p>
-      {advertising === null ? null : advertising ? (
+      {services === null ? null : googleServices ? (
         <>
           <p>
-            Advertising storage is not necessary, and you choose whether to allow it. Where the
+            Advertising and analytics storage are not necessary, and you choose whether to allow each purpose. Where the
             EEA, UK or Swiss rules apply, the consent panel appears before any non-essential
-            advertising storage is used; rejecting is as easy as accepting. Reopen it at any time
+            Google storage or measurement is used; rejecting is as easy as accepting. Reopen it at any time
             through{" "}
             <PrivacyChoicesButton className="underline">privacy choices</PrivacyChoicesButton>
-            , which is also in the footer of every page outside the comic reader.
+            , which is also in the footer and in the comic reader’s settings.
           </p>
           <p>
             Refusing does not sign you out, hide your library, or take away any feature. Comic

@@ -1,13 +1,18 @@
 import { loadConsentPlatform } from "@/lib/adsense-loader";
 import { logger } from "@/lib/logger";
+import { PRIVACY_CHOICES_OPENING_EVENT } from "@/lib/google-consent";
+
+function showRevocationMessage(win) {
+  win.dispatchEvent?.(new Event(PRIVACY_CHOICES_OPENING_EVENT));
+  win.googlefc.showRevocationMessage();
+}
 
 /**
  * Reopening Google's consent message.
  *
- * The whole of the consent state lives in Google's certified CMP, which this
- * application reads nothing out of: a copy of somebody's consent kept over here
- * could only ever be a second answer that disagrees with the real one, and the
- * wrong one to act on.
+ * The whole consent state lives in Google's certified CMP. The application may
+ * observe its analytics-purpose result, but never stores or synthesises a copy:
+ * a second consent answer kept here could disagree with the real one.
  *
  * What this does have to solve is *where*. The advertising site code loads only
  * on the four ad-safe routes, so on a reader, library or settings page
@@ -45,14 +50,14 @@ export async function reopenPrivacyChoices({
 
   try {
     if (typeof googlefc.showRevocationMessage === "function") {
-      googlefc.showRevocationMessage();
+      showRevocationMessage(win);
 
       return true;
     }
 
     googlefc.callbackQueue = googlefc.callbackQueue || [];
     googlefc.callbackQueue.push({
-      CONSENT_API_READY: () => win.googlefc.showRevocationMessage(),
+      CONSENT_API_READY: () => showRevocationMessage(win),
     });
 
     return true;

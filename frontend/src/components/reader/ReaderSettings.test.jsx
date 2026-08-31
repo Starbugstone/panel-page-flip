@@ -1,11 +1,54 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReaderSettings } from "./ReaderSettings";
 import { DEFAULT_READER_PREFERENCES } from "@/lib/reader-preferences";
 
+const { googleServices } = vi.hoisted(() => ({
+  googleServices: {
+    config: { enabled: false, client: null },
+    analytics: { enabled: false, measurementId: null },
+    consent: { enabled: false, client: null },
+    isActive: false,
+    isLoading: false,
+  },
+}));
+
+vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({ useAdSense: () => googleServices }));
+vi.mock("@/lib/privacy-choices", () => ({ reopenPrivacyChoices: vi.fn(() => Promise.resolve(true)) }));
+
+beforeEach(() => {
+  googleServices.config = { enabled: false, client: null };
+  googleServices.analytics = { enabled: false, measurementId: null };
+  googleServices.consent = { enabled: false, client: null };
+  googleServices.isActive = false;
+  googleServices.isLoading = false;
+});
+
 describe("reader settings persistence status", () => {
+  it("keeps consent withdrawal reachable without putting a footer over the reader", async () => {
+    googleServices.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
+    googleServices.consent = { enabled: true, client: "ca-pub-1234567890123456" };
+    render(
+      <ReaderSettings
+        settings={DEFAULT_READER_PREFERENCES.settings}
+        isLoaded
+        isSaving={false}
+        hasSyncError={false}
+        contextLabel="this phone in portrait"
+        hasOverride={false}
+        onChange={vi.fn()}
+        onOverrideChange={vi.fn()}
+        onOpenChange={vi.fn()}
+        onReset={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Reader settings" }));
+
+    expect(screen.getByRole("button", { name: "Privacy choices" })).toBeInTheDocument();
+  });
   it("does not claim a failed optimistic preference was saved across devices", async () => {
     const user = userEvent.setup();
     render(

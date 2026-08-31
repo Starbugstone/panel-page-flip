@@ -284,9 +284,21 @@ if [ "$DO_BACKEND" = "1" ]; then
     # matching the raw value here would reject a publisher id the application
     # would have accepted, and abort the release over surrounding whitespace.
     PROD_ADSENSE_CLIENT="$(printf '%s' "${PROD_ADSENSE_CLIENT:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID="$(printf '%s' "${PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:lower:]' '[:upper:]')"
     if [ "$DEPLOY_CONFIG_MODE" = "server-local" ]; then
         PROD_ADSENSE_ENABLED=false
         PROD_ADSENSE_CLIENT=
+        PROD_GOOGLE_ANALYTICS_ENABLED=false
+        PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID=
+    fi
+    if [ "${PROD_GOOGLE_ANALYTICS_ENABLED:-false}" = "true" ]; then
+        if [[ ! "$PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID" =~ ^G-[A-Z0-9]{5,20}$ ]]; then
+            fail "PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID must be G- followed by 5 to 20 letters or digits when PROD_GOOGLE_ANALYTICS_ENABLED is true."
+        fi
+        case "$PROD_ADSENSE_CLIENT" in
+            ca-pub-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+            *) fail "PROD_ADSENSE_CLIENT must identify the certified Google CMP when PROD_GOOGLE_ANALYTICS_ENABLED is true." ;;
+        esac
     fi
     if [ "${PROD_ADSENSE_ENABLED:-false}" = "true" ]; then
         case "$PROD_ADSENSE_CLIENT" in
@@ -336,6 +348,8 @@ if [ "$DO_BACKEND" = "1" ]; then
     # removed after Composer finishes.
     write_dotenv ADSENSE_ENABLED "${PROD_ADSENSE_ENABLED:-false}"
     write_dotenv ADSENSE_CLIENT "$PROD_ADSENSE_CLIENT"
+    write_dotenv GOOGLE_ANALYTICS_ENABLED "${PROD_GOOGLE_ANALYTICS_ENABLED:-false}"
+    write_dotenv GOOGLE_ANALYTICS_MEASUREMENT_ID "$PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID"
     write_dotenv DEPLOY_TOKEN "$POST_DEPLOY_TOKEN"
     chmod 600 "$PROD_ENV_FILE"
 

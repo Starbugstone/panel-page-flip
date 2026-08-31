@@ -7,11 +7,15 @@ import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { isAdvertisingActive } from "@/lib/advertising";
 
 const { adSense } = vi.hoisted(() => ({
-  adSense: { config: { enabled: false, client: null }, isLoading: false },
+  adSense: {
+    config: { enabled: false, client: null },
+    analytics: { enabled: false, measurementId: null },
+    isLoading: false,
+  },
 }));
 
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
-  useAdSense: () => ({ config: adSense.config, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
+  useAdSense: () => ({ config: adSense.config, analytics: adSense.analytics, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";
@@ -24,6 +28,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   adSense.config = { enabled: false, client: null };
+  adSense.analytics = { enabled: false, measurementId: null };
   adSense.isLoading = false;
 });
 
@@ -46,6 +51,15 @@ describe("what the cookie notice claims", () => {
 
     expect(await screen.findByText(/you accept or reject in the privacy choices panel/i)).toBeInTheDocument();
     expect(screen.queryByText(/no advertising or analytics cookies are used/i)).not.toBeInTheDocument();
+  });
+
+  it("describes optional Analytics without claiming advertising is present", async () => {
+    adSense.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
+
+    renderNotice();
+
+    expect(await screen.findByText(/optional analytics uses additional storage only after you accept it/i)).toBeInTheDocument();
+    expect(screen.queryByText(/advertising on some pages/i)).not.toBeInTheDocument();
   });
 
   /**

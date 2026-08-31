@@ -9,21 +9,32 @@ import { reopenPrivacyChoices } from "@/lib/privacy-choices";
 import { isAdvertisingActive } from "@/lib/advertising";
 
 const { adSense } = vi.hoisted(() => ({
-  adSense: { config: { enabled: false, client: null }, isLoading: false },
+  adSense: {
+    config: { enabled: false, client: null },
+    analytics: { enabled: false, measurementId: null },
+    consent: { enabled: false, client: null },
+    isLoading: false,
+  },
 }));
 
 vi.mock("@/lib/privacy-choices", () => ({ reopenPrivacyChoices: vi.fn(() => Promise.resolve(true)) }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
-  useAdSense: () => ({ config: adSense.config, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
+  useAdSense: () => ({ config: adSense.config, analytics: adSense.analytics, consent: adSense.consent, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";
 
 const advertisingOn = () => { adSense.config = { enabled: true, client: CLIENT }; };
+const analyticsOn = () => {
+  adSense.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
+  adSense.consent = { enabled: true, client: CLIENT };
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   adSense.config = { enabled: false, client: null };
+  adSense.analytics = { enabled: false, measurementId: null };
+  adSense.consent = { enabled: false, client: null };
   adSense.isLoading = false;
 });
 
@@ -47,6 +58,15 @@ describe("the privacy choices control", () => {
     render(<PrivacyChoicesButton />);
 
     expect(screen.queryByRole("button", { name: "Privacy choices" })).not.toBeInTheDocument();
+  });
+
+  it("is present for analytics when advertising itself is off", async () => {
+    analyticsOn();
+
+    render(<PrivacyChoicesButton />);
+    await userEvent.click(screen.getByRole("button", { name: "Privacy choices" }));
+
+    expect(reopenPrivacyChoices).toHaveBeenCalledWith({ client: CLIENT });
   });
 
   /**

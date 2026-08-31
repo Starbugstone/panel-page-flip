@@ -22,6 +22,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Administrator notices warning one account about their activity, a comic, or something they shared, shown on their next visit and optionally emailed — see [administrator notices](docs/administrator-notices.md)
 - Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
 - Optional Google AdSense, off unless an operator turns it on, confined by an allowlist to pages that render no uploaded comic content, with consent and the bulk-upload Offerwall owned by Google's supported account-side products — see [advertising, consent, and AdSense Offerwall](docs/advertising.md)
+- Optional Google Analytics 4, off unless an operator turns it on, blocked behind Google Privacy & Messaging basic consent mode and restricted to sanitized application-owned route categories — see [privacy-first Google Analytics](docs/analytics.md)
 
 ## Technology
 
@@ -124,6 +125,11 @@ Important configuration variables:
   advertising-enabled HTML automatically receives Google's supported strict,
   nonce-based Content-Security-Policy. Account configuration and verification
   are documented in [`docs/advertising.md`](docs/advertising.md).
+- `GOOGLE_ANALYTICS_ENABLED`, `GOOGLE_ANALYTICS_MEASUREMENT_ID` — optional
+  GA4 audience measurement, off by default. Analytics also requires a valid
+  `ADSENSE_CLIENT` for Google's certified Privacy & Messaging CMP, but
+  `ADSENSE_ENABLED` may stay false. No Analytics tag or measurement request is
+  made until analytics consent is granted; see [`docs/analytics.md`](docs/analytics.md).
 - `METRON_SHARED_ENABLED` — whether this server may spend its own Metron account
   on behalf of every user. Off unless set; a user's personal Metron token is
   unaffected by it.
@@ -361,11 +367,12 @@ The release tooling builds the React application, installs optimized production 
 
 Do not deploy only `frontend/dist`: frontend and backend changes may depend on each other.
 
-Deploying with advertising enabled has steps of its own, most of them in the
-AdSense account rather than in this repository. In the default deployment mode,
-set `ADSENSE_ENABLED` and `ADSENSE_CLIENT` in the host's
+Deploying with advertising or Analytics enabled has steps of its own, most of
+them in the Google accounts rather than in this repository. In the default deployment mode,
+set the feature values in the host's
 `backend/.env.local`; they do not need to be duplicated in
-`scripts/.env.deploy`. See [`docs/advertising.md`](docs/advertising.md).
+`scripts/.env.deploy`. See [`docs/advertising.md`](docs/advertising.md) and
+[`docs/analytics.md`](docs/analytics.md).
 
 ## Project layout
 

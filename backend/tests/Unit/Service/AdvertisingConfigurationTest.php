@@ -39,6 +39,14 @@ final class AdvertisingConfigurationTest extends TestCase
         );
     }
 
+    public function testAValidPublisherIdCanStillBackTheConsentPlatformWhenAdsAreOff(): void
+    {
+        $configuration = $this->configuration(false, self::VALID_CLIENT);
+
+        self::assertNull($configuration->client());
+        self::assertSame(self::VALID_CLIENT, $configuration->consentClient());
+    }
+
     /**
      * @dataProvider unusableClients
      */

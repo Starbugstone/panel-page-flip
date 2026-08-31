@@ -10,6 +10,8 @@ import { isAdvertisingActive } from "@/lib/advertising";
 const { adSense } = vi.hoisted(() => ({
   adSense: {
     config: { enabled: false, client: null },
+    analytics: { enabled: false, measurementId: null },
+    consent: { enabled: false, client: null },
     legal: { operator: "Test operator", privacyEmail: null, legalEmail: null },
     isLoading: false,
   },
@@ -19,12 +21,16 @@ vi.mock("@/lib/api", () => ({ api: { get: vi.fn(() => Promise.resolve({})) } }))
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), log: vi.fn() } }));
 vi.mock("@/lib/privacy-choices", () => ({ reopenPrivacyChoices: vi.fn(() => Promise.resolve(true)) }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
-  useAdSense: () => ({ config: adSense.config, legal: adSense.legal, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
+  useAdSense: () => ({ config: adSense.config, analytics: adSense.analytics, consent: adSense.consent, legal: adSense.legal, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";
 
 const advertisingOn = () => { adSense.config = { enabled: true, client: CLIENT }; };
+const analyticsOn = () => {
+  adSense.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
+  adSense.consent = { enabled: true, client: CLIENT };
+};
 
 const renderPage = (page) => render(<MemoryRouter initialEntries={["/privacy"]}>{page}</MemoryRouter>);
 
@@ -32,6 +38,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   adSense.legal = { operator: "Test operator", privacyEmail: null, legalEmail: null };
   adSense.config = { enabled: false, client: null };
+  adSense.analytics = { enabled: false, measurementId: null };
+  adSense.consent = { enabled: false, client: null };
   adSense.isLoading = false;
 });
 
@@ -68,6 +76,18 @@ describe("the privacy policy", () => {
       .toBeInTheDocument();
   });
 
+  it("documents privacy-minimised Analytics only when its env switch is active", async () => {
+    analyticsOn();
+
+    renderPage(<PrivacyPolicy />);
+
+    expect(await screen.findByRole("heading", { name: /optional audience measurement/i })).toBeInTheDocument();
+    expect(screen.getByText(/never send Google your account id, email address, comic ids/i)).toBeInTheDocument();
+    expect(screen.getByText(/Google Signals and advertising-personalisation signals are disabled/i)).toBeInTheDocument();
+    expect(screen.getByText(/two-month retention period/i)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^advertising$/i })).not.toBeInTheDocument();
+  });
+
   /**
    * The claim that must never be published by accident. Defaulting to "off"
    * while the request is in flight prints "we do not use advertising networks"
@@ -88,12 +108,12 @@ describe("the privacy policy", () => {
    * "every page" documents a way to withdraw consent that is not there. The
    * exception is the honest half of the sentence, and the half that rots first.
    */
-  it("does not promise the consent control on pages that have no footer", async () => {
+  it("names the reader settings as the withdrawal route where there is no footer", async () => {
     advertisingOn();
 
     renderPage(<PrivacyPolicy />);
 
-    expect(await screen.findByText(/outside the comic reader/i)).toBeInTheDocument();
+    expect(await screen.findByText(/reader.s settings/i)).toBeInTheDocument();
     expect(screen.queryByText(/in the footer of every page\./i)).not.toBeInTheDocument();
   });
 
@@ -115,6 +135,16 @@ describe("the cookie notice page", () => {
 
     expect(await screen.findByText(/google advertising storage:/i)).toBeInTheDocument();
     expect(screen.getByText(/rejecting is as easy as accepting/i)).toBeInTheDocument();
+  });
+
+  it("documents Analytics cookies, duration and withdrawal when enabled", async () => {
+    analyticsOn();
+
+    renderPage(<CookieNoticePage />);
+
+    expect(await screen.findByText(/Google Analytics storage:/i)).toBeInTheDocument();
+    expect(screen.getByText(/expire no later than thirteen months/i)).toBeInTheDocument();
+    expect(screen.getByText(/removes these cookies/i)).toBeInTheDocument();
   });
 
   it("says there is no consent panel where there is none", async () => {
