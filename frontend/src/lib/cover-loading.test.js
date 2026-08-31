@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   COVER_REQUEST_LIMIT,
   coverRetryDelay,
+  coverSlots,
   coverUrlForAttempt,
   createRequestSlots,
 } from "./cover-loading";
@@ -101,8 +102,20 @@ describe("cover request slots", () => {
     next.release();
   });
 
-  it("caps the whole library, not each card", () => {
-    expect(COVER_REQUEST_LIMIT).toBeLessThan(10);
+  // Exercises the shared `coverSlots` pool itself: a version where each card
+  // built its own pool would grant every ticket here.
+  it("caps the whole library, not each card", async () => {
+    const outcomes = await acquireMany(coverSlots, COVER_REQUEST_LIMIT + 1);
+    const [waiting] = outcomes.slice(-1);
+
+    expect(outcomes.slice(0, -1).every(({ granted }) => granted)).toBe(true);
+    expect(waiting.granted).toBe(false);
+
+    outcomes.slice(0, -1).forEach(({ ticket }) => ticket.release());
+    await settled();
+
+    expect(waiting.granted).toBe(true);
+    waiting.ticket.release();
   });
 });
 

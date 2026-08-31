@@ -127,6 +127,25 @@ describe("requesting a cover", () => {
     expect(requestedUrls()).toEqual([]);
     expect(statusOf(null)).toBe("absent");
   });
+
+  it("starts over when a removed cover URL comes back", async () => {
+    const slots = createRequestSlots({ limit: 1 });
+    const view = render(<Cover url="/covers/a.jpg" slots={slots} eager />);
+    await flush();
+    settle("/covers/a.jpg", "load");
+    expect(statusOf("/covers/a.jpg")).toBe("loaded");
+
+    view.rerender(<Cover url={null} slots={slots} eager />);
+    await flush();
+    view.rerender(<Cover url="/covers/a.jpg" slots={slots} eager />);
+    await flush();
+
+    // The restored URL is a new request. Replaying the removed cover's settled
+    // state would set `src` without holding a slot — a request the cap never
+    // counted — and claim "loaded" before the image has settled.
+    expect(slots.activeCount).toBe(1);
+    expect(statusOf("/covers/a.jpg")).toBe("loading");
+  });
 });
 
 describe("a cover that comes back broken", () => {

@@ -49,6 +49,13 @@ export function useCoverImage(url, { eager = false, slots = coverSlots, maxAttem
   // starts over. Derived rather than reset from an effect, so the first render
   // after the change already describes the new cover instead of briefly
   // claiming the old one is loaded.
+  //
+  // Deriving alone is not enough: it must also be written back, or a URL that
+  // goes away and later returns unchanged finds its old settled state still in
+  // `tracked` and replays it — `src` set without a slot, "loaded" before the
+  // image has arrived. The guard keeps this the documented render-time reset
+  // rather than a loop.
+  if (tracked.url !== url) setTracked({ url, ...UNREQUESTED });
   const state = tracked.url === url ? tracked : { url, ...UNREQUESTED };
 
   const update = useCallback((changes) => {

@@ -138,15 +138,17 @@ describe("sortComics", () => {
     expect(titles("updated-desc")).toEqual(["Beta", "Gamma", "Alpha"]);
   });
 
+  // Deliberately not alphabetical when read newest-first, so a fallback to the
+  // title order cannot pass for the real comparator.
   it("sorts recently read comics with the newest reading activity first", () => {
     const readComics = [
       { title: "Beta", readingProgress: { lastReadAt: "2024-01-02T12:00:00Z" } },
-      { title: "Alpha", readingProgress: { lastReadAt: "2024-01-03T12:00:00Z" } },
-      { title: "Gamma", readingProgress: { lastReadAt: "2024-01-01T12:00:00Z" } },
+      { title: "Gamma", readingProgress: { lastReadAt: "2024-01-03T12:00:00Z" } },
+      { title: "Alpha" },
     ];
 
     expect(sortComics(readComics, "last-read-desc").map((comic) => comic.title))
-      .toEqual(["Alpha", "Beta", "Gamma"]);
+      .toEqual(["Gamma", "Beta", "Alpha"]);
   });
 
   it("falls back to title order rather than leaving an unknown sort unsorted", () => {

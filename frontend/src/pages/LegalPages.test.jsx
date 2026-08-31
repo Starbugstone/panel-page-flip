@@ -187,5 +187,9 @@ describe("the terms", () => {
     expect(await screen.findByRole("heading", { name: /storage limits/i })).toBeInTheDocument();
     expect(screen.getByText(/installation.s default limit, or a custom limit the operator/i))
       .toBeInTheDocument();
+    expect(screen.getByText(/an upload that would exceed that limit is rejected/i))
+      .toBeInTheDocument();
+    expect(screen.getByText(/operator may change the configured limit at any time/i))
+      .toBeInTheDocument();
   });
 });

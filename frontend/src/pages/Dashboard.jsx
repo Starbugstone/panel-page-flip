@@ -13,6 +13,7 @@ import { useLibraryComicActions } from "@/hooks/use-library-comic-actions";
 import { useLibraryFolderActions } from "@/hooks/use-library-folder-actions";
 import { useLibraryFolders } from "@/hooks/use-library-folders";
 import { useLibraryLocation } from "@/hooks/use-library-location";
+import { useLibrarySorts } from "@/hooks/use-library-sorts";
 import { useLibrarySearch } from "@/hooks/use-library-search";
 import { useSharing } from "@/hooks/use-sharing.jsx";
 import { jumpToComicCard, latestReadComic } from "@/lib/last-read-jump";
@@ -30,10 +31,6 @@ export default function Dashboard() {
   const { refreshSummary } = useSharing();
 
   const [viewMode, setViewMode] = useState("grid");
-  // Reading is a recency-oriented queue, while the rest of the library starts
-  // alphabetically. Keeping the choices separate means visiting the tab does
-  // not unexpectedly change the ordering somebody selected elsewhere.
-  const [sorts, setSorts] = useState({ library: "title-asc", reading: "last-read-desc" });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingComic, setEditingComic] = useState(null);
   const [movingComic, setMovingComic] = useState(null);
@@ -50,11 +47,7 @@ export default function Dashboard() {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const location = useLibraryLocation({ folders, foldersLoading, onNavigate: closeSidebar });
   const { isFolderView, activeFolderId, activeView, ownership, invalidFolder, navigateFolder, navigateView } = location;
-  const sortScope = activeView === "reading" ? "reading" : "library";
-  const sort = sorts[sortScope];
-  const setSort = useCallback((nextSort) => {
-    setSorts((current) => ({ ...current, [sortScope]: nextSort }));
-  }, [sortScope]);
+  const { sort, setSort } = useLibrarySorts(activeView);
 
   const { isSearching, isSearchActive, search, loadComics, refreshCurrent } = useLibrarySearch({
     loadLibrary, ownership, isFolderView, activeFolderId, foldersLoading, invalidFolder,
