@@ -298,18 +298,10 @@ class ComicShareService
             return ['status' => 'already_yours', 'message' => 'You already have this comic.'];
         }
 
-        if ($share === null) {
-            $share = new ComicShare($comic, $owner, $email);
-            $this->entityManager->persist($share);
-        } else {
-            // Declined, revoked or lapsed. Reused rather than duplicated, and
-            // the old age declaration does not carry over — this is a fresh
-            // offer of the comic as it is now.
-            $share->setOwner($owner)->refreshSnapshots()->resetAdultConfirmation();
-        }
+        $share = $this->openOrReuseShare($share, $comic, $owner, $email);
 
         $share
-            ->markPending(new \DateTimeImmutable(self::INVITATION_TTL))
+            ->markPending($this->invitationExpiry())
             ->refreshSnapshots()
             ->linkRecipientUser($recipient)
             // The owner never typed this address and was never told it: they
@@ -989,6 +981,34 @@ class ComicShareService
     }
 
     /**
+     * The row a fresh offer of this comic to this address will use.
+     *
+     * Reuse is not a choice: the unique index on (comic, recipient) means a
+     * relationship that ended — declined, revoked, or a pending invitation that
+     * lapsed — is reopened rather than duplicated. Reopening does not carry the
+     * old age declaration forward, because this is an offer of the comic as it
+     * is now and the previous relationship ended without the recipient reading
+     * anything.
+     *
+     * Both ways in go through here — an invitation the owner addressed, and a
+     * claim somebody made against a code — so the two cannot drift on what
+     * reopening means.
+     *
+     * @param ComicShare|null $share the row already found for this pair, if any
+     */
+    private function openOrReuseShare(?ComicShare $share, Comic $comic, User $owner, string $email): ComicShare
+    {
+        if ($share === null) {
+            $share = new ComicShare($comic, $owner, $email);
+            $this->entityManager->persist($share);
+
+            return $share;
+        }
+
+        return $share->setOwner($owner)->refreshSnapshots()->resetAdultConfirmation();
+    }
+
+    /**
      * Open the relationship, without flushing, minting or sending.
      *
      * Deliberately does not create an invitation token. A token is a capability
@@ -1000,19 +1020,7 @@ class ComicShareService
      */
     private function openInvitation(?ComicShare $share, Comic $comic, User $owner, string $email): ComicShare
     {
-        if ($share === null) {
-            $share = new ComicShare($comic, $owner, $email);
-            $this->entityManager->persist($share);
-        } else {
-            // Declined, revoked, or a pending invitation that lapsed. The row is
-            // reused rather than duplicated, which is what the unique index on
-            // (comic, recipient) is there to guarantee.
-            //
-            // Reusing the row does not carry the old age declaration forward:
-            // this is a fresh offer of the comic as it is now, and the previous
-            // relationship ended without the recipient reading anything.
-            $share->setOwner($owner)->refreshSnapshots()->resetAdultConfirmation();
-        }
+        $share = $this->openOrReuseShare($share, $comic, $owner, $email);
 
         $share->markPending($this->invitationExpiry());
         // A new share, so a new acknowledgement. Resending does not come through

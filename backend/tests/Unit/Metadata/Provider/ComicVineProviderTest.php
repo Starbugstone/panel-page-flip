@@ -81,6 +81,35 @@ final class ComicVineProviderTest extends TestCase
     }
 
     /**
+     * One person credited twice under one role is one person.
+     *
+     * Comic Vine repeats a name across rows when somebody is credited for
+     * several things, and spells roles however the entry was typed, so
+     * "Writer" and "writer" arrive as the same job. Both are folded before the
+     * review UI sees them, or a creator list reads "Jeph Loeb, Jeph Loeb".
+     */
+    public function testCreditsTheSamePersonOnceUnderOneRole(): void
+    {
+        $provider = $this->provider(new MockResponse(json_encode([
+            'status_code' => 1,
+            'results' => [
+                'id' => 4000,
+                'volume' => ['name' => 'Batman'],
+                'person_credits' => [
+                    ['name' => 'Jeph Loeb', 'role' => 'writer, Writer'],
+                    ['name' => 'Jeph Loeb', 'role' => 'WRITER'],
+                    ['name' => 'Tim Sale', 'role' => 'writer'],
+                ],
+            ],
+        ]) ?: ''));
+
+        self::assertSame(
+            ['writer' => ['Jeph Loeb', 'Tim Sale']],
+            $provider->detail('4000', self::access())->candidates[0]->creators
+        );
+    }
+
+    /**
      * `description` is HTML. Taking it verbatim would land markup in the
      * description field for the user to clean up by hand.
      */

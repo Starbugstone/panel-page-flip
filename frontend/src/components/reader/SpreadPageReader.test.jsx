@@ -95,3 +95,41 @@ describe("a reading unit holding a single page", () => {
     expect(content).not.toHaveClass("h-full");
   });
 });
+
+/**
+ * A fit means the same thing in both readers, off one shared table.
+ *
+ * Asserted from the spread side as well as the single-page side deliberately:
+ * the table is shared so the two cannot drift, and a test on only one of them
+ * would let a change made for that reader quietly re-open the gap in the other.
+ */
+describe("what the browser may still do with a touch", () => {
+  const renderSpread = (props = {}) => render(
+    <SpreadPageReader
+      containerRef={createRef()}
+      contentRef={createRef()}
+      fit="contain"
+      pages={[{ pageIndex: 0, image: { src: "/pages/1" } }]}
+      {...props}
+    />
+  );
+  const surface = () => document.querySelector('[data-reader-mode="double"]');
+
+  it("gives vertical scrolling back to the browser at a letterboxing fit", () => {
+    renderSpread({ fit: "contain" });
+
+    expect(surface()).toHaveStyle({ touchAction: "pan-y" });
+  });
+
+  it("leaves both axes to the browser at original size, which overflows in both", () => {
+    renderSpread({ fit: "original" });
+
+    expect(surface()).toHaveStyle({ touchAction: "pan-x pan-y" });
+  });
+
+  it("takes both axes for the gestures once the spread is zoomed", () => {
+    renderSpread({ fit: "contain", transform: { scale: 2, x: 0, y: 0 } });
+
+    expect(surface()).toHaveStyle({ touchAction: "none" });
+  });
+});

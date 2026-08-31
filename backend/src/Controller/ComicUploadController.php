@@ -107,6 +107,35 @@ class ComicUploadController extends AbstractController
         }
     }
 
+    /**
+     * Where this upload's chunks are staged, and the metadata file beside them.
+     *
+     * Both handlers below need the same two paths, built from the same three
+     * parts, and the middle part comes off the request — so it is assembled
+     * once, downstream of {@see assertSafeFileId}, rather than spelled out at
+     * each call site where one copy could later lose the guard.
+     *
+     * @param string $missingMessage what to say when the directory is not
+     *                               there: never started, or already gone
+     *
+     * @return array{string, string}|JsonResponse the directory and its
+     *                                            metadata path, or the refusal
+     */
+    private function locateStagedUpload(User $user, string $fileId, string $missingMessage): array|JsonResponse
+    {
+        $userChunkDir = $this->tempUploadDir . '/' . $user->getId() . '/' . $fileId;
+        if (!file_exists($userChunkDir)) {
+            return $this->json(['message' => $missingMessage], Response::HTTP_BAD_REQUEST);
+        }
+
+        $metadataPath = $userChunkDir . '/metadata.json';
+        if (!file_exists($metadataPath)) {
+            return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
+        }
+
+        return [$userChunkDir, $metadataPath];
+    }
+
     private function assertSafeFilename(string $filename): string
     {
         $validated = $this->uploadFilenameValidator->validate($filename);
@@ -209,17 +238,11 @@ class ComicUploadController extends AbstractController
                 return $this->json(['message' => 'Chunk is too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
             }
 
-            // Get user chunk directory
-            $userChunkDir = $this->tempUploadDir . '/' . $user->getId() . '/' . $fileId;
-            if (!file_exists($userChunkDir)) {
-                return $this->json(['message' => 'Upload not initialized'], Response::HTTP_BAD_REQUEST);
+            $located = $this->locateStagedUpload($user, $fileId, 'Upload not initialized');
+            if ($located instanceof JsonResponse) {
+                return $located;
             }
-
-            // Load metadata
-            $metadataPath = $userChunkDir . '/metadata.json';
-            if (!file_exists($metadataPath)) {
-                return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
-            }
+            [$userChunkDir, $metadataPath] = $located;
 
             // Everything from here to the metadata write is one critical section,
             // held per upload.
@@ -317,17 +340,11 @@ class ComicUploadController extends AbstractController
             $fileId = (string) $data['fileId'];
             $this->assertSafeFileId($fileId);
 
-            // Get user chunk directory
-            $userChunkDir = $this->tempUploadDir . '/' . $user->getId() . '/' . $fileId;
-            if (!file_exists($userChunkDir)) {
-                return $this->json(['message' => 'Upload not found'], Response::HTTP_BAD_REQUEST);
+            $located = $this->locateStagedUpload($user, $fileId, 'Upload not found');
+            if ($located instanceof JsonResponse) {
+                return $located;
             }
-
-            // Load metadata
-            $metadataPath = $userChunkDir . '/metadata.json';
-            if (!file_exists($metadataPath)) {
-                return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
-            }
+            [$userChunkDir, $metadataPath] = $located;
 
             // The same per-upload lock the chunk handler takes, for the same
             // reason: this reads the staged metadata, sums it, and unlinks the

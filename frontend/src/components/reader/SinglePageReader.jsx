@@ -1,9 +1,8 @@
-import { useRef } from "react";
-
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useReaderGestures } from "@/hooks/use-reader-gestures";
 import { useReaderMousePan } from "@/hooks/use-reader-mouse-pan";
+import { useReaderSurfaceClicks } from "@/hooks/use-reader-surface-clicks";
 import { singlePageAppearance } from "@/lib/reader-single-page";
 import { IDENTITY_TRANSFORM, isZoomed } from "@/lib/reader-zoom";
 
@@ -35,7 +34,7 @@ export function SinglePageReader({
   // only the mouse's belong to the caller: a browser sends a click after a tap
   // too, so without this a double tap would zoom and the trailing click would
   // immediately undo it.
-  const lastPointerTypeRef = useRef("mouse");
+  const surfaceClicks = useReaderSurfaceClicks({ onSurfaceClick, onSurfaceDoubleClick });
 
   useReaderGestures(containerRef, { zoomed, paged, ...gestures });
   const { cursorClass } = useReaderMousePan(containerRef, { enabled: zoomed, onPan: gestures?.onPan });
@@ -47,18 +46,7 @@ export function SinglePageReader({
       data-page-fit={safeFit}
       data-page-zoomed={zoomed ? "true" : "false"}
       style={{ touchAction }}
-      onPointerDownCapture={(event) => { lastPointerTypeRef.current = event.pointerType; }}
-      onClick={(event) => {
-        // Bound to the viewport rather than the artwork, so the mat around the
-        // page is clickable. What a click on the page itself may mean is the
-        // caller's decision, not this element's.
-        if (event.target.closest("button, a, input, select, textarea")) return;
-        if (lastPointerTypeRef.current === "mouse") onSurfaceClick?.(event);
-      }}
-      onDoubleClick={(event) => {
-        if (event.target.closest("button, a, input, select, textarea")) return;
-        if (lastPointerTypeRef.current === "mouse") onSurfaceDoubleClick?.(event);
-      }}
+      {...surfaceClicks}
     >
       {image && (
         <img
