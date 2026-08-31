@@ -98,7 +98,15 @@ export function useCoverImage(url, { eager = false, slots = coverSlots, maxAttem
   const { attempt, granted, loaded, failed } = state;
 
   useEffect(() => {
-    if (!url || loaded || !isVisible || granted === attempt) return undefined;
+    // Removing a cover also removes the <img>, so the old request will not
+    // reliably emit load/error and return its slot for us. A replacement URL
+    // reaches the acquisition path below and releases there, but an absent URL
+    // needs to do it explicitly or repeated removals can exhaust the pool.
+    if (!url) {
+      releaseTicket();
+      return undefined;
+    }
+    if (loaded || !isVisible || granted === attempt) return undefined;
 
     // Anything still held here belongs to a request this one supersedes — a new
     // URL for the same card, or a retry started before the last attempt

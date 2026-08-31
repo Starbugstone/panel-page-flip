@@ -11,7 +11,7 @@ function Cover({ url, slots, eager = false }) {
   return (
     <div ref={observe} data-cover={url}>
       {src && <img src={src} alt={url} onLoad={onLoad} onError={onError} />}
-      <output data-status={url}>{status}</output>
+      <output data-status={url ?? "absent"}>{status}</output>
       <button type="button" onClick={retry}>Retry {url}</button>
     </div>
   );
@@ -27,7 +27,7 @@ const scrollTo = (url, isIntersecting = true) => scrollToSelector(`[data-cover="
 /** Every URL currently asked of the server; a settled cover keeps its `src`. */
 const requestedUrls = () => [...document.querySelectorAll("img")].map((image) => image.getAttribute("src"));
 const flush = () => act(async () => {});
-const statusOf = (url) => document.querySelector(`[data-status="${url}"]`).textContent;
+const statusOf = (url) => document.querySelector(`[data-status="${url ?? "absent"}"]`).textContent;
 const settle = (url, outcome) => {
   const image = document.querySelector(`img[src^="${url}"]`);
   act(() => { fireEvent[outcome](image); });
@@ -112,6 +112,20 @@ describe("requesting a cover", () => {
     view.unmount();
 
     expect(slots.activeCount).toBe(0);
+  });
+
+  it("returns an in-flight ticket when the cover URL is removed", async () => {
+    const slots = createRequestSlots({ limit: 1 });
+    const view = render(<Cover url="/covers/a.jpg" slots={slots} eager />);
+    await flush();
+    expect(slots.activeCount).toBe(1);
+
+    view.rerender(<Cover url={null} slots={slots} eager />);
+    await flush();
+
+    expect(slots.activeCount).toBe(0);
+    expect(requestedUrls()).toEqual([]);
+    expect(statusOf(null)).toBe("absent");
   });
 });
 

@@ -27,12 +27,13 @@ granted**. Fast scrolling therefore drains the queue towards what is on screen
 now rather than towards wherever the reader was a second ago. Without that, the
 cap would only spread the same doomed burst over a longer period.
 
-Each ticket accepts an `AbortSignal`. Leaving the preload margin, replacing a
-cover URL, or unmounting a card aborts ownership of any ticket that no longer
-has a consumer, including one that was granted during the same turn. Native
-`<img>` requests do not accept an `AbortSignal`; removing or replacing their
-`src` is deliberately left to the browser so its normal image cache remains in
-use rather than routing every cover through fetched blobs and object URLs.
+Each ticket accepts an `AbortSignal`. Leaving the preload margin abandons a
+ticket that is still queued; once a ticket has set an image's `src`, it remains
+held until that request settles because native `<img>` requests do not accept
+an `AbortSignal`. Replacing or removing a cover URL, or unmounting its card,
+returns any ticket that no longer has a consumer. Fetching stays with the
+browser so its normal image cache remains in use rather than routing every
+cover through fetched blobs and object URLs.
 
 The browser still does the fetching. This decides who may start, not how — so
 HTTP caching, decoding and `alt` text on failure all behave normally. Covers are
