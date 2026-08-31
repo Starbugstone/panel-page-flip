@@ -51,12 +51,6 @@ final class FrontendRouteRegistry
         return false;
     }
 
-    /** @return array<int, array{path: string, changefreq: string, priority: string}> */
-    public function indexableRoutes(): array
-    {
-        return $this->indexable;
-    }
-
     private function matchesNoindexPattern(string $path): bool
     {
         foreach ($this->noindexPatterns as $pattern) {

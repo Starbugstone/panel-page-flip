@@ -1,23 +1,9 @@
-import { useRef } from "react";
-
 import { Button } from "@/components/ui/button";
 import { useReaderGestures } from "@/hooks/use-reader-gestures";
 import { useReaderMousePan } from "@/hooks/use-reader-mouse-pan";
+import { useReaderSurfaceClicks } from "@/hooks/use-reader-surface-clicks";
+import { readerFitAppearance } from "@/lib/reader-fit";
 import { IDENTITY_TRANSFORM, isZoomed } from "@/lib/reader-zoom";
-
-const VIEWPORT_CLASSES = {
-  contain: "items-center justify-center overflow-hidden",
-  width: "items-start justify-center overflow-x-hidden overflow-y-auto",
-  height: "items-center justify-center overflow-hidden",
-  original: "items-start justify-start overflow-auto",
-};
-
-const TOUCH_ACTION = {
-  contain: "pan-y",
-  width: "pan-y",
-  height: "pan-y",
-  original: "pan-x pan-y",
-};
 
 /**
  * The fits that letterbox a page rather than letting it overflow and scroll.
@@ -52,9 +38,9 @@ export function SpreadPageReader({
   onSurfaceDoubleClick,
   children,
 }) {
-  const safeFit = Object.hasOwn(VIEWPORT_CLASSES, fit) ? fit : "contain";
   const zoomed = isZoomed(transform);
-  const lastPointerTypeRef = useRef("mouse");
+  const { safeFit, viewportClass, touchAction } = readerFitAppearance(fit, zoomed);
+  const surfaceClicks = useReaderSurfaceClicks({ onSurfaceClick, onSurfaceDoubleClick });
 
   useReaderGestures(containerRef, { zoomed, paged: true, ...gestures });
   const { cursorClass } = useReaderMousePan(containerRef, { enabled: zoomed, onPan: gestures?.onPan });
@@ -62,23 +48,12 @@ export function SpreadPageReader({
   return (
     <div
       ref={containerRef}
-      className={`relative flex h-full max-h-full w-full ${zoomed ? "items-center justify-center overflow-hidden" : VIEWPORT_CLASSES[safeFit]} ${cursorClass}`}
+      className={`relative flex h-full max-h-full w-full ${viewportClass} ${cursorClass}`}
       data-page-fit={safeFit}
       data-page-zoomed={zoomed ? "true" : "false"}
       data-reader-mode="double"
-      style={{ touchAction: zoomed ? "none" : TOUCH_ACTION[safeFit] }}
-      onPointerDownCapture={(event) => { lastPointerTypeRef.current = event.pointerType; }}
-      onClick={(event) => {
-        // Bound to the viewport rather than the artwork, so the mat around the
-        // spread is clickable. What a click on a page itself may mean is the
-        // caller's decision, not this element's.
-        if (event.target.closest("button, a, input, select, textarea")) return;
-        if (lastPointerTypeRef.current === "mouse") onSurfaceClick?.(event);
-      }}
-      onDoubleClick={(event) => {
-        if (event.target.closest("button, a, input, select, textarea")) return;
-        if (lastPointerTypeRef.current === "mouse") onSurfaceDoubleClick?.(event);
-      }}
+      style={{ touchAction }}
+      {...surfaceClicks}
     >
       <div
         ref={contentRef}

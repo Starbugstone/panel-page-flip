@@ -97,6 +97,12 @@ parameters:
     env(ADSENSE_CLIENT): ''
     adsense_enabled: '%env(bool:ADSENSE_ENABLED)%'
     adsense_client: '%env(ADSENSE_CLIENT)%'
+    # Optional GA4. It also requires the valid publisher id above so Google's
+    # certified Privacy & Messaging CMP can gate the tag in basic consent mode.
+    env(GOOGLE_ANALYTICS_ENABLED): 'false'
+    env(GOOGLE_ANALYTICS_MEASUREMENT_ID): ''
+    google_analytics_enabled: '%env(bool:GOOGLE_ANALYTICS_ENABLED)%'
+    google_analytics_measurement_id: '%env(GOOGLE_ANALYTICS_MEASUREMENT_ID)%'
     # Daily log files live under these, one folder per stream. Security and
     # audit files are grouped into YYYY/MM/ because a year of them at one file
     # per day is several hundred entries in a single listing.

@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Entity\ComicShare;
 use App\Entity\ShareClaimCode;
 use App\Entity\User;
 use App\Repository\ComicShareRepository;
@@ -20,11 +21,14 @@ use Doctrine\ORM\EntityManagerInterface;
  *
  * What it will never do, however it is called:
  *
- * - touch a live invitation or a live code. Only records past their own
- *   deadline are in scope, and pressing the button early deletes nothing
- * - touch a {@see \App\Entity\ComicShare} created by redeeming a code. Those
- *   are ordinary relationships and outlive the code entirely; a code is a way
- *   in, never the access itself
+ * - touch a live invitation, a live code or a live share. Only records past
+ *   their own deadline are in scope, and pressing the button early deletes
+ *   nothing
+ * - treat a {@see \App\Entity\ComicShare} created by redeeming a code as part
+ *   of the code. Those are ordinary relationships and outlive the code
+ *   entirely; a code is a way in, never the access itself. A share only
+ *   becomes sweepable by being revoked and staying revoked past its own
+ *   retention window, however it began
  */
 final class ExpiredShareCleanupService
 {
@@ -50,7 +54,7 @@ final class ExpiredShareCleanupService
      * pick up records that expire while it is still working through the first
      * ones.
      *
-     * @return array{invitations: int, claimCodes: int}
+     * @return array{invitations: int, claimCodes: int, revokedShares: int}
      */
     public function run(?\DateTimeImmutable $now = null): array
     {
@@ -59,17 +63,19 @@ final class ExpiredShareCleanupService
         return [
             'invitations' => $this->cleanupExpiredInvitations($now),
             'claimCodes' => $this->cleanupExpiredClaimCodes($now),
+            'revokedShares' => $this->cleanupRevokedShares($now),
         ];
     }
 
     /**
      * Delete invitations nobody answered before they expired.
      *
-     * Only pending relationships are in scope. An accepted share has no expiry,
-     * and a declined or revoked one is history somebody may still be looking
-     * at. An expired invitation is deleted rather than kept because it holds
-     * the email address of somebody who may never have had an account here and
-     * who did not act on it.
+     * Only pending relationships are in scope. An accepted share has no
+     * expiry, a declined one is history somebody may still be looking at, and
+     * a revoked one has its own sweep with its own clock. An expired
+     * invitation is deleted rather than kept because it holds the email
+     * address of somebody who may never have had an account here and who did
+     * not act on it.
      */
     public function cleanupExpiredInvitations(?\DateTimeImmutable $now = null): int
     {
@@ -122,6 +128,33 @@ final class ExpiredShareCleanupService
     }
 
     /**
+     * Delete revoked shares whose retention window has passed.
+     *
+     * A revocation is acted on the moment it is made; the row afterwards is
+     * only the record of it, kept for {@see ComicShare::RETENTION_AFTER_REVOCATION}
+     * so the owner can still see who they cut off and the recipient can still
+     * read why a comic went away. After that it is a dead relationship in two
+     * people's lists, and it goes the way a dead sharing code does.
+     */
+    public function cleanupRevokedShares(?\DateTimeImmutable $now = null): int
+    {
+        $now ??= new \DateTimeImmutable();
+        $count = 0;
+
+        while (($revoked = $this->shareRepository->findRevokedDeletable($now, self::BATCH_SIZE)) !== []) {
+            foreach ($revoked as $share) {
+                $this->entityManager->remove($share);
+            }
+
+            $this->entityManager->flush();
+            $this->entityManager->clear();
+            $count += count($revoked);
+        }
+
+        return $count;
+    }
+
+    /**
      * The same sweep, run by hand, with a record of who ran it.
      *
      * The scheduled command is deliberately quiet — a cron job reporting "0
@@ -131,7 +164,7 @@ final class ExpiredShareCleanupService
      * thing that should be answerable afterwards, and the count is what makes
      * it answerable.
      *
-     * @return array{invitations: int, claimCodes: int}
+     * @return array{invitations: int, claimCodes: int, revokedShares: int}
      */
     public function runForAdministrator(User $admin): array
     {
@@ -143,7 +176,9 @@ final class ExpiredShareCleanupService
             'scope' => 'manual_admin_sweep',
             'invitations_removed' => $removed['invitations'],
             'claim_codes_removed' => $removed['claimCodes'],
+            'revoked_shares_removed' => $removed['revokedShares'],
             'retention_after_expiry' => ShareClaimCode::RETENTION_AFTER_EXPIRY,
+            'retention_after_revocation' => ComicShare::RETENTION_AFTER_REVOCATION,
         ]);
 
         return $removed;

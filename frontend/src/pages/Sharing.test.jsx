@@ -7,7 +7,17 @@ import Sharing from "./Sharing";
 import { api } from "@/lib/api";
 import { EXPLICIT_GATE_TITLE, SHARING_PAGE_RESPONSIBILITY_REMINDER } from "@/lib/sharing";
 
-const lists = { sharedByMe: [], sharedWithMe: [], isLoading: false, error: null, reload: vi.fn() };
+const emptyPagination = () => ({ page: 1, limit: 25, totalItems: 0, totalPages: 1 });
+const lists = {
+  sharedByMe: [],
+  sharedWithMe: [],
+  byMePagination: emptyPagination(),
+  isLoading: false,
+  error: null,
+  reload: vi.fn(),
+  setByMePage: vi.fn(),
+  setByMeLimit: vi.fn(),
+};
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
 
@@ -63,6 +73,7 @@ const receivedShare = (overrides = {}) => ({
 });
 
 const renderPage = () => render(<MemoryRouter><Sharing /></MemoryRouter>);
+const settleSharingCard = () => screen.findByText("U-AAAA-BBBB-CCCC");
 
 /** Move to the owner's half of the page. */
 const openSharedByMe = async (user) => {
@@ -75,6 +86,7 @@ describe("Sharing page", () => {
     stubGets();
     lists.sharedByMe = [];
     lists.sharedWithMe = [];
+    lists.byMePagination = emptyPagination();
     lists.isLoading = false;
     lists.error = null;
   });
@@ -135,9 +147,10 @@ describe("Sharing page", () => {
     expect(screen.getByText("Explicit content (18+)")).toBeInTheDocument();
   });
 
-  it("gates a pending explicit invitation instead of offering to accept it", () => {
+  it("gates a pending explicit invitation instead of offering to accept it", async () => {
     lists.sharedWithMe = [receivedShare()];
     renderPage();
+    await settleSharingCard();
 
     expect(screen.getByText("Hidden until you confirm your age")).toBeInTheDocument();
     expect(screen.getAllByText(EXPLICIT_GATE_TITLE).length).toBeGreaterThan(0);
@@ -176,9 +189,10 @@ describe("Sharing page", () => {
     expect(api.post).toHaveBeenCalledWith("/api/shares/41/accept", {});
   });
 
-  it("gates an accepted share the owner has since marked explicit", () => {
+  it("gates an accepted share the owner has since marked explicit", async () => {
     lists.sharedWithMe = [receivedShare({ status: "accepted", canAnswer: false, canRemove: true })];
     renderPage();
+    await settleSharingCard();
 
     // The relationship survived; reading did not, until they confirm again.
     expect(screen.getByText(/confirm your age to read it again/i)).toBeInTheDocument();
@@ -198,9 +212,10 @@ describe("Sharing page", () => {
     await waitFor(() => expect(lists.reload).toHaveBeenCalled());
   });
 
-  it("explains a dead explicit share rather than offering a gate to nowhere", () => {
+  it("explains a dead explicit share rather than offering a gate to nowhere", async () => {
     lists.sharedWithMe = [receivedShare({ status: "revoked", isDead: true, canAnswer: false })];
     renderPage();
+    await settleSharingCard();
 
     expect(screen.getByText(/the owner has stopped sharing/i)).toBeInTheDocument();
     // Confirming for a share the owner has withdrawn achieves nothing.
@@ -277,7 +292,69 @@ describe("Sharing page", () => {
     expect(screen.queryByLabelText(/recipient email/i)).not.toBeInTheDocument();
   });
 
-  it("leaves a non-explicit share entirely alone", () => {
+  it("offers delete only on a share that is already over, and deletes its record", async () => {
+    const user = userEvent.setup();
+    lists.sharedByMe = [{
+      comicId: 5,
+      title: "Sandman",
+      author: "Neil Gaiman",
+      coverImagePath: null,
+      explicitContent: false,
+      recipients: [
+        { id: 1, recipientEmail: "jane@example.com", status: "revoked", canDelete: true },
+        { id: 2, recipientEmail: "bob@example.com", status: "accepted", canRevoke: true, canDelete: false },
+      ],
+    }];
+    lists.byMePagination = { ...emptyPagination(), totalItems: 1 };
+    vi.mocked(api.delete).mockResolvedValue({ message: "Share record deleted." });
+
+    renderPage();
+    await openSharedByMe(user);
+
+    // A live share offers Revoke; deleting its record is not a quieter way to
+    // cut somebody off.
+    expect(screen.queryByRole("button", { name: /delete the share record for bob@example.com/i }))
+      .not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /delete the share record for jane@example.com/i }));
+
+    expect(api.delete).toHaveBeenCalledWith("/api/shares/1");
+    await waitFor(() => expect(lists.reload).toHaveBeenCalled());
+  });
+
+  it("pages the shared-by-me list the way the admin tables do", async () => {
+    const user = userEvent.setup();
+    lists.sharedByMe = [{
+      comicId: 5,
+      title: "Sandman",
+      author: "Neil Gaiman",
+      coverImagePath: null,
+      explicitContent: false,
+      recipients: [{ id: 1, recipientEmail: "jane@example.com", status: "pending" }],
+    }];
+    lists.byMePagination = { page: 1, limit: 25, totalItems: 30, totalPages: 2 };
+
+    renderPage();
+
+    // The tab counts everything shared, not just the page on screen.
+    expect(screen.getByRole("tab", { name: "Shared by me (30)" })).toBeInTheDocument();
+
+    await openSharedByMe(user);
+    expect(screen.getByText("Showing 1–1 of 30 shared comics")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /next page/i }));
+    expect(lists.setByMePage).toHaveBeenCalledWith(2);
+  });
+
+  it("shows no pager before anything has been shared", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await openSharedByMe(user);
+
+    expect(screen.queryByRole("button", { name: /next page/i })).not.toBeInTheDocument();
+  });
+
+  it("leaves a non-explicit share entirely alone", async () => {
     lists.sharedWithMe = [receivedShare({
       comicId: 5,
       comicTitle: "Ordinary Comic",
@@ -286,6 +363,7 @@ describe("Sharing page", () => {
     })];
 
     renderPage();
+    await settleSharingCard();
 
     const card = screen.getByText("Ordinary Comic").closest("li");
     expect(within(card).getByRole("button", { name: /add to my collection/i })).toBeInTheDocument();

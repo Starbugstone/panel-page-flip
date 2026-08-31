@@ -6,24 +6,25 @@ import { reopenPrivacyChoices } from "@/lib/privacy-choices";
  *
  * Consent that can be given and never withdrawn is not consent, so this sits in
  * the site footer rather than inside the banner that collected it — the banner
- * is gone by the time somebody changes their mind. The reader is the one place
- * without a footer, and so the one place this cannot be reached; the legal
- * pages say so rather than promising every page.
+ * is gone by the time somebody changes their mind. It is rendered in normal
+ * footers and separately inside reader settings, where there is no footer.
  *
- * Absent where advertising is off, and absent until the server has said which
- * it is: offering it on an installation that shows no advertising would imply
+ * Absent where both Google services are off, and absent until the server has
+ * answered: offering it on an installation with neither service would imply
  * this deployment collected a consent it never asked for.
  */
 export function PrivacyChoicesButton({ className, children = "Privacy choices" }) {
-  const { config, isLoading, isActive } = useAdSense();
+  const { config, analytics, consent, isLoading, isActive } = useAdSense();
+  const analyticsActive = Boolean(analytics?.enabled && analytics.measurementId);
+  const client = consent?.client || config?.client;
 
-  if (isLoading || !isActive) return null;
+  if (isLoading || (!isActive && !analyticsActive) || !client) return null;
 
   return (
     <button
       type="button"
       className={className}
-      onClick={() => reopenPrivacyChoices({ client: config.client })}
+      onClick={() => reopenPrivacyChoices({ client })}
     >
       {children}
     </button>

@@ -241,11 +241,6 @@ class ShareClaimCode
         return $this->owner;
     }
 
-    public function getCodeHash(): string
-    {
-        return $this->codeHash;
-    }
-
     /** The encrypted code, for the one service allowed to decrypt it. */
     public function getCodeCipher(): ?string
     {
@@ -268,18 +263,6 @@ class ShareClaimCode
     public function getComics(): Collection
     {
         return $this->comics;
-    }
-
-    public function removeComic(Comic $comic): self
-    {
-        $this->comics->removeElement($comic);
-
-        return $this;
-    }
-
-    public function getMaxUses(): int
-    {
-        return $this->maxUses;
     }
 
     public function getUsesRemaining(): int
@@ -310,11 +293,6 @@ class ShareClaimCode
     public function isExpired(?\DateTimeImmutable $now = null): bool
     {
         return $this->expiresAt <= ($now ?? new \DateTimeImmutable());
-    }
-
-    public function getIssuedComicCount(): int
-    {
-        return $this->issuedComicCount;
     }
 
     /**

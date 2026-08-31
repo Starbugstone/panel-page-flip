@@ -4,23 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ReaderSettingToggles } from "@/components/reader/ReaderSettingToggles";
+import { ReaderSettingSwitch, ReaderSettingToggles } from "@/components/reader/ReaderSettingToggles";
 import { ReaderZoomSlider } from "@/components/reader/ReaderZoomSlider";
 import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
 import { READER_DIRECTIONS, READER_FITS, READER_MODES } from "@/lib/reader-preferences";
-
-function SettingSwitch({ id, label, description, checked, onCheckedChange, disabled }) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div className="space-y-0.5">
-        <Label htmlFor={id} className={disabled ? "" : "cursor-pointer"}>{label}</Label>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} aria-label={label} disabled={disabled} />
-    </div>
-  );
-}
+import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
 
 export function ReaderSettings({
   settings,
@@ -120,7 +108,7 @@ export function ReaderSettings({
         {/* A phone held upright and a tablet turned sideways want different page
             sizes. Saying so here is deliberate: rotating the device must never
             rewrite a choice on its own. */}
-        <SettingSwitch
+        <ReaderSettingSwitch
           id="reader-context-override"
           label="Different page size here"
           description={`Keep a separate page size for ${contextLabel}.`}
@@ -143,6 +131,8 @@ export function ReaderSettings({
             <RotateCcw className="mr-2 h-4 w-4" /> Reset defaults
           </Button>
         </div>
+
+        <PrivacyChoicesButton className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground" />
       </PopoverContent>
     </Popover>
   );

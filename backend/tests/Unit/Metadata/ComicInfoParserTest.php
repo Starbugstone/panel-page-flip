@@ -79,17 +79,22 @@ final class ComicInfoParserTest extends TestCase
         self::assertFalse($info->pages[0]->doublePage);
 
         self::assertTrue($info->pages[2]->doublePage);
-        self::assertTrue($info->pages[2]->isWide());
-        self::assertFalse($info->pages[0]->isWide());
     }
 
-    public function testTreatsAWidePageAsWideEvenWithoutTheDoublePageFlag(): void
+    /**
+     * Dimensions are recorded whether or not the page claims to be a spread.
+     * What a consumer makes of them is its own business; the parser's job is to
+     * report what the file said.
+     */
+    public function testRecordsPageDimensionsWithoutTheDoublePageFlag(): void
     {
         $info = $this->parser->parse($this->comicInfo(
             '<Pages><Page Image="0" ImageWidth="2400" ImageHeight="1800" /></Pages>'
         ));
 
-        self::assertTrue($info?->pages[0]->isWide());
+        self::assertSame(2400, $info?->pages[0]->width);
+        self::assertSame(1800, $info?->pages[0]->height);
+        self::assertFalse($info?->pages[0]->doublePage);
     }
 
     public function testDefaultsToLeftToRightWhenMangaIsAbsentOrMerelyYes(): void

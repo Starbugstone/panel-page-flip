@@ -91,7 +91,7 @@ class FrontendController extends AbstractController
         }
 
         $nonce = null;
-        if ($this->contentSecurityPolicy->advertisingEnabled()) {
+        if ($this->contentSecurityPolicy->googleScriptsEnabled()) {
             $nonce = $this->contentSecurityPolicy->nonce();
             $content = $this->contentSecurityPolicy->nonceScripts($content, $nonce);
         }

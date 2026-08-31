@@ -41,12 +41,6 @@ final class ComicPageInfo implements \JsonSerializable
         );
     }
 
-    public function isWide(): bool
-    {
-        return $this->doublePage
-            || ($this->width !== null && $this->height !== null && $this->width > $this->height);
-    }
-
     /** @return array<string, mixed> */
     public function jsonSerialize(): array
     {

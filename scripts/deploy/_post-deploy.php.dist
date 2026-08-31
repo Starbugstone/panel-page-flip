@@ -5,14 +5,17 @@
  * This file is copied to backend/public/_post-deploy.php by build-release.sh.
  *
  * Usage (called by scripts/post-deploy.sh):
- *   GET  https://yourdomain.com/_post-deploy.php?token=XXX&action=health
- *   POST https://yourdomain.com/_post-deploy.php?token=XXX&action=migrate
- *   POST https://yourdomain.com/_post-deploy.php?token=XXX&action=cache-clear
+ *   curl -H "X-Deploy-Token: XXX" \
+ *     https://yourdomain.com/_post-deploy.php?action=health
+ *   curl -X POST -H "X-Deploy-Token: XXX" \
+ *     https://yourdomain.com/_post-deploy.php?action=migrate
  *
  * Security:
  *   - The token comes from $_ENV['DEPLOY_TOKEN'] (normally set in the host's
  *     backend/.env.local; compiled dotenv is also supported).
  *   - The script ONLY runs when APP_ENV === 'prod'.
+ *   - The token is accepted only in the X-Deploy-Token header so it cannot be
+ *     persisted in access logs as part of the request URL.
  *   - Use HTTPS or this entire endpoint is a credential leak.
  *   - Rotate DEPLOY_TOKEN regularly (e.g. on every deploy, see post-deploy.sh).
  */
@@ -47,7 +50,7 @@ if (($_ENV['APP_ENV'] ?? 'prod') !== 'prod') {
 }
 
 $expected = $_ENV['DEPLOY_TOKEN'] ?? '';
-$received = $_GET['token'] ?? $_SERVER['HTTP_X_DEPLOY_TOKEN'] ?? '';
+$received = $_SERVER['HTTP_X_DEPLOY_TOKEN'] ?? '';
 
 if ($expected === '' || !hash_equals($expected, $received)) {
     // Constant-time mismatch + small jitter to discourage scraping.

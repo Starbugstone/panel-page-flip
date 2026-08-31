@@ -69,7 +69,8 @@ describe("taking a file back out of the bulk queue", () => {
     await waitFor(() => expect(uploadComicInChunks).toHaveBeenCalledTimes(2));
 
     await user.click(screen.getByRole("button", { name: "Remove three.cbz" }));
-    release.forEach((resolve) => resolve());
+    await act(async () => release.forEach((resolve) => resolve()));
+    await waitFor(() => expect(screen.getAllByText("Complete")).toHaveLength(2));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Start all" })).toBeDisabled());
     const uploaded = vi.mocked(uploadComicInChunks).mock.calls.map(([{ file }]) => file.name);
@@ -128,7 +129,8 @@ describe("taking a file back out of the bulk queue", () => {
 
     const [first, second] = vi.mocked(uploadComicInChunks).mock.calls.map(([options]) => options);
     expect(first.requestPool).toBe(second.requestPool);
-    release.forEach((resolve) => resolve());
+    await act(async () => release.forEach((resolve) => resolve()));
+    await waitFor(() => expect(screen.getAllByText("Complete")).toHaveLength(2));
   });
 
   it("offers removal beside retry once a file has failed", async () => {

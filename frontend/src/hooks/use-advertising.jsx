@@ -21,6 +21,8 @@ import { logger } from "@/lib/logger";
  */
 
 export const ADVERTISING_OFF = Object.freeze({ enabled: false, client: null });
+export const ANALYTICS_OFF = Object.freeze({ enabled: false, measurementId: null });
+export const GOOGLE_CONSENT_OFF = Object.freeze({ enabled: false, client: null });
 
 /** What the legal pages fall back to before the one request answers. */
 export const LEGAL_CONTACT_UNKNOWN = Object.freeze({
@@ -30,7 +32,13 @@ export const LEGAL_CONTACT_UNKNOWN = Object.freeze({
 });
 
 export function useAdvertisingConfig() {
-  const [state, setState] = useState({ config: ADVERTISING_OFF, legal: LEGAL_CONTACT_UNKNOWN, isLoading: true });
+  const [state, setState] = useState({
+    config: ADVERTISING_OFF,
+    analytics: ANALYTICS_OFF,
+    consent: GOOGLE_CONSENT_OFF,
+    legal: LEGAL_CONTACT_UNKNOWN,
+    isLoading: true,
+  });
 
   useEffect(() => {
     let ignore = false;
@@ -42,6 +50,8 @@ export function useAdvertisingConfig() {
         if (!ignore) {
           setState({
             config: data?.adsense ?? ADVERTISING_OFF,
+            analytics: data?.analytics ?? ANALYTICS_OFF,
+            consent: data?.googleConsent ?? GOOGLE_CONSENT_OFF,
             legal: {
               operator: data?.operator || LEGAL_CONTACT_UNKNOWN.operator,
               privacyEmail: data?.privacyEmail ?? null,
@@ -53,7 +63,13 @@ export function useAdvertisingConfig() {
       })
       .catch((error) => {
         logger.warn("Could not load the public configuration:", error.message);
-        if (!ignore) setState({ config: ADVERTISING_OFF, legal: LEGAL_CONTACT_UNKNOWN, isLoading: false });
+        if (!ignore) setState({
+          config: ADVERTISING_OFF,
+          analytics: ANALYTICS_OFF,
+          consent: GOOGLE_CONSENT_OFF,
+          legal: LEGAL_CONTACT_UNKNOWN,
+          isLoading: false,
+        });
       });
 
     return () => { ignore = true; };

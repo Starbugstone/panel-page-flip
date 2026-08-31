@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isReaderControl } from "@/lib/reader-controls";
+
 // Below this, a "drag" was a click with a shaky hand and the reader should
 // still treat it as one.
 export const DRAG_SLOP_PX = 4;
@@ -60,7 +62,7 @@ export function useReaderMousePan(elementRef, { enabled = false, onPan } = {}) {
     const onPointerDown = (event) => {
       if (event.pointerType !== "mouse" || event.button !== 0) return;
       // A press on the controls that float over the page is that control's.
-      if (event.target?.closest?.('button, a, input, select, textarea, [role="button"]')) return;
+      if (isReaderControl(event.target)) return;
 
       dragRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
       movedRef.current = false;

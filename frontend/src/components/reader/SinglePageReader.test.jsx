@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
 
@@ -22,19 +22,19 @@ const surface = () => document.querySelector("[data-page-fit]");
 const pointerDown = (pointerType, { x = 10, y = 10 } = {}) => {
   const event = new Event("pointerdown", { bubbles: true });
   Object.assign(event, { pointerId: 1, clientX: x, clientY: y, pointerType, button: 0 });
-  surface().dispatchEvent(event);
+  act(() => surface().dispatchEvent(event));
 };
 
 const pointerMove = (x, y) => {
   const event = new Event("pointermove", { bubbles: true });
   Object.assign(event, { pointerId: 1, clientX: x, clientY: y, pointerType: "mouse" });
-  surface().dispatchEvent(event);
+  act(() => surface().dispatchEvent(event));
 };
 
 const pointerUp = () => {
   const event = new Event("pointerup", { bubbles: true });
   Object.assign(event, { pointerId: 1, clientX: 0, clientY: 0, pointerType: "mouse" });
-  surface().dispatchEvent(event);
+  act(() => surface().dispatchEvent(event));
 };
 
 describe("the page surface", () => {
@@ -108,6 +108,27 @@ describe("the page surface", () => {
 
     pointerDown("touch");
     fireEvent.click(pageImage());
+
+    expect(onSurfaceClick).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Controls float inside the surface, so a click on one arrives here too.
+   *
+   * Every kind of control counts, off the one list the gesture machine and the
+   * mouse pan also read. A slider is the case that used to slip through: it is
+   * not a `<button>`, so dragging the zoom control turned the page as well.
+   */
+  it.each([
+    ["a button", <button type="button" key="b">Settings</button>],
+    ["a slider", <div role="slider" key="s" tabIndex={-1}>Zoom</div>],
+    ["a switch", <div role="switch" key="w" tabIndex={-1}>Night mode</div>],
+    ["a label", <label key="l">Fit</label>],
+  ])("leaves a click on %s to the control", (_label, control) => {
+    const onSurfaceClick = vi.fn();
+    renderPage({ onSurfaceClick, children: control });
+
+    fireEvent.click(screen.getByText(control.props.children));
 
     expect(onSurfaceClick).not.toHaveBeenCalled();
   });

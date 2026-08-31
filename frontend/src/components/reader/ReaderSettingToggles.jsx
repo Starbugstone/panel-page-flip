@@ -1,7 +1,7 @@
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
-function SettingSwitch({ id, label, description, checked, onCheckedChange, disabled }) {
+export function ReaderSettingSwitch({ id, label, description, checked, onCheckedChange, disabled }) {
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="space-y-0.5">
@@ -23,7 +23,7 @@ function SettingSwitch({ id, label, description, checked, onCheckedChange, disab
 export function ReaderSettingToggles({ settings, isLoaded, onChange }) {
   return (
     <div className="space-y-4">
-      <SettingSwitch
+      <ReaderSettingSwitch
         id="reader-cover-alone"
         label="Show first page alone"
         description="Keep a cover separate when using two-page mode."
@@ -31,7 +31,7 @@ export function ReaderSettingToggles({ settings, isLoaded, onChange }) {
         onCheckedChange={(coverAlone) => onChange({ coverAlone })}
         disabled={!isLoaded || settings.mode !== "double"}
       />
-      <SettingSwitch
+      <ReaderSettingSwitch
         id="reader-show-progress"
         label="Show progress bar"
         description="Keep a slim page progress indicator above navigation."
@@ -39,7 +39,7 @@ export function ReaderSettingToggles({ settings, isLoaded, onChange }) {
         onCheckedChange={(showProgress) => onChange({ showProgress })}
         disabled={!isLoaded}
       />
-      <SettingSwitch
+      <ReaderSettingSwitch
         id="reader-auto-hide"
         label="Auto-hide reader controls"
         description="Controls return on a centre tap, pointer movement, or keyboard use."
@@ -47,7 +47,7 @@ export function ReaderSettingToggles({ settings, isLoaded, onChange }) {
         onCheckedChange={(autoHideControls) => onChange({ autoHideControls })}
         disabled={!isLoaded}
       />
-      <SettingSwitch
+      <ReaderSettingSwitch
         id="reader-wake-lock"
         label="Keep screen awake"
         description="Prevent screen sleep while the reader is open, when supported."

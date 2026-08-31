@@ -303,8 +303,9 @@ export function AdminSharingCodesList() {
             <AlertDialogTitle>Run the retention cleanup now?</AlertDialogTitle>
             <AlertDialogDescription>
               This is the same sweep the scheduled job runs, so it removes only invitations that
-              expired unanswered and codes that died more than {payload?.retentionAfterExpiry || "30 days"} ago.
-              Live codes, recently expired ones, and the comics people claimed through them are all
+              expired unanswered, codes that died more than {payload?.retentionAfterExpiry || "30 days"} ago,
+              and shares revoked more than {payload?.retentionAfterRevocation || "30 days"} ago. Live codes,
+              live shares, recently expired ones, and the comics people claimed through them are all
               left alone.
             </AlertDialogDescription>
           </AlertDialogHeader>

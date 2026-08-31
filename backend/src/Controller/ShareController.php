@@ -12,6 +12,7 @@ use App\Security\Voter\ComicVoter;
 use App\Service\ComicSerializer;
 use App\Service\ComicShareSerializer;
 use App\Service\ComicShareService;
+use App\Service\Pagination\PaginationRequest;
 use App\Service\ShareException;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -41,21 +42,30 @@ class ShareController extends AbstractController
     ) {
     }
 
-    /** Comics this user has shared, grouped by comic. */
+    /**
+     * Comics this user has shared, grouped by comic, one page at a time.
+     *
+     * Paged like the admin tables — same query parameters, same `pagination`
+     * block — but by comic rather than by share, because the page renders one
+     * card per comic and a boundary between two recipients of the same comic
+     * would split a card across pages.
+     */
     #[Route('/shared-by-me', name: 'app_shares_by_me', methods: ['GET'])]
-    public function sharedByMe(): JsonResponse
+    public function sharedByMe(Request $request): JsonResponse
     {
         $user = $this->requireUser();
+
+        $pagination = PaginationRequest::fromRequest($request, ComicShareRepository::OWNER_SORT_FIELDS, 'createdAt');
 
         // Only shares on comics the owner still has: a deleted comic leaves this
         // list entirely, and the tombstone it leaves behind belongs to the
         // recipients who lost access, not to the person who removed it.
-        $shares = $this->shareRepository->findAllForOwner($user);
+        $page = $this->shareRepository->findOwnerPage($user, $pagination);
 
         // Grouped server-side so the page does not have to reconstruct which
         // recipients belong to which comic.
         $groups = [];
-        foreach ($shares as $share) {
+        foreach ($page->items as $share) {
             $comic = $share->getComic();
             if ($comic === null) {
                 continue;
@@ -73,7 +83,10 @@ class ShareController extends AbstractController
             $groups[$comic->getId()]['recipients'][] = $this->shareSerializer->forOwner($share);
         }
 
-        return $this->json(['sharedByMe' => array_values($groups)]);
+        return $this->json([
+            'sharedByMe' => array_values($groups),
+            'pagination' => $page->toArray(),
+        ]);
     }
 
     /** Invitations, accepted shares and tombstones addressed to this user. */
@@ -136,6 +149,27 @@ class ShareController extends AbstractController
             'message' => 'Access revoked.',
             'share' => $this->shareSerializer->forOwner($share),
         ]);
+    }
+
+    /**
+     * Delete the record of a finished share from the owner's list.
+     *
+     * Only for relationships that are already over — revoked, declined, or an
+     * invitation that lapsed unanswered. A live share is refused with a 409
+     * rather than revoked on the way out, so deleting can never be a quieter
+     * way of cutting somebody off.
+     */
+    #[Route('/{id}', name: 'app_shares_delete', methods: ['DELETE'], requirements: ['id' => '\d+'])]
+    public function deleteShare(int $id, #[CurrentUser] ?User $user): JsonResponse
+    {
+        $share = $this->findOwnedShare($id, $user);
+        if ($share instanceof JsonResponse) {
+            return $share;
+        }
+
+        $this->shareService->deleteForOwner($share);
+
+        return $this->json(['message' => 'Share record deleted.']);
     }
 
     #[Route('/comics/{comicId}', name: 'app_shares_stop_all', methods: ['DELETE'], requirements: ['comicId' => '\d+'])]

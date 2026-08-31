@@ -22,7 +22,7 @@ export function LibraryDialogs({ folders, editing, sharing, movingComic, movingF
           same one, deliberately. */}
       {(sharing.comicIds || sharing.folder) && (
         <ShareComicsDialog
-          key={sharing.folder ? `folder-${sharing.folder.folderId}` : sharing.comicIds.join(",")}
+          key={sharing.folder ? `share-folder-${sharing.folder.folderId}` : `share-comics-${sharing.comicIds.join(",")}`}
           isOpen
           onClose={sharing.onClose}
           initialComicIds={sharing.folder ? sharing.folder.comicIds : sharing.comicIds}
@@ -41,7 +41,7 @@ export function LibraryDialogs({ folders, editing, sharing, movingComic, movingF
       />
 
       <MoveToFolderDialog
-        key={movingComic.comic?.id ?? "no-comic"}
+        key={`move-comic-${movingComic.comic?.id ?? "none"}`}
         open={Boolean(movingComic.comic)}
         onOpenChange={(open) => { if (!open) movingComic.onClose(); }}
         folders={folders}
@@ -51,7 +51,7 @@ export function LibraryDialogs({ folders, editing, sharing, movingComic, movingF
       />
 
       <MoveToFolderDialog
-        key={`folder-${movingFolder.folderId}`}
+        key={`move-folder-${movingFolder.folderId}`}
         open={movingFolder.open}
         onOpenChange={movingFolder.onOpenChange}
         folders={folders}

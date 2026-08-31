@@ -4,6 +4,7 @@ import { Loader2, Share2Icon, UserPlus } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AdminPagination } from "@/components/AdminPagination";
 import { ShareComicsDialog } from "@/components/ShareComicsDialog";
 import { SharingCodesCard } from "@/components/SharingCodesCard";
 import { SharedByMeList } from "@/components/share/SharedByMeList";
@@ -25,7 +26,9 @@ const EMPTY_TARGET = { email: "", username: "", userCode: "", comicIds: [] };
  * be put through lives in `useSharingActions`.
  */
 export default function Sharing() {
-  const { sharedByMe, sharedWithMe, isLoading, error, reload } = useSharingLists();
+  const {
+    sharedByMe, sharedWithMe, byMePagination, isLoading, error, reload, setByMePage, setByMeLimit,
+  } = useSharingLists();
   const { loadLibrary } = useComicLibrary();
   const navigate = useNavigate();
   const actions = useSharingActions({ reload, loadLibrary });
@@ -89,7 +92,7 @@ export default function Sharing() {
         <Tabs value={focus.activeTab} onValueChange={focus.setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="with-me">Shared with me ({sharedWithMe.length})</TabsTrigger>
-            <TabsTrigger value="by-me">Shared by me ({sharedByMe.length})</TabsTrigger>
+            <TabsTrigger value="by-me">Shared by me ({byMePagination.totalItems})</TabsTrigger>
           </TabsList>
           <TabsContent value="with-me">
             <SharedWithMeList
@@ -108,7 +111,21 @@ export default function Sharing() {
               onStopSharing={setStopSharingTarget}
               onResend={actions.resend}
               onRevoke={actions.revoke}
+              onDelete={actions.deleteRecord}
             />
+            {/* The same pager as the admin tables, for the same reason: this
+                list is every share ever handed out, and it only grows. */}
+            {byMePagination.totalItems > 0 && (
+              <div className="mt-4">
+                <AdminPagination
+                  pagination={byMePagination}
+                  itemCount={sharedByMe.length}
+                  onPageChange={setByMePage}
+                  onLimitChange={setByMeLimit}
+                  label="shared comics"
+                />
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       )}

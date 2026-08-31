@@ -8,10 +8,16 @@ import { cn } from "@/lib/utils";
 
 export function CookieNotice() {
   const { pathname } = useLocation();
-  const { isLoading, isActive } = useAdSense();
+  const { analytics, isLoading, isActive } = useAdSense();
   const [visible, setVisible] = useState(() => !wasCookieNoticeDismissed());
   const isReaderPage = pathname.startsWith("/read/");
   const advertising = isActive;
+  const analyticsActive = Boolean(analytics?.enabled && analytics.measurementId);
+  const optionalStorageNotice = advertising && analyticsActive
+    ? "Advertising on some pages and optional analytics use additional storage, which you accept or reject by purpose in the privacy choices panel."
+    : advertising
+      ? "Advertising on some pages uses additional storage, which you accept or reject in the privacy choices panel."
+      : "Optional analytics uses additional storage only after you accept it in the privacy choices panel.";
 
   const dismiss = () => {
     persistCookieNoticeDismissal();
@@ -41,8 +47,8 @@ export function CookieNotice() {
             says only what it is for; where it is off, there is no choice to make
             and this stays the whole story. */}
         <p className="text-sm text-muted-foreground">
-          {advertising
-            ? "We use necessary session and security cookies, plus a theme preference. Advertising on some pages uses additional storage, which you accept or reject in the privacy choices panel."
+          {advertising || analyticsActive
+            ? `We use necessary session and security cookies, plus a theme preference. ${optionalStorageNotice}`
             : "We use necessary session and security cookies, plus a theme preference. No advertising or analytics cookies are used."}{" "}
           <Link className="font-medium text-foreground underline" to="/cookies">Learn more</Link>
         </p>

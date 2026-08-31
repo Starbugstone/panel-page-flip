@@ -221,6 +221,28 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
         fclose($afterRejection);
     }
 
+    /**
+     * A chunk for an upload that was never initialised is refused, and told so
+     * in as many words.
+     *
+     * The two handlers resolve the same staging directory and say different
+     * things when it is not there — "never started" here, "already gone" at
+     * /complete — so the wording is asserted on both sides. Sharing the lookup
+     * must not end with a chunk request reporting the other one's message.
+     */
+    public function testAChunkForAnUninitialisedUploadIsRejected(): void
+    {
+        $this->createAndLoginUser();
+
+        $this->uploadChunk('never-initialised', 0, 'payload');
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame(
+            'Upload not initialized',
+            json_decode((string) $this->browser()->getResponse()->getContent(), true)['message']
+        );
+    }
+
     private function uploadChunk(string $fileId, int $chunkIndex, string $contents): void
     {
         $chunkPath = tempnam(sys_get_temp_dir(), 'chunk_');

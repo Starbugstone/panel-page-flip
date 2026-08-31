@@ -2,6 +2,7 @@
 
 namespace App\Command;
 
+use App\Entity\ComicShare;
 use App\Entity\ShareClaimCode;
 use App\Service\ExpiredShareCleanupService;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -26,7 +27,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  */
 #[AsCommand(
     name: 'app:cleanup-expired-shares',
-    description: 'Deletes expired share invitations and long-dead sharing codes',
+    description: 'Deletes expired share invitations, long-dead sharing codes and long-revoked shares',
 )]
 class CleanupExpiredSharesCommand extends Command
 {
@@ -38,8 +39,9 @@ class CleanupExpiredSharesCommand extends Command
     protected function configure(): void
     {
         $this->setHelp(
-            'Removes pending share invitations whose expiry date has passed, and sharing codes that '
-            . 'expired more than ' . ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+') . ' ago.'
+            'Removes pending share invitations whose expiry date has passed, sharing codes that '
+            . 'expired more than ' . ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+') . ' ago, and shares '
+            . 'revoked more than ' . ltrim(ComicShare::RETENTION_AFTER_REVOCATION, '+') . ' ago.'
         );
     }
 
@@ -54,16 +56,17 @@ class CleanupExpiredSharesCommand extends Command
         // records from other people's accounts should be answerable for it.
         $removed = $this->cleanup->run();
 
-        if ($removed['invitations'] === 0 && $removed['claimCodes'] === 0) {
+        if ($removed['invitations'] === 0 && $removed['claimCodes'] === 0 && $removed['revokedShares'] === 0) {
             $io->success('Nothing to clean up.');
 
             return Command::SUCCESS;
         }
 
         $io->success(sprintf(
-            'Removed %d expired invitation(s) and %d dead sharing code(s).',
+            'Removed %d expired invitation(s), %d dead sharing code(s) and %d long-revoked share(s).',
             $removed['invitations'],
-            $removed['claimCodes']
+            $removed['claimCodes'],
+            $removed['revokedShares']
         ));
 
         return Command::SUCCESS;

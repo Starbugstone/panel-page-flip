@@ -80,6 +80,18 @@ final class AdvertisingConfiguration
     }
 
     /**
+     * The valid publisher id used by Google's certified consent platform.
+     *
+     * Analytics may reuse Privacy & Messaging while advertising itself remains
+     * off. This deliberately differs from client(), which must never make an
+     * ad-disabled installation look enabled to the browser.
+     */
+    public function consentClient(): ?string
+    {
+        return $this->client;
+    }
+
+    /**
      * The whole of what the browser is told.
      *
      * Two keys, matching the two settings. There is deliberately no test-mode

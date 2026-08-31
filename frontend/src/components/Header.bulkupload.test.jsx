@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -96,5 +97,25 @@ describe("the Dropbox destination", () => {
 
     expect(screen.getByRole("link", { name: "Dropbox Import" })).toHaveTextContent("Dropbox Import");
     expect(screen.queryByRole("link", { name: "Dropbox Sync" })).not.toBeInTheDocument();
+  });
+});
+
+describe("the narrow-screen navigation", () => {
+  it("puts every signed-in destination in one comfortably sized menu", async () => {
+    const user = userEvent.setup();
+    renderHeader("/dashboard", { isAdmin: true });
+
+    await user.click(screen.getByRole("button", { name: "Open navigation menu" }));
+
+    const menu = screen.getByRole("menu");
+    expect(screen.getByRole("menuitem", { name: "My Comics" })).toHaveClass("min-h-11");
+    expect(screen.getByRole("menuitem", { name: "Upload Comic" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Bulk Upload" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Sharing" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Dropbox Import" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Admin dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Logout" })).toBeInTheDocument();
+    expect(menu).toBeInTheDocument();
   });
 });

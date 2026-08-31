@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Repository;
 
 use App\Entity\EmailVerificationToken;
-use App\Entity\User;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -38,32 +37,5 @@ class EmailVerificationTokenRepository extends ServiceEntityRepository
             ->setParameter('now', new \DateTimeImmutable())
             ->getQuery()
             ->getOneOrNullResult();
-    }
-
-    /**
-     * Find all valid tokens for a user
-     */
-    public function findValidTokensForUser(User $user): array
-    {
-        return $this->createQueryBuilder('t')
-            ->where('t.user = :user')
-            ->andWhere('t.expiresAt > :now')
-            ->setParameter('user', $user)
-            ->setParameter('now', new \DateTimeImmutable())
-            ->getQuery()
-            ->getResult();
-    }
-
-    /**
-     * Delete expired tokens
-     */
-    public function deleteExpiredTokens(): int
-    {
-        return $this->createQueryBuilder('t')
-            ->delete()
-            ->where('t.expiresAt <= :now')
-            ->setParameter('now', new \DateTimeImmutable())
-            ->getQuery()
-            ->execute();
     }
 }

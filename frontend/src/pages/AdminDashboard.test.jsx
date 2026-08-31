@@ -239,11 +239,11 @@ describe("AdminDashboard tab navigation", () => {
     await user.click(screen.getByRole("tab", { name: "Sharing codes" }));
     expectSelectedTab("Sharing codes");
 
-    await router.navigate(-1);
+    await act(() => router.navigate(-1));
     await waitFor(() => expectSelectedTab("Users"));
     expect(router.state.location.search).toBe("?tab=users");
 
-    await router.navigate(1);
+    await act(() => router.navigate(1));
     await waitFor(() => expectSelectedTab("Sharing codes"));
     expect(router.state.location.search).toBe("?tab=sharing-codes");
   });
@@ -265,7 +265,7 @@ describe("AdminDashboard tab navigation", () => {
     });
     await waitFor(() => expectSelectedTab("Sharing codes"));
 
-    await router.navigate(-1);
+    await act(() => router.navigate(-1));
     await waitFor(() => expectSelectedTab("Users"));
     expect(router.state.location.search).toBe("?tab=users");
   });

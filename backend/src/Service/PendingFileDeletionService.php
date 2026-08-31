@@ -90,7 +90,7 @@ final class PendingFileDeletionService
                 ++$deleted;
             } catch (\Throwable $exception) {
                 ++$remaining;
-                $record->recordFailure($exception->getMessage());
+                $record->recordFailure();
                 $this->logger->error('A personal-data file remains pending deletion.', [
                     'path' => $path,
                     'exception' => $exception,

@@ -265,32 +265,19 @@ final class ComicVineProvider extends HttpMetadataProvider
      */
     private function credits(mixed $credits): array
     {
-        if (!is_array($credits)) {
-            return [];
-        }
+        $pairs = [];
 
-        $byRole = [];
-
-        foreach ($credits as $credit) {
+        foreach (is_array($credits) ? $credits : [] as $credit) {
             if (!is_array($credit) || !isset($credit['name']) || !is_string($credit['name'])) {
                 continue;
             }
 
             $roles = is_string($credit['role'] ?? null) ? explode(',', $credit['role']) : ['other'];
-
             foreach ($roles as $role) {
-                $key = mb_strtolower(trim($role));
-                if ($key === '') {
-                    continue;
-                }
-
-                $byRole[$key] ??= [];
-                if (!in_array($credit['name'], $byRole[$key], true)) {
-                    $byRole[$key][] = $credit['name'];
-                }
+                $pairs[] = [$role, $credit['name']];
             }
         }
 
-        return $byRole;
+        return $this->foldCredits($pairs);
     }
 }

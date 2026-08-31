@@ -20,14 +20,8 @@ class PendingFileDeletion
     #[ORM\Column]
     private int $attempts = 0;
 
-    #[ORM\Column(type: Types::TEXT, nullable: true)]
-    private ?string $lastError = null;
-
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;
-
-    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
-    private ?\DateTimeImmutable $lastAttemptAt = null;
 
     public function __construct(string $path)
     {
@@ -50,25 +44,13 @@ class PendingFileDeletion
         return $this->attempts;
     }
 
-    public function getLastError(): ?string
-    {
-        return $this->lastError;
-    }
-
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
     }
 
-    public function getLastAttemptAt(): ?\DateTimeImmutable
-    {
-        return $this->lastAttemptAt;
-    }
-
-    public function recordFailure(string $message): void
+    public function recordFailure(): void
     {
         ++$this->attempts;
-        $this->lastError = $message;
-        $this->lastAttemptAt = new \DateTimeImmutable();
     }
 }

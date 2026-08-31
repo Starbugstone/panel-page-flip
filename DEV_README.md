@@ -26,6 +26,7 @@ lives in [`docs/`](docs/):
 | [administrator-notices.md](docs/administrator-notices.md) | Warning one account about their activity |
 | [admin-bulk-actions.md](docs/admin-bulk-actions.md) | Tick-box selection and bulk actions across the admin tables |
 | [advertising.md](docs/advertising.md) | Optional AdSense, consent, AdSense Offerwall, strict CSP |
+| [analytics.md](docs/analytics.md) | Optional privacy-first GA4, basic consent mode, route minimisation |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
 
@@ -65,7 +66,7 @@ lives in [`docs/`](docs/):
 - **ComicShare Entity**: Defined in `ComicShare.php`. A durable, revocable grant of read access to the owner's single copy — sharing never creates a second `Comic` row or a second file
 - **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored. One link per invitation, good for a single claim within two months; accepting spends it and revokes every other token for that share, and resending mints a new one and retires the old link
 - **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
-- **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup
+- **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup. `GET /shared-by-me` is paged by comic with the same query parameters and `pagination` block as the admin tables, and `DELETE /{id}` lets the owner clear the record of a finished share (revoked, declined or lapsed — a live one is refused with a 409 so deleting can never stand in for revoking)
 - **Public Identity**: Every account has a required, case-insensitively unique `username` and a rotatable `U-` user code. `UsernamePolicy.php` is the one definition of what a username may be, `UsernameGenerator.php` invents friendly ones, `UsernameService.php` claims and changes them, and `UserIdentityListener.php` issues both identifiers on `prePersist` so no account can exist without them. See [Public identity: username and `U-` code](#public-identity-username-and-u--code)
 - **Sharing Codes**: `SharingCodeFormat.php` and `ShareCodeType.php` define one wire format in three flavours — `U-` identifies a person, `C-` carries exactly one comic, `G-` carries a package of 2–20. `SharingCodeService.php` issues and resolves user codes; `ShareClaimCodeService.php` mints and redeems content codes. See [Sharing codes](#sharing-codes)
 - **Content Code Lifetime**: `ShareContentCodeLifetime.php` turns `SHARE_CONTENT_CODE_TTL_DAYS` (default 7) into an absolute expiry stamped on each code at minting time, and refuses to construct on a nonsense value so a bad deployment fails on the way up
@@ -74,7 +75,7 @@ lives in [`docs/`](docs/):
 - **Lookup Flood Guard**: `IdentifierLookupGuard.php` charges every attempt to turn an identifier into a person *before* the repository is asked, so an exhausted caller cannot still resolve the identifiers that happen to be real. See [Why this is not a user directory](#why-this-is-not-a-user-directory)
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
 - **Email Notifications**: Shares commit first; `ShareInvitationNotification` is then queued carrying share ids and nothing else, and `ShareInvitationNotificationHandler` reloads the relationships and mints the links as it writes the mail. A bulk share sends one grouped email, so twenty comics are not twenty messages. See [Notification is a notice, not a condition](#notification-is-a-notice-not-a-condition)
-- **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered, and content codes that have been dead for over a month. The work itself is in `ExpiredShareCleanupService`, because an administrator can run the same sweep from the admin page and a deletion rule that exists twice will eventually disagree with itself
+- **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered, content codes that have been dead for over a month, and shares revoked more than a month ago (`ComicShare::RETENTION_AFTER_REVOCATION`, measured from `revokedAt` on the same clock as dead codes). The work itself is in `ExpiredShareCleanupService`, because an administrator can run the same sweep from the admin page and a deletion rule that exists twice will eventually disagree with itself
 - **Admin Sharing Codes**: `AdminShareCodeController.php` under `/api/admin/sharing-codes` — a paginated, filterable view of every issued content code, forced revocation, and a manual run of the retention sweep. It can never show a code, take back a redeemed comic, or delete a live record
 
 #### ✅ Dropbox Integration System
@@ -97,7 +98,7 @@ lives in [`docs/`](docs/):
 - **DropboxSyncCommand**: Syncs comics from Dropbox for all connected users (`app:dropbox-sync`)
 - **CleanupLogsCommand**: Deletes daily log files past their retention period (`app:cleanup-logs`)
 - **CleanupPersonalDataCommand**: Removes expired audit rows, spent tokens and unverified accounts (`app:cleanup-personal-data`)
-- **CleanupExpiredSharesCommand**: Removes unanswered invitations and long-dead sharing codes (`app:cleanup-expired-shares`)
+- **CleanupExpiredSharesCommand**: Removes unanswered invitations, long-dead sharing codes and long-revoked shares (`app:cleanup-expired-shares`)
 - **CleanupContentReportsCommand**: Removes closed/rejected reports past retention, never one on legal hold (`app:cleanup-content-reports`)
 - **ComicFormatsCheckCommand**: Reports which source formats this host can actually serve, and exits non-zero when an enabled one is unserviceable (`app:comic-formats:check`)
 - **PruneComicPagesCommand**: Drops generated page derivatives from the cache (`app:comic-pages:prune`)
@@ -148,7 +149,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx` with chunked upload support, progress tracking, and tag management
 
 #### ✅ Comic Sharing
-- **Sharing Page**: `Sharing.jsx` at `/sharing` — where shares are both started and managed, with "Shared with me" and "Shared by me" tabs for invitations, access and tombstones
+- **Sharing Page**: `Sharing.jsx` at `/sharing` — where shares are both started and managed, with "Shared with me" and "Shared by me" tabs for invitations, access and tombstones. "Shared by me" is paged by comic with the same pager the admin tables use, and each finished share (revoked, declined or lapsed) offers a **Delete** to clear its record before the retention sweep would
 - **Share Comics Dialog**: `ShareComicsDialog.jsx` is the *one* share workflow, opened from a grid card, from a table selection and from the Sharing page alike. It offers **Direct** (name a person by username, `U-` code, address, or somebody shared with before) or **Code** (a `C-` for one comic, a `G-` for two to twenty, decided from the selection rather than asked), carries the 18+ decision inline, and lists no registered users and searches none. What differs between entry points is only what is already chosen when it opens
 - **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's username and `U-` code with copy and **Replace** actions (the latter behind a confirmation, since the old code breaks everywhere at once), one redeem field that dispatches on the prefix, and the list of content codes handed out with the server's own `expiresAt` and a **Withdraw** action on each live one
 - **Admin User Code Rotation**: `AdminUserDetails.jsx` can replace a user's `U-` code on their behalf, behind a confirmation. The new code is never shown to the administrator — the user reads it off their own Sharing page
@@ -156,7 +157,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Registration**: `Login.jsx` proposes a generated username with a **Generate another** button, because a public handle is the one field nobody arrives at a signup form having decided on. It can be edited, and the unique index rather than the availability check is what finally rules
 - **Invitation Preview**: `ShareInvitation.jsx` at `/share/invitation/:token` loads the invitation through a safe `GET` and only accepts or declines on a button press
 - **Pending Shares Alert**: `PendingSharesAlert.jsx`, now a one-line prompt on the dashboard rather than a card per invitation
-- **Sharing Hooks**: `use-sharing.jsx` — `SharingProvider` holds the pending count for the header badge and the dashboard alert; `useSharingLists` loads both halves of the Sharing page
+- **Sharing Hooks**: `use-sharing.jsx` — `SharingProvider` holds the pending count for the header badge and the dashboard alert; `useSharingLists` loads both halves of the Sharing page and owns which page of "Shared by me" is being looked at, falling back to the last page that exists when the one on screen is deleted out from under it
 - **Sharing Helpers**: `lib/sharing.js` holds the classification and wording rules, covered by `lib/sharing.test.js`
 - **Collection Integration**: Accepted shares appear in the normal collection with a "Shared by …" badge, an `All | Mine | Shared with me` filter, and owner actions hidden
 

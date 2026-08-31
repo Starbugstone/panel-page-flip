@@ -235,4 +235,37 @@ abstract class HttpMetadataProvider implements MetadataProviderInterface
 
         return $names;
     }
+
+    /**
+     * Fold credit rows into role => people.
+     *
+     * The providers disagree on the shape of a row — Comic Vine names the
+     * person in `name` and comma-separates their roles into one string, Metron
+     * uses `creator` and lists roles as objects — so each reads its own shape
+     * and hands the pairs here. What is the same either way lives once: roles
+     * are keyed lower-cased, blank ones are dropped, and nobody is listed
+     * twice under one role.
+     *
+     * @param list<array{0: string, 1: string}> $pairs role as the provider
+     *                                                 spelled it, and the person
+     * @return array<string, list<string>>
+     */
+    protected function foldCredits(array $pairs): array
+    {
+        $byRole = [];
+
+        foreach ($pairs as [$role, $person]) {
+            $key = mb_strtolower(trim($role));
+            if ($key === '') {
+                continue;
+            }
+
+            $byRole[$key] ??= [];
+            if (!in_array($person, $byRole[$key], true)) {
+                $byRole[$key][] = $person;
+            }
+        }
+
+        return $byRole;
+    }
 }

@@ -205,28 +205,10 @@ parameters:
 			path: src/Entity/Comic.php
 
 		-
-			message: '#^Property App\\Entity\\UserWarning\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
-			identifier: property.unusedType
-			count: 1
-			path: src/Entity/UserWarning.php
-
-		-
-			message: '#^Property App\\Entity\\LibraryFolder\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
-			identifier: property.unusedType
-			count: 1
-			path: src/Entity/LibraryFolder.php
-
-		-
-			message: '#^Property App\\Entity\\LibraryFolder\:\:\$parentScope is never read, only written\.$#'
+			message: '#^Property App\\Entity\\Comic\:\:\$readingProgresses is never read, only written\.$#'
 			identifier: property.onlyWritten
 			count: 1
-			path: src/Entity/LibraryFolder.php
-
-		-
-			message: '#^Property App\\Entity\\LibraryFolderItem\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
-			identifier: property.unusedType
-			count: 1
-			path: src/Entity/LibraryFolderItem.php
+			path: src/Entity/Comic.php
 
 		-
 			message: '#^Property App\\Entity\\Comic\:\:\$readingProgresses with generic interface Doctrine\\Common\\Collections\\Collection does not specify its types\: TKey, T$#'
@@ -265,6 +247,24 @@ parameters:
 			path: src/Entity/EmailVerificationToken.php
 
 		-
+			message: '#^Property App\\Entity\\LibraryFolder\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
+			identifier: property.unusedType
+			count: 1
+			path: src/Entity/LibraryFolder.php
+
+		-
+			message: '#^Property App\\Entity\\LibraryFolder\:\:\$parentScope is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/LibraryFolder.php
+
+		-
+			message: '#^Property App\\Entity\\LibraryFolderItem\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
+			identifier: property.unusedType
+			count: 1
+			path: src/Entity/LibraryFolderItem.php
+
+		-
 			message: '#^Property App\\Entity\\MetadataProviderConfiguration\:\:\$id is never read, only written\.$#'
 			identifier: property.onlyWritten
 			count: 1
@@ -289,6 +289,18 @@ parameters:
 			path: src/Entity/ResetPasswordToken.php
 
 		-
+			message: '#^Property App\\Entity\\ResetPasswordToken\:\:\$isUsed is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/ResetPasswordToken.php
+
+		-
+			message: '#^Property App\\Entity\\ShareClaimCode\:\:\$codeHash is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/ShareClaimCode.php
+
+		-
 			message: '#^Property App\\Entity\\ShareClaimCode\:\:\$comics with generic interface Doctrine\\Common\\Collections\\Collection does not specify its types\: TKey, T$#'
 			identifier: missingType.generics
 			count: 1
@@ -299,6 +311,12 @@ parameters:
 			identifier: property.unusedType
 			count: 1
 			path: src/Entity/ShareClaimCode.php
+
+		-
+			message: '#^Property App\\Entity\\ShareClaimCodeRedemption\:\:\$claimCode is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/ShareClaimCodeRedemption.php
 
 		-
 			message: '#^Property App\\Entity\\ShareClaimCodeRedemption\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
@@ -337,10 +355,28 @@ parameters:
 			path: src/Entity/Tag.php
 
 		-
+			message: '#^Property App\\Entity\\User\:\:\$emailVerificationTokens is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/User.php
+
+		-
 			message: '#^Property App\\Entity\\User\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
 			identifier: property.unusedType
 			count: 1
 			path: src/Entity/User.php
+
+		-
+			message: '#^Property App\\Entity\\User\:\:\$resetPasswordTokens is never read, only written\.$#'
+			identifier: property.onlyWritten
+			count: 1
+			path: src/Entity/User.php
+
+		-
+			message: '#^Property App\\Entity\\UserWarning\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
+			identifier: property.unusedType
+			count: 1
+			path: src/Entity/UserWarning.php
 
 		-
 			message: '#^Class App\\Repository\\AdminAuditLogRepository has PHPDoc tag @method for method findBy\(\) parameter \#1 \$criteria with no value type specified in iterable type array\.$#'
@@ -458,12 +494,6 @@ parameters:
 
 		-
 			message: '#^Class App\\Repository\\EmailVerificationTokenRepository has PHPDoc tag @method for method findOneBy\(\) parameter \#2 \$orderBy with no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: src/Repository/EmailVerificationTokenRepository.php
-
-		-
-			message: '#^Method App\\Repository\\EmailVerificationTokenRepository\:\:findValidTokensForUser\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/Repository/EmailVerificationTokenRepository.php

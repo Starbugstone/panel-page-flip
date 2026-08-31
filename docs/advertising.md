@@ -152,6 +152,11 @@ under **Privacy & messaging**. Auto Ads being enabled does not create it.
 choices** footer action loads Google's consent platform without advertising on
 other routes and calls `googlefc.showRevocationMessage()`.
 
+When Google Analytics is enabled, the same message must also have **Consent
+mode for advertising purposes** and **Consent mode for analytics purposes**
+enabled in its settings. Analytics uses the CMP's documented
+`CONSENT_MODE_DATA_READY` API in basic mode; see `docs/analytics.md`.
+
 Test from a fresh/incognito EEA session. Reject must remain as accessible as
 accept, withdrawing consent must work, and refusal must not block application
 features. Useful console checks are:

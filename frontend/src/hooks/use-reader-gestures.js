@@ -1,13 +1,7 @@
 import { useEffect, useRef } from "react";
 
+import { isReaderControl } from "@/lib/reader-controls";
 import { createGestureState, reduceGesture } from "@/lib/reader-gestures";
-
-// The reader's controls live over the page, inside the element these listeners
-// are on. A tap on one of them is a press of that control and nothing else —
-// the top-right cluster sits in the same place as the next-page tap zone, so
-// without this every settings tap would also turn a page.
-const CONTROL_SELECTOR = 'button, a, input, select, textarea, label, [role="button"],'
-  + ' [role="switch"], [role="slider"], [role="dialog"], [contenteditable="true"]';
 
 /**
  * Pointer Events into one gesture machine, and its decisions out to the reader.
@@ -73,7 +67,7 @@ export function useReaderGestures(elementRef, { zoomed = false, paged = true, en
 
     const onPointerDown = (event) => {
       if (!isGesturePointer(event)) return;
-      if (event.target?.closest?.(CONTROL_SELECTOR)) {
+      if (isReaderControl(event.target)) {
         ignored.add(event.pointerId);
         return;
       }

@@ -74,6 +74,17 @@ export function useSharingActions({ reload, loadLibrary }) {
       "Entry removed."
     ),
 
+    /**
+     * The owner's counterpart to `forget`: clear the record of a share that is
+     * already over. The server refuses anything still live, so this can never
+     * stand in for revoking.
+     */
+    deleteRecord: (recipient) => runAction(
+      recipient.id,
+      () => api.delete(`/api/shares/${recipient.id}`),
+      `Share record for ${recipientLabel(recipient)} deleted.`
+    ),
+
     // The two below act on a comic or on the whole history rather than on one
     // share, so they pass no id and the row spinners stay put.
     removeAllDead: () => runAction(null, () => api.delete("/api/shares/tombstones"), "Unavailable shared comics removed."),

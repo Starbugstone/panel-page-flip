@@ -160,19 +160,6 @@ final class PageDerivativeService
     }
 
     /**
-     * Throw away everything generated from this comic's current source.
-     *
-     * Metadata edits deliberately do not come through here: retitling a comic
-     * does not change a pixel, and regenerating a 300-page book for it would be
-     * pure waste.
-     */
-    public function invalidateComic(Comic $comic): void
-    {
-        $identifier = $comic->getId();
-        if ($identifier !== null) $this->cache->purge($identifier);
-    }
-
-    /**
      * What a cache validator for this page has to include, so that a browser
      * cannot revalidate one variant's bytes as another's, or keep a copy made
      * by an encoder this server no longer has.

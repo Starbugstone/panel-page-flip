@@ -10,6 +10,7 @@ import { AdminNoticeBanner } from "@/components/AdminNoticeBanner.jsx";
 import { Header } from "@/components/Header.jsx";
 import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { AdSenseProvider } from "@/components/ads/AdSenseProvider.jsx";
+import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
 import { Footer } from "@/components/Footer.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
 import { TagProvider } from "./hooks/use-tags.jsx";
@@ -149,7 +150,9 @@ const App = () => {
                         routed pages because Google's site code is loaded once
                         for the whole application, never per page. */}
                     <AdSenseProvider>
-                      <AppRoutes />
+                      <GoogleAnalyticsProvider>
+                        <AppRoutes />
+                      </GoogleAnalyticsProvider>
                     </AdSenseProvider>
                   </BrowserRouter>
                 </TooltipProvider>

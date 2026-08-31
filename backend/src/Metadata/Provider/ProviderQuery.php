@@ -27,16 +27,6 @@ final class ProviderQuery
     ) {
     }
 
-    public static function fromComic(Comic $comic): ?self
-    {
-        return self::build(
-            $comic->getSeries() ?? $comic->getTitle(),
-            $comic->getIssueNumber(),
-            $comic->getPublishedAt() !== null ? (int) $comic->getPublishedAt()->format('Y') : null,
-            $comic->getVolume(),
-        );
-    }
-
     /**
      * The staged form values, with the comic and then its filename filling any
      * gap. The staged values are hints for a search — never authority to edit

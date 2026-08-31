@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Functional\Controller;
 
 use App\Service\AdvertisingConfiguration;
+use App\Service\GoogleAnalyticsConfiguration;
 use App\Tests\Functional\AbstractApiTestCase;
 use Psr\Log\NullLogger;
 
@@ -24,6 +25,16 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertArrayHasKey('adsense', $payload);
+        self::assertArrayHasKey('analytics', $payload);
+        self::assertArrayHasKey('googleConsent', $payload);
+    }
+
+    public function testAnalyticsAndConsentAreOffByDefault(): void
+    {
+        $payload = $this->getJson('/api/public-config');
+
+        self::assertSame(['enabled' => false, 'measurementId' => null], $payload['analytics']);
+        self::assertSame(['enabled' => false, 'client' => null], $payload['googleConsent']);
     }
 
     public function testAdvertisingIsOffAndNoPublisherIdIsPublishedByDefault(): void
@@ -45,8 +56,29 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
     {
         $payload = $this->getJson('/api/public-config');
 
-        self::assertSame(['adsense', 'operator', 'privacyEmail', 'legalEmail'], array_keys($payload));
+        self::assertSame(['adsense', 'analytics', 'googleConsent', 'operator', 'privacyEmail', 'legalEmail'], array_keys($payload));
         self::assertSame(['enabled', 'client'], array_keys($payload['adsense']));
+        self::assertSame(['enabled', 'measurementId'], array_keys($payload['analytics']));
+        self::assertSame(['enabled', 'client'], array_keys($payload['googleConsent']));
+    }
+
+    public function testAnalyticsCanUseTheCertifiedCmpWithoutEnablingAdvertising(): void
+    {
+        $advertising = new AdvertisingConfiguration(false, 'ca-pub-1234567890123456', new NullLogger());
+        static::getContainer()->set(AdvertisingConfiguration::class, $advertising);
+        static::getContainer()->set(
+            GoogleAnalyticsConfiguration::class,
+            new GoogleAnalyticsConfiguration(true, 'G-PSW1MY7HB4', $advertising, new NullLogger())
+        );
+
+        $payload = $this->getJson('/api/public-config');
+
+        self::assertSame(['enabled' => false, 'client' => null], $payload['adsense']);
+        self::assertSame(['enabled' => true, 'measurementId' => 'G-PSW1MY7HB4'], $payload['analytics']);
+        self::assertSame(
+            ['enabled' => true, 'client' => 'ca-pub-1234567890123456'],
+            $payload['googleConsent']
+        );
     }
 
     public function testAdsTxtIsAbsentWhereThereIsNoAuthorisedSeller(): void

@@ -207,30 +207,18 @@ final class MetronProvider extends HttpMetadataProvider
      */
     private function credits(mixed $credits): array
     {
-        if (!is_array($credits)) {
-            return [];
-        }
+        $pairs = [];
 
-        $byRole = [];
-
-        foreach ($credits as $credit) {
+        foreach (is_array($credits) ? $credits : [] as $credit) {
             if (!is_array($credit) || !isset($credit['creator']) || !is_string($credit['creator'])) {
                 continue;
             }
 
             foreach ($this->names($credit['role'] ?? []) ?: ['Other'] as $role) {
-                $key = mb_strtolower(trim($role));
-                if ($key === '') {
-                    continue;
-                }
-
-                $byRole[$key] ??= [];
-                if (!in_array($credit['creator'], $byRole[$key], true)) {
-                    $byRole[$key][] = $credit['creator'];
-                }
+                $pairs[] = [$role, $credit['creator']];
             }
         }
 
-        return $byRole;
+        return $this->foldCredits($pairs);
     }
 }

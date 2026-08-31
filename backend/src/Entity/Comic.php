@@ -269,21 +269,9 @@ class Comic
         return $this->uploadedAt;
     }
 
-    public function setUploadedAt(\DateTimeImmutable $uploadedAt): static
-    {
-        $this->uploadedAt = $uploadedAt;
-        return $this;
-    }
-
     public function getUpdatedAt(): ?\DateTimeImmutable
     {
         return $this->updatedAt;
-    }
-
-    public function setUpdatedAt(\DateTimeImmutable $updatedAt): static
-    {
-        $this->updatedAt = $updatedAt;
-        return $this;
     }
 
     public function getOwner(): ?User
@@ -593,11 +581,6 @@ class Comic
         return $this->sharingRestrictedAt !== null || $this->quarantinedAt !== null;
     }
 
-    public function getSharingRestrictedAt(): ?\DateTimeImmutable
-    {
-        return $this->sharingRestrictedAt;
-    }
-
     public function restrictSharing(): static
     {
         $this->sharingRestrictedAt ??= new \DateTimeImmutable();
@@ -615,11 +598,6 @@ class Comic
         return $this->quarantinedAt !== null;
     }
 
-    public function getQuarantinedAt(): ?\DateTimeImmutable
-    {
-        return $this->quarantinedAt;
-    }
-
     public function quarantine(): static
     {
         $this->quarantinedAt ??= new \DateTimeImmutable();
@@ -629,36 +607,6 @@ class Comic
     public function liftQuarantine(): static
     {
         $this->quarantinedAt = null;
-        return $this;
-    }
-
-    /**
-     * @return Collection<int, ComicReadingProgress>
-     */
-    public function getReadingProgresses(): Collection
-    {
-        return $this->readingProgresses;
-    }
-
-    public function addReadingProgress(ComicReadingProgress $readingProgress): static
-    {
-        if (!$this->readingProgresses->contains($readingProgress)) {
-            $this->readingProgresses->add($readingProgress);
-            $readingProgress->setComic($this);
-        }
-
-        return $this;
-    }
-
-    public function removeReadingProgress(ComicReadingProgress $readingProgress): static
-    {
-        if ($this->readingProgresses->removeElement($readingProgress)) {
-            // set the owning side to null (unless already changed)
-            if ($readingProgress->getComic() === $this) {
-                $readingProgress->setComic(null);
-            }
-        }
-
         return $this;
     }
 }
