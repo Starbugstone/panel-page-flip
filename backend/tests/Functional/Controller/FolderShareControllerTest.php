@@ -12,6 +12,7 @@ use App\Service\SharingWorkflowService;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use App\Tests\Functional\InvitationLinkAssertions;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\MailerAssertionsTrait;
 
@@ -20,16 +21,16 @@ use function Zenstruck\Foundry\Persistence\unproxy;
 /**
  * Sharing a whole folder in one act.
  *
- * A convenience over the ordinary invitation model rather than a second way in:
- * the folder is resolved to comics, each of those still becomes its own
- * {@see ComicShare}, and every one of them is answered, expired and withdrawn on
- * its own. What this file is mostly about is the two places that convenience
+ * The folder is resolved to comics and each still becomes its own durable
+ * {@see ComicShare}, but the pending offer is one batch: one email, one link and
+ * one recipient decision. What this file is mostly about is the two places that
  * could quietly widen access — a folder holding somebody else's comic, and a
  * client naming ids the server did not resolve itself.
  */
 final class FolderShareControllerTest extends AbstractApiTestCase
 {
     use MailerAssertionsTrait;
+    use InvitationLinkAssertions;
 
     public function testThePreviewWalksTheWholeSubtreeAndOffersOnlyWhatTheOwnerMayShare(): void
     {
@@ -69,8 +70,9 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         self::assertSame(SharingWorkflowService::MAX_FOLDER_COMICS, $preview['limit']);
     }
 
-    public function testAFolderShareCreatesOneOrdinaryInvitationPerComicInTheSubtree(): void
+    public function testAFolderShareCreatesOneBatchAcceptedWithOneLink(): void
     {
+        $recipient = $this->user(UserFactory::createOne(['email' => 'friend@example.com']));
         $owner = $this->createAndLoginUser(['email' => 'owner@example.com', 'name' => 'Goku']);
         $dragonBall = $this->folder($owner, 'DragonBall');
         $z = $this->folder($owner, 'Z', $dragonBall);
@@ -95,9 +97,10 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         $email = self::getMailerMessage();
         self::assertSame('Goku shared 2 comics from "DragonBall" with you!', $email->getSubject());
         self::assertStringContainsString('DragonBall', $email->getHtmlBody());
+        self::assertCount(1, $this->invitationUrlsFromEmail());
+        $token = $this->invitationTokenFromEmail();
 
-        // Ordinary relationships, indistinguishable from the ones a hand-picked
-        // bulk share makes: nothing about a folder survives into the grant.
+        // The per-comic grants share one pending decision boundary.
         $sharedByMe = $this->getJson('/api/shares/shared-by-me')['sharedByMe'];
         self::assertEqualsCanonicalizing(
             [$first->getId(), $second->getId()],
@@ -105,7 +108,22 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         );
         foreach ($sharedByMe as $group) {
             self::assertSame(ComicShare::STATUS_PENDING, $group['recipients'][0]['status']);
+            self::assertNotNull($group['recipients'][0]['invitationBatchId']);
+            self::assertSame('DragonBall', $group['recipients'][0]['invitationBatchName']);
+            self::assertSame(2, $group['recipients'][0]['invitationBatchSize']);
         }
+
+        $this->loginAs($recipient);
+        self::assertSame(1, $this->getJson('/api/shares/summary')['pendingInvitations']);
+
+        $accepted = $this->postJson('/api/shares/invitations/'.$token.'/accept');
+        self::assertResponseIsSuccessful();
+        self::assertSame(2, $accepted['acceptedCount']);
+        self::assertSame(
+            [ComicShare::STATUS_ACCEPTED, ComicShare::STATUS_ACCEPTED],
+            array_column($this->getJson('/api/shares/shared-with-me')['sharedWithMe'], 'status')
+        );
+        self::assertSame(0, $this->getJson('/api/shares/summary')['pendingInvitations']);
     }
 
     /**
@@ -142,10 +160,59 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         );
     }
 
+    public function testOneAgeConfirmationUnlocksAMixedFolderBeforeTheSingleAccept(): void
+    {
+        $recipient = $this->user(UserFactory::createOne(['email' => 'adult-reader@example.com']));
+        $owner = $this->createAndLoginUser(['email' => 'mixed-owner@example.com']);
+        $folder = $this->folder($owner, 'Mixed shelf');
+        $this->file(
+            $owner,
+            $this->comic(ComicFactory::new()->ownedBy($owner)->create(['title' => 'All ages'])),
+            $folder
+        );
+        $this->file(
+            $owner,
+            $this->comic(ComicFactory::new()->ownedBy($owner)->create([
+                'title' => 'Hidden adult title',
+                'explicitContent' => true,
+            ])),
+            $folder
+        );
+
+        $this->postJson('/api/shares/invitations/bulk', [
+            'folderId' => $folder->getId(),
+            'email' => (string) $recipient->getEmail(),
+            'senderResponsibilityAccepted' => true,
+        ]);
+        self::assertResponseStatusCodeSame(201);
+        $token = $this->invitationTokenFromEmail();
+
+        $this->loginAs($recipient);
+        $preview = $this->getJson('/api/shares/invitations/'.$token)['invitation'];
+        self::assertTrue($preview['isFolderBatch']);
+        self::assertSame(2, $preview['comicCount']);
+        self::assertTrue($preview['requiresAdultConfirmation']);
+        self::assertNull($preview['comicTitle']);
+
+        $this->postJson('/api/shares/invitations/'.$token.'/accept');
+        self::assertResponseStatusCodeSame(403);
+        self::assertSame(
+            [ComicShare::STATUS_PENDING, ComicShare::STATUS_PENDING],
+            array_column($this->getJson('/api/shares/shared-with-me')['sharedWithMe'], 'status')
+        );
+
+        $this->postJson('/api/shares/invitations/'.$token.'/confirm-adult', ['adultConfirmed' => true]);
+        self::assertResponseIsSuccessful();
+        self::assertFalse($this->getJson('/api/shares/invitations/'.$token)['invitation']['requiresAdultConfirmation']);
+
+        $accepted = $this->postJson('/api/shares/invitations/'.$token.'/accept');
+        self::assertResponseIsSuccessful();
+        self::assertSame(2, $accepted['acceptedCount']);
+    }
+
     /**
-     * Past the listing ceiling the notice becomes a summary. The shares are
-     * untouched by that — it is the email that changes, and only because two
-     * hundred buttons is not a message anybody reads.
+     * A large folder still gets the same single invitation link; its email
+     * summarises titles so the notice stays readable.
      */
     public function testALargeFolderShareSummarisesInsteadOfListingEveryLink(): void
     {
@@ -173,11 +240,10 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         self::assertEmailCount(1);
         $body = self::getMailerMessage()->getHtmlBody();
 
-        // No invitation link is minted into a summary at all: a capability that
-        // was never rendered never entered the message.
+        // One capability for the folder, never one per comic.
         preg_match_all('#/share/invitation/([A-Za-z0-9_-]+)#', html_entity_decode($body), $matches);
-        self::assertSame([], $matches[1]);
-        self::assertStringContainsString('/sharing', html_entity_decode($body));
+        self::assertCount(1, array_unique($matches[1]));
+        self::assertStringNotContainsString('/sharing', html_entity_decode($body));
         // It still says what it is about, without claiming to list all of it.
         self::assertStringContainsString('Volume 1', $body);
         self::assertStringContainsString('and ' . ($count - 10) . ' more', $body);

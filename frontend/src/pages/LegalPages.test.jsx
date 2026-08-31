@@ -174,4 +174,22 @@ describe("the terms", () => {
 
     expect(await screen.findByText(/not responsible for uploaded content/i)).toBeInTheDocument();
   });
+
+  /**
+   * Storage is capped by whatever the operator has configured for this
+   * account — the installation default, or a custom override — not by
+   * whatever the client happens to enforce. The terms need to say that,
+   * or a user reading them has no idea an upload can be rejected for it.
+   */
+  it("ties storage to the configured default or custom limit", async () => {
+    renderPage(<TermsOfService />);
+
+    expect(await screen.findByRole("heading", { name: /storage limits/i })).toBeInTheDocument();
+    expect(screen.getByText(/installation.s default limit, or a custom limit the operator/i))
+      .toBeInTheDocument();
+    expect(screen.getByText(/an upload that would exceed that limit is rejected/i))
+      .toBeInTheDocument();
+    expect(screen.getByText(/operator may change the configured limit at any time/i))
+      .toBeInTheDocument();
+  });
 });

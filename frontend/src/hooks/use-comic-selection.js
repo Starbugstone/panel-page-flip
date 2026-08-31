@@ -1,59 +1,27 @@
 import { useMemo, useState } from "react";
-import { comicIdsInRange, describeComicSelection } from "@/lib/comic-selection";
+import { useRowSelection } from "@/hooks/use-row-selection";
+import { describeComicSelection } from "@/lib/comic-selection";
 
 /**
  * A table's tick boxes, and the bulk operations they enable.
+ *
+ * The tick boxes themselves are {@link useRowSelection}, shared with the admin
+ * tables; what is added here is what a *comic* selection may be done to and the
+ * requests that do it.
  *
  * Every operation clears the selection on success and keeps it on failure: the
  * caller reports the error, and the comics somebody picked are exactly what
  * they need to try again with.
  */
 export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMove, canShare }) {
-  const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [anchor, setAnchor] = useState(null);
+  const rows = useRowSelection({ rows: comics });
   const [isUpdating, setIsUpdating] = useState(false);
   const [orphanedComics, setOrphanedComics] = useState([]);
 
   const selection = useMemo(
-    () => describeComicSelection(comics, selectedIds, { canShare }),
-    [canShare, comics, selectedIds]
+    () => describeComicSelection(comics, rows.selectedIds, { canShare }),
+    [canShare, comics, rows.selectedIds]
   );
-
-  const clear = () => {
-    setSelectedIds(new Set());
-    setAnchor(null);
-  };
-
-  const toggleAll = (checked) => {
-    setSelectedIds(checked ? new Set(comics.map((comic) => comic.id)) : new Set());
-    setAnchor(null);
-  };
-
-  /**
-   * @param {boolean} checked
-   * @param {{extendFromAnchor?: boolean}} options shift-clicking covers every
-   *   comic between the last plain click and this one, the way a file manager
-   *   does.
-   *
-   * The range takes the *anchor's* state rather than the clicked box's own
-   * toggle: shift-clicking back inside a range you just selected should shorten
-   * it, not invert the half you clicked through. The anchor also stays put, so
-   * successive shift-clicks resize one range instead of walking it along.
-   */
-  const toggle = (comicId, checked, { extendFromAnchor = false } = {}) => {
-    const range = extendFromAnchor && anchor ? comicIdsInRange(comics, anchor.id, comicId) : [];
-    const selecting = range.length > 0 ? anchor.checked : checked;
-
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      for (const id of range.length > 0 ? range : [comicId]) {
-        if (selecting) next.add(id); else next.delete(id);
-      }
-      return next;
-    });
-
-    if (range.length === 0) setAnchor({ id: comicId, checked });
-  };
 
   /** @returns {boolean} whether the tag was applied */
   const addTag = async (name) => {
@@ -62,7 +30,7 @@ export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMo
     setIsUpdating(true);
     try {
       await onBulkAddTag(selection.selectedComicIds, name);
-      clear();
+      rows.clear();
       return true;
     } catch {
       // The caller reports the API error and keeps the selection for retry.
@@ -81,7 +49,7 @@ export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMo
     setIsUpdating(true);
     try {
       await onBulkDelete(selection.selectedComicIds, { confirmOrphaned });
-      clear();
+      rows.clear();
       setOrphanedComics([]);
       return true;
     } catch (error) {
@@ -96,17 +64,18 @@ export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMo
 
   const moveSelected = async (folderId) => {
     await onBulkMove(selection.selectedComicIds, folderId);
-    clear();
+    rows.clear();
   };
 
   return {
     ...selection,
+    headerState: rows.headerState,
     isUpdating,
     orphanedComics,
     forgetOrphans: () => setOrphanedComics([]),
-    isChecked: (comic) => selectedIds.has(comic.id),
-    toggle,
-    toggleAll,
+    isChecked: rows.isChecked,
+    toggle: rows.toggle,
+    toggleAll: rows.toggleAll,
     addTag,
     deleteSelected,
     moveSelected,

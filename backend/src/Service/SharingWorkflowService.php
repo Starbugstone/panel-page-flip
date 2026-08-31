@@ -225,8 +225,16 @@ final class SharingWorkflowService
         $shareable = [];
         $results = [];
 
+        // A folder may carry hundreds of comics. Resolve them in one query;
+        // finding each id separately made the request spend most of its time
+        // doing round trips before the one notification was even queued.
+        $found = [];
+        foreach ($this->entityManager->getRepository(Comic::class)->findBy(['id' => $ids]) as $comic) {
+            $found[(int) $comic->getId()] = $comic;
+        }
+
         foreach ($ids as $comicId) {
-            $comic = $this->entityManager->getRepository(Comic::class)->find($comicId);
+            $comic = $found[$comicId] ?? null;
 
             // Do not distinguish a missing comic from somebody else's comic.
             // The picker only sends owned ids, but a hand-written request must
@@ -264,7 +272,8 @@ final class SharingWorkflowService
             $recipientEmail,
             $senderResponsibilityAccepted,
             $viaSharingCode,
-            $sourceFolder?->getId()
+            $sourceFolder?->getId(),
+            $sourceFolder?->getName()
         );
 
         // A reclassification is a change to the owner's own library and does

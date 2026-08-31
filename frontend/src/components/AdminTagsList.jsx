@@ -10,6 +10,11 @@ import { TagBadge, HIDDEN_TAG_EXPLANATION } from "@/components/TagBadge";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminPagination } from "@/components/AdminPagination";
+import { AdminBulkActionsBar } from "@/components/admin/AdminBulkActionsBar";
+import { SelectAllCheckbox, SelectionCheckbox } from "@/components/SelectionCheckbox";
+import { useAdminBulkAction } from "@/hooks/use-admin-bulk-action";
+import { useRowSelection } from "@/hooks/use-row-selection";
+import { pluralize, summariseLabels } from "@/lib/bulk-actions";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { formatDate } from "@/lib/format";
@@ -37,6 +42,7 @@ export function AdminTagsList({ creatorId, embedded = false }) {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [currentTag, setCurrentTag] = useState(null);
   const [tagToDelete, setTagToDelete] = useState(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [hideFromLibrary, setHideFromLibrary] = useState(false);
 
@@ -47,6 +53,7 @@ export function AdminTagsList({ creatorId, embedded = false }) {
 
   const {
     items: tags,
+    listKey,
     pagination,
     isLoading,
     searchInput,
@@ -61,6 +68,20 @@ export function AdminTagsList({ creatorId, embedded = false }) {
     itemsKey: "tags",
     errorTitle: "Could not load tags",
   });
+
+  const selection = useRowSelection({ rows: tags, resetKey: listKey });
+  const bulk = useAdminBulkAction({ reload });
+  const selected = selection.selectedRows;
+  // Deletion is the only bulk operation here: a name is one tag's own, and
+  // "hide from library" is a global-tag setting a mixed selection cannot answer.
+  const bulkActions = [{
+    key: "delete",
+    label: "Delete selected",
+    icon: Trash,
+    variant: "destructive",
+    eligible: selected,
+    onClick: () => setBulkDeleteOpen(true),
+  }];
 
   const handleAddTag = async () => {
     if (!newTagName.trim()) {
@@ -164,73 +185,97 @@ export function AdminTagsList({ creatorId, embedded = false }) {
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tag Name</TableHead>
-                <TableHead>Scope</TableHead>
-                <TableHead>Default library</TableHead>
-                <TableHead>Comics Using</TableHead>
-                <TableHead>Created By</TableHead>
-                <TableHead>Created Date</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tags.length > 0 ? (
-                tags.map((tag) => (
-                  <TableRow key={tag.id}>
-                    <TableCell>
-                      <TagBadge tag={tag} className="font-medium" />
-                    </TableCell>
-                    <TableCell>{tag.isGlobal ? <span className="inline-flex items-center gap-1"><Globe2 className="h-4 w-4" /> Global</span> : "Personal"}</TableCell>
-                    <TableCell>{tag.hideFromLibrary ? <span className="inline-flex items-center gap-1 text-pink-700 dark:text-pink-300"><EyeOff className="h-4 w-4" /> Hidden</span> : "Visible"}</TableCell>
-                    <TableCell>{tag.comicCount}</TableCell>
-                    <TableCell>{tag.creator?.name || tag.creator?.email || 'System'}</TableCell>
-                    <TableCell>{formatDate(tag.createdAt)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`Edit ${tag.name}`}
-                          title="Edit tag"
-                          onClick={() => handleOpenEditDialog(tag)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`Delete ${tag.name}`}
-                          title="Delete tag"
-                          onClick={() => setTagToDelete(tag)}
-                        >
-                          <Trash className="h-4 w-4" />
-                        </Button>
-                      </div>
+        <>
+          <AdminBulkActionsBar
+            selectedCount={selection.selectedCount}
+            totalCount={tags.length}
+            noun="tag"
+            actions={bulkActions}
+            progress={bulk.progress}
+            onClear={selection.clear}
+          />
+          <div className="overflow-x-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">
+                    <SelectAllCheckbox
+                      state={selection.headerState}
+                      onToggleAll={selection.toggleAll}
+                      label="Select all tags"
+                    />
+                  </TableHead>
+                  <TableHead>Tag Name</TableHead>
+                  <TableHead>Scope</TableHead>
+                  <TableHead>Default library</TableHead>
+                  <TableHead>Comics Using</TableHead>
+                  <TableHead>Created By</TableHead>
+                  <TableHead>Created Date</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tags.length > 0 ? (
+                  tags.map((tag) => (
+                    <TableRow key={tag.id} data-state={selection.isChecked(tag) ? "selected" : undefined}>
+                      <TableCell>
+                        <SelectionCheckbox
+                          checked={selection.isChecked(tag)}
+                          onToggle={(checked, options) => selection.toggle(tag.id, checked, options)}
+                          label={`Select ${tag.name}`}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TagBadge tag={tag} className="font-medium" />
+                      </TableCell>
+                      <TableCell>{tag.isGlobal ? <span className="inline-flex items-center gap-1"><Globe2 className="h-4 w-4" /> Global</span> : "Personal"}</TableCell>
+                      <TableCell>{tag.hideFromLibrary ? <span className="inline-flex items-center gap-1 text-pink-700 dark:text-pink-300"><EyeOff className="h-4 w-4" /> Hidden</span> : "Visible"}</TableCell>
+                      <TableCell>{tag.comicCount}</TableCell>
+                      <TableCell>{tag.creator?.name || tag.creator?.email || 'System'}</TableCell>
+                      <TableCell>{formatDate(tag.createdAt)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Edit ${tag.name}`}
+                            title="Edit tag"
+                            onClick={() => handleOpenEditDialog(tag)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Delete ${tag.name}`}
+                            title="Delete tag"
+                            onClick={() => setTagToDelete(tag)}
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8">
+                      {searchInput ? "No tags found matching your search" : "No tags available"}
                     </TableCell>
                   </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">
-                    {searchInput ? "No tags found matching your search" : "No tags available"}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-          <AdminPagination
-            pagination={pagination}
-            itemCount={tags.length}
-            isLoading={isLoading}
-            onPageChange={setPage}
-            onLimitChange={setLimit}
-            label="tags"
-          />
-        </div>
+                )}
+              </TableBody>
+            </Table>
+            <AdminPagination
+              pagination={pagination}
+              itemCount={tags.length}
+              isLoading={isLoading}
+              onPageChange={setPage}
+              onLimitChange={setLimit}
+              label="tags"
+            />
+          </div>
+        </>
       )}
 
       {/* Add Tag Dialog */}
@@ -303,6 +348,32 @@ export function AdminTagsList({ creatorId, embedded = false }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {pluralize(selection.selectedCount, "tag")}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete {summariseLabels(selected, (tag) => tag.name)}. They will also be removed from
+              the {selected.reduce((total, tag) => total + (tag.comicCount || 0), 0)} comic(s) using
+              them. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              setBulkDeleteOpen(false);
+              bulk.run(
+                selected,
+                (tag) => api.delete(`/api/tags/${tag.id}`),
+                { noun: "tag", verbPast: "deleted", labelOf: (tag) => tag.name }
+              );
+            }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!tagToDelete} onOpenChange={(open) => !open && setTagToDelete(null)}>
         <AlertDialogContent>

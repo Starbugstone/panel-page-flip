@@ -133,3 +133,97 @@ describe("the warn dialog", () => {
     expect(screen.getByText(/Jo Reader will see this the next time they sign in/)).toBeInTheDocument();
   });
 });
+
+describe("the warn dialog sending to several recipients", () => {
+  const THREE = [
+    { target: { userId: 7 }, label: "Jo Reader" },
+    { target: { userId: 8 }, label: "Sam Reader" },
+    { target: { userId: 9 }, label: "Al Reader" },
+  ];
+
+  const renderBulk = (props = {}) => render(
+    <AdminWarnDialog
+      targets={THREE}
+      subjectLabel="3 users"
+      recipientLabel="3 users"
+      onClose={vi.fn()}
+      {...props}
+    />
+  );
+
+  const bulkSendButton = () => screen.getByRole("button", { name: "Send 3 warnings" });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.post).mockResolvedValue({ message: "Warning sent." });
+  });
+
+  it("writes the message once and sends it to each of them", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderBulk({ onClose });
+
+    await user.type(messageBox(), "Please stop.");
+    await user.click(bulkSendButton());
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(3));
+    expect(api.post.mock.calls.map(([, body]) => body.userId)).toEqual([7, 8, 9]);
+    expect(mocks.toast).toHaveBeenCalledWith({ title: "3 warnings sent" });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  /**
+   * Closing on a partial run is deliberate: the warnings that landed cannot be
+   * unsent, and reopening the dialog with the same list would send them twice.
+   */
+  it("reports a partial run and still closes", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    vi.mocked(api.post).mockImplementation((_, body) => (
+      body.userId === 8
+        ? Promise.reject(new Error("That account no longer exists."))
+        : Promise.resolve({ message: "Warning sent." })
+    ));
+    renderBulk({ onClose });
+
+    await user.type(messageBox(), "Please stop.");
+    await user.click(bulkSendButton());
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith({
+      title: "2 of 3 warnings sent",
+      description: "Sam Reader: That account no longer exists.",
+      variant: "destructive",
+    }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("keeps the dialog and the typed message when nothing was sent at all", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    vi.mocked(api.post).mockRejectedValue(new Error("Warnings are disabled."));
+    renderBulk({ onClose });
+
+    await user.type(messageBox(), "Please stop.");
+    await user.click(bulkSendButton());
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Nothing was sent",
+      variant: "destructive",
+    })));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(messageBox()).toHaveValue("Please stop.");
+  });
+
+  it("sends the email copy to everybody or to nobody", async () => {
+    const user = userEvent.setup();
+    renderBulk();
+
+    await user.type(messageBox(), "Please stop.");
+    await user.click(screen.getByLabelText("Also email them a copy"));
+    await user.click(bulkSendButton());
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(3));
+    expect(api.post.mock.calls.every(([, body]) => body.sendEmail === true)).toBe(true);
+  });
+});
+

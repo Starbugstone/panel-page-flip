@@ -172,6 +172,9 @@ export function useAdminList({
   return {
     items,
     setItems,
+    // Identifies the rows on screen, so a selection made against them can be
+    // abandoned the moment a different page, search or reload replaces them.
+    listKey: requestKey,
     payload,
     pagination,
     isLoading,

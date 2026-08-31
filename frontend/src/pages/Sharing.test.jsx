@@ -147,6 +147,35 @@ describe("Sharing page", () => {
     expect(screen.getByRole("button", { name: /decline/i })).toBeInTheDocument();
   });
 
+  it("shows a folder batch as one invitation and accepts it once", async () => {
+    const user = userEvent.setup();
+    const batch = {
+      invitationBatchId: "batch-123",
+      invitationBatchName: "DragonBall",
+      invitationBatchSize: 2,
+      explicitContent: false,
+      requiresAdultConfirmation: false,
+      comicId: 1,
+      comicTitle: "Volume 1",
+    };
+    lists.sharedWithMe = [
+      receivedShare({ ...batch, id: 41 }),
+      receivedShare({ ...batch, id: 42, comicId: 2, comicTitle: "Volume 2" }),
+    ];
+    vi.mocked(api.post).mockResolvedValue({ acceptedCount: 2 });
+
+    renderPage();
+
+    expect(screen.getByText("DragonBall")).toBeInTheDocument();
+    expect(screen.getByText(/share 2 comics with you/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /add all to my collection/i })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /decline all/i })).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: /add all to my collection/i }));
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenCalledWith("/api/shares/41/accept", {});
+  });
+
   it("gates an accepted share the owner has since marked explicit", () => {
     lists.sharedWithMe = [receivedShare({ status: "accepted", canAnswer: false, canRemove: true })];
     renderPage();

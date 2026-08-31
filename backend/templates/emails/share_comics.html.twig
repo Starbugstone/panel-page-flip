@@ -73,13 +73,13 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>You've Been Invited to Read {{ comicCount }} Comics!</h1>
+            <h1>You've Been Invited to Read {{ comicCount }} {{ comicCount == 1 ? 'Comic' : 'Comics' }}!</h1>
         </div>
         <div class="content">
             <p>Hi there,</p>
             <p>
                 <span class="highlight">{{ userName|e }}</span> would like to share
-                <span class="highlight">{{ comicCount }} comics</span>
+                <span class="highlight">{{ comicCount }} {{ comicCount == 1 ? 'comic' : 'comics' }}</span>
                 {% if folderName %}from their folder <span class="highlight">{{ folderName|e }}</span>{% endif %}
                 with you.
             </p>
@@ -91,7 +91,25 @@
                     are shown to you.
                 </p>
             {% endif %}
-            {% if listLinks %}
+            {% if isFolderBatch %}
+                <p>
+                    This folder was shared as one invitation. Review it once, then accept all
+                    {{ comicCount }} {{ comicCount == 1 ? 'comic' : 'comics' }} together or decline the whole invitation.
+                </p>
+
+                {% if sampleTitles is not empty %}
+                    <div class="invitation">
+                        <p class="invitation-title">Including</p>
+                        <p class="invitation-author">
+                            {% for title in sampleTitles %}{{ title|e }}{% if not loop.last %}, {% endif %}{% endfor %}{% if comicCount > sampleTitles|length %}, and {{ comicCount - sampleTitles|length }} more{% endif %}.
+                        </p>
+                    </div>
+                {% endif %}
+
+                <p style="text-align: center;">
+                    <a href="{{ batchLink|e('html_attr') }}" class="invitation-link" style="color: #ffffff;">Review folder invitation</a>
+                </p>
+            {% elseif listLinks %}
                 {# Each comic keeps its own link because each invitation is still
                    answered on its own: accepting one says nothing about the rest,
                    and the sender can withdraw any of them separately. The links only
@@ -155,7 +173,7 @@
                 unavailable if they stop sharing or remove them.
             </p>
             <p>
-                {% if listLinks %}These invitation links will expire{% else %}These invitations will expire{% endif %}
+                {% if isFolderBatch %}This invitation will expire{% elseif listLinks %}These invitation links will expire{% else %}These invitations will expire{% endif %}
                 on <span class="highlight">{{ expiresAt|date("F j, Y") }}</span>.
             </p>
             <p>

@@ -17,12 +17,14 @@ lives in [`docs/`](docs/):
 | [comic-formats.md](docs/comic-formats.md) | Source formats, runtime requirements, PDF handling |
 | [page-derivatives.md](docs/page-derivatives.md) | Page sizes, conversion, cache invalidation |
 | [comic-access.md](docs/comic-access.md) | Who may reach a comic, and how the voter decides |
+| [library-covers.md](docs/library-covers.md) | Pacing cover requests, and recovering broken ones |
 | [library-folders.md](docs/library-folders.md) | Private folder tree over the library |
 | [metadata-enrichment.md](docs/metadata-enrichment.md) | ComicInfo.xml, Metron, Comic Vine |
 | [storage-quota.md](docs/storage-quota.md) | Storage accounting and the per-user quota |
 | [security-logging.md](docs/security-logging.md) | Security/audit channels, retention, alerts |
 | [content-reporting.md](docs/content-reporting.md) | Illegal-content notices and restrictions |
 | [administrator-notices.md](docs/administrator-notices.md) | Warning one account about their activity |
+| [admin-bulk-actions.md](docs/admin-bulk-actions.md) | Tick-box selection and bulk actions across the admin tables |
 | [advertising.md](docs/advertising.md) | Optional AdSense, consent, AdSense Offerwall, strict CSP |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |

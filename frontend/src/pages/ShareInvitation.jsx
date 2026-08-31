@@ -122,10 +122,12 @@ export default function ShareInvitation() {
       }
 
       await loadLibrary();
-      setAccepted(data.share);
+      setAccepted({ share: data.share, count: Number(data.acceptedCount) || 1 });
       toast({
         title: "Added to your collection",
-        description: `${data.share?.comicTitle || "The comic"} is now in your collection.`,
+        description: (Number(data.acceptedCount) || 1) > 1
+          ? `${data.acceptedCount} comics are now in your collection.`
+          : `${data.share?.comicTitle || "The comic"} is now in your collection.`,
       });
     } catch (err) {
       setLoadError(err.message || "The invitation could not be answered.");
@@ -160,20 +162,28 @@ export default function ShareInvitation() {
     }
 
     if (accepted) {
+      const acceptedShare = accepted.share;
       return (
         <Card className="w-full max-w-md">
           <CardContent className="space-y-4 p-6 text-center">
             <BookOpen className="mx-auto h-10 w-10 text-comic-purple" />
-            <h1 className="font-comic text-2xl">“{accepted.comicTitle}” is in your collection</h1>
+            <h1 className="font-comic text-2xl">
+              {accepted.count > 1
+                ? `${accepted.count} comics are in your collection`
+                : `“${acceptedShare.comicTitle}” is in your collection`}
+            </h1>
             <p className="text-sm text-muted-foreground">
-              It stays owned by {accepted.ownerName}. Your reading position is your own, and the
-              comic may become unavailable if they stop sharing it.
+              {accepted.count > 1 ? "They stay" : "It stays"} owned by {acceptedShare.ownerName}.
+              Your reading position is your own, and {accepted.count > 1 ? "a comic may" : "the comic may"}
+              become unavailable if they stop sharing it.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <Button onClick={() => navigate(`/read/${accepted.comicId}`)}>
-                <BookOpen className="mr-2 h-4 w-4" />
-                Start reading
-              </Button>
+              {accepted.count === 1 && (
+                <Button onClick={() => navigate(`/read/${acceptedShare.comicId}`)}>
+                  <BookOpen className="mr-2 h-4 w-4" />
+                  Start reading
+                </Button>
+              )}
               <Button variant="outline" onClick={() => navigate("/dashboard")}>
                 Go to my collection
               </Button>
@@ -186,6 +196,10 @@ export default function ShareInvitation() {
     if (!invitation) return null;
 
     const gated = requiresAdultConfirmation(invitation);
+    const isFolderBatch = invitation.isFolderBatch;
+    const invitationTitle = isFolderBatch
+      ? (invitation.folderName || "Shared folder")
+      : shareDisplayTitle(invitation);
 
     const explicitWarning = (
       <Alert>
@@ -215,7 +229,7 @@ export default function ShareInvitation() {
           </div>
         )}
         <div className="min-w-0 space-y-1">
-          <h1 className="font-comic text-2xl">{shareDisplayTitle(invitation)}</h1>
+          <h1 className="font-comic text-2xl">{invitationTitle}</h1>
           {invitation.comicAuthor && (
             <p className="text-sm text-muted-foreground">{invitation.comicAuthor}</p>
           )}
@@ -223,8 +237,9 @@ export default function ShareInvitation() {
             <p className="text-sm text-muted-foreground">{invitation.pageCount} pages</p>
           )}
           <p className="pt-2 text-sm">
-            <span className="font-medium">{invitation.ownerName}</span> wants to share this comic
-            with you.
+            <span className="font-medium">{invitation.ownerName}</span> wants to share {isFolderBatch
+              ? `${invitation.comicCount} comics from this folder`
+              : "this comic"} with you.
           </p>
           {invitation.expiresAt && (
             <p className="text-sm text-muted-foreground">
@@ -310,17 +325,18 @@ export default function ShareInvitation() {
         <CardContent className="space-y-4 p-6">
           {preview}
           <p className="rounded bg-muted p-3 text-sm text-muted-foreground">
-            This comic remains owned by {invitation.ownerName}. Nothing is copied to your account:
-            you are being given permission to read their comic, and it may become unavailable if
-            they remove it or stop sharing it.
+            {isFolderBatch ? "These comics remain" : "This comic remains"} owned by {invitation.ownerName}.
+            Nothing is copied to your account: you are being given permission to read {isFolderBatch
+              ? "them, and any may"
+              : "it, and it may"} become unavailable if they remove it or stop sharing it.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button disabled={isAnswering} onClick={() => answer("accept")}>
               {isAnswering && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Add to my collection
+              {isFolderBatch ? `Add all ${invitation.comicCount} to my collection` : "Add to my collection"}
             </Button>
             <Button variant="outline" disabled={isAnswering} onClick={() => answer("decline")}>
-              Decline
+              {isFolderBatch ? "Decline all" : "Decline"}
             </Button>
           </div>
         </CardContent>

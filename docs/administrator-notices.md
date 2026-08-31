@@ -42,6 +42,11 @@ An administrator cannot warn themselves. That is not a rule about who deserves
 one — warning another administrator is legitimate — but a notice dismissed by
 the person who wrote it is a mistake every time.
 
+The same dialog serves a whole selection of rows: one message, written once,
+posted to this endpoint once per target. Nothing about the endpoint changes, so
+each notice is stored, audited and refused exactly as a single one is — see
+[admin-bulk-actions.md](admin-bulk-actions.md).
+
 ## The message
 
 Trimmed, newline-normalised, and at most `UserWarning::MAX_MESSAGE_LENGTH`

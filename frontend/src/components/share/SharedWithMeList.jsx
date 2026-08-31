@@ -1,6 +1,7 @@
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PendingInvitationCard } from "@/components/share/PendingInvitationCard";
+import { PendingFolderInvitationCard } from "@/components/share/PendingFolderInvitationCard";
 import { ReceivedShareCard } from "@/components/share/ReceivedShareCard";
 
 /**
@@ -9,6 +10,20 @@ import { ReceivedShareCard } from "@/components/share/ReceivedShareCard";
  */
 export function SharedWithMeList({ sharedWithMe, groups, actions, onRead, onCleanupDead }) {
   const { invitations, collection, dead } = groups;
+  const pendingDecisions = [];
+  const folderBatches = new Map();
+  invitations.forEach((share) => {
+    if (!share.invitationBatchId) {
+      pendingDecisions.push({ key: `share-${share.id}`, shares: [share] });
+      return;
+    }
+    if (!folderBatches.has(share.invitationBatchId)) {
+      const batch = { key: `batch-${share.invitationBatchId}`, shares: [] };
+      folderBatches.set(share.invitationBatchId, batch);
+      pendingDecisions.push(batch);
+    }
+    folderBatches.get(share.invitationBatchId).shares.push(share);
+  });
 
   if (sharedWithMe.length === 0) {
     return <p className="py-12 text-center text-muted-foreground">Nobody has shared a comic with you yet.</p>;
@@ -39,17 +54,22 @@ export function SharedWithMeList({ sharedWithMe, groups, actions, onRead, onClea
         <section>
           <h2 className="mb-3 text-lg font-semibold">Pending invitations</h2>
           <ul className="space-y-3">
-            {invitations.map((share) => (
-              <li key={share.id}>
-                <PendingInvitationCard
-                  share={share}
-                  busy={actions.busyShareId === share.id}
-                  onConfirmAdult={() => actions.confirmAdult(share)}
-                  onAccept={() => actions.accept(share)}
-                  onDecline={() => actions.decline(share)}
-                />
+            {pendingDecisions.map(({ key, shares }) => {
+              const share = shares[0];
+              const props = {
+                busy: actions.busyShareId === share.id,
+                onConfirmAdult: () => actions.confirmAdult(share),
+                onAccept: () => actions.accept(share),
+                onDecline: () => actions.decline(share),
+              };
+              return (
+              <li key={key}>
+                {share.invitationBatchId
+                  ? <PendingFolderInvitationCard shares={shares} {...props} />
+                  : <PendingInvitationCard share={share} {...props} />}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </section>
       )}

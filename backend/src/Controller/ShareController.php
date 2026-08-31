@@ -173,6 +173,8 @@ class ShareController extends AbstractController
 
         $share = $invitation->getComicShare();
         $comic = $share->getComic();
+        $members = $this->shareService->invitationMembers($share);
+        $isFolderBatch = $share->getInvitationBatchId() !== null;
         // This endpoint is public, so anything it returns is readable by anyone
         // holding the link — a forwarded email, a link-preview bot, a proxy log.
         // Only what the invitation is *about* goes out unconditionally; the
@@ -188,31 +190,42 @@ class ShareController extends AbstractController
         // an explicit invitation stays shut for everybody the server cannot
         // identify as the recipient, however many times the recipient has
         // confirmed.
-        $redact = $share->isExplicitContent()
-            && !($isForCurrentUser && $share->getAdultConfirmedAt() !== null);
+        $explicitMembers = array_values(array_filter(
+            $members,
+            static fn (ComicShare $member): bool => $member->isExplicitContent()
+        ));
+        $adultConfirmed = $explicitMembers === [] || array_reduce(
+            $explicitMembers,
+            static fn (bool $confirmed, ComicShare $member): bool => $confirmed && $member->getAdultConfirmedAt() !== null,
+            true
+        );
+        $redact = $explicitMembers !== [] && !($isForCurrentUser && $adultConfirmed);
 
         return $this->json([
             'invitation' => [
-                'comicTitle' => $redact ? null : ($comic?->getTitle() ?? $share->getComicTitleSnapshot()),
-                'comicAuthor' => $redact ? null : ($comic?->getAuthor() ?? $share->getComicAuthorSnapshot()),
-                'pageCount' => $redact ? null : $comic?->getPageCount(),
+                'comicTitle' => $redact || $isFolderBatch ? null : ($comic?->getTitle() ?? $share->getComicTitleSnapshot()),
+                'comicAuthor' => $redact || $isFolderBatch ? null : ($comic?->getAuthor() ?? $share->getComicAuthorSnapshot()),
+                'pageCount' => $redact || $isFolderBatch ? null : $comic?->getPageCount(),
+                'isFolderBatch' => $isFolderBatch,
+                'folderName' => $share->getInvitationBatchName(),
+                'comicCount' => count($members),
                 'ownerName' => $share->getOwnerNameSnapshot(),
                 // The intended recipient learns nothing from this — it is their
                 // own address — so withholding it costs them nothing and stops
                 // the link from disclosing who was invited.
                 'recipientEmail' => $isForCurrentUser ? $share->getRecipientEmailNormalized() : null,
                 'expiresAt' => $invitation->getExpiresAt()->format('c'),
-                'coverImagePath' => $comic && $isForCurrentUser && !$redact
+                'coverImagePath' => $comic && $isForCurrentUser && !$redact && !$isFolderBatch
                     ? $this->comicSerializer->coverUrl($comic)
                     : null,
                 'isForCurrentUser' => $isForCurrentUser,
-                'explicitContent' => $share->isExplicitContent(),
+                'explicitContent' => $explicitMembers !== [],
                 // Phrased for whoever is asking: "you must confirm to see this".
                 'requiresAdultConfirmation' => $redact,
                 // Withheld from everyone else, because whether the invited
                 // person has declared their age is a fact about them, and a
                 // link holder is not entitled to it.
-                'adultConfirmed' => $isForCurrentUser && $share->getAdultConfirmedAt() !== null,
+                'adultConfirmed' => $isForCurrentUser && $adultConfirmed,
             ],
         ]);
     }
@@ -290,10 +303,17 @@ class ShareController extends AbstractController
         $user = $this->requireUser();
 
         $invitation = $this->shareService->resolveInvitation($token);
+        $acceptedCount = count(array_filter(
+            $this->shareService->invitationMembers($invitation->getComicShare()),
+            static fn (ComicShare $member): bool => $member->isPending()
+        ));
         $share = $this->shareService->accept($invitation, $user);
 
         return $this->json([
-            'message' => 'Comic added to your collection.',
+            'message' => $acceptedCount === 1
+                ? 'Comic added to your collection.'
+                : sprintf('%d comics added to your collection.', $acceptedCount),
+            'acceptedCount' => $acceptedCount,
             'share' => $this->shareSerializer->forRecipient($share),
         ]);
     }
@@ -324,10 +344,17 @@ class ShareController extends AbstractController
             return $share;
         }
 
+        $acceptedCount = count(array_filter(
+            $this->shareService->invitationMembers($share),
+            static fn (ComicShare $member): bool => $member->isPending()
+        ));
         $this->shareService->acceptShare($share, $user);
 
         return $this->json([
-            'message' => 'Comic added to your collection.',
+            'message' => $acceptedCount === 1
+                ? 'Comic added to your collection.'
+                : sprintf('%d comics added to your collection.', $acceptedCount),
+            'acceptedCount' => $acceptedCount,
             'share' => $this->shareSerializer->forRecipient($share),
         ]);
     }

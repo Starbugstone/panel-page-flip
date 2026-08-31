@@ -72,10 +72,22 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: 0 },
         },
+        // A light sweeping across the panels of a cover that has not arrived.
+        "cover-sweep": {
+          "0%": { transform: "translateX(-120%) skewX(-12deg)" },
+          "100%": { transform: "translateX(320%) skewX(-12deg)" },
+        },
+        // The panels themselves, breathing out of step with each other.
+        "cover-panel": {
+          "0%, 100%": { opacity: 0.35, transform: "scale(0.985)" },
+          "50%": { opacity: 0.85, transform: "scale(1)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "cover-sweep": "cover-sweep 1.9s cubic-bezier(0.4, 0, 0.2, 1) infinite",
+        "cover-panel": "cover-panel 1.9s ease-in-out infinite",
       },
     },
   },

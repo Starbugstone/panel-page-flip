@@ -67,11 +67,13 @@ A folder can be handed over in one act: **Share folder** in the folder bar
 resolves the folder to comics and opens the ordinary share workflow with them
 already chosen.
 
-It is a **snapshot of what is in the folder now**, expanded into one
-`ComicShare` per comic. The folder itself is not shared and no grant survives on
-it, so a comic filed in tomorrow is not shared by yesterday's act — and the
-recipient gets comics, never a copy of the sender's tree, which they then file
-wherever they like.
+It is a **snapshot of what is in the folder now**, delivered as one invitation:
+one email, one link, and one accept or decline. Acceptance creates one
+`ComicShare` grant per comic so the owner can still withdraw an individual
+comic later. The folder itself is not shared and no grant survives on it, so a
+comic filed in tomorrow is not shared by yesterday's act — and the recipient
+gets comics, never a copy of the sender's tree, which they then file wherever
+they like.
 
 The subtree goes, not just the folder: sharing "DragonBall" shares
 "DragonBall/Z" too, because that is what a person pointing at a folder means.

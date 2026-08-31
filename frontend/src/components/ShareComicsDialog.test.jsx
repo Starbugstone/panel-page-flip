@@ -694,7 +694,7 @@ describe("ShareComicsDialog", () => {
     await screen.findByText("2 comics will be shared.");
     await confirmRecipient(user, { username: "SilverOtter4821" });
     await acknowledge(user);
-    await user.click(screen.getByRole("button", { name: "Send invitations" }));
+    await user.click(screen.getByRole("button", { name: "Send invitation" }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
       "/api/shares/invitations/bulk",

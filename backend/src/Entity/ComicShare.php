@@ -29,6 +29,7 @@ use Symfony\Component\Validator\Constraints as Assert;
 #[ORM\UniqueConstraint(name: 'UNIQ_comic_share_comic_recipient', columns: ['comic_id', 'recipient_email_normalized'])]
 #[ORM\Index(name: 'IDX_comic_share_recipient_status', columns: ['recipient_email_normalized', 'status'])]
 #[ORM\Index(name: 'IDX_comic_share_owner', columns: ['owner_id'])]
+#[ORM\Index(name: 'IDX_comic_share_invitation_batch', columns: ['invitation_batch_id'])]
 class ComicShare
 {
     public const STATUS_PENDING = 'pending';
@@ -182,6 +183,23 @@ class ComicShare
      */
     #[ORM\Column(length: 16, options: ['default' => self::NOTIFICATION_SENT])]
     private string $notificationState = self::NOTIFICATION_SENT;
+
+    /**
+     * One decision shared by every comic offered from a folder in one action.
+     *
+     * The grants remain per comic so the owner can withdraw one later. This id
+     * only joins their pending invitation lifecycle: one email link, one age
+     * confirmation and one accept or decline. Null for hand-picked shares and
+     * for every invitation created before folder batches existed.
+     */
+    #[ORM\Column(length: 32, nullable: true)]
+    private ?string $invitationBatchId = null;
+
+    #[ORM\Column(length: 100, nullable: true)]
+    private ?string $invitationBatchName = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?int $invitationBatchSize = null;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $notifiedAt = null;
@@ -573,6 +591,39 @@ class ComicShare
         }
 
         return $this;
+    }
+
+    public function joinInvitationBatch(string $batchId, string $folderName, int $size): self
+    {
+        $this->invitationBatchId = $batchId;
+        $this->invitationBatchName = $folderName;
+        $this->invitationBatchSize = $size;
+
+        return $this;
+    }
+
+    public function leaveInvitationBatch(): self
+    {
+        $this->invitationBatchId = null;
+        $this->invitationBatchName = null;
+        $this->invitationBatchSize = null;
+
+        return $this;
+    }
+
+    public function getInvitationBatchId(): ?string
+    {
+        return $this->invitationBatchId;
+    }
+
+    public function getInvitationBatchName(): ?string
+    {
+        return $this->invitationBatchName;
+    }
+
+    public function getInvitationBatchSize(): ?int
+    {
+        return $this->invitationBatchSize;
     }
 
     /**

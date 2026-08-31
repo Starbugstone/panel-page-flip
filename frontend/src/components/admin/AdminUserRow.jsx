@@ -2,17 +2,21 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, Edit, Trash, UserRoundCog } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SelectionCheckbox } from "@/components/SelectionCheckbox";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { UserStorageUsage } from "@/components/UserStorageUsage";
 import { describeRoles } from "@/lib/admin-user-roles";
 import { formatDateTime } from "@/lib/format";
 
 /** One account, with everything an administrator can do to it from the list. */
-export function AdminUserRow({ user, onEdit, onWarn, onDelete, onVerify, onResendVerification }) {
+export function AdminUserRow({ user, checked, onToggle, onEdit, onWarn, onDelete, onVerify, onResendVerification }) {
   const who = user.name || user.email;
 
   return (
-    <TableRow>
+    <TableRow data-state={checked ? "selected" : undefined}>
+      <TableCell>
+        <SelectionCheckbox checked={checked} onToggle={onToggle} label={`Select ${who}`} />
+      </TableCell>
       <TableCell>
         <div className="flex flex-col">
           <span className="font-medium">{user.name}</span>

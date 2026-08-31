@@ -13,6 +13,7 @@ import { useLibraryComicActions } from "@/hooks/use-library-comic-actions";
 import { useLibraryFolderActions } from "@/hooks/use-library-folder-actions";
 import { useLibraryFolders } from "@/hooks/use-library-folders";
 import { useLibraryLocation } from "@/hooks/use-library-location";
+import { useLibrarySorts } from "@/hooks/use-library-sorts";
 import { useLibrarySearch } from "@/hooks/use-library-search";
 import { useSharing } from "@/hooks/use-sharing.jsx";
 import { jumpToComicCard, latestReadComic } from "@/lib/last-read-jump";
@@ -30,7 +31,6 @@ export default function Dashboard() {
   const { refreshSummary } = useSharing();
 
   const [viewMode, setViewMode] = useState("grid");
-  const [sort, setSort] = useState("title-asc");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingComic, setEditingComic] = useState(null);
   const [movingComic, setMovingComic] = useState(null);
@@ -47,6 +47,7 @@ export default function Dashboard() {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const location = useLibraryLocation({ folders, foldersLoading, onNavigate: closeSidebar });
   const { isFolderView, activeFolderId, activeView, ownership, invalidFolder, navigateFolder, navigateView } = location;
+  const { sort, setSort } = useLibrarySorts(activeView);
 
   const { isSearching, isSearchActive, search, loadComics, refreshCurrent } = useLibrarySearch({
     loadLibrary, ownership, isFolderView, activeFolderId, foldersLoading, invalidFolder,

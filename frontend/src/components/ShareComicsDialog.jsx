@@ -102,7 +102,7 @@ export function ShareComicsDialog({
           <DialogDescription>
             {folder
               ? "Everything you own in this folder and its subfolders, offered as one act. "
-                + "Each comic is still accepted and withdrawn on its own. Share it with somebody by "
+                + "The recipient accepts the folder once; you can still withdraw any comic later. Share it with somebody by "
                 + "username, by their U- code or by email; registered users are never searched or listed."
               : "Choose comics you own, then share them with somebody by username, by their U- code or "
                 + "by email — or put them behind a code anyone you give it to can redeem. Registered "
@@ -166,7 +166,7 @@ export function ShareComicsDialog({
           {!submission.issuedCode && (
             <Button onClick={submission.submit} disabled={selection.isLoading || submission.isSending || !canSubmit}>
               {submission.isSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {submitLabel({ mode, codeType: selection.codeType, count: selection.selectedComicIds.length })}
+              {submitLabel({ mode, codeType: selection.codeType, count: selection.selectedComicIds.length, folder })}
             </Button>
           )}
         </DialogFooter>
@@ -175,9 +175,9 @@ export function ShareComicsDialog({
   );
 }
 
-const submitLabel = ({ mode, codeType, count }) => mode === MODES.CODE
+const submitLabel = ({ mode, codeType, count, folder }) => mode === MODES.CODE
   ? `Create ${codeType === SHARE_CODE_TYPES.GROUP ? "group" : "comic"} code`
-  : count === 1 ? "Send invitation" : "Send invitations";
+  : folder || count === 1 ? "Send invitation" : "Send invitations";
 
 /**
  * What is about to happen, in one sentence.
@@ -202,6 +202,10 @@ function shareSummary({ mode, selection, recipient, folder, usesValue }) {
   }
 
   const to = mode === MODES.CODE ? "whoever you give the code to" : recipient.label;
+  if (folder) {
+    return `${comics} will be offered to ${to} in one invitation. `
+      + "They can accept the whole folder once, and you can withdraw any comic later.";
+  }
   return `${comics} will be offered to ${to} as separate invitations. `
     + "Each must be accepted before it can be read, and you can withdraw any of them later.";
 }

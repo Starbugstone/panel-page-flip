@@ -7,14 +7,16 @@ import { SHARE_CODE_TYPES } from "@/lib/sharing";
 import { MAX_CODE_USES, MODES } from "@/lib/sharing-workflow";
 
 /** What the server did, said in the sender's terms rather than the API's. */
-function describeInvitations({ created, refused, reason, sentTo, notificationFailed }) {
-  const delivery = created === 1
+function describeInvitations({ created, refused, reason, sentTo, notificationFailed, folder }) {
+  const delivery = folder
+    ? `One folder invitation for ${sentTo} is on its way.`
+    : created === 1
     ? `An invitation for ${sentTo} is on its way.`
     : `${created} invitations for ${sentTo} are on their way.`;
 
   if (notificationFailed) {
     return `${sentTo} could not be notified. The ${created === 1 ? "share exists" : "shares exist"} — `
-      + `resend the ${created === 1 ? "invitation" : "invitations"} from the Sharing page.`;
+      + `resend the ${folder || created === 1 ? "invitation" : "invitations"} from the Sharing page.`;
   }
   if (refused.length > 0) {
     return `${delivery} ${refused.length} ${refused.length === 1 ? "comic was" : "comics were"} left out`
@@ -117,7 +119,7 @@ export function useShareSubmission({
     toast({
       title: created === 1 ? "Comic shared" : `${created} comics shared`,
       description: describeInvitations({
-        created, refused, reason,
+        created, refused, reason, folder,
         sentTo: isDirectEmail ? recipientLabel : (recipientLabel || "them"),
         notificationFailed: results.some((result) => result.notificationState === "failed"),
       }),
