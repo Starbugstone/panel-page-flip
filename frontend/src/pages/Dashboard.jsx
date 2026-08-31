@@ -30,7 +30,10 @@ export default function Dashboard() {
   const { refreshSummary } = useSharing();
 
   const [viewMode, setViewMode] = useState("grid");
-  const [sort, setSort] = useState("title-asc");
+  // Reading is a recency-oriented queue, while the rest of the library starts
+  // alphabetically. Keeping the choices separate means visiting the tab does
+  // not unexpectedly change the ordering somebody selected elsewhere.
+  const [sorts, setSorts] = useState({ library: "title-asc", reading: "last-read-desc" });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingComic, setEditingComic] = useState(null);
   const [movingComic, setMovingComic] = useState(null);
@@ -47,6 +50,11 @@ export default function Dashboard() {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const location = useLibraryLocation({ folders, foldersLoading, onNavigate: closeSidebar });
   const { isFolderView, activeFolderId, activeView, ownership, invalidFolder, navigateFolder, navigateView } = location;
+  const sortScope = activeView === "reading" ? "reading" : "library";
+  const sort = sorts[sortScope];
+  const setSort = useCallback((nextSort) => {
+    setSorts((current) => ({ ...current, [sortScope]: nextSort }));
+  }, [sortScope]);
 
   const { isSearching, isSearchActive, search, loadComics, refreshCurrent } = useLibrarySearch({
     loadLibrary, ownership, isFolderView, activeFolderId, foldersLoading, invalidFolder,

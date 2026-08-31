@@ -4,7 +4,7 @@ import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
 import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
 import { adSafeRouteSentence } from "@/lib/advertising";
 
-const LAST_UPDATED = "30 August 2026";
+const LAST_UPDATED = "31 August 2026";
 
 /**
  * The operator's contact details, from the one public-config request the
@@ -280,6 +280,15 @@ export function TermsOfService() {
         you choose to do. The operator does not review or endorse uploads, and is
         not responsible for uploaded content, to the extent permitted by applicable
         law.
+      </p>
+
+      <h2>Storage limits</h2>
+      <p>
+        Your account may store comics up to the storage limit configured for
+        it: the installation’s default limit, or a custom limit the operator
+        has set for your account instead. An upload that would exceed that
+        limit is rejected. The operator may change the configured limit at
+        any time.
       </p>
 
       <h2>Acceptable use</h2>

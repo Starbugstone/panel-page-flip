@@ -62,6 +62,8 @@ export function applyViewFilter(comics, { activeView, isSearchActive, isFolderVi
 
 const byDate = (field, direction) => (a, b) => direction * (new Date(b[field] || 0) - new Date(a[field] || 0));
 const byTitle = (direction) => (a, b) => direction * (a.title || "").localeCompare(b.title || "");
+const lastReadAt = (comic) => Date.parse(comic.readingProgress?.lastReadAt ?? "") || 0;
+const byLastRead = (a, b) => lastReadAt(b) - lastReadAt(a) || byTitle(1)(a, b);
 
 const COMPARATORS = {
   "title-asc": byTitle(1),
@@ -69,6 +71,7 @@ const COMPARATORS = {
   "uploaded-desc": byDate("uploadedAt", 1),
   "uploaded-asc": byDate("uploadedAt", -1),
   "updated-desc": byDate("updatedAt", 1),
+  "last-read-desc": byLastRead,
 };
 
 /** Sorted copy; an unknown sort falls back to title A–Z rather than to input order. */
