@@ -47,11 +47,11 @@ final class AdminUserListQueryTest extends AbstractApiTestCase
     /** Whether a user brought their own token, never which one. */
     public function testTheListStillReportsPersonalCredentialsCorrectly(): void
     {
-        $withToken = UserFactory::createOne()->object();
+        $withToken = UserFactory::createOne();
         $this->loginAs($withToken);
         $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
 
-        $without = UserFactory::createOne()->object();
+        $without = UserFactory::createOne();
         $this->createAndLoginAdmin();
 
         $users = array_column($this->getJson('/api/users?limit=50')['items'], null, 'id');

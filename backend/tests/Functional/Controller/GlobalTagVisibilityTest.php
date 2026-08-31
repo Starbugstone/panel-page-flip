@@ -22,8 +22,8 @@ final class GlobalTagVisibilityTest extends AbstractApiTestCase
         $entityManager->persist($marvel);
         $entityManager->persist($hidden);
 
-        $visibleComic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Visible'])->object();
-        $hiddenComic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Private'])->object();
+        $visibleComic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Visible']);
+        $hiddenComic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Private']);
         $visibleComic->addTag($marvel);
         $hiddenComic->addTag($marvel)->addTag($hidden);
         $entityManager->flush();
@@ -90,8 +90,8 @@ final class GlobalTagVisibilityTest extends AbstractApiTestCase
     public function testTwoPersonalTagsMayShareTheSameNameAcrossDifferentCreators(): void
     {
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
-        $first = UserFactory::new()->create()->object();
-        $second = UserFactory::new()->create()->object();
+        $first = UserFactory::new()->create();
+        $second = UserFactory::new()->create();
 
         // global_name_key stays NULL for personal tags, so the unique index
         // must not treat these as a collision.
@@ -107,7 +107,7 @@ final class GlobalTagVisibilityTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser();
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $tag = (new Tag())->setName('Temporary')->setCreator($owner);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $comic->addTag($tag);
         $entityManager->persist($tag);
         $entityManager->flush();

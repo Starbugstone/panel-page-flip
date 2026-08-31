@@ -17,8 +17,8 @@ final class ComicBatchStructuredMetadataTest extends AbstractApiTestCase
 {
     public function testAppliesStructuredFieldsSentByTheEditDialog(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => null])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => null]);
         $this->loginAs($owner);
 
         $this->patchJson('/api/comics', ['updates' => [[
@@ -43,8 +43,8 @@ final class ComicBatchStructuredMetadataTest extends AbstractApiTestCase
 
     public function testClearsAStructuredFieldSentAsNull(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
         $this->loginAs($owner);
 
         $this->patchJson('/api/comics', ['updates' => [[
@@ -58,8 +58,8 @@ final class ComicBatchStructuredMetadataTest extends AbstractApiTestCase
 
     public function testRejectsAStructuredValueItCannotStore(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
         $this->loginAs($owner);
 
         $this->patchJson('/api/comics', ['updates' => [[
@@ -73,8 +73,8 @@ final class ComicBatchStructuredMetadataTest extends AbstractApiTestCase
 
     public function testStillRefusesAFieldThatIsNotOnTheList(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $this->loginAs($owner);
 
         $this->patchJson('/api/comics', ['updates' => [[
@@ -92,8 +92,8 @@ final class ComicBatchStructuredMetadataTest extends AbstractApiTestCase
      */
     public function testAStrangerMayNotApplyAnything(): void
     {
-        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()->object()])->object();
-        $this->loginAs(UserFactory::createOne()->object());
+        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()]);
+        $this->loginAs(UserFactory::createOne());
 
         $this->patchJson('/api/comics', ['updates' => [[
             'id' => $comic->getId(),
@@ -115,8 +115,8 @@ final class ComicBatchStructuredMetadataTest extends AbstractApiTestCase
      */
     public function testAppliesReviewedCreditsAndTheAcceptedProviderMatch(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => null])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => null]);
         $this->loginAs($owner);
 
         $this->patchJson('/api/comics', ['updates' => [[
@@ -141,8 +141,8 @@ final class ComicBatchStructuredMetadataTest extends AbstractApiTestCase
     /** A key the endpoint does not know is still refused outright. */
     public function testRejectsABatchCarryingAnUnknownField(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $this->loginAs($owner);
 
         $this->patchJson('/api/comics', ['updates' => [[

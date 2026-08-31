@@ -29,7 +29,7 @@ final class ResetPasswordControllerTest extends AbstractApiTestCase
 
     public function testForgotPasswordSendsAResetForAnExistingAccount(): void
     {
-        $user = UserFactory::createOne(['email' => 'reset-me@example.test'])->object();
+        $user = UserFactory::createOne(['email' => 'reset-me@example.test']);
 
         $payload = $this->postJson('/api/forgot-password', ['email' => $user->getEmail()]);
 
@@ -79,7 +79,7 @@ final class ResetPasswordControllerTest extends AbstractApiTestCase
 
     public function testAValidTokenCanResetThePassword(): void
     {
-        $user = UserFactory::createOne(['password' => 'Old!Password123'])->object();
+        $user = UserFactory::createOne(['password' => 'Old!Password123']);
         $plainToken = bin2hex(random_bytes(32));
         $entityManager = self::getContainer()->get(EntityManagerInterface::class);
 

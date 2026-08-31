@@ -23,10 +23,10 @@ final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
     {
         $now = new \DateTimeImmutable('2026-08-05 12:00:00+00:00');
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
-        $tokenOwner = UserFactory::createOne()->object();
+        $tokenOwner = UserFactory::createOne();
         $staleUser = UserFactory::new()->unverified()->create([
             'createdAt' => $now->modify('-31 days'),
-        ])->object();
+        ]);
         UserFactory::new()->unverified()->create([
             'createdAt' => $now->modify('-29 days'),
         ]);
@@ -74,10 +74,10 @@ final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
     {
         $now = new \DateTimeImmutable('2026-08-05 12:00:00+00:00');
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
-        $staleUser = UserFactory::new()->unverified()->create(['createdAt' => $now->modify('-31 days')])->object();
+        $staleUser = UserFactory::new()->unverified()->create(['createdAt' => $now->modify('-31 days')]);
         $staleUserId = $staleUser->getId();
 
-        $tokenOwner = UserFactory::createOne()->object();
+        $tokenOwner = UserFactory::createOne();
         $entityManager->persist((new EmailVerificationToken($tokenOwner))->setExpiresAt($now->modify('-1 minute')));
         $entityManager->persist(
             (new ResetPasswordToken())
@@ -118,11 +118,11 @@ final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
     public function testClearingExpiredLogsCannotTouchTheAcknowledgementTimestamps(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'ack-owner@test.local']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $this->patchJson('/api/comics/' . $comic->getId(), ['explicitContent' => true]);
         self::assertResponseIsSuccessful();
 
-        $recipient = UserFactory::createOne(['email' => 'ack-recipient@test.local'])->object();
+        $recipient = UserFactory::createOne(['email' => 'ack-recipient@test.local']);
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
             'email' => $recipient->getEmail(),

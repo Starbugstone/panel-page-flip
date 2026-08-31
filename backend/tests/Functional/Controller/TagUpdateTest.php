@@ -13,7 +13,7 @@ final class TagUpdateTest extends AbstractApiTestCase
     public function testOwnerCanRenameTheirTag(): void
     {
         $user = $this->createAndLoginUser();
-        $tag = TagFactory::new()->createdBy($user)->create(['name' => 'Old'])->object();
+        $tag = TagFactory::new()->createdBy($user)->create(['name' => 'Old']);
 
         $payload = $this->putJson('/api/tags/'.$tag->getId(), ['name' => 'Renamed']);
 
@@ -35,8 +35,8 @@ final class TagUpdateTest extends AbstractApiTestCase
     public function testOrdinaryUsersCannotRenameSomeoneElsestag(): void
     {
         $this->createAndLoginUser();
-        $other = UserFactory::createOne()->object();
-        $tag = TagFactory::new()->createdBy($other)->create(['name' => 'Theirs'])->object();
+        $other = UserFactory::createOne();
+        $tag = TagFactory::new()->createdBy($other)->create(['name' => 'Theirs']);
 
         $payload = $this->putJson('/api/tags/'.$tag->getId(), ['name' => 'Stolen']);
 
@@ -47,7 +47,7 @@ final class TagUpdateTest extends AbstractApiTestCase
     public function testOrdinaryUsersCannotRenameAGlobalTag(): void
     {
         $this->createAndLoginUser();
-        $tag = TagFactory::createOne(['name' => 'Marvel', 'creator' => null, 'isGlobal' => true])->object();
+        $tag = TagFactory::createOne(['name' => 'Marvel', 'creator' => null, 'isGlobal' => true]);
 
         $payload = $this->putJson('/api/tags/'.$tag->getId(), ['name' => 'DC']);
 
@@ -59,7 +59,7 @@ final class TagUpdateTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         TagFactory::new()->createdBy($user)->create(['name' => 'Taken']);
-        $tag = TagFactory::new()->createdBy($user)->create(['name' => 'Free'])->object();
+        $tag = TagFactory::new()->createdBy($user)->create(['name' => 'Free']);
 
         $payload = $this->putJson('/api/tags/'.$tag->getId(), ['name' => 'Taken']);
 
@@ -71,7 +71,7 @@ final class TagUpdateTest extends AbstractApiTestCase
     public function testEmptyNameIsRejected(): void
     {
         $user = $this->createAndLoginUser();
-        $tag = TagFactory::new()->createdBy($user)->create(['name' => 'Keep'])->object();
+        $tag = TagFactory::new()->createdBy($user)->create(['name' => 'Keep']);
 
         $payload = $this->putJson('/api/tags/'.$tag->getId(), ['name' => '   ']);
 

@@ -38,8 +38,8 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
     public function testTickingTheBoxMarksEveryComicInTheShare(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'classifier@example.com']);
-        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'One'])->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Two'])->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'One']);
+        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Two']);
 
         self::assertFalse($first->isExplicitContent());
 
@@ -59,8 +59,8 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
     public function testAComicMarkedDuringSharingIsGatedForTheRecipient(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'gate-setter@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Very Identifiable'])->object();
-        $recipient = UserFactory::createOne(['email' => 'reader@example.com'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Very Identifiable']);
+        $recipient = UserFactory::createOne(['email' => 'reader@example.com']);
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -92,8 +92,8 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
     public function testCorrectingAComicWhileSharingItReGatesTheRecipientsWhoAlreadyHaveIt(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'late-corrector@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
-        $existing = UserFactory::createOne(['email' => 'already-reading@example.com'])->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $existing = UserFactory::createOne(['email' => 'already-reading@example.com']);
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -148,7 +148,7 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'careless@example.com']);
         $comic = ComicFactory::new()->ownedBy($owner)
             ->create(['title' => 'Stays Explicit', 'explicitContent' => true])
-            ->object();
+            ;
 
         foreach ([[], ['markExplicit' => false]] as $index => $extra) {
             $this->postJson('/api/shares/invitations/bulk', array_merge([
@@ -171,7 +171,7 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
         $owner = $this->createAndLoginUser(['email' => 'redundant@example.com']);
         $comic = ComicFactory::new()->ownedBy($owner)
             ->create(['explicitContent' => true])
-            ->object();
+            ;
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -188,8 +188,8 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
     public function testAContentCodeCanMarkItsComicsTooAndTheyStayHidden(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'code-classifier@example.com']);
-        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Arc One'])->object();
-        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Arc Two'])->object();
+        $first = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Arc One']);
+        $second = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Arc Two']);
 
         $created = $this->postJson('/api/shares/group-codes', [
             'comicIds' => [$first->getId(), $second->getId()],
@@ -226,11 +226,11 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
      */
     public function testAComicYouCannotClassifyBlocksTheWholeShare(): void
     {
-        $stranger = UserFactory::createOne(['email' => 'not-yours@example.com'])->object();
-        $theirs = ComicFactory::new()->ownedBy($stranger)->create()->object();
+        $stranger = UserFactory::createOne(['email' => 'not-yours@example.com']);
+        $theirs = ComicFactory::new()->ownedBy($stranger)->create();
 
         $owner = $this->createAndLoginUser(['email' => 'overreaching@example.com']);
-        $mine = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $mine = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$mine->getId(), $theirs->getId()],
@@ -264,7 +264,7 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
     public function testARefusedCodeLeavesNeitherTheMarkNorTheRecord(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'over-limit@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         // maxUses outside the permitted range, so the request is refused after
         // the comics have been resolved and authorised — the window the
@@ -294,7 +294,7 @@ final class ShareExplicitPromotionTest extends AbstractApiTestCase
     public function testMarkingExplicitPersistsWhenEveryShareIsADuplicate(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'corrector@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],

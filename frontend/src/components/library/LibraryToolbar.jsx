@@ -8,6 +8,7 @@ const SORT_OPTIONS = [
   ["uploaded-desc", "Recently added"],
   ["uploaded-asc", "Oldest added"],
   ["updated-desc", "Recently updated"],
+  ["last-read-desc", "Recently read"],
 ];
 
 /** The library's heading and the controls that change how it is shown. */

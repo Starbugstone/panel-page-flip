@@ -9,7 +9,7 @@ class ApiCsrfTest extends AbstractApiTestCase
 {
     public function testAuthenticatedUnsafeRequestWithoutTokenIsRejected(): void
     {
-        $this->browser()->loginUser(UserFactory::createOne()->object());
+        $this->browser()->loginUser(UserFactory::createOne());
 
         $this->browser()->request('POST', '/api/me', [], [], [
             'CONTENT_TYPE' => 'application/json',
@@ -22,7 +22,7 @@ class ApiCsrfTest extends AbstractApiTestCase
 
     public function testAuthenticatedSafeRequestSetsReadableTokenCookie(): void
     {
-        $this->browser()->loginUser(UserFactory::createOne()->object());
+        $this->browser()->loginUser(UserFactory::createOne());
 
         $this->getJson('/api/me');
 
@@ -35,7 +35,7 @@ class ApiCsrfTest extends AbstractApiTestCase
 
     public function testValidTokenAllowsUnsafeRequest(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $payload = $this->postJson('/api/me');
 

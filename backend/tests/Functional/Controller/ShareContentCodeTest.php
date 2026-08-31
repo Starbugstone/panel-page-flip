@@ -30,7 +30,7 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         for ($i = 0; $i < $count; ++$i) {
             $ids[] = (int) ComicFactory::new()->ownedBy($owner)
                 ->create(['title' => sprintf('Court of Owls #%d', $i + 1)])
-                ->object()
+
                 ->getId();
         }
 
@@ -375,7 +375,7 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         $redeemer = UserFactory::createOne([
             'email' => 'stranger-address@example.com',
             'name' => 'Passing Stranger',
-        ])->object();
+        ]);
         $this->loginAs($redeemer);
         $this->postJson('/api/shares/content-codes/redeem', ['code' => $code]);
         self::assertResponseIsSuccessful();
@@ -410,7 +410,7 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         $owner = UserFactory::createOne([
             'email' => 'owner-address@example.com',
             'name' => 'Careful Owner',
-        ])->object();
+        ]);
         $this->loginAs($owner);
         $ids = $this->ownedComicIds($owner, 1);
         $code = $this->postJson('/api/shares/comic-codes', [
@@ -587,8 +587,8 @@ final class ShareContentCodeTest extends AbstractApiTestCase
     public function testAnExplicitComicInAGroupIsLeftBehindTheAgeGate(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'mixed-arc@example.com']);
-        $ordinary = ComicFactory::new()->ownedBy($owner)->create(['title' => 'All Ages'])->object();
-        $adult = ComicFactory::new()->ownedBy($owner)->explicit()->create(['title' => 'Adults Only'])->object();
+        $ordinary = ComicFactory::new()->ownedBy($owner)->create(['title' => 'All Ages']);
+        $adult = ComicFactory::new()->ownedBy($owner)->explicit()->create(['title' => 'Adults Only']);
 
         $code = $this->postJson('/api/shares/group-codes', [
             'comicIds' => [$ordinary->getId(), $adult->getId()],

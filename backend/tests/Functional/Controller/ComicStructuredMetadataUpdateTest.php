@@ -14,8 +14,8 @@ final class ComicStructuredMetadataUpdateTest extends AbstractApiTestCase
 {
     public function testAcceptsTheStructuredFields(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $this->loginAs($owner);
 
         $this->putJson(sprintf('/api/comics/%d', $comic->getId()), [
@@ -47,8 +47,8 @@ final class ComicStructuredMetadataUpdateTest extends AbstractApiTestCase
      */
     public function testLeavesFieldsThePayloadDoesNotMentionAlone(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman', 'issueNumber' => '7'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman', 'issueNumber' => '7']);
         $this->loginAs($owner);
 
         $this->putJson(sprintf('/api/comics/%d', $comic->getId()), ['volume' => 1996]);
@@ -63,8 +63,8 @@ final class ComicStructuredMetadataUpdateTest extends AbstractApiTestCase
 
     public function testClearsAFieldSentAsNull(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
         $this->loginAs($owner);
 
         $this->putJson(sprintf('/api/comics/%d', $comic->getId()), ['series' => null]);
@@ -79,8 +79,8 @@ final class ComicStructuredMetadataUpdateTest extends AbstractApiTestCase
      */
     public function testRejectsWhatItCannotStore(array $payload): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner]);
         $this->loginAs($owner);
 
         $this->putJson(sprintf('/api/comics/%d', $comic->getId()), $payload);
@@ -102,8 +102,8 @@ final class ComicStructuredMetadataUpdateTest extends AbstractApiTestCase
     /** A rejected payload must leave the comic exactly as it was. */
     public function testChangesNothingWhenThePayloadIsRejected(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman'])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'series' => 'Batman']);
         $this->loginAs($owner);
 
         $this->putJson(sprintf('/api/comics/%d', $comic->getId()), ['series' => 'Detective Comics', 'volume' => 0]);
@@ -114,8 +114,8 @@ final class ComicStructuredMetadataUpdateTest extends AbstractApiTestCase
 
     public function testAStrangerMayNotApplyAnything(): void
     {
-        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()->object()])->object();
-        $this->loginAs(UserFactory::createOne()->object());
+        $comic = ComicFactory::createOne(['owner' => UserFactory::createOne()]);
+        $this->loginAs(UserFactory::createOne());
 
         $this->putJson(sprintf('/api/comics/%d', $comic->getId()), ['series' => 'Batman']);
 

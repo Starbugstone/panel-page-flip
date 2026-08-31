@@ -193,8 +193,8 @@ final class ComicReadingProgressRaceTest extends AbstractApiTestCase
      */
     private function createReadableComic(): array
     {
-        $user = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $user, 'pageCount' => 100])->object();
+        $user = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $user, 'pageCount' => 100]);
         $this->loginAs($user);
 
         return [$user, $comic];

@@ -9,7 +9,7 @@ class MeControllerTest extends AbstractApiTestCase
 {
     public function testReturnsAuthenticatedUser(): void
     {
-        $user = UserFactory::createOne(['email' => 'me@test.local'])->object();
+        $user = UserFactory::createOne(['email' => 'me@test.local']);
         $this->loginAs($user);
 
         $payload = $this->getJson('/api/me');
@@ -23,7 +23,7 @@ class MeControllerTest extends AbstractApiTestCase
 
     public function testReturnsAdminFlagForAdminUsers(): void
     {
-        $user = UserFactory::new()->admin()->create()->object();
+        $user = UserFactory::new()->admin()->create();
         $this->loginAs($user);
 
         $payload = $this->getJson('/api/me');
@@ -50,7 +50,7 @@ class MeControllerTest extends AbstractApiTestCase
 
     public function testPostMarksSessionRefreshedWithoutRotatingId(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $this->loginAs($user);
 
         // First call to bind session id

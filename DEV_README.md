@@ -17,6 +17,7 @@ lives in [`docs/`](docs/):
 | [comic-formats.md](docs/comic-formats.md) | Source formats, runtime requirements, PDF handling |
 | [page-derivatives.md](docs/page-derivatives.md) | Page sizes, conversion, cache invalidation |
 | [comic-access.md](docs/comic-access.md) | Who may reach a comic, and how the voter decides |
+| [library-covers.md](docs/library-covers.md) | Pacing cover requests, and recovering broken ones |
 | [library-folders.md](docs/library-folders.md) | Private folder tree over the library |
 | [metadata-enrichment.md](docs/metadata-enrichment.md) | ComicInfo.xml, Metron, Comic Vine |
 | [storage-quota.md](docs/storage-quota.md) | Storage accounting and the per-user quota |

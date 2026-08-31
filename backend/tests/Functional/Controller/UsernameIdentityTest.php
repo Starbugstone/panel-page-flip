@@ -108,7 +108,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
 
     public function testRegistrationRefusesATakenNameAndOffersAnotherOne(): void
     {
-        UserFactory::createOne(['email' => 'first@example.com'])->object();
+        UserFactory::createOne(['email' => 'first@example.com']);
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $taken = $entityManager->getRepository(User::class)->findOneBy(['email' => 'first@example.com'])->getUsername();
 
@@ -166,7 +166,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
         $recipient = UserFactory::createOne([
             'email' => 'not-for-sharing@example.com',
             'name' => 'Named Reader',
-        ])->object();
+        ]);
 
         $this->createAndLoginUser(['email' => 'looker@example.com']);
         $payload = $this->postJson('/api/users/resolve-username', [
@@ -194,7 +194,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
      */
     public function testTheAtSignIsAccepted(): void
     {
-        $recipient = UserFactory::createOne(['email' => 'at-sign@example.com'])->object();
+        $recipient = UserFactory::createOne(['email' => 'at-sign@example.com']);
 
         $this->createAndLoginUser(['email' => 'paster@example.com']);
         $this->postJson('/api/users/resolve-username', [
@@ -206,7 +206,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
 
     public function testResolutionIsCaseInsensitive(): void
     {
-        $recipient = UserFactory::createOne(['email' => 'shouted@example.com'])->object();
+        $recipient = UserFactory::createOne(['email' => 'shouted@example.com']);
 
         $this->createAndLoginUser(['email' => 'shouter@example.com']);
         $payload = $this->postJson('/api/users/resolve-username', [
@@ -236,7 +236,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
         $this->postJson('/api/users/resolve-username', ['username' => $me->getUsername()]);
         self::assertResponseStatusCodeSame(409);
 
-        $comic = ComicFactory::new()->ownedBy($me)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($me)->create();
         $payload = $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
             'username' => $me->getUsername(),
@@ -252,7 +252,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
      */
     public function testThereIsNoWayToSearchForAccounts(): void
     {
-        UserFactory::createOne(['email' => 'findable@example.com', 'name' => 'Findable'])->object();
+        UserFactory::createOne(['email' => 'findable@example.com', 'name' => 'Findable']);
         $entityManager = static::getContainer()->get(EntityManagerInterface::class);
         $target = $entityManager->getRepository(User::class)->findOneBy(['email' => 'findable@example.com']);
 
@@ -306,10 +306,10 @@ final class UsernameIdentityTest extends AbstractApiTestCase
         $recipient = UserFactory::createOne([
             'email' => 'by-handle@example.com',
             'name' => 'Handle Holder',
-        ])->object();
+        ]);
 
         $owner = $this->createAndLoginUser(['email' => 'handle-sender@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -335,7 +335,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
     public function testSharingWithAUsernameNobodyHoldsRefusesTheWholeRequest(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'misaddressed@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
@@ -376,10 +376,10 @@ final class UsernameIdentityTest extends AbstractApiTestCase
      */
     public function testRenamingLeavesExistingSharesUntouched(): void
     {
-        $recipient = UserFactory::createOne(['email' => 'keeps-them@example.com'])->object();
+        $recipient = UserFactory::createOne(['email' => 'keeps-them@example.com']);
 
         $owner = $this->createAndLoginUser(['email' => 'gave-them@example.com']);
-        $comic = ComicFactory::new()->ownedBy($owner)->create()->object();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
         $this->postJson('/api/shares/invitations/bulk', [
             'comicIds' => [$comic->getId()],
             'username' => $recipient->getUsername(),
@@ -400,7 +400,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
 
     public function testAUsernameSomebodyElseHoldsCannotBeTaken(): void
     {
-        $held = UserFactory::createOne(['email' => 'incumbent@example.com'])->object();
+        $held = UserFactory::createOne(['email' => 'incumbent@example.com']);
 
         $this->createAndLoginUser(['email' => 'impostor@example.com']);
         $payload = $this->putJson('/api/users/username', [
@@ -459,7 +459,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
         $known = UserFactory::createOne([
             'email' => 'findable@example.com',
             'username' => 'FindableOtter4821',
-        ])->object();
+        ]);
 
         $this->createAndLoginUser(['email' => 'oracle@example.com']);
 

@@ -31,7 +31,7 @@ final class DropboxConnectionStateTest extends AbstractApiTestCase
         string $url,
         array $payload
     ): void {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $user->setDropboxAccessToken(null);
         $user->setDropboxRefreshToken('stored-refresh-token');
         self::getContainer()->get('doctrine')->getManager()->flush();
@@ -70,7 +70,7 @@ final class DropboxConnectionStateTest extends AbstractApiTestCase
     /** Status reports the same accounts as connected that the actions accept. */
     public function testStatusConsidersARefreshTokenAConnection(): void
     {
-        $user = UserFactory::createOne()->object();
+        $user = UserFactory::createOne();
         $user->setDropboxAccessToken(null);
         $user->setDropboxRefreshToken('stored-refresh-token');
         self::getContainer()->get('doctrine')->getManager()->flush();

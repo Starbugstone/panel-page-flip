@@ -154,7 +154,7 @@ final class ComicPageCachingTest extends AbstractApiTestCase
     public function testAnotherUserCannotReadAPage(): void
     {
         [, $comic] = $this->createComicWithArchive();
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
 
         $this->browser()->request('GET', sprintf('/api/comics/%d/pages/1', $comic->getId()));
 
@@ -166,13 +166,13 @@ final class ComicPageCachingTest extends AbstractApiTestCase
      */
     private function createComicWithArchive(): array
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $filename = 'pages-' . uniqid('', false) . '.cbz';
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'filePath' => $filename,
             'pageCount' => 2,
-        ])->object();
+        ]);
 
         $directory = self::getContainer()->getParameter('comics_directory') . '/' . $owner->getId();
         if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {

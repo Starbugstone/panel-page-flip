@@ -24,7 +24,7 @@ final class AdminUserVerificationTest extends AbstractApiTestCase
 {
     public function testAnAdministratorCanVerifyAnUnverifiedAccount(): void
     {
-        $target = UserFactory::createOne(['isEmailVerified' => false])->object();
+        $target = UserFactory::createOne(['isEmailVerified' => false]);
         $this->createAndLoginAdmin();
 
         $body = $this->postJson('/api/users/' . $target->getId() . '/verify');
@@ -46,7 +46,7 @@ final class AdminUserVerificationTest extends AbstractApiTestCase
      */
     public function testVerifyingByHandRetiresTheOutstandingTokens(): void
     {
-        $target = UserFactory::createOne(['isEmailVerified' => false])->object();
+        $target = UserFactory::createOne(['isEmailVerified' => false]);
 
         /** @var EmailVerificationService $service */
         $service = self::getContainer()->get(EmailVerificationService::class);
@@ -69,7 +69,7 @@ final class AdminUserVerificationTest extends AbstractApiTestCase
 
     public function testVerifyingAnAlreadyVerifiedAccountIsHarmless(): void
     {
-        $target = UserFactory::createOne(['isEmailVerified' => true])->object();
+        $target = UserFactory::createOne(['isEmailVerified' => true]);
         $this->createAndLoginAdmin();
 
         $body = $this->postJson('/api/users/' . $target->getId() . '/verify');
@@ -89,7 +89,7 @@ final class AdminUserVerificationTest extends AbstractApiTestCase
 
     public function testAPlainUserCannotVerifyAnybody(): void
     {
-        $target = UserFactory::createOne(['isEmailVerified' => false])->object();
+        $target = UserFactory::createOne(['isEmailVerified' => false]);
         $this->createAndLoginUser();
 
         $this->postJson('/api/users/' . $target->getId() . '/verify');

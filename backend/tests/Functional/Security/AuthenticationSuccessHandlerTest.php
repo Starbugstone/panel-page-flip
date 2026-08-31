@@ -13,7 +13,7 @@ class AuthenticationSuccessHandlerTest extends AbstractApiTestCase
         $user = UserFactory::createOne([
             'email' => 'successful-login@test.local',
             'password' => 'Valid!Password123',
-        ])->object();
+        ]);
 
         $payload = $this->postJson('/api/login', [
             'email' => $user->getEmail(),
@@ -33,7 +33,7 @@ class AuthenticationSuccessHandlerTest extends AbstractApiTestCase
         $user = UserFactory::new()->unverified()->create([
             'email' => 'unverified-login@test.local',
             'password' => 'Valid!Password123',
-        ])->object();
+        ]);
 
         $this->postJson('/api/login', [
             'email' => $user->getEmail(),
@@ -59,7 +59,7 @@ class AuthenticationSuccessHandlerTest extends AbstractApiTestCase
         $user = UserFactory::new()->unverified()->create([
             'email' => 'unverified-session@test.local',
             'password' => 'Valid!Password123',
-        ])->object();
+        ]);
 
         $this->postJson('/api/login', [
             'email' => $user->getEmail(),
@@ -86,7 +86,7 @@ class AuthenticationSuccessHandlerTest extends AbstractApiTestCase
         $user = UserFactory::createOne([
             'email' => 'failed-login@test.local',
             'password' => 'Valid!Password123',
-        ])->object();
+        ]);
 
         $this->postJson('/api/login', [
             'email' => $user->getEmail(),

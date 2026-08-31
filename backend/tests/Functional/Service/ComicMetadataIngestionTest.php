@@ -105,7 +105,7 @@ final class ComicMetadataIngestionTest extends AbstractApiTestCase
 
     public function testExposesTheMetadataThroughTheApi(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = $this->upload($this->comicInfo('<Series>Batman</Series><Number>7</Number><Manga>YesAndRightToLeft</Manga>'), owner: $owner);
 
         $this->loginAs($owner);
@@ -126,7 +126,7 @@ final class ComicMetadataIngestionTest extends AbstractApiTestCase
         ?string $publisher = null,
         ?string $description = null,
     ): \App\Entity\Comic {
-        $owner ??= UserFactory::createOne()->object();
+        $owner ??= UserFactory::createOne();
 
         $path = tempnam(sys_get_temp_dir(), 'comic-ingest-').'.cbz';
         $this->temporaryFiles[] = $path;

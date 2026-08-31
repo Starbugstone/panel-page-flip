@@ -14,13 +14,13 @@ final class ComicMetadataSuggestionsTest extends AbstractApiTestCase
 {
     public function testOwnerSeesWhatTheFilenameImplies(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'originalFilename' => 'Batman - 007 (2011) (Digital).cbz',
             'series' => null,
             'issueNumber' => null,
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
         $this->browser()->request('GET', sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));
@@ -37,8 +37,8 @@ final class ComicMetadataSuggestionsTest extends AbstractApiTestCase
 
     public function testReturnsNothingWhenTheFilenameSaysNothingUseful(): void
     {
-        $owner = UserFactory::createOne()->object();
-        $comic = ComicFactory::createOne(['owner' => $owner, 'originalFilename' => null])->object();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::createOne(['owner' => $owner, 'originalFilename' => null]);
 
         $this->loginAs($owner);
         $this->browser()->request('GET', sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));
@@ -50,11 +50,11 @@ final class ComicMetadataSuggestionsTest extends AbstractApiTestCase
     public function testAStrangerIsRefused(): void
     {
         $comic = ComicFactory::createOne([
-            'owner' => UserFactory::createOne()->object(),
+            'owner' => UserFactory::createOne(),
             'originalFilename' => 'Batman - 007 (2011).cbz',
-        ])->object();
+        ]);
 
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $this->browser()->request('GET', sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));
 
         // Same answer a comic id that was never issued gets.
@@ -64,9 +64,9 @@ final class ComicMetadataSuggestionsTest extends AbstractApiTestCase
     public function testAnonymousIsRefused(): void
     {
         $comic = ComicFactory::createOne([
-            'owner' => UserFactory::createOne()->object(),
+            'owner' => UserFactory::createOne(),
             'originalFilename' => 'Batman - 007 (2011).cbz',
-        ])->object();
+        ]);
 
         $this->browser()->request('GET', sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));
 
@@ -75,7 +75,7 @@ final class ComicMetadataSuggestionsTest extends AbstractApiTestCase
 
     public function testAMissingComicIsNotFound(): void
     {
-        $this->loginAs(UserFactory::createOne()->object());
+        $this->loginAs(UserFactory::createOne());
         $this->browser()->request('GET', '/api/comics/99999999/metadata-suggestions');
 
         self::assertResponseStatusCodeSame(404);
@@ -84,12 +84,12 @@ final class ComicMetadataSuggestionsTest extends AbstractApiTestCase
     /** Reading suggestions must never change the comic they describe. */
     public function testReadingSuggestionsChangesNothing(): void
     {
-        $owner = UserFactory::createOne()->object();
+        $owner = UserFactory::createOne();
         $comic = ComicFactory::createOne([
             'owner' => $owner,
             'originalFilename' => 'Batman - 007 (2011).cbz',
             'series' => null,
-        ])->object();
+        ]);
 
         $this->loginAs($owner);
         $this->browser()->request('GET', sprintf('/api/comics/%d/metadata-suggestions', $comic->getId()));
