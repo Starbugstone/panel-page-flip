@@ -90,6 +90,9 @@ class ComicShareSerializer
                 && $share->getStatus() !== ComicShare::STATUS_ACCEPTED,
             'canRevoke' => !$share->isTombstoned()
                 && in_array($share->getStatus(), [ComicShare::STATUS_PENDING, ComicShare::STATUS_ACCEPTED], true),
+            // Deleting is for relationships that are already over; a live share
+            // must be revoked first, and the server enforces the same rule.
+            'canDelete' => $share->isFinished(),
             // The share is real whatever this says. It exists so an owner whose
             // mail server was having a bad afternoon is told the notice did not
             // arrive, rather than being left to wonder why nobody answered.

@@ -27,6 +27,12 @@ class ComicShareRepository extends ServiceEntityRepository
         'comicTitle' => 'c.title',
     ];
 
+    /**
+     * The one sort {@see findOwnerPage()} offers: comics by their newest
+     * share. Declared so PaginationRequest has an allow-list to check against.
+     */
+    public const OWNER_SORT_FIELDS = ['createdAt' => 'newestShare'];
+
     /** The statuses the admin table may filter on. */
     public const ADMIN_STATUSES = [
         ComicShare::STATUS_PENDING,
@@ -167,28 +173,72 @@ class ComicShareRepository extends ServiceEntityRepository
     }
 
     /**
-     * Every share the user has handed out that still refers to a comic they
-     * have, newest first.
+     * One page of the owner's sharing list, paged by comic rather than by
+     * share.
+     *
+     * The page renders one card per comic with every recipient inside it, so a
+     * page boundary must never fall between two recipients of the same comic —
+     * half a card on each page would read as two different comics. Comics are
+     * therefore paged first, newest share first, and then every share on the
+     * page's comics is loaded whole.
      *
      * Tombstones are deliberately excluded. They exist to explain a
      * disappearance to the people who lost access; the owner is the one who
      * caused it, already knows, and has no comic left to manage — so a deleted
      * comic leaves their sharing list entirely.
      *
-     * @return list<ComicShare>
+     * @return PaginatedResult<ComicShare>
      */
-    public function findAllForOwner(User $user): array
+    public function findOwnerPage(User $user, PaginationRequest $request): PaginatedResult
     {
-        return $this->createQueryBuilder('s')
-            ->addSelect('c')
-            ->leftJoin('s.comic', 'c')
+        $ownedShares = fn (): \Doctrine\ORM\QueryBuilder => $this->createQueryBuilder('s')
             ->andWhere('s.owner = :owner')
             ->andWhere('s.comic IS NOT NULL')
             ->andWhere('s.unavailableAt IS NULL')
-            ->setParameter('owner', $user)
-            ->orderBy('s.createdAt', 'DESC')
+            ->setParameter('owner', $user);
+
+        $total = (int) $ownedShares()
+            ->select('COUNT(DISTINCT s.comic)')
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        $rows = $ownedShares()
+            ->select('IDENTITY(s.comic) AS comicId')
+            ->addSelect('MAX(s.createdAt) AS HIDDEN newestShare')
+            ->groupBy('s.comic')
+            ->orderBy('newestShare', $request->direction)
+            ->addOrderBy('comicId', 'DESC')
+            ->setFirstResult($request->offset())
+            ->setMaxResults($request->limit)
+            ->getQuery()
+            ->getScalarResult();
+        $comicIds = array_map(static fn (array $row): int => (int) $row['comicId'], $rows);
+
+        if ($comicIds === []) {
+            return PaginatedResult::fromRequest([], $total, $request);
+        }
+
+        $shares = $ownedShares()
+            ->addSelect('c')
+            ->leftJoin('s.comic', 'c')
+            ->andWhere('s.comic IN (:comicIds)')
+            ->setParameter('comicIds', $comicIds)
             ->getQuery()
             ->getResult();
+
+        // Comics in page order, recipients newest first within each — sorted
+        // here rather than trusted to a second ORDER BY, so the group order the
+        // client renders is exactly the order the page boundaries were cut on.
+        $rank = array_flip($comicIds);
+        usort($shares, static function (ComicShare $a, ComicShare $b) use ($rank): int {
+            $byComic = $rank[(int) $a->getComic()?->getId()] <=> $rank[(int) $b->getComic()?->getId()];
+
+            return $byComic !== 0
+                ? $byComic
+                : ($b->getCreatedAt() <=> $a->getCreatedAt() ?: $b->getId() <=> $a->getId());
+        });
+
+        return PaginatedResult::fromRequest($shares, $total, $request);
     }
 
     /**
@@ -414,6 +464,34 @@ class ComicShareRepository extends ServiceEntityRepository
             ->andWhere('s.expiresAt < :now')
             ->setParameter('pending', ComicShare::STATUS_PENDING)
             ->setParameter('now', $now);
+
+        if ($limit !== null) {
+            $qb->setMaxResults($limit);
+        }
+
+        return $qb->getQuery()->getResult();
+    }
+
+    /**
+     * Revoked shares whose retention window has passed, oldest first.
+     *
+     * The window runs from the revocation itself, so pressing the sweep early
+     * removes nothing a recipient might still be reading an explanation from.
+     * Re-inviting clears `revokedAt` on its way back to pending, so a reopened
+     * relationship can never match here.
+     *
+     * @param int|null $limit bound the batch so a long-neglected backlog is not
+     *                        hydrated in one go
+     * @return list<ComicShare>
+     */
+    public function findRevokedDeletable(\DateTimeImmutable $now, ?int $limit = null): array
+    {
+        $qb = $this->createQueryBuilder('s')
+            ->andWhere('s.status = :revoked')
+            ->andWhere('s.revokedAt < :cutoff')
+            ->setParameter('revoked', ComicShare::STATUS_REVOKED)
+            ->setParameter('cutoff', $now->modify('-' . ltrim(ComicShare::RETENTION_AFTER_REVOCATION, '+')))
+            ->orderBy('s.revokedAt', 'ASC');
 
         if ($limit !== null) {
             $qb->setMaxResults($limit);

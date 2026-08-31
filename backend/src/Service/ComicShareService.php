@@ -772,6 +772,42 @@ class ComicShareService
     }
 
     /**
+     * Delete the record of a finished share from the owner's side.
+     *
+     * The owner's counterpart to {@see clearDeadShares()}: revoking, being
+     * declined or letting an invitation lapse all leave a row in their sharing
+     * list, and this is how they clear it before the retention sweep would.
+     *
+     * A share that still grants or promises access is refused rather than
+     * revoked implicitly. Deleting must never be a quieter way to cut somebody
+     * off — revoking is the act that takes access away, leaves the timestamps
+     * behind, and is audited as itself.
+     *
+     * @throws ShareException
+     */
+    public function deleteForOwner(ComicShare $share): void
+    {
+        if (!$share->isFinished()) {
+            throw new ShareException('Revoke this share before deleting its record.', 409);
+        }
+
+        // Read before the remove: a flushed deletion has no id left to audit.
+        $context = [
+            'actor_user_id' => $share->getOwner()?->getId(),
+            'target_type' => 'share',
+            'target_id' => $share->getId(),
+            'comic_id' => $share->getComic()?->getId(),
+            'count' => 1,
+            'scope' => 'owner',
+        ];
+
+        $this->entityManager->remove($share);
+        $this->entityManager->flush();
+
+        $this->auditLogger->audit(SecurityAuditLogger::SHARES_CLEARED, $context);
+    }
+
+    /**
      * Hide a shared comic from the recipient's collection without giving it up.
      *
      * Guarded the same way as restoring, so a direct API call cannot set

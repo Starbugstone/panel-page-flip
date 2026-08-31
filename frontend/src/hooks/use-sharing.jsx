@@ -1,13 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './use-auth';
 import { api } from '@/lib/api';
+import { DEFAULT_PAGE_SIZE } from '@/lib/admin-list-params';
 import { logger } from '@/lib/logger';
 
 const SharingContext = createContext(undefined);
 
 const EMPTY_SUMMARY = { pendingInvitations: 0, deadShares: 0 };
-// Stable identity so a signed-out render does not hand consumers a new array.
+// Stable identities so a signed-out render does not hand consumers new objects.
 const EMPTY_LIST = [];
+const EMPTY_PAGINATION = { page: 1, limit: DEFAULT_PAGE_SIZE, totalItems: 0, totalPages: 1 };
 
 /**
  * Holds the sharing counts the header badge and the dashboard alert both read.
@@ -106,8 +108,11 @@ export function useSharing() {
  *
  * One reload after every action rather than patching individual rows: an action
  * on one side routinely changes the other (revoking moves a recipient's comic
- * to a dead entry), and the lists are small enough that refetching is cheaper
- * than keeping two views of the same records in step.
+ * to a dead entry), and refetching is cheaper than keeping two views of the
+ * same records in step.
+ *
+ * "Shared by me" is served one page of comics at a time — the same protocol as
+ * the admin tables — so the hook also owns which page is being looked at.
  */
 export function useSharingLists() {
   // One piece of state for the whole answer, tagged with the account it belongs
@@ -115,74 +120,91 @@ export function useSharingLists() {
   // cannot leave the previous session's shares on screen with nothing marked as
   // loading — the tag simply stops matching.
   const [result, setResult] = useState(null);
+  const [byMeParams, setByMeParams] = useState({ page: 1, limit: DEFAULT_PAGE_SIZE });
   const { isAuthenticated, user } = useAuth();
   const { refreshSummary } = useSharing();
 
+  const setByMePage = useCallback((page) => {
+    setByMeParams((current) => ({ ...current, page: Math.max(1, page) }));
+  }, []);
+  // A new page size starts again from the first page; staying on page 6 of a
+  // result set that now has two pages shows nothing.
+  const setByMeLimit = useCallback((limit) => setByMeParams({ page: 1, limit }), []);
+
+  const applyLists = useCallback((byMe, withMe) => {
+    setResult({
+      forUser: user,
+      byMe: byMe.sharedByMe || [],
+      withMe: withMe.sharedWithMe || [],
+      byMePagination: byMe.pagination || EMPTY_PAGINATION,
+      error: null,
+    });
+
+    // The page that was asked for can stop existing — deleting the last share
+    // record on the last page shrinks the set. Landing on the new last page
+    // beats rendering "you have not shared any comics yet" over a list that
+    // still has comics on its earlier pages.
+    const totalPages = byMe.pagination?.totalPages;
+    if (totalPages) {
+      setByMeParams((current) => (current.page > totalPages ? { ...current, page: totalPages } : current));
+    }
+  }, [user]);
+
+  const applyError = useCallback((err) => {
+    logger.error('Failed to load sharing lists:', err);
+    setResult({
+      forUser: user,
+      byMe: EMPTY_LIST,
+      withMe: EMPTY_LIST,
+      byMePagination: EMPTY_PAGINATION,
+      error: err.message || 'Could not load your shared comics.',
+    });
+  }, [user]);
+
+  const byMeUrl = `/api/shares/shared-by-me?page=${byMeParams.page}&limit=${byMeParams.limit}`;
+
+  /**
+   * Both halves in one round trip, applied unless the caller has lost interest.
+   *
+   * `isStale` is how the mount path drops an answer that arrived after the
+   * page turned or the account changed; `reload` has nothing to race with and
+   * takes the default.
+   *
+   * A promise chain rather than async/await, so that every setState sits
+   * inside a callback: called from an effect, an awaited one reads as a
+   * synchronous setState and the rule against cascading renders rejects it.
+   */
+  const fetchLists = useCallback((isStale = () => false) => Promise.all([
+    api.get(byMeUrl),
+    api.get('/api/shares/shared-with-me'),
+  ])
+    .then(([byMe, withMe]) => { if (!isStale()) applyLists(byMe, withMe); })
+    .catch((err) => { if (!isStale()) applyError(err); })
+    // The counts come from the same records, so refreshing them here keeps the
+    // badge honest without another round of coordination.
+    .finally(() => { if (!isStale()) refreshSummary(); }),
+  [applyError, applyLists, byMeUrl, refreshSummary]);
+
   const reload = useCallback(async () => {
     if (!isAuthenticated) {
-      setResult({ forUser: user, byMe: EMPTY_LIST, withMe: EMPTY_LIST, error: null });
+      setResult({ forUser: user, byMe: EMPTY_LIST, withMe: EMPTY_LIST, byMePagination: EMPTY_PAGINATION, error: null });
       return;
     }
 
-    try {
-      const [byMe, withMe] = await Promise.all([
-        api.get('/api/shares/shared-by-me'),
-        api.get('/api/shares/shared-with-me'),
-      ]);
-      setResult({
-        forUser: user,
-        byMe: byMe.sharedByMe || [],
-        withMe: withMe.sharedWithMe || [],
-        error: null,
-      });
-    } catch (err) {
-      logger.error('Failed to load sharing lists:', err);
-      setResult({
-        forUser: user,
-        byMe: EMPTY_LIST,
-        withMe: EMPTY_LIST,
-        error: err.message || 'Could not load your shared comics.',
-      });
-    } finally {
-      // The counts come from the same records, so refreshing them here keeps
-      // the badge honest without another round of coordination.
-      refreshSummary();
-    }
-  }, [isAuthenticated, refreshSummary, user]);
+    await fetchLists();
+  }, [fetchLists, isAuthenticated, user]);
 
   // As above: reload is for the page's own actions, the mount path asks
-  // directly so nothing is set before the request exists.
+  // directly so nothing is set before the request exists. Turning the page
+  // lands here too, because it changes the URL the fetch depends on.
   useEffect(() => {
     if (!isAuthenticated) return undefined;
 
     let ignore = false;
-    Promise.all([
-      api.get('/api/shares/shared-by-me'),
-      api.get('/api/shares/shared-with-me'),
-    ])
-      .then(([byMe, withMe]) => {
-        if (ignore) return;
-        setResult({
-          forUser: user,
-          byMe: byMe.sharedByMe || [],
-          withMe: withMe.sharedWithMe || [],
-          error: null,
-        });
-      })
-      .catch((err) => {
-        if (ignore) return;
-        logger.error('Failed to load sharing lists:', err);
-        setResult({
-          forUser: user,
-          byMe: EMPTY_LIST,
-          withMe: EMPTY_LIST,
-          error: err.message || 'Could not load your shared comics.',
-        });
-      })
-      .finally(() => { if (!ignore) refreshSummary(); });
+    fetchLists(() => ignore);
 
     return () => { ignore = true; };
-  }, [isAuthenticated, refreshSummary, user]);
+  }, [fetchLists, isAuthenticated]);
 
   // Only an answer belonging to the account that is signed in now counts.
   const current = result?.forUser === user ? result : null;
@@ -190,8 +212,11 @@ export function useSharingLists() {
   return {
     sharedByMe: current?.byMe ?? EMPTY_LIST,
     sharedWithMe: current?.withMe ?? EMPTY_LIST,
+    byMePagination: current?.byMePagination ?? EMPTY_PAGINATION,
     isLoading: isAuthenticated && current === null,
     error: current?.error ?? null,
     reload,
+    setByMePage,
+    setByMeLimit,
   };
 }

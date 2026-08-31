@@ -14,7 +14,7 @@ const EMPTY_TARGET = { email: "", username: "", userCode: "", comicIds: [] };
  * the expectation stays visible while somebody reviews what they have already
  * handed out, not only as they hand out the next one.
  */
-export function SharedByMeList({ sharedByMe, busyShareId, onShare, onStopSharing, onResend, onRevoke }) {
+export function SharedByMeList({ sharedByMe, busyShareId, onShare, onStopSharing, onResend, onRevoke, onDelete }) {
   const reminder = (
     <Alert className="mb-4">
       <ShieldAlert className="h-5 w-5" />
@@ -53,6 +53,7 @@ export function SharedByMeList({ sharedByMe, busyShareId, onShare, onStopSharing
           onStopSharing={onStopSharing}
           onResend={onResend}
           onRevoke={onRevoke}
+          onDelete={onDelete}
         />
       ))}
     </div>

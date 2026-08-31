@@ -8,10 +8,13 @@ use App\Entity\ShareInvitationToken;
 use App\Entity\User;
 use App\Repository\ComicShareRepository;
 use App\Service\ComicShareService;
+use App\Service\ExpiredShareCleanupService;
+use App\Service\SecurityAuditLogger;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 use App\Tests\Functional\InvitationLinkAssertions;
+use App\Tests\Functional\SecurityLogAssertions;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
@@ -25,6 +28,7 @@ use Doctrine\ORM\EntityManagerInterface;
 final class ShareControllerTest extends AbstractApiTestCase
 {
     use InvitationLinkAssertions;
+    use SecurityLogAssertions;
 
     public function testAcceptingAShareCreatesNoSecondComicOrFile(): void
     {
@@ -565,7 +569,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         $this->postInvitation((int) $comic->getId(), '  Mixed.Case@Example.COM  ');
         self::assertResponseStatusCodeSame(201);
 
-        $shares = static::getContainer()->get(ComicShareRepository::class)->findAllForOwner($owner);
+        $shares = static::getContainer()->get(ComicShareRepository::class)->findBy(['owner' => $owner]);
         self::assertCount(1, $shares);
         self::assertSame('mixed.case@example.com', $shares[0]->getRecipientEmailNormalized());
 
@@ -602,9 +606,13 @@ final class ShareControllerTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(404);
         $this->postJson('/api/shares/' . $share->getId() . '/resend');
         self::assertResponseStatusCodeSame(404);
+        $this->deleteJson('/api/shares/' . $share->getId());
+        self::assertResponseStatusCodeSame(404);
 
         $this->createAndLoginUser(['email' => 'outsider@test.local']);
         $this->postJson('/api/shares/' . $share->getId() . '/remove');
+        self::assertResponseStatusCodeSame(404);
+        $this->deleteJson('/api/shares/' . $share->getId());
         self::assertResponseStatusCodeSame(404);
     }
 
@@ -629,6 +637,145 @@ final class ShareControllerTest extends AbstractApiTestCase
         self::assertSame(
             [ComicShare::STATUS_PENDING, ComicShare::STATUS_PENDING],
             array_column($groups[0]['recipients'], 'status')
+        );
+    }
+
+    public function testAnOwnerCanDeleteTheRecordOfARevokedShare(): void
+    {
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $recipient = UserFactory::createOne(['email' => 'cut-off@test.local']);
+
+        $this->loginAs($recipient);
+        $share = $this->createAcceptedShare($comic, $owner, $recipient);
+
+        $this->loginAs($owner);
+        $this->postJson('/api/shares/' . $share->getId() . '/revoke');
+        self::assertResponseIsSuccessful();
+
+        // The revoked row offers deletion, not another revocation.
+        $recipients = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'];
+        self::assertTrue($recipients[0]['canDelete']);
+        self::assertFalse($recipients[0]['canRevoke']);
+
+        $this->deleteJson('/api/shares/' . $share->getId());
+        self::assertResponseIsSuccessful();
+        self::assertSame([], $this->getJson('/api/shares/shared-by-me')['sharedByMe']);
+
+        // The id is read before the row goes, because a flushed deletion has
+        // none left to name and an unnamed deletion is not answerable for.
+        $record = $this->assertLoggedAuditEvent(SecurityAuditLogger::SHARES_CLEARED);
+        self::assertSame((int) $share->getId(), $record->context['target_id']);
+        self::assertSame((int) $owner->getId(), $record->context['actor_user_id']);
+        self::assertSame('owner', $record->context['scope']);
+
+        // The record is one row with two readers, so it leaves both lists.
+        $this->loginAs($recipient);
+        self::assertSame([], $this->getJson('/api/shares/shared-with-me')['sharedWithMe']);
+    }
+
+    /**
+     * Deleting must never be a quieter way of cutting somebody off: a share
+     * that still grants or promises access is refused until it is revoked,
+     * declined or has lapsed.
+     */
+    public function testALiveShareMustBeRevokedBeforeItsRecordCanBeDeleted(): void
+    {
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $recipient = UserFactory::createOne(['email' => 'keeps-access@test.local']);
+
+        $this->loginAs($recipient);
+        $accepted = $this->createAcceptedShare($comic, $owner, $recipient);
+
+        $other = ComicFactory::new()->ownedBy($owner)->create();
+        $pending = $this->persistShare($other, $owner, 'unanswered@test.local');
+
+        $this->loginAs($owner);
+        foreach ([$accepted, $pending] as $share) {
+            $this->deleteJson('/api/shares/' . $share->getId());
+            self::assertResponseStatusCodeSame(409);
+        }
+
+        // The refusals deleted nothing: the recipient still reads the comic.
+        $this->loginAs($recipient);
+        $this->getJson('/api/comics/' . $comic->getId());
+        self::assertResponseIsSuccessful();
+
+        // Once the invitation lapses there is nothing left to protect.
+        $this->expireShareInvitation((int) $pending->getId());
+        $this->loginAs($owner);
+        $this->deleteJson('/api/shares/' . $pending->getId());
+        self::assertResponseIsSuccessful();
+    }
+
+    public function testTheSharingListIsPagedByComic(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'prolific@test.local']);
+
+        $comics = [];
+        foreach (['Oldest', 'Middle', 'Newest'] as $title) {
+            $comics[$title] = ComicFactory::new()->ownedBy($owner)->create(['title' => $title]);
+        }
+        $this->persistShare($comics['Oldest'], $owner, 'a@test.local');
+        $this->persistShare($comics['Middle'], $owner, 'b@test.local');
+        $this->persistShare($comics['Middle'], $owner, 'c@test.local');
+        $this->persistShare($comics['Newest'], $owner, 'd@test.local');
+
+        $first = $this->getJson('/api/shares/shared-by-me?page=1&limit=2');
+        self::assertSame(
+            ['page' => 1, 'limit' => 2, 'totalItems' => 3, 'totalPages' => 2],
+            $first['pagination']
+        );
+        self::assertSame(['Newest', 'Middle'], array_column($first['sharedByMe'], 'title'));
+        // Paged by comic, so a boundary never splits a comic's recipients.
+        self::assertCount(2, $first['sharedByMe'][1]['recipients']);
+
+        $second = $this->getJson('/api/shares/shared-by-me?page=2&limit=2');
+        self::assertSame(['Oldest'], array_column($second['sharedByMe'], 'title'));
+
+        // Beyond the end is an empty page, not an error.
+        self::assertSame([], $this->getJson('/api/shares/shared-by-me?page=9&limit=2')['sharedByMe']);
+    }
+
+    /**
+     * The retention sweep removes a revoked share only once its window has
+     * passed, and never touches anything still live — pressing the admin
+     * button early must not delete what the nightly job would have kept.
+     */
+    public function testTheRetentionSweepDeletesOnlyLongRevokedShares(): void
+    {
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+
+        $longRevoked = $this->persistShare($comic, $owner, 'long-revoked@test.local');
+        $freshlyRevoked = $this->persistShare($comic, $owner, 'freshly-revoked@test.local');
+        $this->persistShare($comic, $owner, 'still-pending@test.local');
+
+        $shareService = static::getContainer()->get(ComicShareService::class);
+        $shareService->revoke($longRevoked);
+        $shareService->revoke($freshlyRevoked);
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->getConnection()->executeStatement(
+            'UPDATE comic_share SET revoked_at = :when WHERE id = :id',
+            [
+                'when' => (new \DateTimeImmutable('-40 days'))->format('Y-m-d H:i:s'),
+                'id' => $longRevoked->getId(),
+            ]
+        );
+        $entityManager->clear();
+
+        $cleanup = static::getContainer()->get(ExpiredShareCleanupService::class);
+        self::assertSame(1, $cleanup->cleanupRevokedShares());
+        // Nothing left in the window: a second pass finds the same table clean.
+        self::assertSame(0, $cleanup->cleanupRevokedShares());
+
+        $left = static::getContainer()->get(ComicShareRepository::class)
+            ->findBy(['comic' => $comic->getId()]);
+        self::assertEqualsCanonicalizing(
+            ['freshly-revoked@test.local', 'still-pending@test.local'],
+            array_map(static fn (ComicShare $share): string => $share->getRecipientEmailNormalized(), $left)
         );
     }
 
@@ -844,6 +991,17 @@ final class ShareControllerTest extends AbstractApiTestCase
         $entityManager->flush();
 
         return [$share, $plaintext];
+    }
+
+    /** Push a pending invitation's window into the past, straight in the database. */
+    private function expireShareInvitation(int $shareId): void
+    {
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->getConnection()->executeStatement(
+            'UPDATE comic_share SET expires_at = :when WHERE id = :id',
+            ['when' => (new \DateTimeImmutable('-1 day'))->format('Y-m-d H:i:s'), 'id' => $shareId]
+        );
+        $entityManager->clear();
     }
 
     private function persistShare(Comic $comic, User $owner, string $recipientEmail): ComicShare

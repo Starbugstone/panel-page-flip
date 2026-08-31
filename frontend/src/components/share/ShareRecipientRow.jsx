@@ -1,4 +1,4 @@
-import { Loader2, RotateCcw, UserPlus, XCircle } from "lucide-react";
+import { Loader2, RotateCcw, Trash2, UserPlus, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SHARE_STATUS, SHARE_STATUS_LABELS, describeNotification, recipientLabel } from "@/lib/sharing";
@@ -19,7 +19,7 @@ const STATUS_VARIANTS = {
  * than addressed: the point of the code was that the sender never learned the
  * address.
  */
-export function ShareRecipientRow({ recipient, busy, onShareAnother, onResend, onRevoke }) {
+export function ShareRecipientRow({ recipient, busy, onShareAnother, onResend, onRevoke, onDelete }) {
   const label = recipientLabel(recipient);
   const notification = describeNotification(recipient);
 
@@ -66,6 +66,20 @@ export function ShareRecipientRow({ recipient, busy, onShareAnother, onResend, o
           >
             <XCircle className="h-4 w-4" />
             <span className="ml-2 hidden sm:inline">Revoke</span>
+          </Button>
+        )}
+        {/* Only for relationships that are already over — a live share offers
+            Revoke instead, and the server refuses to delete one. */}
+        {recipient.canDelete && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            aria-label={`Delete the share record for ${label}`}
+            onClick={onDelete}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            <span className="ml-2 hidden sm:inline">Delete</span>
           </Button>
         )}
       </div>

@@ -9,7 +9,7 @@ import { EXPLICIT_FLAG_LABEL, recipientLabel, recipientTarget, summariseRecipien
 const EMPTY_TARGET = { email: "", username: "", userCode: "" };
 
 /** One of the owner's comics, and everybody it has been offered to. */
-export function SharedComicGroup({ group, busyShareId, onShare, onStopSharing, onResend, onRevoke }) {
+export function SharedComicGroup({ group, busyShareId, onShare, onStopSharing, onResend, onRevoke, onDelete }) {
   const counts = summariseRecipients(group.recipients);
 
   return (
@@ -61,6 +61,7 @@ export function SharedComicGroup({ group, busyShareId, onShare, onStopSharing, o
               })}
               onResend={() => onResend(recipient)}
               onRevoke={() => onRevoke(recipient)}
+              onDelete={() => onDelete(recipient)}
             />
           ))}
         </ul>

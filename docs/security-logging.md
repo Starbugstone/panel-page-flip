@@ -95,6 +95,7 @@ security and audit records. Decide which mode you are in and write it down;
 | `admin_audit_log` table | 12 months | `app:cleanup-personal-data` |
 | Unanswered `ComicShare` invitations | Until `expiresAt` (2 months) | `app:cleanup-expired-shares` |
 | `share_claim_code` rows | 30 days past expiry | `app:cleanup-expired-shares` |
+| Revoked `ComicShare` rows | 30 days past `revokedAt` | `app:cleanup-expired-shares` |
 | `ComicShare.senderResponsibilityAcceptedAt` / `adultConfirmedAt` | Lifetime of the share record | Nothing — see below |
 
 Deletion is **not** automatic. A `max_files` setting nothing enforces is how an

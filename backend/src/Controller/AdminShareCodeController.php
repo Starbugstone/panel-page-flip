@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Entity\ComicShare;
 use App\Entity\ShareClaimCode;
 use App\Entity\User;
 use App\Repository\ShareClaimCodeRepository;
@@ -77,6 +78,9 @@ final class AdminShareCodeController extends AbstractController
             ),
             'pagination' => $page->toArray(),
             'retentionAfterExpiry' => ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+'),
+            // Two windows on two clocks. The sweep dialog describes both, so it
+            // reads them from here rather than assuming they stay equal.
+            'retentionAfterRevocation' => ltrim(ComicShare::RETENTION_AFTER_REVOCATION, '+'),
         ]);
     }
 
@@ -111,12 +115,14 @@ final class AdminShareCodeController extends AbstractController
 
         return $this->json([
             'message' => sprintf(
-                '%d expired invitation(s) and %d dead sharing code(s) removed.',
+                '%d expired invitation(s), %d dead sharing code(s) and %d long-revoked share(s) removed.',
                 $removed['invitations'],
-                $removed['claimCodes']
+                $removed['claimCodes'],
+                $removed['revokedShares']
             ),
             'invitationsRemoved' => $removed['invitations'],
             'contentCodesRemoved' => $removed['claimCodes'],
+            'revokedSharesRemoved' => $removed['revokedShares'],
         ]);
     }
 

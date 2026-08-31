@@ -49,6 +49,7 @@ const respondWith = (items) => {
     items,
     pagination: { page: 1, limit: 25, totalItems: items.length, totalPages: 1 },
     retentionAfterExpiry: "30 days",
+    retentionAfterRevocation: "14 days",
   });
 };
 
@@ -137,7 +138,7 @@ describe("AdminSharingCodesList", () => {
   it("says what the cleanup will and will not remove before running it", async () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockResolvedValue({
-      message: "0 expired invitation(s) and 2 dead sharing code(s) removed.",
+      message: "0 expired invitation(s), 2 dead sharing code(s) and 0 long-revoked share(s) removed.",
       claimCodesRemoved: 2,
     });
 
@@ -147,7 +148,10 @@ describe("AdminSharingCodesList", () => {
     await user.click(screen.getByRole("button", { name: /run cleanup/i }));
 
     expect(await screen.findByText(/same sweep the scheduled job runs/)).toBeInTheDocument();
-    expect(await screen.findByText(/died more than 30 days ago/)).toBeInTheDocument();
+    // Codes and revoked shares run on separate clocks, and the dialog quotes
+    // each one rather than assuming they agree.
+    expect(await screen.findByText(/codes that died more than 30 days ago/)).toBeInTheDocument();
+    expect(await screen.findByText(/shares revoked more than 14 days ago/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run cleanup" }));
 
@@ -157,7 +161,7 @@ describe("AdminSharingCodesList", () => {
     ));
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({
       title: "Cleanup complete",
-      description: "0 expired invitation(s) and 2 dead sharing code(s) removed.",
+      description: "0 expired invitation(s), 2 dead sharing code(s) and 0 long-revoked share(s) removed.",
     }));
   });
 });

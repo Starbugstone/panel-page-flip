@@ -74,6 +74,17 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         self::assertNotNull($entry['deletableAfter']);
         self::assertSame(1, $payload['pagination']['totalItems']);
 
+        // The sweep dialog describes two retention windows on two clocks, so
+        // the list hands it both rather than letting it assume they agree.
+        self::assertSame(
+            ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+'),
+            $payload['retentionAfterExpiry']
+        );
+        self::assertSame(
+            ltrim(ComicShare::RETENTION_AFTER_REVOCATION, '+'),
+            $payload['retentionAfterRevocation']
+        );
+
         // An encrypted copy exists for the owner, but the administrator's list
         // deliberately exposes neither it nor the redemption hash.
         $body = (string) $this->browser()->getResponse()->getContent();
@@ -304,6 +315,7 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         self::assertSame($admin->getId(), $record->context['actor_user_id']);
         self::assertSame('manual_admin_sweep', $record->context['scope']);
         self::assertSame(1, $record->context['claim_codes_removed']);
+        self::assertSame(0, $record->context['revoked_shares_removed']);
     }
 
     /**

@@ -51,6 +51,17 @@ class ComicShare
     public const NOTIFICATION_SENT = 'sent';
     public const NOTIFICATION_FAILED = 'failed';
 
+    /**
+     * How long a revoked share is kept before the retention sweep deletes it.
+     *
+     * Measured from revocation, on the same clock as a dead sharing code: the
+     * record grants nothing any more, but for a while it still answers
+     * questions — the owner sees who they cut off, the recipient sees why a
+     * comic went away. A month answers both; keeping the rows for ever would
+     * just be a table that only grows.
+     */
+    public const RETENTION_AFTER_REVOCATION = '+30 days';
+
     public const REASON_OWNER_DELETED = 'owner_deleted';
     public const REASON_OWNER_ACCOUNT_DELETED = 'owner_account_deleted';
     public const REASON_FILE_MISSING = 'file_missing';
@@ -759,6 +770,19 @@ class ComicShare
     public function isVisibleInCollection(): bool
     {
         return $this->grantsReadAccess() && $this->recipientRemovedAt === null;
+    }
+
+    /**
+     * Whether this relationship is over: revoked, declined, expired unanswered,
+     * or tombstoned. Nothing about a finished share can move forward without a
+     * fresh invitation, which is what makes its record safe for the owner to
+     * delete — the only thing being thrown away is history.
+     */
+    public function isFinished(?\DateTimeImmutable $now = null): bool
+    {
+        return $this->isTombstoned()
+            || in_array($this->status, [self::STATUS_REVOKED, self::STATUS_DECLINED], true)
+            || ($this->status === self::STATUS_PENDING && $this->isExpired($now));
     }
 
     public function isPending(?\DateTimeImmutable $now = null): bool
