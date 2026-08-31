@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -194,7 +194,8 @@ describe("AdminUserDetails", () => {
     ).toBeDisabled());
     expect(api.post).toHaveBeenCalledTimes(1);
 
-    release({ message: "User code replaced." });
+    await act(async () => release({ message: "User code replaced." }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
   /**
    * The heading already falls back to the address for the great majority of

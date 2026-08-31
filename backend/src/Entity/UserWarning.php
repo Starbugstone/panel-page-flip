@@ -26,9 +26,10 @@ use Doctrine\ORM\Mapping as ORM;
  * - **It is acknowledged, not deleted.** Dismissing it clears it from the
  *   recipient's screen and keeps the record, so "were they told?" has an answer
  *   later
- * - **It carries its own context.** The comic or share it is about is
- *   referenced *and* described, because the usual reason to warn somebody about
- *   a comic is that the comic is about to stop existing
+ * - **It carries its own context.** The subject is described at issue time, and
+ *   a comic is also linked while it exists. The usual reason to warn somebody
+ *   about content is that the content is about to stop existing, so the durable
+ *   description is the part the warning must not lose
  */
 #[ORM\Entity(repositoryClass: UserWarningRepository::class)]
 #[ORM\Table(name: 'user_warning')]
@@ -38,10 +39,11 @@ class UserWarning
     /**
      * What the warning is about, which decides how it is introduced.
      *
-     * Not derived from whether `comic` or `share` is set: those are references
-     * that go null when the thing they point at is deleted, and a warning about
-     * a comic does not stop being about a comic when the comic is removed —
-     * that is usually the whole point of it.
+     * Not derived from whether `comic` is set: that reference goes null when the
+     * comic is deleted, and a warning about a comic does not stop being about a
+     * comic when it is removed — that is usually the whole point of it. Share
+     * warnings keep only the durable label because no behavior follows a live
+     * share reference after the warning is issued.
      */
     public const SUBJECT_ACCOUNT = 'account';
     public const SUBJECT_COMIC = 'comic';
@@ -88,14 +90,10 @@ class UserWarning
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?Comic $comic = null;
 
-    #[ORM\ManyToOne(targetEntity: ComicShare::class)]
-    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
-    private ?ComicShare $share = null;
-
     /**
      * What the warning was about, in words, written down at the time.
      *
-     * The references above are the live link and this is the durable one. A
+     * The comic above is a live link and this is the durable description. A
      * warning about a comic that is then deleted would otherwise read as a
      * complaint about nothing in particular, which is precisely the case where
      * the recipient most needs to know which comic was meant.
@@ -167,10 +165,9 @@ class UserWarning
         return $this->acknowledgedAt;
     }
 
-    public function about(?Comic $comic, ?ComicShare $share): self
+    public function linkComic(?Comic $comic): self
     {
         $this->comic = $comic;
-        $this->share = $share;
 
         return $this;
     }

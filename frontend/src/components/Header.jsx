@@ -60,7 +60,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
   return (
     <header className="border-b">
       <div className="container flex h-16 items-center justify-between px-4 md:px-6">
-        <Link to="/" className="flex items-center gap-2">
+        <Link to="/" aria-label="Panel Page Flip" className="flex min-h-10 min-w-10 items-center gap-2">
           <BookOpen className="h-6 w-6 text-comic-purple" />
           <span className="hidden font-comic text-2xl sm:inline">Panel Page Flip</span>
         </Link>

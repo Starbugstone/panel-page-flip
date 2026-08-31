@@ -3,7 +3,6 @@
 namespace App\Entity;
 
 use App\Repository\ShareClaimCodeRedemptionRepository;
-use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
@@ -46,14 +45,10 @@ class ShareClaimCodeRedemption
     #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     private ?User $recipient = null;
 
-    #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
-    private \DateTimeImmutable $redeemedAt;
-
     public function __construct(ShareClaimCode $claimCode, User $recipient)
     {
         $this->claimCode = $claimCode;
         $this->recipient = $recipient;
-        $this->redeemedAt = new \DateTimeImmutable();
     }
 
     public function getId(): ?int

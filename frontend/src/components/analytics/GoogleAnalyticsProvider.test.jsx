@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { MemoryRouter, useNavigate } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -59,7 +59,7 @@ describe("privacy-first analytics startup", () => {
     expect(loadGoogleAnalytics).not.toHaveBeenCalled();
     expect(sendAnalyticsPageView).not.toHaveBeenCalled();
 
-    state.consentCallback("denied");
+    act(() => state.consentCallback("denied"));
     expect(loadGoogleAnalytics).not.toHaveBeenCalled();
   });
 
@@ -67,7 +67,7 @@ describe("privacy-first analytics startup", () => {
     renderProvider();
     await waitFor(() => expect(state.consentCallback).toBeTypeOf("function"));
 
-    state.consentCallback("granted");
+    act(() => state.consentCallback("granted"));
     await waitFor(() => expect(loadGoogleAnalytics).toHaveBeenCalledTimes(1));
     expect(loadGoogleAnalytics.mock.calls[0][1].pageFields).toEqual({
       page_location: "http://localhost:8080/dashboard",
@@ -95,8 +95,10 @@ describe("privacy-first analytics startup", () => {
     renderProvider("/share/invitation/private-token");
     await waitFor(() => expect(state.consentCallback).toBeTypeOf("function"));
 
-    state.consentCallback("granted");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await act(async () => {
+      state.consentCallback("granted");
+      await Promise.resolve();
+    });
     expect(loadGoogleAnalytics).not.toHaveBeenCalled();
     expect(sendAnalyticsPageView).not.toHaveBeenCalled();
   });

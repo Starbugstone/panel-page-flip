@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
 
@@ -22,19 +22,19 @@ const surface = () => document.querySelector("[data-page-fit]");
 const pointerDown = (pointerType, { x = 10, y = 10 } = {}) => {
   const event = new Event("pointerdown", { bubbles: true });
   Object.assign(event, { pointerId: 1, clientX: x, clientY: y, pointerType, button: 0 });
-  surface().dispatchEvent(event);
+  act(() => surface().dispatchEvent(event));
 };
 
 const pointerMove = (x, y) => {
   const event = new Event("pointermove", { bubbles: true });
   Object.assign(event, { pointerId: 1, clientX: x, clientY: y, pointerType: "mouse" });
-  surface().dispatchEvent(event);
+  act(() => surface().dispatchEvent(event));
 };
 
 const pointerUp = () => {
   const event = new Event("pointerup", { bubbles: true });
   Object.assign(event, { pointerId: 1, clientX: 0, clientY: 0, pointerType: "mouse" });
-  surface().dispatchEvent(event);
+  act(() => surface().dispatchEvent(event));
 };
 
 describe("the page surface", () => {

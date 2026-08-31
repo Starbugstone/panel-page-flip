@@ -73,6 +73,7 @@ const receivedShare = (overrides = {}) => ({
 });
 
 const renderPage = () => render(<MemoryRouter><Sharing /></MemoryRouter>);
+const settleSharingCard = () => screen.findByText("U-AAAA-BBBB-CCCC");
 
 /** Move to the owner's half of the page. */
 const openSharedByMe = async (user) => {
@@ -146,9 +147,10 @@ describe("Sharing page", () => {
     expect(screen.getByText("Explicit content (18+)")).toBeInTheDocument();
   });
 
-  it("gates a pending explicit invitation instead of offering to accept it", () => {
+  it("gates a pending explicit invitation instead of offering to accept it", async () => {
     lists.sharedWithMe = [receivedShare()];
     renderPage();
+    await settleSharingCard();
 
     expect(screen.getByText("Hidden until you confirm your age")).toBeInTheDocument();
     expect(screen.getAllByText(EXPLICIT_GATE_TITLE).length).toBeGreaterThan(0);
@@ -187,9 +189,10 @@ describe("Sharing page", () => {
     expect(api.post).toHaveBeenCalledWith("/api/shares/41/accept", {});
   });
 
-  it("gates an accepted share the owner has since marked explicit", () => {
+  it("gates an accepted share the owner has since marked explicit", async () => {
     lists.sharedWithMe = [receivedShare({ status: "accepted", canAnswer: false, canRemove: true })];
     renderPage();
+    await settleSharingCard();
 
     // The relationship survived; reading did not, until they confirm again.
     expect(screen.getByText(/confirm your age to read it again/i)).toBeInTheDocument();
@@ -209,9 +212,10 @@ describe("Sharing page", () => {
     await waitFor(() => expect(lists.reload).toHaveBeenCalled());
   });
 
-  it("explains a dead explicit share rather than offering a gate to nowhere", () => {
+  it("explains a dead explicit share rather than offering a gate to nowhere", async () => {
     lists.sharedWithMe = [receivedShare({ status: "revoked", isDead: true, canAnswer: false })];
     renderPage();
+    await settleSharingCard();
 
     expect(screen.getByText(/the owner has stopped sharing/i)).toBeInTheDocument();
     // Confirming for a share the owner has withdrawn achieves nothing.
@@ -350,7 +354,7 @@ describe("Sharing page", () => {
     expect(screen.queryByRole("button", { name: /next page/i })).not.toBeInTheDocument();
   });
 
-  it("leaves a non-explicit share entirely alone", () => {
+  it("leaves a non-explicit share entirely alone", async () => {
     lists.sharedWithMe = [receivedShare({
       comicId: 5,
       comicTitle: "Ordinary Comic",
@@ -359,6 +363,7 @@ describe("Sharing page", () => {
     })];
 
     renderPage();
+    await settleSharingCard();
 
     const card = screen.getByText("Ordinary Comic").closest("li");
     expect(within(card).getByRole("button", { name: /add to my collection/i })).toBeInTheDocument();

@@ -43,22 +43,25 @@ const renderDialog = (props = {}) => {
 
 const explicitBox = () => screen.getByRole("checkbox", { name: /explicit content \(18\+\)/i });
 const save = () => screen.getByRole("button", { name: /save changes/i });
+const settleSuggestions = () => screen.findByText("Nothing to suggest from this comic's file or name.");
 
 describe("ComicEditDialog explicit-content flag", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("explains what marking a comic explicit does to its recipients", () => {
+  it("explains what marking a comic explicit does to its recipients", async () => {
     renderDialog();
+    await settleSuggestions();
 
     expect(screen.getByText(EXPLICIT_FLAG_DESCRIPTION)).toBeInTheDocument();
     expect(screen.getByText(EXPLICIT_FLAG_DESCRIPTION))
       .toHaveTextContent("confirm they are 18 or older");
   });
 
-  it("gives the dialog an accessible description", () => {
+  it("gives the dialog an accessible description", async () => {
     renderDialog();
+    await settleSuggestions();
 
     // A screen reader otherwise announces the title and drops the user into an
     // unexplained set of fields — and Radix warns about it on every mount,
@@ -66,22 +69,25 @@ describe("ComicEditDialog explicit-content flag", () => {
     expect(screen.getByRole("dialog")).toHaveAccessibleDescription(/classified 18\+/i);
   });
 
-  it("is unticked for a comic nobody has classified", () => {
+  it("is unticked for a comic nobody has classified", async () => {
     renderDialog();
+    await settleSuggestions();
 
     expect(explicitBox()).not.toBeChecked();
   });
 
-  it("restores the flag from the comic it was opened on", () => {
+  it("restores the flag from the comic it was opened on", async () => {
     renderDialog({ comic: comic({ explicitContent: true }) });
+    await settleSuggestions();
 
     expect(explicitBox()).toBeChecked();
   });
 
-  it("treats a comic with no flag at all as not explicit", () => {
+  it("treats a comic with no flag at all as not explicit", async () => {
     // An older payload, or one from an endpoint that does not send the field.
     // Absence is not a classification, and must not read as one either way.
     renderDialog({ comic: comic({ explicitContent: undefined }) });
+    await settleSuggestions();
 
     expect(explicitBox()).not.toBeChecked();
   });

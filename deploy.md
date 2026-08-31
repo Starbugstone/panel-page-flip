@@ -665,9 +665,8 @@ The deploy scripts apply some defaults. **Don't relax them without thinking.**
    ```
 
 3. **The `_post-deploy.php` endpoint** only accepts the token via the
-   `X-Deploy-Token` header (preferred) or the `?token=` query string (used as a
-   fallback by old curl wrappers). The query-string variant is loggable in
-   server access logs — prefer the header.
+   `X-Deploy-Token` header. Query-string tokens are deliberately rejected so
+   the remote-execution key cannot be persisted in server access logs.
 
 4. **HTTPS is mandatory** for the post-deploy URL. Without TLS your token is
    leaked over the wire on the first call.

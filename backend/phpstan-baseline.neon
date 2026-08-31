@@ -277,18 +277,6 @@ parameters:
 			path: src/Entity/PendingFileDeletion.php
 
 		-
-			message: '#^Property App\\Entity\\PendingFileDeletion\:\:\$lastAttemptAt is never read, only written\.$#'
-			identifier: property.onlyWritten
-			count: 1
-			path: src/Entity/PendingFileDeletion.php
-
-		-
-			message: '#^Property App\\Entity\\PendingFileDeletion\:\:\$lastError is never read, only written\.$#'
-			identifier: property.onlyWritten
-			count: 1
-			path: src/Entity/PendingFileDeletion.php
-
-		-
 			message: '#^Property App\\Entity\\ResetPasswordToken\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
 			identifier: property.unusedType
 			count: 1
@@ -333,12 +321,6 @@ parameters:
 		-
 			message: '#^Property App\\Entity\\ShareClaimCodeRedemption\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
 			identifier: property.unusedType
-			count: 1
-			path: src/Entity/ShareClaimCodeRedemption.php
-
-		-
-			message: '#^Property App\\Entity\\ShareClaimCodeRedemption\:\:\$redeemedAt is never read, only written\.$#'
-			identifier: property.onlyWritten
 			count: 1
 			path: src/Entity/ShareClaimCodeRedemption.php
 
@@ -393,12 +375,6 @@ parameters:
 		-
 			message: '#^Property App\\Entity\\UserWarning\:\:\$id \(int\|null\) is never assigned int so it can be removed from the property type\.$#'
 			identifier: property.unusedType
-			count: 1
-			path: src/Entity/UserWarning.php
-
-		-
-			message: '#^Property App\\Entity\\UserWarning\:\:\$share is never read, only written\.$#'
-			identifier: property.onlyWritten
 			count: 1
 			path: src/Entity/UserWarning.php
 

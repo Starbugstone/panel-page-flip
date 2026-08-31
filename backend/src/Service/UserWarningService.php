@@ -101,7 +101,7 @@ final class UserWarningService
             $subject,
             $this->describeSubject($subject, $comic, $share),
         );
-        $warning->about($comic, $share);
+        $warning->linkComic($comic);
 
         $this->entityManager->persist($warning);
         // Flushed before the email, so a mail server that hangs cannot leave the
