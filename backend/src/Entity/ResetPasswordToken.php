@@ -72,11 +72,6 @@ class ResetPasswordToken
         return $this->expiresAt < new \DateTimeImmutable();
     }
 
-    public function isIsUsed(): ?bool
-    {
-        return $this->isUsed;
-    }
-
     public function setIsUsed(bool $isUsed): static
     {
         $this->isUsed = $isUsed;

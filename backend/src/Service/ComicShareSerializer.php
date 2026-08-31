@@ -25,15 +25,6 @@ class ComicShareSerializer
      * @param list<ComicShare> $shares
      * @return list<array<string, mixed>>
      */
-    public function serializeManyForOwner(array $shares): array
-    {
-        return array_map(fn (ComicShare $share) => $this->forOwner($share), $shares);
-    }
-
-    /**
-     * @param list<ComicShare> $shares
-     * @return list<array<string, mixed>>
-     */
     public function serializeManyForRecipient(array $shares): array
     {
         return array_map(fn (ComicShare $share) => $this->forRecipient($share), $shares);

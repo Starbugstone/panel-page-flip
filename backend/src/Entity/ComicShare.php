@@ -766,12 +766,6 @@ class ComicShare
         return $this->grantsAccess() && !$this->requiresAdultConfirmation();
     }
 
-    /** Whether the recipient should see this in their normal collection. */
-    public function isVisibleInCollection(): bool
-    {
-        return $this->grantsReadAccess() && $this->recipientRemovedAt === null;
-    }
-
     /**
      * Whether this relationship is over: revoked, declined, expired unanswered,
      * or tombstoned. Nothing about a finished share can move forward without a

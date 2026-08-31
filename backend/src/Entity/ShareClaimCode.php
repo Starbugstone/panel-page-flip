@@ -241,11 +241,6 @@ class ShareClaimCode
         return $this->owner;
     }
 
-    public function getCodeHash(): string
-    {
-        return $this->codeHash;
-    }
-
     /** The encrypted code, for the one service allowed to decrypt it. */
     public function getCodeCipher(): ?string
     {
@@ -277,11 +272,6 @@ class ShareClaimCode
         return $this;
     }
 
-    public function getMaxUses(): int
-    {
-        return $this->maxUses;
-    }
-
     public function getUsesRemaining(): int
     {
         return $this->usesRemaining;
@@ -310,11 +300,6 @@ class ShareClaimCode
     public function isExpired(?\DateTimeImmutable $now = null): bool
     {
         return $this->expiresAt <= ($now ?? new \DateTimeImmutable());
-    }
-
-    public function getIssuedComicCount(): int
-    {
-        return $this->issuedComicCount;
     }
 
     /**

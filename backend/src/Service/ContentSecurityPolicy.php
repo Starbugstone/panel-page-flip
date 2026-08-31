@@ -20,11 +20,6 @@ final class ContentSecurityPolicy
     ) {
     }
 
-    public function advertisingEnabled(): bool
-    {
-        return $this->advertising->isEnabled();
-    }
-
     public function googleScriptsEnabled(): bool
     {
         return $this->advertising->isEnabled() || ($this->analytics?->isEnabled() ?? false);

@@ -135,7 +135,15 @@ final class PageDerivativeServiceTest extends TestCase
         self::assertSame([], $cache->readGeometry(7, $this->fingerprint()));
     }
 
-    public function testInvalidatingAComicDropsItsDerivativesAndNothingElse(): void
+    /**
+     * Generated pages are dropped rather than quarantined when a comic goes:
+     * they hold nothing the source does not, and leaving them behind would let
+     * a later comic reusing the identifier inherit somebody else's pages.
+     *
+     * Asserted against {@see ComicPageCache::purge()}, which is what the
+     * deletion path in `ComicService` actually calls.
+     */
+    public function testPurgingAComicDropsItsDerivativesAndNothingElse(): void
     {
         $comicService = $this->createMock(ComicService::class);
         $comicService->method('locateComicSource')->willReturn($this->sourcePath);
@@ -143,10 +151,11 @@ final class PageDerivativeServiceTest extends TestCase
 
         $cache = new ComicPageCache($this->cacheDirectory);
         $service = $this->service($comicService, $cache, new LockFactory(new InMemoryStore()));
-        $comic = $this->comic();
 
-        $service->getOrCreate($comic, 1, PageVariant::Small);
-        $service->invalidateComic($comic);
+        $service->getOrCreate($this->comic(), 1, PageVariant::Small);
+        self::assertNotSame([], glob($this->cacheDirectory.'/7/*') ?: []);
+
+        $cache->purge(7);
 
         self::assertSame([], glob($this->cacheDirectory.'/7/*') ?: []);
         self::assertFileExists($this->sourcePath);

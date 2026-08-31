@@ -49,19 +49,4 @@ class ResetPasswordTokenRepository extends ServiceEntityRepository
             ->getQuery()
             ->execute();
     }
-
-    /**
-     * Clean up expired tokens
-     */
-    public function removeExpiredTokens(): int
-    {
-        $result = $this->createQueryBuilder('t')
-            ->delete()
-            ->where('t.expiresAt < :now')
-            ->setParameter('now', new \DateTimeImmutable())
-            ->getQuery()
-            ->execute();
-        
-        return $result;
-    }
 }
