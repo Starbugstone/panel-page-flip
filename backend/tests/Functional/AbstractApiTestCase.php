@@ -16,7 +16,7 @@ use Zenstruck\Foundry\Test\ResetDatabase;
  *   - DAMA transactional rollback per test (via the bundle and listener).
  *   - A pre-booted KernelBrowser via {@see browser()}.
  *   - Helpers to authenticate users and post JSON.
- *   - A clean rate-limiter cache per test.
+ *   - A clean rate-limiter and application cache per test.
  */
 abstract class AbstractApiTestCase extends WebTestCase
 {
@@ -42,6 +42,15 @@ abstract class AbstractApiTestCase extends WebTestCase
         // happened to create. Clearing the pool makes every limiter test see the
         // full allowance, whichever order they run in.
         static::getContainer()->get('cache.rate_limiter')->clear();
+
+        // The same hazard one pool over. Endpoints that cache a computed answer
+        // — the admin statistics are cached for a minute — keep it in the
+        // application pool, which outlives the rolled-back database. A test
+        // that read the figures with one user in the table left them there for
+        // whichever test asked next, so `/api/admin/stats` reported the count
+        // from a different test's fixtures and the failure depended on the
+        // order and the clock.
+        static::getContainer()->get('cache.app')->clear();
 
         // A test that made the mail server fail must not leave it failing for
         // the next one; the switch is static, because the service it stands in
