@@ -1,9 +1,6 @@
 import { useRef } from "react";
 
-// Kept narrower than the gesture layer's CONTROL_SELECTOR on purpose: this only
-// has to stop a click that already landed on a control from also counting as a
-// click on the page behind it.
-const CONTROL_SELECTOR = "button, a, input, select, textarea";
+import { isReaderControl } from "@/lib/reader-controls";
 
 /**
  * The click handling both readers put on their viewport.
@@ -21,7 +18,7 @@ export function useReaderSurfaceClicks({ onSurfaceClick, onSurfaceDoubleClick })
   const lastPointerTypeRef = useRef("mouse");
 
   const fromMouse = (handler) => (event) => {
-    if (event.target.closest(CONTROL_SELECTOR)) return;
+    if (isReaderControl(event.target)) return;
     if (lastPointerTypeRef.current === "mouse") handler?.(event);
   };
 

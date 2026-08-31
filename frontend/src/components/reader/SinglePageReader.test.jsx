@@ -111,6 +111,27 @@ describe("the page surface", () => {
 
     expect(onSurfaceClick).not.toHaveBeenCalled();
   });
+
+  /**
+   * Controls float inside the surface, so a click on one arrives here too.
+   *
+   * Every kind of control counts, off the one list the gesture machine and the
+   * mouse pan also read. A slider is the case that used to slip through: it is
+   * not a `<button>`, so dragging the zoom control turned the page as well.
+   */
+  it.each([
+    ["a button", <button type="button" key="b">Settings</button>],
+    ["a slider", <div role="slider" key="s" tabIndex={-1}>Zoom</div>],
+    ["a switch", <div role="switch" key="w" tabIndex={-1}>Night mode</div>],
+    ["a label", <label key="l">Fit</label>],
+  ])("leaves a click on %s to the control", (_label, control) => {
+    const onSurfaceClick = vi.fn();
+    renderPage({ onSurfaceClick, children: control });
+
+    fireEvent.click(screen.getByText(control.props.children));
+
+    expect(onSurfaceClick).not.toHaveBeenCalled();
+  });
 });
 
 describe("dragging a zoomed page with a mouse", () => {
