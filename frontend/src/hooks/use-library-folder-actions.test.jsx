@@ -49,6 +49,7 @@ describe("useLibraryFolderActions.shareCurrentFolder", () => {
       // Strings, because that is what the selection is keyed on.
       comicIds: ["11", "12"],
       unshareableCount: 1,
+      limit: 200,
     });
   });
 
@@ -78,6 +79,19 @@ describe("useLibraryFolderActions.shareCurrentFolder", () => {
       description: expect.stringContaining("201"),
       variant: "destructive",
     }));
+  });
+
+  it("opens an oversized folder when the server marks an admin share as unlimited", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      folder: { id: 7, name: "DragonBall" }, comicIds: [11, 12], comicCount: 201,
+      folderCount: 1, unshareableCount: 0, limit: null,
+    });
+
+    expect(await actions().shareCurrentFolder()).toEqual(expect.objectContaining({
+      folderId: 7,
+      limit: null,
+    }));
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it("reports a failed read instead of opening on nothing", async () => {

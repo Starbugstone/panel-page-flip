@@ -117,7 +117,19 @@ export function ShareComicsDialog({
           </div>
         ) : (
           <div className="space-y-6 py-2">
-            <ShareComicPicker {...selection} lockSelection={lockSelection} folder={folder} />
+            {folder ? (
+              <section className="space-y-1">
+                <h3 className="font-semibold">1. Folder contents</h3>
+                <p className="text-sm text-muted-foreground">
+                  {selection.selectedComicIds.length} {selection.selectedComicIds.length === 1 ? "comic" : "comics"} will be shared.
+                  {folder.unshareableCount > 0 && (
+                    <> {folder.unshareableCount} not yours to share {folder.unshareableCount === 1 ? "was" : "were"} left out.</>
+                  )}
+                </p>
+              </section>
+            ) : (
+              <ShareComicPicker {...selection} lockSelection={lockSelection} folder={folder} />
+            )}
             <ShareRecipientPicker
               {...recipient}
               {...submission}

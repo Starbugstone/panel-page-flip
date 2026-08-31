@@ -230,6 +230,28 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         self::assertEmailCount(0);
     }
 
+    public function testAnAdminMayShareAFolderLargerThanTheOrdinaryCeiling(): void
+    {
+        $admin = $this->createAndLoginAdmin(['email' => 'admin@example.com']);
+        $folder = $this->folder($admin, 'Archive');
+
+        for ($i = 0; $i <= SharingWorkflowService::MAX_FOLDER_COMICS; ++$i) {
+            $this->file($admin, $this->comic(ComicFactory::new()->ownedBy($admin)->create()), $folder);
+        }
+
+        $preview = $this->getJson('/api/shares/folders/' . $folder->getId() . '/comics');
+        self::assertNull($preview['limit']);
+
+        $payload = $this->postJson('/api/shares/invitations/bulk', [
+            'folderId' => $folder->getId(),
+            'email' => 'friend@example.com',
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(201);
+        self::assertSame(SharingWorkflowService::MAX_FOLDER_COMICS + 1, $payload['created']);
+    }
+
     public function testNamingAFolderAndAListAtOnceIsRefusedRatherThanResolvedByPrecedence(): void
     {
         $owner = $this->createAndLoginUser();

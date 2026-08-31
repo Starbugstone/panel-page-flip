@@ -62,7 +62,10 @@ final class SharingWorkflowController extends AbstractController
             'comicCount' => count($contents['comics']),
             'folderCount' => $contents['folderCount'],
             'unshareableCount' => $contents['unshareableCount'],
-            'limit' => SharingWorkflowService::MAX_FOLDER_COMICS,
+            // Administrators may share an entire folder regardless of size.
+            // Null is deliberate: it distinguishes "unlimited" from a large
+            // guess that a sufficiently large library could eventually hit.
+            'limit' => $user->isAdmin() ? null : SharingWorkflowService::MAX_FOLDER_COMICS,
         ]);
     }
 
@@ -325,7 +328,7 @@ final class SharingWorkflowController extends AbstractController
             ], Response::HTTP_BAD_REQUEST);
         }
 
-        if (count($comics) > SharingWorkflowService::MAX_FOLDER_COMICS) {
+        if (!$user->isAdmin() && count($comics) > SharingWorkflowService::MAX_FOLDER_COMICS) {
             return $this->json([
                 'message' => sprintf(
                     'That folder holds %d comics, and a folder share carries at most %d.',
