@@ -79,8 +79,12 @@ describe("AdminColumnHeader", () => {
 
     await user.click(screen.getByRole("button", { name: "Status sort and filter" }));
     expect(screen.queryByRole("searchbox", { name: "Filter Status" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("combobox", { name: "Filter Status" }));
-    await user.click(screen.getByRole("option", { name: "Pending" }));
+    const select = screen.getByRole("combobox", { name: "Filter Status" });
+    // A portalled Radix Select inside the portalled column Popover dismisses
+    // its parent in a real browser and leaves focus on a detached trigger.
+    // Keep fixed-value filtering inside the parent with a native select.
+    expect(select.tagName).toBe("SELECT");
+    await user.selectOptions(select, "Pending");
 
     expect(onFilter).toHaveBeenCalledWith("filterStatus", "Pending");
 
@@ -95,8 +99,7 @@ describe("AdminColumnHeader", () => {
       />
     );
     await user.click(screen.getByRole("button", { name: "Status sort and filter" }));
-    await user.click(screen.getByRole("combobox", { name: "Filter Status" }));
-    await user.click(screen.getByRole("option", { name: "Any value" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter Status" }), "");
 
     expect(onFilter).toHaveBeenLastCalledWith("filterStatus", "");
   });

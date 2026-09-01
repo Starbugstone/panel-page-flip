@@ -6,13 +6,11 @@ import { AdminRangeFilter } from "@/components/admin/AdminRangeFilter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { parseAdminDateRange } from "@/lib/admin-table-filters";
 import { cn } from "@/lib/utils";
 
 const EMPTY_SUGGESTIONS = [];
 const EMPTY_OPTIONS = [];
-const ALL_VALUES = "__all_admin_filter_values__";
 
 /**
  * A table heading with an attached sort/filter dropdown.
@@ -150,20 +148,17 @@ export function AdminColumnHeader({
           )}
           {filterField && (
             isSelect ? (
-              <Select
-                value={draft || ALL_VALUES}
-                onValueChange={(value) => chooseValue(value === ALL_VALUES ? "" : value)}
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                value={draft}
+                onChange={(event) => chooseValue(event.target.value)}
+                aria-label={`Filter ${label}`}
               >
-                <SelectTrigger aria-label={`Filter ${label}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_VALUES}>Any value</SelectItem>
-                  {filterOptions.map((option) => (
-                    <SelectItem key={option} value={option}>{option}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <option value="">Any value</option>
+                {filterOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
             ) : (
               <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); apply(); }}>
                 {isDate ? (
