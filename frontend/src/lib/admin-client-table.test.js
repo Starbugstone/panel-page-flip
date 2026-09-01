@@ -26,4 +26,21 @@ describe("filterAndSortAdminRows", () => {
     ]);
     expect(rows[0].name).toBe("Bruce");
   });
+
+  it("keeps missing values last in either sort direction", () => {
+    const rows = [
+      { name: "Never", count: null },
+      { name: "Two", count: 2 },
+      { name: "Eight", count: 8 },
+    ];
+
+    const sorted = (direction) => filterAndSortAdminRows(rows, {
+      sort: "count",
+      direction,
+      columnFilters: {},
+    }, columns).map((row) => row.name);
+
+    expect(sorted("ASC")).toEqual(["Two", "Eight", "Never"]);
+    expect(sorted("DESC")).toEqual(["Eight", "Two", "Never"]);
+  });
 });

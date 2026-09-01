@@ -1,11 +1,10 @@
+import { useEffect, useState } from "react";
+import { BookOpen } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
 
-import { Link } from "react-router-dom";
 import { BackToLibraryLink } from "./BackToLibraryLink.jsx";
 import { ThemeToggle } from "./ThemeToggle.jsx";
-import { useLocation } from "react-router-dom";
 import { SignedInNav } from "./HeaderSignedInNav.jsx";
-import { BookOpen } from "lucide-react";
-import { useEffect, useState } from "react";
 import { PAGE_LAYER_CLASSES } from "@/lib/overlay-layers.js";
 import { useSharing } from "@/hooks/use-sharing.jsx";
 

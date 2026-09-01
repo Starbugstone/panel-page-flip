@@ -77,11 +77,10 @@ final class AdminShareCodeController extends AbstractController
             'owner' => $request->query->get('filterOwner'),
             'comics' => $request->query->get('filterComics'),
             'uses' => $request->query->get('filterUses'),
-            'columnCreatedAt' => $this->date($request->query->get('filterCreatedAt')),
-            'columnCreatedTo' => $this->date($request->query->get('filterCreatedAt'), endOfDay: true),
-            'columnExpiresAt' => $this->date($request->query->get('filterExpiresAt')),
-            'columnExpiresTo' => $this->date($request->query->get('filterExpiresAt'), endOfDay: true),
-            'deletedAfter' => $this->date($request->query->get('filterDeletedAfter')),
+            'columnCreatedAt' => $request->query->get('filterCreatedAt'),
+            'columnExpiresAt' => $request->query->get('filterExpiresAt'),
+            'deletedAfter' => $request->query->get('filterDeletedAfter'),
+            'timezone' => $request->query->get('filterTimezone'),
         ]);
 
         return $this->json([

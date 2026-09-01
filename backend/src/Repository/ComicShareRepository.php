@@ -26,8 +26,8 @@ class ComicShareRepository extends ServiceEntityRepository
         'createdAt' => 's.createdAt',
         'status' => 's.status',
         'comicTitle' => 'c.title',
-        'owner' => 'o.email',
-        'recipient' => 's.recipientEmailNormalized',
+        'owner' => 'ownerSort',
+        'recipient' => 'recipientSort',
     ];
 
     /**
@@ -592,7 +592,7 @@ class ComicShareRepository extends ServiceEntityRepository
      *
      * @param array{status?: string|null, comicId?: int|null, ownerId?: int|null, explicitOnly?: bool,
      *               comic?: string|null, owner?: string|null, recipient?: string|null,
-     *               columnStatus?: string|null, createdAt?: string|null} $filters
+     *               columnStatus?: string|null, createdAt?: string|null, timezone?: string|null} $filters
      *
      * @return PaginatedResult<ComicShare>
      */
@@ -631,6 +631,7 @@ class ComicShareRepository extends ServiceEntityRepository
                 'LOWER(o.email) LIKE :search',
                 'LOWER(r.name) LIKE :search',
                 'LOWER(r.email) LIKE :search',
+                "LOWER(CONCAT('@', r.username)) LIKE :search",
                 'LOWER(s.recipientEmailNormalized) LIKE :search',
             ))->setParameter('search', $pattern);
         }
@@ -650,18 +651,26 @@ class ComicShareRepository extends ServiceEntityRepository
             $qb->andWhere($qb->expr()->orX(
                 'LOWER(r.name) LIKE :filterRecipient',
                 'LOWER(r.email) LIKE :filterRecipient',
+                "LOWER(CONCAT('@', r.username)) LIKE :filterRecipient",
                 'LOWER(s.recipientEmailNormalized) LIKE :filterRecipient',
             ))->setParameter('filterRecipient', $pattern);
         }
 
-        $columnStatus = ColumnFilter::matchLabel($qb, $filters['columnStatus'] ?? null, self::ADMIN_STATUS_LABELS);
-        if ($columnStatus !== null) {
-            $qb->andWhere('s.status = :columnStatus')->setParameter('columnStatus', $columnStatus);
+        $columnStatuses = ColumnFilter::matchLabels($qb, $filters['columnStatus'] ?? null, self::ADMIN_STATUS_LABELS);
+        if ($columnStatuses !== null) {
+            $qb->andWhere('s.status IN (:columnStatuses)')->setParameter('columnStatuses', $columnStatuses);
         }
 
-        ColumnFilter::applyDay($qb, 's.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null);
+        ColumnFilter::applyDay($qb, 's.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null, $filters['timezone'] ?? null);
 
         $total = (int) (clone $qb)->select('COUNT(s.id)')->getQuery()->getSingleScalarResult();
+
+        if ($request->sortField === 'owner') {
+            $qb->addSelect('COALESCE(o.name, o.email) AS HIDDEN ownerSort');
+        }
+        if ($request->sortField === 'recipient') {
+            $qb->addSelect('COALESCE(r.name, s.recipientEmailNormalized) AS HIDDEN recipientSort');
+        }
 
         $shares = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)

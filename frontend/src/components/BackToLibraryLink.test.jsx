@@ -52,4 +52,10 @@ describe("the reader's way back", () => {
 
     expect(link()).toHaveAttribute("href", "/dashboard");
   });
+
+  it("does not read a numeric prefix from a malformed reader path", () => {
+    renderLink("/read/42oops");
+
+    expect(link()).toHaveAttribute("href", "/dashboard");
+  });
 });

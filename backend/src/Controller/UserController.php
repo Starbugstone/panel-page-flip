@@ -52,6 +52,7 @@ class UserController extends AbstractController
             'lastLoginAt' => $request->query->get('filterLastLoginAt'),
             'comicCount' => $request->query->get('filterComicCount'),
             'storage' => $request->query->get('filterStorage'),
+            'timezone' => $request->query->get('filterTimezone'),
         ]);
         $stats = $userRepository->getOwnedContentStats(
             array_map(static fn (User $u): int => $u->getId(), $page->items)

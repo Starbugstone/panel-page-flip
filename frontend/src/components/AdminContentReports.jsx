@@ -9,8 +9,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { AdminDateRangePopover } from "@/components/admin/AdminDateRangePicker";
 import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { filterAndSortAdminRows } from "@/lib/admin-client-table";
+import {
+  adminFilterSuggestions,
+  matchesAdminDateRange,
+  parseAdminDateRange,
+  serializeAdminDateRange,
+} from "@/lib/admin-table-filters";
 
 const emptyReview = {
   status: "under_review",
@@ -47,14 +54,9 @@ export function AdminContentReports() {
     reference: { value: (report) => report.reference },
     category: { value: (report) => label(report.category) },
     reporter: { value: (report) => report.reporterDisplay },
-    // Matched against both spellings, because the cell shows the local date
-    // while the row carries the ISO stamp it sorts by.
     createdAt: {
       value: (report) => report.createdAt,
-      filter: (value, query) => (
-        String(value ?? "").toLocaleLowerCase().includes(query)
-        || new Date(value).toLocaleDateString().toLocaleLowerCase().includes(query)
-      ),
+      filter: (value, query) => matchesAdminDateRange(value, query),
     },
     target: { value: (report) => report.linkedTarget?.label || "Unresolved" },
     status: { value: (report) => label(report.status) },
@@ -193,22 +195,30 @@ export function AdminContentReports() {
           <CardDescription>Private legal notice queue. Full allegations and reporter contact details load only when a case is opened.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid items-end gap-3 md:grid-cols-3">
             <FilterSelect label="Status" value={filters.status} onChange={(value) => setFilters((current) => ({ ...current, status: value }))} options={statuses} />
             <FilterSelect label="Category" value={filters.category} onChange={(value) => setFilters((current) => ({ ...current, category: value }))} options={categories} />
-            <Field label="From"><Input id="reportFrom" type="date" value={filters.from} onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value }))} /></Field>
-            <Field label="To"><Input id="reportTo" type="date" value={filters.to} onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value }))} /></Field>
+            <AdminDateRangePopover
+              label="Submitted"
+              align="start"
+              value={serializeAdminDateRange({ from: filters.from, to: filters.to })}
+              onChange={(value) => {
+                const range = parseAdminDateRange(value);
+                setFilters((current) => ({ ...current, from: range.from, to: range.to }));
+              }}
+              className="w-full"
+            />
           </div>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead><tr className="border-b">
-                <th className="p-2"><AdminColumnHeader label="Reference" sortField="reference" filterField="reference" filterValue={tableControls.columnFilters.reference} {...tableControls.headerProps} /></th>
-                <th className="p-2"><AdminColumnHeader label="Category" sortField="category" filterField="category" filterValue={tableControls.columnFilters.category} {...tableControls.headerProps} /></th>
-                <th className="p-2"><AdminColumnHeader label="Reporter" sortField="reporter" filterField="reporter" filterValue={tableControls.columnFilters.reporter} {...tableControls.headerProps} /></th>
-                <th className="p-2"><AdminColumnHeader label="Submitted" sortField="createdAt" filterField="createdAt" filterPlaceholder="Date…" filterValue={tableControls.columnFilters.createdAt} {...tableControls.headerProps} /></th>
-                <th className="p-2"><AdminColumnHeader label="Target" sortField="target" filterField="target" filterValue={tableControls.columnFilters.target} {...tableControls.headerProps} /></th>
-                <th className="p-2"><AdminColumnHeader label="Status" sortField="status" filterField="status" filterValue={tableControls.columnFilters.status} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Reference" sortField="reference" filterField="reference" filterSuggestions={adminFilterSuggestions(reports, (report) => report.reference)} filterValue={tableControls.columnFilters.reference} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Category" sortField="category" filterField="category" filterSuggestions={categories.map(label)} filterValue={tableControls.columnFilters.category} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Reporter" sortField="reporter" filterField="reporter" filterSuggestions={adminFilterSuggestions(reports, (report) => report.reporterDisplay)} filterValue={tableControls.columnFilters.reporter} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Submitted" sortField="createdAt" filterField="createdAt" filterType="date" filterValue={tableControls.columnFilters.createdAt} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Target" sortField="target" filterField="target" filterSuggestions={["Unresolved", ...adminFilterSuggestions(reports, (report) => report.linkedTarget?.label)]} filterValue={tableControls.columnFilters.target} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Status" sortField="status" filterField="status" filterSuggestions={statuses.map(label)} filterValue={tableControls.columnFilters.status} {...tableControls.headerProps} /></th>
                 <th className="p-2"></th>
               </tr></thead>
               <tbody>

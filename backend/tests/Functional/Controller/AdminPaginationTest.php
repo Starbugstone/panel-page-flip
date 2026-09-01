@@ -195,6 +195,102 @@ final class AdminPaginationTest extends AbstractApiTestCase
         self::assertSame($barbara->getId(), $sorted['items'][0]['id']);
     }
 
+    public function testRoleFilteringAndSortingFollowTheBadgesTheTableShows(): void
+    {
+        $basic = UserFactory::createOne(['name' => 'Basic Account', 'roles' => ['ROLE_USER']]);
+        $editor = UserFactory::createOne(['name' => 'Editor Account', 'roles' => ['ROLE_EDITOR', 'ROLE_USER']]);
+        $admin = $this->createAndLoginAdmin(['name' => 'Admin Account']);
+
+        $users = $this->getJson('/api/users?filterRole=User');
+        self::assertResponseIsSuccessful();
+        self::assertSame([$basic->getId()], array_column($users['items'], 'id'));
+
+        // Both Editor and User contain \"e\". A substring filter must retain
+        // both labels rather than whichever one the label map lists first.
+        $partial = $this->getJson('/api/users?filterRole=e');
+        self::assertResponseIsSuccessful();
+        self::assertEqualsCanonicalizing(
+            [$basic->getId(), $editor->getId()],
+            array_column($partial['items'], 'id'),
+        );
+
+        $sorted = $this->getJson('/api/users?sort=role&direction=ASC');
+        self::assertResponseIsSuccessful();
+        self::assertSame(
+            [$admin->getId(), $editor->getId(), $basic->getId()],
+            array_column($sorted['items'], 'id'),
+        );
+    }
+
+    public function testStorageFilterCannotCrossTheUnitBoundaryShownInTheCell(): void
+    {
+        $this->createAndLoginAdmin();
+        $justBelowOneMib = UserFactory::createOne(['name' => 'Near Boundary']);
+        $exactlyOneMib = UserFactory::createOne(['name' => 'At Boundary']);
+        ComicFactory::new()->ownedBy($justBelowOneMib)->create(['fileSize' => 1024 ** 2 - 1]);
+        ComicFactory::new()->ownedBy($exactlyOneMib)->create(['fileSize' => 1024 ** 2]);
+
+        $near = $this->getJson('/api/users?filterStorage=' . urlencode('1024.0 KiB'));
+        self::assertResponseIsSuccessful();
+        self::assertSame([$justBelowOneMib->getId()], array_column($near['items'], 'id'));
+
+        // No row can display this: values below one MiB use KiB, and the first
+        // value in the MiB tier displays as 1.0 MiB.
+        $impossible = $this->getJson('/api/users?filterStorage=' . urlencode('0.9 MiB'));
+        self::assertResponseIsSuccessful();
+        self::assertSame([], $impossible['items']);
+    }
+
+    public function testDateColumnFiltersAcceptInclusiveAndOpenRanges(): void
+    {
+        $before = UserFactory::createOne([
+            'name' => 'Before Range',
+            'createdAt' => new \DateTimeImmutable('2026-07-31 23:59:59'),
+        ]);
+        $inside = UserFactory::createOne([
+            'name' => 'Inside Range',
+            'createdAt' => new \DateTimeImmutable('2026-08-31 23:59:59'),
+        ]);
+        $after = UserFactory::createOne([
+            'name' => 'After Range',
+            'createdAt' => new \DateTimeImmutable('2026-09-01 00:00:00'),
+        ]);
+        $this->createAndLoginAdmin();
+
+        $closed = $this->getJson('/api/users?filterCreatedAt=2026-08-01..2026-08-31');
+        self::assertResponseIsSuccessful();
+        self::assertSame([$inside->getId()], array_column($closed['items'], 'id'));
+
+        $open = $this->getJson('/api/users?filterCreatedAt=..2026-08-31');
+        self::assertResponseIsSuccessful();
+        self::assertEqualsCanonicalizing(
+            [$before->getId(), $inside->getId()],
+            array_column($open['items'], 'id'),
+        );
+        self::assertNotContains($after->getId(), array_column($open['items'], 'id'));
+    }
+
+    public function testDateColumnFiltersFollowTheCalendarDayDisplayedInTheBrowser(): void
+    {
+        $inside = UserFactory::createOne([
+            'name' => 'After local midnight',
+            // 00:30 on 29 March in Paris.
+            'createdAt' => new \DateTimeImmutable('2026-03-28 23:30:00 UTC'),
+        ]);
+        $outside = UserFactory::createOne([
+            'name' => 'After the next local midnight',
+            // 00:30 on 30 March after the daylight-saving change.
+            'createdAt' => new \DateTimeImmutable('2026-03-29 22:30:00 UTC'),
+        ]);
+        $this->createAndLoginAdmin();
+
+        $payload = $this->getJson('/api/users?filterCreatedAt=2026-03-29&filterTimezone=Europe%2FParis');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([$inside->getId()], array_column($payload['items'], 'id'));
+        self::assertNotContains($outside->getId(), array_column($payload['items'], 'id'));
+    }
+
     /**
      * A word the Verified? column never shows excludes every row. Dropping the
      * filter instead would answer a search for "nobody" with the whole user
@@ -320,6 +416,10 @@ final class AdminPaginationTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame([$comic->getId()], array_column($payload['items'], 'id'));
+
+        $byDisplayedOwner = $this->getJson('/api/comics?adminContext=true&sort=owner&direction=ASC');
+        self::assertResponseIsSuccessful();
+        self::assertContains($comic->getId(), array_column($byDisplayedOwner['items'], 'id'));
     }
 
     public function testAdminTagListIsPagedAndFilteredByCreator(): void
@@ -376,6 +476,37 @@ final class AdminPaginationTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame([$popular->getId(), $unused->getId()], array_column($payload['items'], 'id'));
+    }
+
+    public function testTagFixedLabelsFilterAndSortAsTheyAreDisplayed(): void
+    {
+        $creator = UserFactory::createOne(['name' => 'Personal Creator']);
+        $personal = TagFactory::new()->createdBy($creator)->create([
+            'name' => 'Personal Label',
+            'hideFromLibrary' => false,
+        ]);
+        $global = TagFactory::createOne([
+            'name' => 'Global Label',
+            'isGlobal' => true,
+            'creator' => null,
+            'hideFromLibrary' => true,
+        ]);
+        $this->createAndLoginAdmin();
+
+        // \"l\" occurs in both Global and Personal.
+        $scope = $this->getJson('/api/tags?all=true&adminContext=true&filterScope=l&sort=isGlobal&direction=ASC');
+        self::assertResponseIsSuccessful();
+        self::assertSame([$global->getId(), $personal->getId()], array_column($scope['items'], 'id'));
+
+        // The cell says System for a null creator, so a partial label must find
+        // it just as a partial person name finds an ordinary creator.
+        $system = $this->getJson('/api/tags?all=true&adminContext=true&filterCreator=sys&sort=creator&direction=ASC');
+        self::assertResponseIsSuccessful();
+        self::assertSame([$global->getId()], array_column($system['items'], 'id'));
+
+        $visibility = $this->getJson('/api/tags?all=true&adminContext=true&sort=hideFromLibrary&direction=ASC');
+        self::assertResponseIsSuccessful();
+        self::assertSame([$global->getId(), $personal->getId()], array_column($visibility['items'], 'id'));
     }
 
     public function testATagScopeFilterMatchingNoLabelReturnsNothing(): void
@@ -461,7 +592,7 @@ final class AdminPaginationTest extends AbstractApiTestCase
             ->setPayload(['reason' => 'duplicate']));
         $entityManager->flush();
 
-        $payload = $this->getJson('/api/admin/audit-logs?filterAdmin=operator&filterAction=update&filterTarget=77&filterDetails=duplicate&sort=details&direction=ASC');
+        $payload = $this->getJson('/api/admin/audit-logs?filterAdmin=operator&filterAction=update&filterTarget=77&filterDetails=duplicate&sort=admin&direction=ASC');
 
         self::assertResponseIsSuccessful();
         self::assertSame(1, $payload['pagination']['totalItems']);

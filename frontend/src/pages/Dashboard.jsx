@@ -69,10 +69,14 @@ export default function Dashboard() {
   // someone has opened counts as a place to return to.
   const lastReadComic = viewMode === "grid" ? latestReadComic(visibleComics) : null;
 
-  // The reader's way back names the comic it left; the same scroll takes it.
-  useJumpToComic(jumpComicId, visibleComics);
-
   const showSkeleton = (isLoading || foldersLoading) && !isSearching;
+
+  // The reader's way back names the comic it left; the same scroll takes it.
+  // Wait until the grid itself is rendered: the provider may still hold the
+  // previous list while the folder tree has temporarily replaced it with a
+  // skeleton, and attempting the jump against that skeleton loses the request.
+  useJumpToComic(jumpComicId, visibleComics, !showSkeleton && viewMode === "grid");
+
   const hasContent = visibleComics.length > 0 || childFolders.length > 0;
   const uploadUrl = isFolderView ? `/upload?folder=${activeFolderId == null ? "root" : activeFolderId}` : "/upload";
 

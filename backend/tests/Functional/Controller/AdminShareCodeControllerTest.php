@@ -145,9 +145,20 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
         self::assertSame([$ids[1]], array_column($columnFiltered['items'], 'id'));
 
+        $byOwner = $this->getJson('/api/admin/sharing-codes?sort=owner&direction=ASC');
+        self::assertResponseIsSuccessful();
+        self::assertCount(4, $byOwner['items']);
+
         $unmatched = $this->getJson('/api/admin/sharing-codes?filterStatus=nonsense');
         self::assertResponseIsSuccessful();
         self::assertSame([], $unmatched['items'], 'a status nobody shows excludes every code');
+
+        // Column dates use the same strict YYYY-MM-DD contract as the other
+        // admin tables. DateTime's relative words must not turn into a hidden
+        // filter of their own.
+        $invalidDate = $this->getJson('/api/admin/sharing-codes?filterCreatedAt=tomorrow');
+        self::assertResponseIsSuccessful();
+        self::assertSame(4, $invalidDate['pagination']['totalItems']);
 
         // Withdraw one and the status filters separate the two halves.
         $this->postJson(sprintf('/api/admin/sharing-codes/%d/revoke', $ids[0]), []);
@@ -158,6 +169,16 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         self::assertSame(1, $withdrawn['pagination']['totalItems']);
         self::assertSame('withdrawn', $withdrawn['items'][0]['deadReason']);
         self::assertNotNull($withdrawn['items'][0]['revokedAt']);
+
+        // The chip and the per-column filter accumulate. Contradictory filters
+        // cannot silently fall back to the chip alone.
+        $contradictory = $this->getJson('/api/admin/sharing-codes?status=active&filterStatus=withdrawn');
+        self::assertSame([], $contradictory['items']);
+
+        // Active and Withdrawn both contain \"i\", so both kinds survive a
+        // substring filter (as do any other matching labels).
+        $partial = $this->getJson('/api/admin/sharing-codes?filterStatus=i');
+        self::assertSame(4, $partial['pagination']['totalItems']);
         self::assertNotNull($admin->getId());
     }
 

@@ -457,6 +457,7 @@ class AdminController extends AbstractController
                 'action' => $request->query->get('filterAction'),
                 'target' => $request->query->get('filterTarget'),
                 'details' => $request->query->get('filterDetails'),
+                'timezone' => $request->query->get('filterTimezone'),
             ],
         );
 

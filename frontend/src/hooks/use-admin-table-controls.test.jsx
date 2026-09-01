@@ -4,15 +4,17 @@ import { describe, expect, it } from "vitest";
 import { useAdminTableControls } from "./use-admin-table-controls";
 
 describe("useAdminTableControls", () => {
+  const filterTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
   it("sends the sort and every set filter as one query object", () => {
     const { result } = renderHook(() => useAdminTableControls({ defaultSort: "createdAt" }));
 
-    expect(result.current.query).toEqual({ sort: "createdAt", direction: "DESC" });
+    expect(result.current.query).toEqual({ sort: "createdAt", direction: "DESC", filterTimezone });
 
     act(() => result.current.setColumnFilter("filterOwner", "  Selina  "));
     act(() => result.current.setSort("owner", "ASC"));
 
-    expect(result.current.query).toEqual({ sort: "owner", direction: "ASC", filterOwner: "Selina" });
+    expect(result.current.query).toEqual({ sort: "owner", direction: "ASC", filterOwner: "Selina", filterTimezone });
   });
 
   // A blank box is no filter at all, not a filter for the empty string, or the
@@ -24,7 +26,7 @@ describe("useAdminTableControls", () => {
     act(() => result.current.setColumnFilter("filterName", "   "));
 
     expect(result.current.columnFilters).toEqual({});
-    expect(result.current.query).toEqual({ sort: "name", direction: "DESC" });
+    expect(result.current.query).toEqual({ sort: "name", direction: "DESC", filterTimezone });
   });
 
   it("hands every column header the same wiring", () => {

@@ -3,13 +3,14 @@ import { AdminPagination } from "@/components/AdminPagination";
 import { AdminUserRow } from "@/components/admin/AdminUserRow";
 import { SelectAllCheckbox } from "@/components/SelectionCheckbox";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { adminFilterSuggestions } from "@/lib/admin-table-filters";
 
 const COLUMNS = [
   { label: "Name / Email", sortField: "name", filterField: "filterIdentity" },
-  { label: "Role", sortField: "role", filterField: "filterRole", filterPlaceholder: "Admin or user…" },
-  { label: "Verified?", sortField: "verified", filterField: "filterVerified", filterPlaceholder: "Verified or pending…" },
-  { label: "Created", sortField: "createdAt", filterField: "filterCreatedAt", filterPlaceholder: "YYYY-MM-DD…" },
-  { label: "Last login", sortField: "lastLoginAt", filterField: "filterLastLoginAt", filterPlaceholder: "YYYY-MM-DD or never…" },
+  { label: "Role", sortField: "role", filterField: "filterRole", filterPlaceholder: "Admin or user…", filterSuggestions: ["Admin", "Editor", "User"] },
+  { label: "Verified?", sortField: "verified", filterField: "filterVerified", filterPlaceholder: "Verified or pending…", filterSuggestions: ["Verified", "Pending"] },
+  { label: "Created", sortField: "createdAt", filterField: "filterCreatedAt", filterType: "date" },
+  { label: "Last login", sortField: "lastLoginAt", filterField: "filterLastLoginAt", filterType: "date", emptyDateLabel: "Never" },
   { label: "Comics", sortField: "comicCount", filterField: "filterComicCount", filterPlaceholder: "Exact count…" },
   { label: "Storage", sortField: "storage", filterField: "filterStorage", filterPlaceholder: "For example 177.3 MiB…" },
   { label: "Actions" },
@@ -28,6 +29,10 @@ const headClass = (column) => {
  * under the cursor.
  */
 export function AdminUsersTable({ users, selection, pagination, isLoading, emptyMessage, label, onPageChange, onLimitChange, rowActions, tableControls }) {
+  const suggestions = {
+    filterIdentity: adminFilterSuggestions(users, (user) => [user.name, user.email]),
+  };
+
   return (
     <div className="overflow-x-auto rounded-md border">
       <Table>
@@ -43,6 +48,7 @@ export function AdminUsersTable({ users, selection, pagination, isLoading, empty
                     {...column}
                     {...tableControls.headerProps}
                     filterValue={tableControls.columnFilters[column.filterField]}
+                    filterSuggestions={column.filterSuggestions || suggestions[column.filterField]}
                     className={column.label === "Actions" ? "justify-end" : undefined}
                   />
                 ) : column.label}

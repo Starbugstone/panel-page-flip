@@ -48,7 +48,7 @@ class ComicRepository extends ServiceEntityRepository
         'uploadedAt' => 'c.uploadedAt',
         'pageCount' => 'c.pageCount',
         'fileSize' => 'c.fileSize',
-        'owner' => 'o.email',
+        'owner' => 'ownerSort',
         'tags' => 'SIZE(c.tags)',
     ];
 
@@ -62,7 +62,7 @@ class ComicRepository extends ServiceEntityRepository
      *
      * @param int|null $ownerId Restrict to a single owner's library.
      * @param array{titleAuthor?: string|null, owner?: string|null, uploadedAt?: string|null,
-     *               pageCount?: string|null, tags?: string|null} $filters
+     *               pageCount?: string|null, tags?: string|null, timezone?: string|null} $filters
      * @return PaginatedResult<Comic>
      */
     public function findAdminPage(PaginationRequest $request, ?int $ownerId = null, array $filters = []): PaginatedResult
@@ -110,7 +110,7 @@ class ComicRepository extends ServiceEntityRepository
             ))->setParameter('filterOwner', $pattern);
         }
 
-        ColumnFilter::applyDay($qb, 'c.uploadedAt', 'filterUploadedAt', $filters['uploadedAt'] ?? null);
+        ColumnFilter::applyDay($qb, 'c.uploadedAt', 'filterUploadedAt', $filters['uploadedAt'] ?? null, $filters['timezone'] ?? null);
 
         $pageCount = ColumnFilter::text($filters['pageCount'] ?? null);
         if (ctype_digit($pageCount)) {
@@ -131,6 +131,10 @@ class ComicRepository extends ServiceEntityRepository
         $total = (int) (clone $qb)->select('COUNT(c.id)')
             ->getQuery()
             ->getSingleScalarResult();
+
+        if ($request->sortField === 'owner') {
+            $qb->addSelect('COALESCE(o.name, o.email) AS HIDDEN ownerSort');
+        }
 
         $comics = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)

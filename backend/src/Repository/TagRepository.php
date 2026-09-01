@@ -24,10 +24,10 @@ class TagRepository extends ServiceEntityRepository
     public const ADMIN_SORT_FIELDS = [
         'name' => 't.name',
         'createdAt' => 't.createdAt',
-        'isGlobal' => 't.isGlobal',
-        'hideFromLibrary' => 't.hideFromLibrary',
+        'isGlobal' => 'scopeSort',
+        'hideFromLibrary' => 'visibilitySort',
         'comicCount' => 'SIZE(t.comics)',
-        'creator' => 'creator.email',
+        'creator' => 'creatorSort',
     ];
 
     /** The Scope column's two values, as its cells spell them. */
@@ -51,7 +51,8 @@ class TagRepository extends ServiceEntityRepository
      * @param int|null $creatorId Restrict to one user's personal tags. Global
      *                            tags have no creator and are excluded by it.
      * @param array{name?: string|null, scope?: string|null, visibility?: string|null,
-     *               comicCount?: string|null, creator?: string|null, createdAt?: string|null} $filters
+     *               comicCount?: string|null, creator?: string|null, createdAt?: string|null,
+     *               timezone?: string|null} $filters
      * @return PaginatedResult<Tag>
      */
     public function findAdminPage(PaginationRequest $request, ?int $creatorId = null, array $filters = []): PaginatedResult
@@ -74,15 +75,24 @@ class TagRepository extends ServiceEntityRepository
             $qb->andWhere('LOWER(t.name) LIKE :filterName')->setParameter('filterName', $pattern);
         }
 
-        $scope = ColumnFilter::matchLabel($qb, $filters['scope'] ?? null, self::SCOPE_LABELS);
-        if ($scope !== null) {
-            $qb->andWhere('t.isGlobal = :filterScope')->setParameter('filterScope', $scope === 'global');
+        $scopes = ColumnFilter::matchLabels($qb, $filters['scope'] ?? null, self::SCOPE_LABELS);
+        if ($scopes !== null) {
+            $conditions = array_map(
+                static fn (string $scope): string => $scope === 'global' ? 't.isGlobal = true' : 't.isGlobal = false',
+                $scopes,
+            );
+            $qb->andWhere($qb->expr()->orX(...$conditions));
         }
 
-        $visibility = ColumnFilter::matchLabel($qb, $filters['visibility'] ?? null, self::VISIBILITY_LABELS);
-        if ($visibility !== null) {
-            $qb->andWhere('t.hideFromLibrary = :filterVisibility')
-                ->setParameter('filterVisibility', $visibility === 'hidden');
+        $visibilities = ColumnFilter::matchLabels($qb, $filters['visibility'] ?? null, self::VISIBILITY_LABELS);
+        if ($visibilities !== null) {
+            $conditions = array_map(
+                static fn (string $visibility): string => $visibility === 'hidden'
+                    ? 't.hideFromLibrary = true'
+                    : 't.hideFromLibrary = false',
+                $visibilities,
+            );
+            $qb->andWhere($qb->expr()->orX(...$conditions));
         }
 
         $comicCount = ColumnFilter::text($filters['comicCount'] ?? null);
@@ -90,22 +100,33 @@ class TagRepository extends ServiceEntityRepository
             $qb->andWhere('SIZE(t.comics) = :filterComicCount')->setParameter('filterComicCount', (int) $comicCount);
         }
 
-        if ($pattern = ColumnFilter::pattern($filters['creator'] ?? null)) {
-            if (mb_strtolower(ColumnFilter::text($filters['creator'])) === 'system') {
-                $qb->andWhere('t.creator IS NULL');
-            } else {
-                $qb->andWhere($qb->expr()->orX(
-                    'LOWER(creator.name) LIKE :filterCreator',
-                    'LOWER(creator.email) LIKE :filterCreator',
-                ))->setParameter('filterCreator', $pattern);
+        $creator = ColumnFilter::text($filters['creator'] ?? null);
+        if ($creator !== '') {
+            $conditions = $qb->expr()->orX(
+                'LOWER(creator.name) LIKE :filterCreator',
+                'LOWER(creator.email) LIKE :filterCreator',
+            );
+            if (str_contains('system', mb_strtolower($creator))) {
+                $conditions->add('t.creator IS NULL');
             }
+            $qb->andWhere($conditions)->setParameter('filterCreator', ColumnFilter::pattern($creator));
         }
 
-        ColumnFilter::applyDay($qb, 't.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null);
+        ColumnFilter::applyDay($qb, 't.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null, $filters['timezone'] ?? null);
 
         $total = (int) (clone $qb)->select('COUNT(t.id)')
             ->getQuery()
             ->getSingleScalarResult();
+
+        if ($request->sortField === 'isGlobal') {
+            $qb->addSelect('CASE WHEN t.isGlobal = true THEN 0 ELSE 1 END AS HIDDEN scopeSort');
+        }
+        if ($request->sortField === 'hideFromLibrary') {
+            $qb->addSelect('CASE WHEN t.hideFromLibrary = true THEN 0 ELSE 1 END AS HIDDEN visibilitySort');
+        }
+        if ($request->sortField === 'creator') {
+            $qb->addSelect("COALESCE(creator.name, creator.email, 'System') AS HIDDEN creatorSort");
+        }
 
         $tags = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)

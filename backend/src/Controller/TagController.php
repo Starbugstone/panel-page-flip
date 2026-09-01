@@ -51,6 +51,7 @@ class TagController extends AbstractController
                 'comicCount' => $request->query->get('filterComicCount'),
                 'creator' => $request->query->get('filterCreator'),
                 'createdAt' => $request->query->get('filterCreatedAt'),
+                'timezone' => $request->query->get('filterTimezone'),
             ]);
             $comicCounts = $tagRepository->countComicsPerTag($page->items);
             $tagsArray = array_map(

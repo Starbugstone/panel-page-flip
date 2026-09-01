@@ -120,6 +120,7 @@ class ComicController extends AbstractController
                 'uploadedAt' => $request->query->get('filterUploadedAt'),
                 'pageCount' => $request->query->get('filterPageCount'),
                 'tags' => $request->query->get('filterTags'),
+                'timezone' => $request->query->get('filterTimezone'),
             ]);
             $comics = $this->comicSerializer->serializeMany($page->items, $user, true);
 

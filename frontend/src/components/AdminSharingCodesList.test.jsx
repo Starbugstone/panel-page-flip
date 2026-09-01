@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminSharingCodesList } from "./AdminSharingCodesList";
+import { localCalendarDate } from "@/lib/admin-table-filters";
 import { api } from "@/lib/api";
 
 const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
@@ -133,6 +134,24 @@ describe("AdminSharingCodesList", () => {
     // happen in the query and not in what has already been fetched.
     await waitFor(() => expect(vi.mocked(api.get).mock.calls.at(-1)[0])
       .toContain("status=withdrawn"));
+  });
+
+  it("uses a visible calendar range picker for the top date filter", async () => {
+    const user = userEvent.setup();
+    renderList();
+    await screen.findByText("issuer@example.com · #3");
+
+    expect(document.querySelectorAll('input[type="date"]')).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Created date range: Any date" }));
+    expect(screen.getByText("Created date range")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Today" }));
+    await user.click(screen.getByRole("button", { name: "Apply range" }));
+
+    const today = localCalendarDate(new Date());
+    await waitFor(() => {
+      const url = vi.mocked(api.get).mock.calls.at(-1)[0];
+      expect(url).toContain(`filterCreatedAt=${today}..${today}`);
+    });
   });
 
   it("says what the cleanup will and will not remove before running it", async () => {

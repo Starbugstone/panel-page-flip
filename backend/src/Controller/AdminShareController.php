@@ -62,6 +62,7 @@ final class AdminShareController extends AbstractController
             'recipient' => $request->query->get('filterRecipient'),
             'columnStatus' => $request->query->get('filterStatus'),
             'createdAt' => $request->query->get('filterCreatedAt'),
+            'timezone' => $request->query->get('filterTimezone'),
         ]);
 
         return $this->json([

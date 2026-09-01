@@ -8,6 +8,7 @@ import { formatBytes, formatDateTime } from "@/lib/format";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { filterAndSortAdminRows } from "@/lib/admin-client-table";
+import { adminFilterSuggestions, matchesAdminDateRange } from "@/lib/admin-table-filters";
 
 export function AdminOverview() {
   const { toast } = useToast();
@@ -19,7 +20,10 @@ export function AdminOverview() {
   const recentSignups = useMemo(() => filterAndSortAdminRows(stats?.recentSignups || [], tableControls, {
     user: { value: (user) => `${user.name || ""} ${user.email}` },
     verified: { value: (user) => user.isEmailVerified ? "Yes" : "No" },
-    createdAt: { value: (user) => user.createdAt },
+    createdAt: {
+      value: (user) => user.createdAt,
+      filter: (value, query) => matchesAdminDateRange(value, query),
+    },
   }), [stats?.recentSignups, tableControls]);
 
   useEffect(() => {
@@ -60,9 +64,9 @@ export function AdminOverview() {
         <CardContent>
           <Table>
             <TableHeader><TableRow>
-              <TableHead><AdminColumnHeader label="User" sortField="user" filterField="user" filterValue={tableControls.columnFilters.user} {...tableControls.headerProps} /></TableHead>
-              <TableHead><AdminColumnHeader label="Verified" sortField="verified" filterField="verified" filterPlaceholder="Yes or no…" filterValue={tableControls.columnFilters.verified} {...tableControls.headerProps} /></TableHead>
-              <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="createdAt" filterValue={tableControls.columnFilters.createdAt} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="User" sortField="user" filterField="user" filterSuggestions={adminFilterSuggestions(stats?.recentSignups || [], (user) => [user.name, user.email])} filterValue={tableControls.columnFilters.user} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Verified" sortField="verified" filterField="verified" filterPlaceholder="Yes or no…" filterSuggestions={["Yes", "No"]} filterValue={tableControls.columnFilters.verified} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="createdAt" filterType="date" filterValue={tableControls.columnFilters.createdAt} {...tableControls.headerProps} /></TableHead>
             </TableRow></TableHeader>
             <TableBody>
               {recentSignups.map((user) => (

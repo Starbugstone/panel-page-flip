@@ -7,9 +7,9 @@ const jumpToComicCard = vi.fn();
 
 vi.mock("@/lib/last-read-jump", () => ({ jumpToComicCard: (...args) => jumpToComicCard(...args) }));
 
-const setup = (comicId, comics) => renderHook(
-  ({ id, list }) => useJumpToComic(id, list),
-  { initialProps: { id: comicId, list: comics } }
+const setup = (comicId, comics, ready = true) => renderHook(
+  ({ id, list, rendered }) => useJumpToComic(id, list, rendered),
+  { initialProps: { id: comicId, list: comics, rendered: ready } }
 );
 
 beforeEach(() => {
@@ -64,5 +64,16 @@ describe("useJumpToComic", () => {
     setup(42, [{ id: 41 }, { id: 43 }]);
 
     expect(jumpToComicCard).not.toHaveBeenCalled();
+  });
+
+  it("waits until the grid replaces its loading skeleton", () => {
+    const list = [{ id: 42 }];
+    const { rerender } = setup(42, list, false);
+    expect(jumpToComicCard).not.toHaveBeenCalled();
+
+    // The same cached array can sit behind both renders, so readiness itself
+    // must retry the jump.
+    rerender({ id: 42, list, rendered: true });
+    expect(jumpToComicCard).toHaveBeenCalledWith(42);
   });
 });

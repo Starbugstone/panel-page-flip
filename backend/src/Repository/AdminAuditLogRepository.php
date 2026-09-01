@@ -24,7 +24,7 @@ class AdminAuditLogRepository extends ServiceEntityRepository
         'createdAt' => 'l.createdAt',
         'action' => 'l.action',
         'targetType' => 'l.targetType',
-        'admin' => 'admin.email',
+        'admin' => 'adminSort',
         'details' => 'l.payload',
     ];
 
@@ -40,7 +40,7 @@ class AdminAuditLogRepository extends ServiceEntityRepository
      * anything older; paging it is the only way to audit anything but today.
      *
      * @param array{createdAt?: string|null, admin?: string|null, action?: string|null,
-     *               target?: string|null, details?: string|null} $filters
+     *               target?: string|null, details?: string|null, timezone?: string|null} $filters
      * @return PaginatedResult<AdminAuditLog>
      */
     public function findAdminPage(
@@ -77,7 +77,7 @@ class AdminAuditLogRepository extends ServiceEntityRepository
             $qb->andWhere($conditions)->setParameter('search', $pattern);
         }
 
-        ColumnFilter::applyDay($qb, 'l.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null);
+        ColumnFilter::applyDay($qb, 'l.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null, $filters['timezone'] ?? null);
 
         if ($pattern = ColumnFilter::pattern($filters['admin'] ?? null)) {
             $qb->andWhere($qb->expr()->orX(
@@ -107,6 +107,10 @@ class AdminAuditLogRepository extends ServiceEntityRepository
         $total = (int) (clone $qb)->select('COUNT(l.id)')
             ->getQuery()
             ->getSingleScalarResult();
+
+        if ($request->sortField === 'admin') {
+            $qb->addSelect('COALESCE(admin.name, admin.email) AS HIDDEN adminSort');
+        }
 
         $logs = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)

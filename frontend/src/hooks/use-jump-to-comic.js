@@ -11,12 +11,12 @@ import { jumpToComicCard } from "@/lib/last-read-jump";
  * refresh — a saved reading position, a delete elsewhere — does not yank the
  * view back to a card the reader has already scrolled away from.
  */
-export function useJumpToComic(comicId, comics) {
+export function useJumpToComic(comicId, comics, ready = true) {
   const jumpedTo = useRef(null);
 
   useEffect(() => {
-    if (comicId == null || jumpedTo.current === comicId) return;
+    if (!ready || comicId == null || jumpedTo.current === comicId) return;
     if (!comics.some((comic) => String(comic.id) === String(comicId))) return;
     if (jumpToComicCard(comicId)) jumpedTo.current = comicId;
-  }, [comicId, comics]);
+  }, [comicId, comics, ready]);
 }

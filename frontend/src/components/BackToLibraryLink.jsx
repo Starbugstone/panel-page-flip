@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 import { libraryPathToComic } from "@/lib/library-view";
 
-const READER_PATH = /^\/read\/(\d+)/;
+const READER_PATH = /^\/read\/(\d+)(?:\/|$)/;
 
 /**
  * The reader's way out, aimed at the comic just read rather than at the top of

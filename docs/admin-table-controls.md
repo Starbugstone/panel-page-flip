@@ -27,14 +27,17 @@ when one changes. Landing on page 3 of a list that now has one page shows an
 empty table.
 
 Filters are applied on **Apply filter**, not per keystroke: these lists are
-server-paged, and typing five characters should not run five queries.
+server-paged, and typing five characters should not run five queries. Text
+boxes still feel immediate because they narrow a small suggestion list built
+from the rows already loaded (plus the column's fixed labels). Choosing a
+suggestion applies it in one click without a speculative API request.
 
 ## What a column filter matches
 
 | Kind of column | What to type |
 | --- | --- |
 | Text (owner, title, action, details) | any part of it, case-insensitively |
-| Date | `YYYY-MM-DD`; matches the whole of that day |
+| Date | an inclusive start/end range, with either edge optional |
 | Count (pages, comics, storage) | the number as the cell shows it |
 | Fixed set (status, scope, verified) | any part of a label the column shows |
 
@@ -45,8 +48,15 @@ its labels contain excludes every row: dropping the filter instead would answer
 a search for "nonsense" with the unfiltered table, reading as though every row
 had matched.
 
-Anything half-typed is ignored rather than rejected. A date being entered a
-character at a time should show the list it is narrowing, not an error.
+Date filters open an application-styled calendar with explicit From and
+Through boundaries, month navigation, and quick ranges. They do not fall back
+to browser-native date inputs or ask an administrator to type date syntax. The
+picker sends ranges as `YYYY-MM-DD..YYYY-MM-DD`. A missing first or last date
+is an open range, and a legacy single `YYYY-MM-DD` URL continues to mean that
+whole day. Server-paged lists also send the browser's IANA timezone, so the
+range follows the local dates rendered in the cells even across a daylight-
+saving transition. Malformed dates or timezone names are ignored rather than
+rejected.
 
 ## Adding a column
 
@@ -63,7 +73,9 @@ character at a time should show the list it is narrowing, not an error.
   `filterAndSortAdminRows`: a `value` for the row, and a `filter` only where
   matching the cell needs more than a substring of it.
 - **Either way.** Render the heading with `AdminColumnHeader`, spreading
-  `tableControls.headerProps` for the wiring every header shares.
+  `tableControls.headerProps` for the wiring every header shares. Date columns
+  set `filterType="date"`; text columns pass useful `filterSuggestions`, built
+  with `adminFilterSuggestions` where values come from the loaded rows.
 
 ## Related
 

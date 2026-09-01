@@ -99,6 +99,10 @@ final class AdminShareControllerTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame([$share->getId()], array_column($payload['items'], 'id'));
+
+        $byOwner = $this->getJson('/api/admin/shares?sort=owner&direction=ASC');
+        self::assertResponseIsSuccessful();
+        self::assertContains($share->getId(), array_column($byOwner['items'], 'id'));
     }
 
     /**
@@ -117,10 +121,30 @@ final class AdminShareControllerTest extends AbstractApiTestCase
         self::assertSame(0, $payload['pagination']['totalItems']);
     }
 
+    public function testAStatusSubstringRetainsEveryMatchingLabel(): void
+    {
+        $accepted = $this->share(['title' => 'Accepted Comic']);
+        $pending = $this->share(['title' => 'Pending Comic'], ComicShare::STATUS_PENDING);
+
+        $this->createAndLoginAdmin();
+        // Every displayed share status contains \"e\". The old first-match
+        // implementation retained Pending and silently discarded Accepted.
+        $payload = $this->getJson('/api/admin/shares?filterStatus=e');
+
+        self::assertResponseIsSuccessful();
+        self::assertEqualsCanonicalizing(
+            [$accepted->getId(), $pending->getId()],
+            array_column($payload['items'], 'id'),
+        );
+    }
+
     public function testColumnFiltersNarrowEveryDisplayedShareIdentity(): void
     {
         $share = $this->share(['title' => 'Preacher Special']);
         $this->share(['title' => 'Sandman Special']);
+
+        $share->getRecipientUser()?->setUsername('night-reader');
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
 
         $this->createAndLoginAdmin();
         $ownerEmail = (string) $share->getOwner()?->getEmail();
@@ -138,6 +162,10 @@ final class AdminShareControllerTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame([$share->getId()], array_column($payload['items'], 'id'));
+
+        $byVisibleHandle = $this->getJson('/api/admin/shares?filterRecipient=' . urlencode('@night-reader'));
+        self::assertResponseIsSuccessful();
+        self::assertSame([$share->getId()], array_column($byVisibleHandle['items'], 'id'));
     }
 
     public function testRevokingTakesAccessAwayWithoutTouchingTheComic(): void

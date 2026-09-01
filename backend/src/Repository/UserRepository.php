@@ -37,12 +37,15 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
         'lastLoginAt' => 'u.lastLoginAt',
         'comicCount' => 'comicCountSort',
         'storage' => 'storageSort',
-        'role' => 'u.roles',
+        'role' => 'roleSort',
         'verified' => 'u.isEmailVerified',
     ];
 
     /** The Verified? column's two values, as its cells spell them. */
     private const VERIFICATION_LABELS = ['verified' => 'Verified', 'pending' => 'Pending'];
+
+    /** The Role column's labels, ordered as its badges are prioritised. */
+    private const ROLE_LABELS = ['admin' => 'Admin', 'editor' => 'Editor', 'user' => 'User'];
 
     public function __construct(ManagerRegistry $registry, private readonly ComicRepository $comics)
     {
@@ -55,7 +58,7 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
      * @param bool|null $verified Restrict to verified or unverified accounts.
      * @param array{identity?: string|null, role?: string|null, verified?: string|null,
      *               createdAt?: string|null, lastLoginAt?: string|null, comicCount?: string|null,
-     *               storage?: string|null} $filters
+     *               storage?: string|null, timezone?: string|null} $filters
      * @return PaginatedResult<User>
      */
     public function findAdminPage(PaginationRequest $request, ?bool $verified = null, array $filters = []): PaginatedResult
@@ -83,21 +86,41 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             ))->setParameter('filterIdentity', $pattern);
         }
 
-        if ($pattern = ColumnFilter::pattern($filters['role'] ?? null)) {
-            $qb->andWhere('LOWER(u.roles) LIKE :filterRole')->setParameter('filterRole', $pattern);
+        $roles = ColumnFilter::matchLabels($qb, $filters['role'] ?? null, self::ROLE_LABELS);
+        if ($roles !== null) {
+            $conditions = $qb->expr()->orX();
+            foreach ($roles as $role) {
+                $conditions->add(match ($role) {
+                    'admin' => 'u.roles LIKE :adminRole',
+                    'editor' => 'u.roles LIKE :editorRole',
+                    default => '(u.roles NOT LIKE :adminRole AND u.roles NOT LIKE :editorRole)',
+                });
+            }
+            $qb->andWhere($conditions);
+            if (in_array('admin', $roles, true) || in_array('user', $roles, true)) {
+                $qb->setParameter('adminRole', '%ROLE_ADMIN%');
+            }
+            if (in_array('editor', $roles, true) || in_array('user', $roles, true)) {
+                $qb->setParameter('editorRole', '%ROLE_EDITOR%');
+            }
         }
 
-        $filterVerified = ColumnFilter::matchLabel($qb, $filters['verified'] ?? null, self::VERIFICATION_LABELS);
-        if ($filterVerified !== null) {
-            $qb->andWhere('u.isEmailVerified = :filterVerified')
-                ->setParameter('filterVerified', $filterVerified === 'verified');
+        $verifiedLabels = ColumnFilter::matchLabels($qb, $filters['verified'] ?? null, self::VERIFICATION_LABELS);
+        if ($verifiedLabels !== null) {
+            $conditions = array_map(
+                static fn (string $label): string => $label === 'verified'
+                    ? 'u.isEmailVerified = true'
+                    : 'u.isEmailVerified = false',
+                $verifiedLabels,
+            );
+            $qb->andWhere($qb->expr()->orX(...$conditions));
         }
 
-        ColumnFilter::applyDay($qb, 'u.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null);
+        ColumnFilter::applyDay($qb, 'u.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null, $filters['timezone'] ?? null);
         if (mb_strtolower(ColumnFilter::text($filters['lastLoginAt'] ?? null)) === 'never') {
             $qb->andWhere('u.lastLoginAt IS NULL');
         } else {
-            ColumnFilter::applyDay($qb, 'u.lastLoginAt', 'filterLastLoginAt', $filters['lastLoginAt'] ?? null);
+            ColumnFilter::applyDay($qb, 'u.lastLoginAt', 'filterLastLoginAt', $filters['lastLoginAt'] ?? null, $filters['timezone'] ?? null);
         }
 
         $comicCount = ColumnFilter::text($filters['comicCount'] ?? null);
@@ -108,14 +131,17 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             ))->setParameter('filterComicCount', (int) $comicCount);
         }
 
-        if ($storageRange = $this->storageRange($filters['storage'] ?? null)) {
+        $storageRange = $this->storageRange($filters['storage'] ?? null);
+        if ($storageRange !== null) {
             [$minimum, $maximum] = $storageRange;
             $storageExpression = static fn (string $alias): string => sprintf(
                 '(SELECT SUM(%1$s.fileSize) FROM %2$s %1$s WHERE %1$s.owner = u)',
                 $alias,
                 Comic::class,
             );
-            if ($minimum === 0) {
+            if ($minimum > $maximum) {
+                $qb->andWhere('1 = 0');
+            } elseif ($minimum === 0) {
                 $qb->andWhere(sprintf(
                     '(%s IS NULL OR %s <= :filterStorageMax)',
                     $storageExpression('emptyStorageComic'),
@@ -148,6 +174,9 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
                 Comic::class,
             ));
         }
+        if ($request->sortField === 'role') {
+            $qb->addSelect("CASE WHEN u.roles LIKE '%ROLE_ADMIN%' THEN 0 WHEN u.roles LIKE '%ROLE_EDITOR%' THEN 1 ELSE 2 END AS HIDDEN roleSort");
+        }
 
         $users = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)
@@ -166,14 +195,28 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
         $value = ColumnFilter::text($value);
         if (!preg_match('/^(\d+(?:\.\d+)?)\s*(B|KIB|MIB|GIB|TIB)?$/i', $value, $matches)) return null;
 
-        $units = ['B' => [1, 0], 'KIB' => [1024, 1], 'MIB' => [1024 ** 2, 1], 'GIB' => [1024 ** 3, 2], 'TIB' => [1024 ** 4, 2]];
-        [$scale, $decimals] = $units[strtoupper($matches[2] ?? 'B')];
+        $units = [
+            'B' => [1, 0, 0, 1024 - 1],
+            'KIB' => [1024, 1, 1024, 1024 ** 2 - 1],
+            'MIB' => [1024 ** 2, 1, 1024 ** 2, 1024 ** 3 - 1],
+            'GIB' => [1024 ** 3, 2, 1024 ** 3, 1024 ** 4 - 1],
+            'TIB' => [1024 ** 4, 2, 1024 ** 4, PHP_INT_MAX],
+        ];
+        [$scale, $decimals, $tierMinimum, $tierMaximum] = $units[strtoupper($matches[2] ?? 'B')];
+
+        $fraction = str_contains($matches[1], '.') ? explode('.', $matches[1], 2)[1] : '';
+        if (strlen($fraction) > $decimals) {
+            // A value with more precision than the cell displays cannot be a
+            // displayed value. Keep it as an active filter that matches none.
+            return [1, 0];
+        }
+
         $number = (float) $matches[1];
         $halfStep = 0.5 * 10 ** (-$decimals);
 
         return [
-            max(0, (int) ceil(($number - $halfStep) * $scale)),
-            max(0, (int) floor(($number + $halfStep) * $scale)),
+            max($tierMinimum, (int) ceil(($number - $halfStep) * $scale)),
+            min($tierMaximum, max(0, (int) floor(($number + $halfStep) * $scale))),
         ];
     }
 

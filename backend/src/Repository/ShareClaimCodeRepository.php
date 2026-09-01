@@ -12,6 +12,7 @@ use App\Service\Pagination\PaginationRequest;
 use App\Service\ParsedShareCode;
 use App\Service\SharingCodeFormat;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
+use Doctrine\ORM\QueryBuilder;
 use Doctrine\Persistence\ManagerRegistry;
 
 /**
@@ -26,7 +27,7 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
         'maxUses' => 'c.maxUses',
         'usesRemaining' => 'c.usesRemaining',
         'id' => 'c.id',
-        'owner' => 'o.email',
+        'owner' => 'ownerSort',
         'comicCount' => 'SIZE(c.comics)',
         'timesUsed' => 'timesUsedSort',
         'status' => 'statusSort',
@@ -128,9 +129,8 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
      *              createdTo?: \DateTimeImmutable|null, expiresFrom?: \DateTimeImmutable|null,
      *              expiresTo?: \DateTimeImmutable|null, id?: string|null, owner?: string|null,
      *              comics?: string|null, uses?: string|null, columnStatus?: string|null,
-     *              columnCreatedAt?: \DateTimeImmutable|null, columnCreatedTo?: \DateTimeImmutable|null,
-     *              columnExpiresAt?: \DateTimeImmutable|null, columnExpiresTo?: \DateTimeImmutable|null,
-     *              deletedAfter?: \DateTimeImmutable|null} $filters
+     *              columnCreatedAt?: string|null, columnExpiresAt?: string|null,
+     *              deletedAfter?: string|null, timezone?: string|null} $filters
      *
      * @return PaginatedResult<ShareClaimCode>
      */
@@ -190,45 +190,23 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
                 ->setParameter('filterTimesUsed', (int) $filterUses);
         }
 
-        $status = $filters['status']
-            ?? ColumnFilter::matchLabel($qb, $filters['columnStatus'] ?? null, self::ADMIN_STATUS_LABELS);
-
-        switch ($status) {
-            case 'active':
-                $qb->andWhere('c.revokedAt IS NULL')
-                    ->andWhere('c.usesRemaining > 0')
-                    ->andWhere('c.expiresAt > :now')
-                    // A code whose package has lost a comic cannot be redeemed
-                    // — a group is handed over whole or not at all — so listing
-                    // it as active tells an operator it works when it does not.
-                    ->andWhere('SIZE(c.comics) = c.issuedComicCount')
-                    ->setParameter('now', $now);
-                break;
-            case 'comics_removed':
-                // Live in every other respect and still unredeemable, which is
-                // the one dead state an owner cannot see coming. Findable so an
-                // operator can withdraw it and tell them to reissue.
-                $qb->andWhere('c.revokedAt IS NULL')
-                    ->andWhere('c.usesRemaining > 0')
-                    ->andWhere('c.expiresAt > :now')
-                    ->andWhere('SIZE(c.comics) <> c.issuedComicCount')
-                    ->setParameter('now', $now);
-                break;
-            case 'withdrawn':
-                $qb->andWhere('c.revokedAt IS NOT NULL');
-                break;
-            case 'expired':
-                // Only codes that ran out of time, so an operator filtering for
-                // "expired" is not shown everything that died some other way.
-                $qb->andWhere('c.revokedAt IS NULL')
-                    ->andWhere('c.usesRemaining > 0')
-                    ->andWhere('c.expiresAt <= :now')
-                    ->setParameter('now', $now);
-                break;
-            case 'exhausted':
-                $qb->andWhere('c.revokedAt IS NULL')->andWhere('c.usesRemaining <= 0');
-                break;
+        $statuses = array_key_exists((string) ($filters['status'] ?? null), self::ADMIN_STATUS_LABELS)
+            ? [(string) $filters['status']]
+            : null;
+        $columnStatuses = ColumnFilter::matchLabels(
+            $qb,
+            $filters['columnStatus'] ?? null,
+            self::ADMIN_STATUS_LABELS,
+        );
+        if ($columnStatuses !== null) {
+            $statuses = $statuses === null
+                ? $columnStatuses
+                : array_values(array_intersect($statuses, $columnStatuses));
+            if ($statuses === []) {
+                $qb->andWhere('1 = 0');
+            }
         }
+        $this->applyAdminStatuses($qb, $statuses, $now);
 
         foreach ([
             'createdFrom' => ['c.createdAt >= :createdFrom', 'createdFrom'],
@@ -241,23 +219,21 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
             }
         }
 
-        foreach ([
-            'columnCreatedAt' => ['c.createdAt >= :columnCreatedAt', 'columnCreatedAt'],
-            'columnCreatedTo' => ['c.createdAt <= :columnCreatedTo', 'columnCreatedTo'],
-            'columnExpiresAt' => ['c.expiresAt >= :columnExpiresAt', 'columnExpiresAt'],
-            'columnExpiresTo' => ['c.expiresAt <= :columnExpiresTo', 'columnExpiresTo'],
-        ] as $key => [$expression, $parameter]) {
-            if (($filters[$key] ?? null) !== null) {
-                $qb->andWhere($expression)->setParameter($parameter, $filters[$key]);
-            }
-        }
+        ColumnFilter::applyDay($qb, 'c.createdAt', 'columnCreatedAt', $filters['columnCreatedAt'] ?? null, $filters['timezone'] ?? null);
+        ColumnFilter::applyDay($qb, 'c.expiresAt', 'columnExpiresAt', $filters['columnExpiresAt'] ?? null, $filters['timezone'] ?? null);
 
-        if (($filters['deletedAfter'] ?? null) instanceof \DateTimeImmutable) {
-            $expiryDay = $filters['deletedAfter']->modify('-' . ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+'));
-            $qb->andWhere('c.expiresAt >= :deletedAfterFrom')
-                ->andWhere('c.expiresAt < :deletedAfterTo')
-                ->setParameter('deletedAfterFrom', $expiryDay)
-                ->setParameter('deletedAfterTo', $expiryDay->modify('+1 day'));
+        if (($deletedRange = ColumnFilter::dateRange($filters['deletedAfter'] ?? null, $filters['timezone'] ?? null)) !== null) {
+            [$deletedFrom, $deletedTo] = $deletedRange;
+            $retention = '-' . ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+');
+            $utc = new \DateTimeZone('UTC');
+            if ($deletedFrom !== null) {
+                $qb->andWhere('c.expiresAt >= :deletedAfterFrom')
+                    ->setParameter('deletedAfterFrom', $deletedFrom->setTimezone($utc)->modify($retention));
+            }
+            if ($deletedTo !== null) {
+                $qb->andWhere('c.expiresAt < :deletedAfterTo')
+                    ->setParameter('deletedAfterTo', $deletedTo->modify('+1 day')->setTimezone($utc)->modify($retention));
+            }
         }
 
         $total = (int) (clone $qb)->select('COUNT(c.id)')->getQuery()->getSingleScalarResult();
@@ -270,6 +246,9 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
                 'CASE WHEN c.revokedAt IS NOT NULL THEN 4 WHEN c.usesRemaining <= 0 THEN 3 WHEN c.expiresAt <= CURRENT_TIMESTAMP() THEN 2 WHEN SIZE(c.comics) <> c.issuedComicCount THEN 1 ELSE 0 END AS HIDDEN statusSort'
             ));
         }
+        if ($request->sortField === 'owner') {
+            $qb->addSelect('COALESCE(o.name, o.email) AS HIDDEN ownerSort');
+        }
 
         $codes = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)
@@ -280,6 +259,34 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
             ->getResult();
 
         return PaginatedResult::fromRequest($codes, $total, $request);
+    }
+
+    /** @param list<string>|null $statuses */
+    private function applyAdminStatuses(QueryBuilder $qb, ?array $statuses, \DateTimeImmutable $now): void
+    {
+        if ($statuses === null || $statuses === []) {
+            return;
+        }
+
+        $conditions = [];
+        foreach (array_unique($statuses) as $status) {
+            $conditions[] = match ($status) {
+                // A code whose package has lost a comic cannot be redeemed — a
+                // group is handed over whole or not at all.
+                'active' => '(c.revokedAt IS NULL AND c.usesRemaining > 0 AND c.expiresAt > :now AND SIZE(c.comics) = c.issuedComicCount)',
+                'comics_removed' => '(c.revokedAt IS NULL AND c.usesRemaining > 0 AND c.expiresAt > :now AND SIZE(c.comics) <> c.issuedComicCount)',
+                'withdrawn' => 'c.revokedAt IS NOT NULL',
+                // Expired excludes codes that died for another reason.
+                'expired' => '(c.revokedAt IS NULL AND c.usesRemaining > 0 AND c.expiresAt <= :now)',
+                'exhausted' => '(c.revokedAt IS NULL AND c.usesRemaining <= 0)',
+                default => throw new \LogicException(sprintf('Unknown admin sharing-code status \"%s\".', $status)),
+            };
+        }
+
+        $qb->andWhere($qb->expr()->orX(...$conditions));
+        if (array_intersect($statuses, ['active', 'comics_removed', 'expired']) !== []) {
+            $qb->setParameter('now', $now);
+        }
     }
 
     /**

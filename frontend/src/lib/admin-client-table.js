@@ -20,15 +20,19 @@ export function filterAndSortAdminRows(rows, controls, columns) {
   const column = columns[controls.sort];
   if (!column) return filtered;
 
-  const multiplier = controls.direction === "ASC" ? 1 : -1;
-  return [...filtered].sort((left, right) => compare(column.value(left), column.value(right)) * multiplier);
+  return [...filtered].sort((left, right) => compare(
+    column.value(left),
+    column.value(right),
+    controls.direction,
+  ));
 }
 
-function compare(left, right) {
+function compare(left, right, direction) {
   if (left == null && right == null) return 0;
   if (left == null) return 1;
   if (right == null) return -1;
-  if (typeof left === "number" && typeof right === "number") return left - right;
-  return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+  const result = typeof left === "number" && typeof right === "number"
+    ? left - right
+    : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+  return direction === "ASC" ? result : -result;
 }
-

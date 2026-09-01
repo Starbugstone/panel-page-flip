@@ -23,6 +23,7 @@ import { pluralize, summariseLabels } from "@/lib/bulk-actions";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { filterAndSortAdminRows } from "@/lib/admin-client-table";
+import { adminFilterSuggestions, matchesAdminDateRange } from "@/lib/admin-table-filters";
 
 const nameOf = (user) => user.name || user.email;
 
@@ -38,7 +39,10 @@ export function AdminDropbox() {
   const tableControls = useAdminTableControls({ defaultSort: "user", defaultDirection: "ASC" });
   const visibleUsers = useMemo(() => filterAndSortAdminRows(users, tableControls, {
     user: { value: (user) => `${nameOf(user)} ${user.email}` },
-    lastSyncedAt: { value: (user) => user.lastSyncedAt || "Never" },
+    lastSyncedAt: {
+      value: (user) => user.lastSyncedAt,
+      filter: (value, query) => matchesAdminDateRange(value, query),
+    },
     dropboxComicCount: { value: (user) => user.dropboxComicCount },
   }), [tableControls, users]);
 
@@ -137,8 +141,8 @@ export function AdminDropbox() {
                   label="Select all accounts"
                 />
               </TableHead>
-              <TableHead><AdminColumnHeader label="User" sortField="user" filterField="user" filterValue={tableControls.columnFilters.user} {...tableControls.headerProps} /></TableHead>
-              <TableHead><AdminColumnHeader label="Last import" sortField="lastSyncedAt" filterField="lastSyncedAt" filterPlaceholder="Date or never…" filterValue={tableControls.columnFilters.lastSyncedAt} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="User" sortField="user" filterField="user" filterSuggestions={adminFilterSuggestions(users, (user) => [user.name, user.email])} filterValue={tableControls.columnFilters.user} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Last import" sortField="lastSyncedAt" filterField="lastSyncedAt" filterType="date" emptyDateLabel="Never" filterValue={tableControls.columnFilters.lastSyncedAt} {...tableControls.headerProps} /></TableHead>
               <TableHead><AdminColumnHeader label="Imported comics" sortField="dropboxComicCount" filterField="dropboxComicCount" filterPlaceholder="Exact or partial count…" filterValue={tableControls.columnFilters.dropboxComicCount} {...tableControls.headerProps} /></TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
