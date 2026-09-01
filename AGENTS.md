@@ -1,5 +1,13 @@
 # Panel Page Flip — working rules
 
+## Read these rules first
+
+Every agent must read this `AGENTS.md` in full as its first repository action
+for every task, follow-up call, resumed turn, or compacted-context continuation.
+Do not rely on a prompt copy, memory, or another agent's summary. Read it again
+after switching branches or worktrees, and read any more-specific `AGENTS.md`
+that applies to a path before changing files below it.
+
 ## Tests are not optional
 
 **Every code change ships with tests in the same PR.** This is a hard rule, not
@@ -135,10 +143,72 @@ entries, PDF objects, XML, filenames — is attacker-controlled.
 - Frontend: React 19 / Vite / Tailwind / Radix. Node >= 22.12.
 - Per-feature documentation lives in `docs/`; `DEV_README.md` indexes every page.
   A behaviour change updates its page in the same PR.
-- Branch from `main`; never commit to it directly. `develop` is the integration
-  branch — work wanting manual testing on a real deployment lands there first
-  and reaches `main` as one merge.
-  Always keep the documentation up to date with the latest modifications
+- `develop` is the source of truth for active development. Branch from it and
+  target it with normal pull requests; never commit to it directly. `main` is
+  the production source of truth and only receives deliberate release or
+  production-hotfix pull requests. The two branches are expected to differ as
+  ongoing tasks move through development and production. A release reaches
+  `main` from `develop` as one merge. Always keep the documentation up to date
+  with the latest modifications.
+
+## Branch hygiene — prevent divergence
+
+Local `main` and `develop` are protected tracking branches. Each must stay at
+its matching fetched `origin/*` ref. Never commit, amend, rebase, cherry-pick,
+or merge while either protected branch is checked out.
+
+Start every task from fetched remote state, not from whichever local branch was
+left checked out:
+
+```bash
+git fetch --prune origin
+git status --short --branch
+git switch -c <type>/<short-task-name> origin/develop
+```
+
+Use a new, task-specific branch name; do not reuse another agent's branch or a
+branch from an earlier task. Choose the base and pull-request target from the
+task's destination: ongoing feature, fix, and documentation work uses
+`origin/develop`; an urgent fix for the currently deployed production state
+uses `origin/main`; a release promotes `develop` to `main`. Bring a production
+hotfix back into `develop` through its own pull request so the development
+source of truth retains the fix.
+
+Before every commit, verify the branch and review the exact staged content:
+
+```bash
+git branch --show-current
+git status --short
+git diff --cached --stat
+git diff --cached
+```
+
+If the branch is `main` or `develop`, stop and move the work to a task branch
+before committing. Stage task-owned paths explicitly; do not use `git add .` or
+`git add -A`. Never stage transient output such as coverage reports, caches,
+logs, build output, or editor files. Generated files belong in a commit only
+when repository documentation identifies them as committed artefacts and their
+corresponding `check:*` command passes.
+
+Before pushing, fetch again and inspect `git status --short --branch`. Push a
+new task branch with `git push -u origin HEAD`. If its upstream has changed,
+inspect the left/right log before reconciling it; never use a blind pull or a
+force push:
+
+```bash
+git log --oneline --left-right HEAD...@{upstream}
+```
+
+If local `main` or `develop` is ever ahead of or diverged from its remote, do
+not add a merge commit to make the warning disappear. Inspect the unexpected
+commits, preserve them on a clearly named backup branch when they may contain
+work, and restore the protected branch to its fetched `origin/*` ref only after
+the unexpected content is understood. Compare each protected branch with its
+own upstream; the pull-request workflow can legitimately make `main` and
+`develop` non-linear relative to each other. Do not merge `main` into `develop`
+merely to make their histories look aligned: `develop` tracks development and
+`main` tracks production, so their difference reflects the tasks currently in
+flight.
 
 ## Always commit
 
