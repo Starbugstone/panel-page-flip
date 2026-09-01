@@ -64,6 +64,13 @@ php bin/console app:cleanup-content-reports
 
 Administrators use the **Content reports** tab. The queue carries summary fields only; reporter contact details, locators and allegations are fetched from the detail endpoint when **Review** is opened. Exact resolution and bounded title/account search produce human-readable candidates. Numeric IDs are diagnostic details after a candidate is shown, not something the administrator has to discover and type.
 
+The frontend keeps those boundaries explicit: `AdminContentReports` coordinates
+API state, `ContentReportsQueue` owns summary filtering and sorting,
+`ContentReportReview` owns the opened case form, and
+`lib/content-report-review.js` is the tested three-state target/payload model.
+Column popovers likewise delegate sorting and each filter type to focused
+controls instead of carrying every branch in one render function.
+
 A linked target can also be cleared, by sending `targetType` and `targetId` as
 null (or every `linked*Id` key it names as null). Reports are auto-linked at
 submission from the reference the reporter typed, so a wrong target is ordinary;
