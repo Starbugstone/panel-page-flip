@@ -21,6 +21,12 @@
 
 ###> symfony/asset-mapper ###
 /public/assets/
+/public/.htaccess
+/public/index.html
+/public/sitemap.xml
+/public/tools/
+/public/apple-touch-icon.png
+/public/favicon-*.png
 /assets/vendor/
 ###< symfony/asset-mapper ###
 

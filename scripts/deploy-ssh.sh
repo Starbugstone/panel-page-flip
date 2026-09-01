@@ -2,16 +2,16 @@
 # =============================================================================
 # scripts/deploy-ssh.sh
 # -----------------------------------------------------------------------------
-# Driver script that runs from your laptop. SSHes into the production server,
-# runs `git pull`, then triggers scripts/server/server-deploy.sh.
+# Driver script that runs from your laptop. It uploads the current transaction
+# helper, which takes the backup before it fetches or updates the live checkout.
 #
 # This is the standard deploy path when you have SSH + git access.
 #
 # Usage:
-#   ./scripts/deploy-ssh.sh                # full deploy: git pull + composer + npm + migrate
+#   ./scripts/deploy-ssh.sh                # full deploy: backup + exact branch head + build/migrate
 #   ./scripts/deploy-ssh.sh --skip-frontend  # don't run npm build on server
 #   ./scripts/deploy-ssh.sh --skip-composer  # don't run composer install
-#   ./scripts/deploy-ssh.sh --no-git         # skip git pull (deploy current server checkout)
+#   ./scripts/deploy-ssh.sh --no-git         # deploy the current server checkout
 #   ./scripts/deploy-ssh.sh --branch=develop # pull a different branch this time
 #   ./scripts/deploy-ssh.sh --rsync          # build locally, rsync release/ to server, then run migrate+cache:clear
 #   ./scripts/deploy-ssh.sh --command="cmd"  # run an arbitrary remote command (debug helper)
@@ -66,6 +66,7 @@ for v in SSH_HOST SSH_USER SSH_REMOTE_PATH; do
 done
 SSH_PORT="${SSH_PORT:-22}"
 SSH_GIT_BRANCH="${SSH_GIT_BRANCH:-main}"
+SSH_DEPLOY_ENVIRONMENT="${SSH_DEPLOY_ENVIRONMENT:-production}"
 SSH_WEB_USER="${SSH_WEB_USER:-www-data}"
 SSH_WEB_GROUP="${SSH_WEB_GROUP:-$SSH_WEB_USER}"
 SSH_POST_DEPLOY_HOOK="${SSH_POST_DEPLOY_HOOK:-}"
@@ -105,7 +106,8 @@ fi
 # =============================================================================
 if [ "$USE_RSYNC" = "1" ]; then
     log "running required production backup before upload"
-    run_remote "$SSH_BACKUP_COMMAND"
+    printf -v RSYNC_BACKUP_COMMAND 'APP_DIR=%q %q' "$SSH_REMOTE_PATH" "$SSH_BACKUP_COMMAND"
+    run_remote "$RSYNC_BACKUP_COMMAND"
 
     [ -d "$REPO_ROOT/release" ] || {
         log "release/ not found — building first"
@@ -128,8 +130,10 @@ if [ "$USE_RSYNC" = "1" ]; then
     rsync -azv --delete-after \
         --exclude='backend/public/uploads/' \
         --exclude='backend/public/uploads/*' \
+        --exclude='backend/public/.htaccess' \
         --exclude='backend/var/log/' \
         --exclude='backend/var/cache/' \
+        --exclude='.panel-page-flip-environment' \
         "${ENV_EXCLUDES[@]}" \
         --exclude='.git/' \
         -e "$RSYNC_SSH" \
@@ -157,55 +161,45 @@ EOF
 fi
 
 # =============================================================================
-# Git mode (default): server-side git pull + server-deploy.sh
+# Git mode (default): uploaded transaction helper backs up, then updates Git
 # =============================================================================
-
-# Build the remote script that we'll exec inside one SSH session.
-GIT_BLOCK=""
-if [ "$DO_GIT" = "1" ]; then
-    GIT_BLOCK=$(cat <<EOF
-echo "[remote] git fetch + pull"
-cd "$SSH_REMOTE_PATH"
-git fetch --all --prune
-git checkout "$SSH_GIT_BRANCH"
-git pull --ff-only origin "$SSH_GIT_BRANCH"
-echo "[remote] now at: \$(git log -1 --oneline)"
-EOF
-)
-fi
 
 SKIP_FRONTEND_VAR=$([ "$DO_FRONTEND" = "1" ] && echo 0 || echo 1)
 SKIP_COMPOSER_VAR=$([ "$DO_COMPOSER" = "1" ] && echo 0 || echo 1)
-SSH_BACKUP_COMMAND_QUOTED=$(printf '%q' "$SSH_BACKUP_COMMAND")
+DEPLOY_BRANCH_VAR=$([ "$DO_GIT" = "1" ] && printf '%s' "$SSH_GIT_BRANCH" || true)
+ALLOW_NONSTANDARD_BRANCH=0
+[ -z "$BRANCH_OVERRIDE" ] || ALLOW_NONSTANDARD_BRANCH=1
 
-REMOTE_SCRIPT=$(cat <<EOF
-set -euo pipefail
+remote_parent="${SSH_REMOTE_PATH%/*}"
+[ -n "$remote_parent" ] || remote_parent=/
+remote_helper_dir="$remote_parent/.panel-page-flip-deployments/manual/manual-$$"
+printf -v remote_helper_dir_quoted '%q' "$remote_helper_dir"
+run_remote "mkdir -p $remote_helper_dir_quoted"
+helper_uploaded=1
+cleanup_helper() {
+    [ "${helper_uploaded:-0}" = "1" ] || return 0
+    run_remote "rm -rf -- $remote_helper_dir_quoted" || warn "Could not remove $remote_helper_dir"
+}
+trap cleanup_helper EXIT
 
-$GIT_BLOCK
+tar -C "$SCRIPT_DIR/server" -czf - server-deploy.sh install-frontend.sh \
+    | ssh "${SSH_OPTS[@]}" "$ssh_target" "tar -xzf - -C $remote_helper_dir_quoted"
 
-# Make sure the deploy script is executable (in case .gitattributes lost it).
-chmod +x "$SSH_REMOTE_PATH/scripts/server/"*.sh 2>/dev/null || true
-
-# Run the server-side deploy with the right env.
-APP_DIR="$SSH_REMOTE_PATH" \\
-APP_URL="${PUBLIC_URL%/}" \\
-WEB_USER="$SSH_WEB_USER" \\
-WEB_GROUP="$SSH_WEB_GROUP" \\
-SKIP_FRONTEND="$SKIP_FRONTEND_VAR" \\
-SKIP_COMPOSER="$SKIP_COMPOSER_VAR" \\
-POST_DEPLOY_HOOK="$SSH_POST_DEPLOY_HOOK" \\
-BACKUP_COMMAND=$SSH_BACKUP_COMMAND_QUOTED \\
-"$SSH_REMOTE_PATH/scripts/server/server-deploy.sh"
-EOF
-)
+printf -v REMOTE_COMMAND \
+    'APP_DIR=%q APP_URL=%q DEPLOY_ENVIRONMENT=%q DEPLOY_BRANCH=%q WEB_USER=%q WEB_GROUP=%q SKIP_FRONTEND=%q SKIP_COMPOSER=%q POST_DEPLOY_HOOK=%q BACKUP_COMMAND=%q ALLOW_NONSTANDARD_BRANCH=%q bash %q' \
+    "$SSH_REMOTE_PATH" "${PUBLIC_URL%/}" "$SSH_DEPLOY_ENVIRONMENT" "$DEPLOY_BRANCH_VAR" \
+    "$SSH_WEB_USER" "$SSH_WEB_GROUP" "$SKIP_FRONTEND_VAR" "$SKIP_COMPOSER_VAR" \
+    "$SSH_POST_DEPLOY_HOOK" "$SSH_BACKUP_COMMAND" "$ALLOW_NONSTANDARD_BRANCH" \
+    "$remote_helper_dir/server-deploy.sh"
 
 log "Connecting to $ssh_target:$SSH_PORT"
 log "Remote path:   $SSH_REMOTE_PATH"
 log "Branch:        $SSH_GIT_BRANCH"
-log "Git pull:      $([ "$DO_GIT" = "1" ] && echo yes || echo no)"
+log "Environment:   $SSH_DEPLOY_ENVIRONMENT"
+log "Git update:    $([ "$DO_GIT" = "1" ] && echo yes || echo no)"
 log "Frontend:      $([ "$DO_FRONTEND" = "1" ] && echo build || echo skip)"
 log "Composer:      $([ "$DO_COMPOSER" = "1" ] && echo install || echo skip)"
 
-run_remote_script "$REMOTE_SCRIPT"
+run_remote "$REMOTE_COMMAND"
 
 log "Deploy complete."

@@ -1,5 +1,10 @@
 # Production Deployment Guide (SSH + git)
 
+For automatic O2Switch `develop`/`main` deployment, GitHub Environment setup,
+dynamic firewall access and staging isolation, start with
+[docs/continuous-deployment.md](docs/continuous-deployment.md). This guide
+remains the emergency/manual SSH fallback.
+
 This guide covers deploying to a server where you have **SSH access** and the
 server has **git access** (i.e. it can `git clone`/`git pull` from your repo).
 This is the simplest, fastest, most auditable deploy path. Use this whenever
@@ -53,7 +58,7 @@ and troubleshooting.
 
 | Concern              | FTP ([deploy.md](deploy.md))                                     | SSH (this guide)                                                |
 | -------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------- |
-| Build location       | Locally in Docker, mirror result over FTP                         | On the server (`git pull` + `composer install` + `npm run build`) |
+| Build location       | Locally in Docker, mirror result over FTP                         | On the server for manual fallback; CI supplies its validated frontend artifact |
 | Migration runner     | Token-protected `_post-deploy.php` over HTTPS                     | `php bin/console doctrine:migrations:migrate` over SSH directly  |
 | Secrets storage      | Server-local by default; compiled mode is an explicit opt-in       | Lives only on the server (`backend/.env.local`)             |
 | Server requirements  | Only PHP runtime + MySQL                                          | PHP CLI + Composer + git + (Node OR pre-built dist)              |
@@ -73,7 +78,7 @@ The deploy server must have:
 | Tool          | Minimum version | Why                                          |
 | ------------- | --------------- | -------------------------------------------- |
 | OpenSSH       | any             | obviously                                    |
-| git           | 2.x             | server-side `git pull`                       |
+| git           | 2.x             | exact-SHA server checkout                    |
 | PHP CLI       | **8.2** (must match the local Docker `PHP_VERSION`) | runs `bin/console`, `composer install`, prod runtime |
 | PHP-FPM (or mod_php) | matching CLI | serves `index.php` to the web server         |
 | Composer 2    | 2.5+            | dependency installation                      |
@@ -164,7 +169,8 @@ SSH_USER=deploy
 SSH_PORT=22
 SSH_KEY=                              # optional — leave empty to use ssh-agent
 SSH_REMOTE_PATH=/var/www/comics       # absolute path on the server
-SSH_GIT_BRANCH=main                   # branch the server pulls from
+SSH_GIT_BRANCH=main                   # branch fetched only after backup succeeds
+SSH_DEPLOY_ENVIRONMENT=production     # use staging only in its separate checkout/config
 SSH_WEB_USER=www-data
 SSH_WEB_GROUP=www-data
 SSH_POST_DEPLOY_HOOK="sudo systemctl reload php8.2-fpm"
@@ -342,14 +348,13 @@ After all the above, every release from your laptop is a single command:
 ### What that does
 
 1. Reads `scripts/.env.deploy` for `SSH_*` values.
-2. SSHes into `$SSH_USER@$SSH_HOST` once (single connection, one transcript).
-3. On the server, in one shell:
-   - `cd $SSH_REMOTE_PATH`
-   - `git fetch --all --prune`
-   - `git checkout $SSH_GIT_BRANCH`
-   - `git pull --ff-only origin $SSH_GIT_BRANCH`
-   - Runs `scripts/server/server-deploy.sh` with the right env vars.
-4. `server-deploy.sh` does the actual build (composer + npm + migrate + cache + chown + post-deploy hook).
+2. Uploads the current server transaction helper outside the live checkout.
+3. Validates the checkout identity and source state, then takes the required
+   database/uploads backup.
+4. Only after the backup succeeds, fetches the selected branch and checks out
+   its exact remote head.
+5. Runs the shared frontend install, Composer, migrations, data upgrades, cache,
+   permission and SHA checks.
 
 ### Common variations
 
@@ -363,7 +368,7 @@ After all the above, every release from your laptop is a single command:
 # Deploy a feature branch ad-hoc (won't change the server's tracked branch)
 ./scripts/deploy-ssh.sh --branch=feature/dropbox-redux
 
-# You already SSH'd in and ran git pull manually; now apply the build remotely
+# Deploy the current checkout without fetching another commit
 ./scripts/deploy-ssh.sh --no-git
 
 # Fast rsync mode: build locally with Docker, push the release/ tree over SSH,
@@ -377,15 +382,16 @@ After all the above, every release from your laptop is a single command:
 
 ### Manually invoking the server side
 
-Sometimes you SSH in for a fix, run `git pull` by hand, and just want to
-finish the deploy without going back to your laptop. The server-side script
-handles that:
+Do not run `git pull` before the backup. If the laptop driver is unavailable,
+the server-side transaction can fetch the branch itself after its backup:
 
 ```sh
 ssh deploy@server.yourdomain.com
 cd /var/www/comics
-git pull
 APP_DIR=/var/www/comics \
+APP_URL=https://comics.yourdomain.com \
+DEPLOY_ENVIRONMENT=production \
+DEPLOY_BRANCH=main \
 BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh \
 ./scripts/server/server-deploy.sh
 ```
@@ -499,11 +505,15 @@ sudo nginx -t && sudo systemctl reload nginx
 ### 6.2 Apache (alternative)
 
 The `scripts/deploy/htaccess.dist` shipped for the FTP flow works just as well
-here. Symlink it (or copy it) into `backend/public/.htaccess`:
+here. Copy it into the host-owned, ignored `backend/public/.htaccess`:
 
 ```sh
-ln -s /var/www/comics/scripts/deploy/htaccess.dist /var/www/comics/backend/public/.htaccess
+cp /var/www/comics/scripts/deploy/htaccess.dist /var/www/comics/backend/public/.htaccess
 ```
+
+Do not symlink this file on O2Switch. cPanel Directory Privacy adds its own
+authentication directives, and deployment deliberately preserves that
+host-owned file rather than letting Git replace it.
 
 You also need:
 
@@ -796,54 +806,15 @@ releases.
 
 ## 9. GitHub Actions automation
 
-You can add a separate workflow that runs `deploy-ssh.sh` on every push to
-`main`. Do **not** replace `.github/workflows/build-frontend.yml` — that file
-runs validation on PRs/pushes and should stay.
+Automatic O2Switch deployment is shipped in
+`.github/workflows/build-frontend.yml`; do not create an independent deploy
+workflow that can bypass validation. It dynamically authorizes only the current
+runner IP, uses a reviewed host key and dedicated SSH key, deploys the frontend
+artifact from the same workflow, and always attempts exact-IP cleanup in both
+firewall directions.
 
-Create `.github/workflows/deploy-ssh.yml` (example only; not shipped):
-
-```yaml
-name: Deploy via SSH
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Add server to known_hosts
-        run: ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Write .env.deploy
-        run: |
-          {
-            echo "SSH_HOST=${{ secrets.SSH_HOST }}"
-            echo "SSH_USER=${{ secrets.SSH_USER }}"
-            echo "SSH_PORT=${{ secrets.SSH_PORT }}"
-            echo "SSH_REMOTE_PATH=${{ secrets.SSH_REMOTE_PATH }}"
-            echo "SSH_GIT_BRANCH=main"
-            echo "SSH_WEB_USER=www-data"
-            echo "SSH_POST_DEPLOY_HOOK=${{ secrets.SSH_POST_DEPLOY_HOOK }}"
-            echo "SSH_BACKUP_COMMAND=${{ secrets.SSH_BACKUP_COMMAND }}"
-          } > scripts/.env.deploy
-          chmod 600 scripts/.env.deploy
-
-      - name: Deploy
-        run: ./scripts/deploy-ssh.sh
-```
-
-Required secrets: `SSH_PRIVATE_KEY`, `SSH_HOST`, `SSH_USER`, `SSH_PORT`,
-`SSH_REMOTE_PATH`, `SSH_POST_DEPLOY_HOOK`, `SSH_BACKUP_COMMAND`
-(typically `/var/www/comics/scripts/server/backup-comics.sh`).
+The complete GitHub Environment and O2Switch operator checklist is in
+[docs/continuous-deployment.md](docs/continuous-deployment.md).
 
 ---
 
@@ -989,7 +960,7 @@ backup + the server's daily snapshot.
 | ------------------------------------------ | -------------------------------------------------------------- |
 | `scripts/.env.deploy.example`              | Template for both FTP and SSH credentials.                     |
 | `scripts/.env.deploy`                      | Your real credentials (gitignored). For SSH you only need the `SSH_*` block. |
-| `scripts/deploy-ssh.sh`                    | Laptop-side driver. SSHes in, runs `git pull`, calls `server-deploy.sh`. |
+| `scripts/deploy-ssh.sh`                    | Laptop-side fallback. Uploads the transaction helper, which backs up before updating Git. |
 | `scripts/server/server-install.sh`         | One-time installer run on the server. Bootstraps the env file then runs `server-deploy.sh`. |
 | `scripts/server/server-deploy.sh`          | Server-side build: composer + npm + migrate + cache + chown + hook. |
 | `scripts/server/backup-comics.sh`          | Pre-deploy / cron backup of DB + `backend/public/uploads/`. Point `SSH_BACKUP_COMMAND` here. |
@@ -1033,8 +1004,8 @@ git push origin main
 ./scripts/deploy-ssh.sh --command="tail -n 200 backend/var/log/app/$(date +%F).log"
 ./scripts/deploy-ssh.sh --no-git            # apply build without pulling new commits
 
-# Roll back
-git revert HEAD && git push && ./scripts/deploy-ssh.sh
+# Roll back (the push deploys automatically when CD is configured)
+git revert HEAD && git push
 ```
 
 Pair this with `deploy.md` (FTP flow) — the two paths are complementary, and

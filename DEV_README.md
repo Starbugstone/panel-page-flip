@@ -2009,27 +2009,27 @@ Key changes:
 
 ## Production Deployment
 
-### CI does not deploy
+Automatic staging/production setup, safety invariants, operator checklist and
+rollback procedure are documented in
+[docs/continuous-deployment.md](docs/continuous-deployment.md).
 
-`.github/workflows/build-frontend.yml` is named **Validate Application** and is
-exactly that. It builds, lints, tests and audits both halves of the application
-on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**` and
-`ci/**`, and on pushes to `main` and `develop`. It uploads the frontend build as
-an artifact and stops there.
+### Validated continuous deployment
 
-This is deliberate, and the workflow says so at the bottom of the file: frontend
-and backend changes can depend on each other, so they ship together through the
-backup-gated release scripts rather than one half being FTP'd on merge. An
-earlier version of this project did deploy the frontend automatically, and
-`deploy.md` still carries the lessons from what that cost.
+`.github/workflows/build-frontend.yml` builds, lints, tests and audits both
+halves of the application. Pull requests validate only. Successful pushes to
+`develop` and `main` reuse that run's frontend artifact and invoke the same
+backup-gated server transaction for staging and production respectively. The
+workflow is inert and fails closed until both GitHub Environments and the
+host-side identity markers are configured.
 
 ### How a release actually goes out
 
-Two supported paths, both driven from `scripts/` and both gated on a verified
-backup:
+Three supported paths, all driven by the repository release scripts and gated
+on a verified backup:
 
 | Path | Guide | Use when |
 |---|---|---|
+| Automatic O2Switch CD | [docs/continuous-deployment.md](docs/continuous-deployment.md) | Normal `develop` staging and `main` production releases |
 | SSH + Git | [SSH-deploy.md](SSH-deploy.md) | The server has SSH and Git access — a VPS |
 | FTP/FTPS packages | [deploy.md](deploy.md) | Shared hosting with no shell |
 
@@ -2056,8 +2056,9 @@ removed. See the production checklist in
 
 ### Before every release
 
-1. Verify a current database backup.
-2. Verify a current `backend/public/uploads/` backup.
+1. Verify the configured backup command remains healthy and has capacity; the
+   automatic transaction runs it and requires success before changing code.
+2. Regularly restore-test both the database and `backend/public/uploads/` backup.
 3. Confirm the backed-up `APP_DATA_KEY` matches production.
 4. Confirm the release checkout is clean, committed, and matches `origin/main`.
 5. Build and deploy frontend and backend as one release.

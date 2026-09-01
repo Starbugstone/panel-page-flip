@@ -17,17 +17,34 @@ on:
   push:
     branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: Deploy only when the selected workflow branch matches this target
+        required: true
+        default: validation-only
+        type: choice
+        options:
+          - validation-only
+          - staging
+          - production
 
 permissions:
   contents: read
 
 concurrency:
-  group: frontend-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Pull-request feedback may discard a superseded run. A push can enter the
+  # backup/migration transaction, so it must finish; GitHub keeps only the
+  # newest pending run in this per-branch group and cannot roll a newer deploy
+  # back by completing an older queued workflow afterward.
+  group: application-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate-frontend:
     runs-on: ubuntu-latest
+
+    env:
+      BUILD_APP_URL: ${{ (github.ref == 'refs/heads/develop' || github.base_ref == 'develop') && 'https://dev.comics.starbugstone.com' || 'https://comics.starbugstone.com' }}
 
     defaults:
       run:
@@ -75,14 +92,18 @@ jobs:
       - name: Build production frontend
         run: npm run build
         env:
-          APP_URL: https://comics.starbugstone.com
+          APP_URL: ${{ env.BUILD_APP_URL }}
           VITE_BUILD_ID: ${{ github.run_id }}
           VITE_BUILD_TIME: ${{ github.event.head_commit.timestamp }}
 
       - name: Validate generated sitemap, robots and canonical metadata
         run: npm run check:seo
         env:
-          APP_URL: https://comics.starbugstone.com
+          APP_URL: ${{ env.BUILD_APP_URL }}
+
+      - name: Record build provenance
+        run: |
+          printf 'commit=%s\napp_url=%s\n' "$GITHUB_SHA" "$BUILD_APP_URL" > dist/deployment-commit.txt
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
@@ -145,5 +166,134 @@ jobs:
         if: failure()
         run: docker compose logs
 
-# Production is deliberately not deployed from this workflow. Frontend and
-# backend changes must ship together through the backup-gated release scripts.
+  deploy:
+    needs: [validate-frontend, validate-backend]
+    if: >-
+      (github.event_name == 'push' &&
+        (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')) ||
+      (github.event_name == 'workflow_dispatch' &&
+        ((inputs.deploy_target == 'staging' && github.ref == 'refs/heads/develop') ||
+         (inputs.deploy_target == 'production' && github.ref == 'refs/heads/main')))
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_target) || (github.ref == 'refs/heads/develop' && 'staging') || 'production' }}
+      url: ${{ vars.APP_URL }}
+
+    steps:
+      - name: Check out the validated commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download the validated frontend
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-build
+          path: ${{ runner.temp }}/frontend-build
+
+      - name: Validate branch and environment mapping
+        env:
+          DEPLOY_ENVIRONMENT: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_target) || (github.ref == 'refs/heads/develop' && 'staging') || 'production' }}
+          DEPLOY_APP_URL: ${{ vars.APP_URL }}
+          DEPLOY_SHA: ${{ github.sha }}
+          PREBUILT_FRONTEND_DIR: ${{ runner.temp }}/frontend-build
+          O2_REMOTE_PATH: ${{ vars.O2_REMOTE_PATH }}
+          O2_SSH_HOST: ${{ secrets.O2_SSH_HOST }}
+          O2_SSH_USER: ${{ secrets.O2_SSH_USER }}
+          CPANEL_SERVER: ${{ secrets.CPANEL_SERVER }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          case "$DEPLOY_ENVIRONMENT:$GITHUB_REF" in
+            staging:refs/heads/develop|production:refs/heads/main) ;;
+            *) printf 'Refusing unsafe deployment mapping: %s -> %s\n' "$GITHUB_REF" "$DEPLOY_ENVIRONMENT" >&2; exit 1 ;;
+          esac
+          remote_sha="$(git ls-remote --exit-code origin "$GITHUB_REF" | awk 'NR == 1 { print $1 }')"
+          [[ "$remote_sha" =~ ^[0-9a-f]{40}$ ]] || { printf 'Deployment branch did not resolve to one commit.\n' >&2; exit 1; }
+          [ "$remote_sha" = "$DEPLOY_SHA" ] || { printf 'This workflow SHA was superseded; the newest queued run will deploy instead.\n' >&2; exit 1; }
+          [[ "$DEPLOY_APP_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || { printf 'The selected GitHub Environment needs one HTTPS APP_URL origin.\n' >&2; exit 1; }
+          [[ "$O2_REMOTE_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { printf 'The selected GitHub Environment needs a safe absolute O2_REMOTE_PATH.\n' >&2; exit 1; }
+          [ -n "$O2_SSH_HOST" ] && [ -n "$O2_SSH_USER" ] || { printf 'O2Switch SSH target secrets are incomplete.\n' >&2; exit 1; }
+          [ -n "$CPANEL_SERVER" ] && [ -n "$CPANEL_USERNAME" ] && [ -n "$CPANEL_API_TOKEN" ] || { printf 'cPanel API token secrets are incomplete.\n' >&2; exit 1; }
+          grep -Fxq "commit=$DEPLOY_SHA" "$PREBUILT_FRONTEND_DIR/deployment-commit.txt" || { printf 'Frontend artifact SHA provenance mismatch.\n' >&2; exit 1; }
+          grep -Fxq "app_url=$DEPLOY_APP_URL" "$PREBUILT_FRONTEND_DIR/deployment-commit.txt" || { printf 'Frontend artifact APP_URL provenance mismatch.\n' >&2; exit 1; }
+
+      - name: Configure dedicated SSH authentication
+        env:
+          O2_SSH_PRIVATE_KEY: ${{ secrets.O2_SSH_PRIVATE_KEY }}
+          O2_SSH_KNOWN_HOSTS: ${{ secrets.O2_SSH_KNOWN_HOSTS }}
+          O2_SSH_HOST: ${{ secrets.O2_SSH_HOST }}
+          O2_SSH_PORT: ${{ vars.O2_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [ -n "$O2_SSH_PRIVATE_KEY" ] || { printf 'O2_SSH_PRIVATE_KEY is not configured.\n' >&2; exit 1; }
+          [ -n "$O2_SSH_KNOWN_HOSTS" ] || { printf 'O2_SSH_KNOWN_HOSTS is not configured.\n' >&2; exit 1; }
+          printf '%s\n' "$O2_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/o2-deploy-key"
+          printf '%s\n' "$O2_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/o2-known-hosts"
+          chmod 600 "$RUNNER_TEMP/o2-deploy-key" "$RUNNER_TEMP/o2-known-hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/o2-deploy-key" >/dev/null
+          ssh_lookup="$O2_SSH_HOST"
+          [ -z "$O2_SSH_PORT" ] || [ "$O2_SSH_PORT" = "22" ] || ssh_lookup="[$O2_SSH_HOST]:$O2_SSH_PORT"
+          ssh-keygen -F "$ssh_lookup" -f "$RUNNER_TEMP/o2-known-hosts" >/dev/null || { printf 'O2_SSH_KNOWN_HOSTS has no entry for the SSH target.\n' >&2; exit 1; }
+
+      - name: Resolve the runner IPv4 address
+        id: runner-ip
+        run: |
+          set -euo pipefail
+          runner_ip="$(curl --silent --show-error --fail --max-time 15 https://api.ipify.org)"
+          scripts/ci/o2-firewall.sh validate "$runner_ip"
+          printf 'address=%s\n' "$runner_ip" >> "$GITHUB_OUTPUT"
+
+      - name: Add the temporary O2Switch SSH exception
+        env:
+          CPANEL_SERVER: ${{ secrets.CPANEL_SERVER }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+        run: scripts/ci/o2-firewall.sh add '${{ steps.runner-ip.outputs.address }}' "$RUNNER_TEMP/o2-firewall-owned-ip"
+
+      - name: Deploy the exact validated commit
+        env:
+          DEPLOY_ENVIRONMENT: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_target) || (github.ref == 'refs/heads/develop' && 'staging') || 'production' }}
+          DEPLOY_BRANCH: ${{ github.ref_name }}
+          DEPLOY_SHA: ${{ github.sha }}
+          APP_URL: ${{ vars.APP_URL }}
+          PREBUILT_FRONTEND_DIR: ${{ runner.temp }}/frontend-build
+          O2_REMOTE_PATH: ${{ vars.O2_REMOTE_PATH }}
+          O2_BACKUP_COMMAND: ${{ vars.O2_BACKUP_COMMAND }}
+          O2_WEB_USER: ${{ vars.O2_WEB_USER }}
+          O2_WEB_GROUP: ${{ vars.O2_WEB_GROUP }}
+          O2_POST_DEPLOY_HOOK: ${{ secrets.O2_POST_DEPLOY_HOOK }}
+          O2_SSH_HOST: ${{ secrets.O2_SSH_HOST }}
+          O2_SSH_USER: ${{ secrets.O2_SSH_USER }}
+          O2_SSH_PORT: ${{ vars.O2_SSH_PORT }}
+          O2_SSH_KEY_FILE: ${{ runner.temp }}/o2-deploy-key
+          O2_KNOWN_HOSTS_FILE: ${{ runner.temp }}/o2-known-hosts
+        run: scripts/ci/deploy-o2switch.sh
+
+      - name: Smoke test the deployed application
+        env:
+          DEPLOY_ENVIRONMENT: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_target) || (github.ref == 'refs/heads/develop' && 'staging') || 'production' }}
+          APP_URL: ${{ vars.APP_URL }}
+          STAGING_BASIC_AUTH_USERNAME: ${{ secrets.STAGING_BASIC_AUTH_USERNAME }}
+          STAGING_BASIC_AUTH_PASSWORD: ${{ secrets.STAGING_BASIC_AUTH_PASSWORD }}
+        run: scripts/ci/http-smoke.sh
+
+      - name: Remove the temporary O2Switch SSH exception
+        if: always()
+        env:
+          CPANEL_SERVER: ${{ secrets.CPANEL_SERVER }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+          RUNNER_IP: ${{ steps.runner-ip.outputs.address }}
+        run: |
+          set -u
+          marker="$RUNNER_TEMP/o2-firewall-owned-ip"
+          [ -n "$RUNNER_IP" ] && [ -f "$marker" ] || exit 0
+          [ "$(tr -d '\r\n' < "$marker")" = "$RUNNER_IP" ] || { printf 'Firewall ownership marker mismatch.\n' >&2; exit 1; }
+          cleanup_status=0
+          scripts/ci/o2-firewall.sh remove "$RUNNER_IP" in || cleanup_status=1
+          scripts/ci/o2-firewall.sh remove "$RUNNER_IP" out || cleanup_status=1
+          rm -f -- "$marker"
+          exit "$cleanup_status"

@@ -94,6 +94,6 @@ The baseline is a record of accepted debt, not a list of harmless noise: entries
 
 ## What CI enforces
 
-`.github/workflows/build-frontend.yml` ("Validate Application") runs every command on this page — both halves — on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**` and `ci/**`, and on pushes to `main` and `develop`. It validates and does not deploy.
+`.github/workflows/build-frontend.yml` ("Validate Application") runs every command on this page — both halves — on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**` and `ci/**`, and on pushes to `main` and `develop`. Pull requests validate only; after the [O2Switch CD setup](continuous-deployment.md), successful deployment-branch pushes continue into the environment-specific backup-gated job.
 
 The pre-push list in `AGENTS.md` is the same set. This page explains the gates; CI is what enforces them.

@@ -1,4 +1,5 @@
 parameters:
+    frontend_index_file: '%kernel.project_dir%/tests/Fixtures/frontend-index.html'
     # Never let the test suite share an upload tree with the running app. Tests
     # create and delete files under these paths, and pointing them at
     # public/uploads puts real comics within reach of a test's cleanup.
