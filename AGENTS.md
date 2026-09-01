@@ -98,7 +98,7 @@ entries, PDF objects, XML, filenames — is attacker-controlled.
 ## Always commit
 
 GitHub is the source of truth: several agents may be working at once, and
-uncommitted work is invisible to them. When a task is finished, commit and push
+uncommitted work is invisible to them. When a task is finished, commit and push and create PR if necessary
 the files that task changed. Do not wait for a separate "please commit" — this
 section is that request.
 
