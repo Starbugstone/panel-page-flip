@@ -11,6 +11,7 @@ npm run lint
 npm run test
 npm run test:coverage
 npm run check:dead-code
+npm run check:duplication
 npm run build
 ```
 
@@ -29,6 +30,11 @@ a threshold requires an explicitly reviewed policy change. `check:dead-code` use
 unreachable source files, unused dependencies, unlisted imports and duplicate
 exports. Test-only access to an internal helper is not treated as a dead
 production file.
+
+`check:duplication` scans production PHP, JavaScript, JSX and operational
+scripts for repeated blocks of at least 15 lines and 100 tokens. The threshold
+is zero: a match must be expressed once or shown to be smaller structural
+boilerplate by tightening the detector deliberately, not ignored ad hoc.
 
 ### Checks over committed artefacts
 

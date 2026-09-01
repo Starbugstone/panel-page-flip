@@ -6,6 +6,7 @@ namespace App\Tests\Unit\Command;
 
 use App\Command\CreateAdminUserCommand;
 use App\Command\CreateUserCommand;
+use App\Command\CommandPasswordUpdater;
 use App\Command\ResetUserPasswordCommand;
 use App\Entity\User;
 use App\Repository\UserRepository;
@@ -55,8 +56,7 @@ final class PasswordPolicyCommandTest extends TestCase
 
         $tester = new CommandTester(new CreateUserCommand(
             $entityManager,
-            $passwordHasher,
-            new PasswordValidator(),
+            new CommandPasswordUpdater(new PasswordValidator(), $passwordHasher),
         ));
 
         $this->assertPasswordIsRejected($tester, 'user@example.test');
@@ -75,8 +75,7 @@ final class PasswordPolicyCommandTest extends TestCase
 
         $tester = new CommandTester(new ResetUserPasswordCommand(
             $entityManager,
-            $passwordHasher,
-            new PasswordValidator(),
+            new CommandPasswordUpdater(new PasswordValidator(), $passwordHasher),
         ));
 
         $this->assertPasswordIsRejected($tester, 'user@example.test');

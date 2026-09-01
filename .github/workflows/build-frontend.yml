@@ -65,6 +65,9 @@ jobs:
       - name: Reject unreachable files and unused dependencies
         run: npm run check:dead-code
 
+      - name: Reject duplicated production blocks
+        run: npm run check:duplication
+
       - name: Validate shared frontend route manifest
         run: npm run check:routes
 
