@@ -20,6 +20,119 @@ import { useToast } from "@/hooks/use-toast";
 import { SHARE_CODE_TYPES } from "@/lib/sharing";
 import { MAX_BULK_COMICS, MODES, TARGETS } from "@/lib/sharing-workflow";
 
+function ShareDialogHeading({ folder }) {
+  return (
+    <DialogHeader>
+      <DialogTitle className="flex items-center gap-2">
+        <Share2 className="h-5 w-5" />
+        {folder ? `Share “${folder.folderName}”` : "Share comics"}
+      </DialogTitle>
+      <DialogDescription>
+        {folder
+          ? "Everything you own in this folder and its subfolders, offered as one act. "
+            + "The recipient accepts the folder once; you can still withdraw any comic later. Share it with somebody by "
+            + "username, by their U- code or by email; registered users are never searched or listed."
+          : "Choose comics you own, then share them with somebody by username, by their U- code or "
+            + "by email — or put them behind a code anyone you give it to can redeem. Registered "
+            + "users are never searched or listed."}
+      </DialogDescription>
+    </DialogHeader>
+  );
+}
+
+function FolderShareContents({ folder, selectedCount }) {
+  return (
+    <section className="space-y-1">
+      <h3 className="font-semibold">1. Folder contents</h3>
+      <p className="text-sm text-muted-foreground">
+        {selectedCount} {selectedCount === 1 ? "comic" : "comics"} will be shared.
+        {folder.unshareableCount > 0 && (
+          <> {folder.unshareableCount} not yours to share {folder.unshareableCount === 1 ? "was" : "were"} left out.</>
+        )}
+      </p>
+    </section>
+  );
+}
+
+function ShareWorkflowBody({
+  selection,
+  folder,
+  lockSelection,
+  recipient,
+  submission,
+  mode,
+  codeAvailable,
+  onModeChange,
+  setError,
+  summary,
+  markExplicit,
+  setMarkExplicit,
+  responsibilityAccepted,
+  setResponsibilityAccepted,
+  error,
+}) {
+  if (selection.isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-12 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Loading your comics…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 py-2">
+      {folder ? (
+        <FolderShareContents folder={folder} selectedCount={selection.selectedComicIds.length} />
+      ) : (
+        <ShareComicPicker {...selection} lockSelection={lockSelection} folder={folder} />
+      )}
+      <ShareRecipientPicker
+        {...recipient}
+        {...submission}
+        mode={mode}
+        codeAvailable={codeAvailable}
+        setMode={onModeChange}
+        recentRecipients={selection.recentRecipients}
+        selectedComicIds={selection.selectedComicIds}
+        codeType={selection.codeType}
+        setError={setError}
+      />
+      <ShareReviewStep
+        reviewSummary={summary}
+        confirmationPending={recipient.confirmationPending}
+        selectedComics={selection.selectedComics}
+        selectedComicIds={selection.selectedComicIds}
+        lockSelection={lockSelection}
+        markExplicit={markExplicit}
+        setMarkExplicit={setMarkExplicit}
+        alreadyExplicitCount={selection.alreadyExplicitCount}
+        responsibilityAccepted={responsibilityAccepted}
+        setResponsibilityAccepted={setResponsibilityAccepted}
+        isSending={submission.isSending}
+      />
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+function ShareDialogActions({ submission, selection, canSubmit, mode, folder, onClose }) {
+  return (
+    <DialogFooter>
+      <Button variant="outline" onClick={onClose} disabled={submission.isSending}>
+        {submission.issuedCode ? "Done" : "Cancel"}
+      </Button>
+      {!submission.issuedCode && (
+        <Button onClick={submission.submit} disabled={selection.isLoading || submission.isSending || !canSubmit}>
+          {submission.isSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {submitLabel({ mode, codeType: selection.codeType, count: selection.selectedComicIds.length, folder })}
+        </Button>
+      )}
+    </DialogFooter>
+  );
+}
+
 /**
  * The one share workflow, wherever it is opened from.
  *
@@ -90,94 +203,51 @@ export function ShareComicsDialog({
 
   const summary = shareSummary({ mode, selection, recipient, folder, usesValue: submission.usesValue });
   const canSubmit = selection.selectedComicIds.length > 0 && responsibilityAccepted && recipient.recipientChosen;
+  const changeMode = (value) => {
+    setMode(value);
+    setError(null);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !submission.isSending) onClose(); }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[720px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Share2 className="h-5 w-5" />
-            {folder ? `Share “${folder.folderName}”` : "Share comics"}
-          </DialogTitle>
-          <DialogDescription>
-            {folder
-              ? "Everything you own in this folder and its subfolders, offered as one act. "
-                + "The recipient accepts the folder once; you can still withdraw any comic later. Share it with somebody by "
-                + "username, by their U- code or by email; registered users are never searched or listed."
-              : "Choose comics you own, then share them with somebody by username, by their U- code or "
-                + "by email — or put them behind a code anyone you give it to can redeem. Registered "
-                + "users are never searched or listed."}
-          </DialogDescription>
-        </DialogHeader>
-
-        {selection.isLoading ? (
-          <div className="flex items-center gap-2 py-12 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Loading your comics…
-          </div>
-        ) : (
-          <div className="space-y-6 py-2">
-            {folder ? (
-              <section className="space-y-1">
-                <h3 className="font-semibold">1. Folder contents</h3>
-                <p className="text-sm text-muted-foreground">
-                  {selection.selectedComicIds.length} {selection.selectedComicIds.length === 1 ? "comic" : "comics"} will be shared.
-                  {folder.unshareableCount > 0 && (
-                    <> {folder.unshareableCount} not yours to share {folder.unshareableCount === 1 ? "was" : "were"} left out.</>
-                  )}
-                </p>
-              </section>
-            ) : (
-              <ShareComicPicker {...selection} lockSelection={lockSelection} folder={folder} />
-            )}
-            <ShareRecipientPicker
-              {...recipient}
-              {...submission}
-              mode={mode}
-              codeAvailable={codeAvailable}
-              setMode={(value) => { setMode(value); setError(null); }}
-              recentRecipients={selection.recentRecipients}
-              selectedComicIds={selection.selectedComicIds}
-              codeType={selection.codeType}
-              setError={setError}
-            />
-            <ShareReviewStep
-              reviewSummary={summary}
-              confirmationPending={recipient.confirmationPending}
-              selectedComics={selection.selectedComics}
-              selectedComicIds={selection.selectedComicIds}
-              lockSelection={lockSelection}
-              markExplicit={markExplicit}
-              setMarkExplicit={setMarkExplicit}
-              alreadyExplicitCount={selection.alreadyExplicitCount}
-              responsibilityAccepted={responsibilityAccepted}
-              setResponsibilityAccepted={setResponsibilityAccepted}
-              isSending={submission.isSending}
-            />
-
-            {error && <p className="text-sm text-destructive">{error}</p>}
-          </div>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={submission.isSending}>
-            {submission.issuedCode ? "Done" : "Cancel"}
-          </Button>
-          {!submission.issuedCode && (
-            <Button onClick={submission.submit} disabled={selection.isLoading || submission.isSending || !canSubmit}>
-              {submission.isSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {submitLabel({ mode, codeType: selection.codeType, count: selection.selectedComicIds.length, folder })}
-            </Button>
-          )}
-        </DialogFooter>
+        <ShareDialogHeading folder={folder} />
+        <ShareWorkflowBody
+          selection={selection}
+          folder={folder}
+          lockSelection={lockSelection}
+          recipient={recipient}
+          submission={submission}
+          mode={mode}
+          codeAvailable={codeAvailable}
+          onModeChange={changeMode}
+          setError={setError}
+          summary={summary}
+          markExplicit={markExplicit}
+          setMarkExplicit={setMarkExplicit}
+          responsibilityAccepted={responsibilityAccepted}
+          setResponsibilityAccepted={setResponsibilityAccepted}
+          error={error}
+        />
+        <ShareDialogActions
+          submission={submission}
+          selection={selection}
+          canSubmit={canSubmit}
+          mode={mode}
+          folder={folder}
+          onClose={onClose}
+        />
       </DialogContent>
     </Dialog>
   );
 }
 
-const submitLabel = ({ mode, codeType, count, folder }) => mode === MODES.CODE
-  ? `Create ${codeType === SHARE_CODE_TYPES.GROUP ? "group" : "comic"} code`
-  : folder || count === 1 ? "Send invitation" : "Send invitations";
+function submitLabel({ mode, codeType, count, folder }) {
+  if (mode === MODES.CODE) {
+    return `Create ${codeType === SHARE_CODE_TYPES.GROUP ? "group" : "comic"} code`;
+  }
+  return folder || count === 1 ? "Send invitation" : "Send invitations";
+}
 
 /**
  * What is about to happen, in one sentence.
@@ -201,7 +271,7 @@ function shareSummary({ mode, selection, recipient, folder, usesValue }) {
       + "You can withdraw the code, or any share it created, at any time.";
   }
 
-  const to = mode === MODES.CODE ? "whoever you give the code to" : recipient.label;
+  const to = recipient.label;
   if (folder) {
     return `${comics} will be offered to ${to} in one invitation. `
       + "They can accept the whole folder once, and you can withdraw any comic later.";
