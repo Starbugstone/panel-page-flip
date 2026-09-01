@@ -169,7 +169,7 @@ final class SharingWorkflowService
                     // The same rule the shared-by-me list uses, so the label a
                     // sender picks from and the label they read afterwards
                     // cannot describe one person two ways.
-                    'label' => UsernamePolicy::describe($username, $name),
+                    'label' => UsernamePolicy::describe($username, $name) ?? $username,
                 ];
                 continue;
             }

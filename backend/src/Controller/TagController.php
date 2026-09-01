@@ -90,10 +90,7 @@ class TagController extends AbstractController
     ): JsonResponse {
         $user = $this->requireUser();
 
-        $data = $this->decodePayload($request);
-        if ($data instanceof JsonResponse) {
-            return $data;
-        }
+        $data = \App\Http\JsonRequestDecoder::decode($request);
 
         $tagName = $this->readTagName($data);
         if ($tagName instanceof JsonResponse) {
@@ -136,21 +133,6 @@ class TagController extends AbstractController
             'message' => 'Tag created successfully',
             'tag' => $this->serializeTag($tag),
         ], Response::HTTP_CREATED);
-    }
-
-    /**
-     * Decode the JSON request body.
-     *
-     * @return array<string, mixed>|JsonResponse The payload, or the error response to return.
-     */
-    private function decodePayload(Request $request): array|JsonResponse
-    {
-        $data = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($data)) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
-        }
-
-        return $data;
     }
 
     /**
@@ -257,10 +239,7 @@ class TagController extends AbstractController
             return $this->json(['message' => 'You are not authorized to update this tag'], Response::HTTP_FORBIDDEN);
         }
 
-        $data = $this->decodePayload($request);
-        if ($data instanceof JsonResponse) {
-            return $data;
-        }
+        $data = \App\Http\JsonRequestDecoder::decode($request);
 
         $tagName = $this->readTagName($data);
         if ($tagName instanceof JsonResponse) {

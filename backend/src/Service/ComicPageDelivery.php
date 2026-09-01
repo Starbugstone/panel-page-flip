@@ -165,7 +165,7 @@ final class ComicPageDelivery
      */
     private function scale(\GdImage $image, int $width, int $height, int $targetWidth): \GdImage
     {
-        if ($targetWidth >= $width) return $image;
+        if ($width < 1 || $height < 1 || $targetWidth < 1 || $targetWidth >= $width) return $image;
 
         $targetHeight = max(1, (int) round($height * ($targetWidth / $width)));
         $resized = @imagecreatetruecolor($targetWidth, $targetHeight);

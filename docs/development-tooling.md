@@ -106,9 +106,10 @@ composer test:coverage
 method coverage below the checked-in ratchet. PCOV is installed in the PHP image
 but disabled for ordinary CLI and FPM requests; only this command enables it.
 
-PHPStan uses a baseline for pre-existing findings so new code cannot silently increase static-analysis debt. Reduce the baseline opportunistically when touching existing code.
-
-The baseline is a record of accepted debt, not a list of harmless noise: entries have hidden real bugs here before. When an entry sits on code you are changing, read what it is actually claiming before re-baselining it.
+PHPStan checks all backend source at level 8 with the Doctrine and Symfony
+extensions and no baseline. A finding must be resolved in the code or explained
+by a narrowly scoped type assertion; generating a baseline would hide new debt
+and is not part of the workflow.
 
 ## What CI enforces
 

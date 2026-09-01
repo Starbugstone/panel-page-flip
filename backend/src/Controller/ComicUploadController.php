@@ -9,8 +9,11 @@ use App\Enum\ComicSourceType;
 use App\Service\ComicFormatService;
 use App\Service\ComicSerializer;
 use App\Service\ComicService;
+use App\Service\ComicUploadRejectedException;
 use App\Service\ComicUploadFilenameValidator;
 use App\Service\LibraryFolderService;
+use App\Service\StorageQuotaBusyException;
+use App\Service\StorageQuotaExceededException;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -105,6 +108,112 @@ class ComicUploadController extends AbstractController
         if (!preg_match(self::FILE_ID_REGEX, $fileId)) {
             throw new BadRequestHttpException('Invalid fileId.');
         }
+    }
+
+    #[Route('', name: 'create', methods: ['POST'])]
+    public function create(
+        Request $request,
+        ComicService $comicService,
+        LibraryFolderService $folderService
+    ): JsonResponse {
+        $user = $this->requireUser();
+        $comicFile = $request->files->get('file');
+        if (!$comicFile instanceof UploadedFile) {
+            return $this->json(['message' => 'No file uploaded'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $form = $request->request->all();
+        try {
+            $title = $this->formString($form, 'title');
+            $author = $this->formString($form, 'author');
+            $publisher = $this->formString($form, 'publisher');
+            $description = $this->formString($form, 'description');
+            $tags = $this->tags($this->formString($form, 'tags'));
+            $folder = $this->formString($form, 'folderId');
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['message' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
+
+        if ($title === null || trim($title) === '') {
+            return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $folderId = null;
+        if ($folder !== null) {
+            if (!ctype_digit($folder) || (int) $folder < 1 || $folderService->findOwned($user, (int) $folder) === null) {
+                return $this->json(['message' => 'Folder not found.'], Response::HTTP_BAD_REQUEST);
+            }
+            $folderId = (int) $folder;
+        }
+
+        try {
+            $comic = $comicService->uploadComic($comicFile, $user, $title, $author, $publisher, $description, $tags);
+            $folderService->placeUploadedComic($user, $comic, $folderId);
+
+            return $this->json([
+                'message' => 'Comic uploaded successfully',
+                'comic' => ['id' => $comic->getId(), 'title' => $comic->getTitle()],
+            ], Response::HTTP_CREATED);
+        } catch (ComicUploadRejectedException $exception) {
+            $this->logger->warning('Comic upload failed.', ['user_id' => $user->getId(), 'exception' => $exception]);
+
+            return $this->json(['message' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        } catch (StorageQuotaExceededException $exception) {
+            $this->logger->warning('Comic upload exceeded storage quota.', ['user_id' => $user->getId(), 'exception' => $exception]);
+
+            return $this->json(['message' => 'User storage quota exceeded.'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        } catch (StorageQuotaBusyException $exception) {
+            $this->logger->warning('Comic upload could not acquire the storage lock.', ['user_id' => $user->getId(), 'exception' => $exception]);
+
+            return $this->json(
+                ['message' => 'Another storage operation is already in progress. Please try again.'],
+                Response::HTTP_CONFLICT
+            );
+        } catch (\Throwable $exception) {
+            $this->logger->error('Comic upload failed because of an internal error.', [
+                'user_id' => $user->getId(),
+                'exception' => $exception,
+            ]);
+
+            return $this->json(
+                ['message' => 'Upload failed because of a server error. Please try again later.'],
+                Response::HTTP_INTERNAL_SERVER_ERROR
+            );
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $form
+     */
+    private function formString(array $form, string $field): ?string
+    {
+        if (!array_key_exists($field, $form) || $form[$field] === '') {
+            return null;
+        }
+        if (!is_string($form[$field])) {
+            throw new \InvalidArgumentException(sprintf('%s must be a string.', ucfirst($field)));
+        }
+
+        return $form[$field];
+    }
+
+    /** @return list<string> */
+    private function tags(?string $encoded): array
+    {
+        if ($encoded === null) {
+            return [];
+        }
+
+        try {
+            $tags = json_decode($encoded, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw new \InvalidArgumentException('Tags must be a JSON array of strings.');
+        }
+        if (!is_array($tags) || !array_is_list($tags) || array_filter($tags, static fn (mixed $tag): bool => !is_string($tag)) !== []) {
+            throw new \InvalidArgumentException('Tags must be a JSON array of strings.');
+        }
+
+        return $tags;
     }
 
     /**
@@ -445,6 +554,9 @@ class ComicUploadController extends AbstractController
         $extension = ComicSourceType::fromFilename($filename)->value;
         $finalFilePath = $userChunkDir . '/assembled.' . $extension;
         $finalFile = fopen($finalFilePath, 'wb');
+        if ($finalFile === false) {
+            throw new \RuntimeException('Failed to open the assembled upload for writing.');
+        }
 
         for ($i = 0; $i < $metadata['totalChunks']; $i++) {
             $chunkPath = $userChunkDir . '/chunk_' . $i;
@@ -454,7 +566,10 @@ class ComicUploadController extends AbstractController
             }
 
             $chunkData = file_get_contents($chunkPath);
-            fwrite($finalFile, $chunkData);
+            if ($chunkData === false || fwrite($finalFile, $chunkData) === false) {
+                fclose($finalFile);
+                throw new \RuntimeException('Failed to assemble an upload chunk.');
+            }
             unlink($chunkPath); // Delete chunk after combining
         }
 
@@ -464,7 +579,7 @@ class ComicUploadController extends AbstractController
         $tempFile = new UploadedFile(
             $finalFilePath,
             $filename,
-            mime_content_type($finalFilePath),
+            ComicSourceType::fromFilename($filename)->mimeType(),
             null,
             true // Test mode to avoid moving the file
         );

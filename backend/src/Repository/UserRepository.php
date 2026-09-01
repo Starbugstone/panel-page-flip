@@ -18,11 +18,6 @@ use Symfony\Component\Security\Core\User\PasswordUpgraderInterface;
 
 /**
  * @extends ServiceEntityRepository<User>
- *
- * @method User|null find($id, $lockMode = null, $lockVersion = null)
- * @method User|null findOneBy(array $criteria, array $orderBy = null)
- * @method User[]    findAll()
- * @method User[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class UserRepository extends ServiceEntityRepository implements PasswordUpgraderInterface
 {
@@ -275,7 +270,12 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             return [];
         }
 
-        $stats = [];
+        $stats = array_fill_keys($userIds, [
+            'comicCount' => 0,
+            'storageUsedBytes' => 0,
+            'unmeasuredComicCount' => 0,
+            'tagCount' => 0,
+        ]);
         foreach ($this->comics->getStorageStatsByOwner($userIds) as $userId => $comicStats) {
             $stats[$userId] = $comicStats + ['tagCount' => 0];
         }
@@ -289,7 +289,10 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             ->getQuery()
             ->getScalarResult();
         foreach ($tagRows as $row) {
-            $stats[(int) $row['creatorId']]['tagCount'] = (int) $row['total'];
+            $creatorId = (int) $row['creatorId'];
+            if (isset($stats[$creatorId])) {
+                $stats[$creatorId]['tagCount'] = (int) $row['total'];
+            }
         }
 
         return $stats;

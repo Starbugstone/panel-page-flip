@@ -51,7 +51,9 @@ final class PngWriter
             if ($palette === null || $palette === '') throw new PdfException('Palette image has no palette.');
             $png .= self::chunk('PLTE', $palette);
         }
-        $png .= self::chunk('IDAT', gzcompress($filtered, 6));
+        $compressed = gzcompress($filtered, 6);
+        if ($compressed === false) throw new PdfException('Image data could not be compressed.');
+        $png .= self::chunk('IDAT', $compressed);
         $png .= self::chunk('IEND', '');
 
         return $png;

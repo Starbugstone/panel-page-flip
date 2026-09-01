@@ -30,6 +30,7 @@ class AdminAuditLog
     #[ORM\Column(nullable: true)]
     private ?int $targetId = null;
 
+    /** @var array<array-key, mixed>|null */
     #[ORM\Column(type: Types::JSON, nullable: true)]
     private ?array $payload = null;
 
@@ -90,11 +91,13 @@ class AdminAuditLog
         return $this;
     }
 
+    /** @return array<array-key, mixed>|null */
     public function getPayload(): ?array
     {
         return $this->payload;
     }
 
+    /** @param array<array-key, mixed>|null $payload */
     public function setPayload(?array $payload): static
     {
         $this->payload = $payload;

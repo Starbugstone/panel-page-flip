@@ -299,6 +299,7 @@ class ShareController extends AbstractController
     #[Route('/{id}/confirm-adult', name: 'app_shares_confirm_adult', methods: ['POST'], requirements: ['id' => '\d+'])]
     public function confirmAdultForShare(int $id, Request $request, #[CurrentUser] ?User $user): JsonResponse
     {
+        $user = $this->requireUser();
         $share = $this->findReceivedShare($id, $user);
         if ($share instanceof JsonResponse) {
             return $share;
@@ -373,6 +374,7 @@ class ShareController extends AbstractController
     #[Route('/{id}/accept', name: 'app_shares_accept', methods: ['POST'], requirements: ['id' => '\d+'])]
     public function acceptShare(int $id, #[CurrentUser] ?User $user): JsonResponse
     {
+        $user = $this->requireUser();
         $share = $this->findReceivedShare($id, $user);
         if ($share instanceof JsonResponse) {
             return $share;
@@ -396,6 +398,7 @@ class ShareController extends AbstractController
     #[Route('/{id}/decline', name: 'app_shares_decline', methods: ['POST'], requirements: ['id' => '\d+'])]
     public function declineShare(int $id, #[CurrentUser] ?User $user): JsonResponse
     {
+        $user = $this->requireUser();
         $share = $this->findReceivedShare($id, $user);
         if ($share instanceof JsonResponse) {
             return $share;

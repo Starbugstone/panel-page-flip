@@ -67,6 +67,18 @@ final class ResetPasswordServiceMailTest extends TestCase
         self::assertStringNotContainsString('Comic Reader', $body);
     }
 
+    public function testAnOrphanedResetTokenFailsClosed(): void
+    {
+        $user = (new User())->setEmail('reader@example.test');
+        $token = (new ResetPasswordToken())
+            ->setToken(hash('sha256', 'orphan-token'))
+            ->setExpiresAt(new \DateTimeImmutable('+1 hour'))
+            ->setIsUsed(false);
+
+        self::assertFalse($this->service($user, $token)->resetPassword('orphan-token', 'Valid!Password123'));
+        self::assertNull($this->sentEmail);
+    }
+
     private function service(User $user, ?ResetPasswordToken $token = null): ResetPasswordService
     {
         $entityManager = $this->createMock(EntityManagerInterface::class);

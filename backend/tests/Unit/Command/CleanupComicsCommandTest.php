@@ -54,4 +54,25 @@ final class CleanupComicsCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $tester->execute(['--dry-run' => true]));
         self::assertStringContainsString('Dry run only', $tester->getDisplay());
     }
+
+    public function testItFailsCleanlyWhenTheDirectoryDisappearsBeforeApply(): void
+    {
+        $cleanup = $this->createMock(ComicCleanupService::class);
+        $cleanup->method('scan')->willReturn([
+            'orphanedComics' => [['filename' => 'lost.cbz', 'path' => '/tmp/lost.cbz', 'userId' => null]],
+            'orphanedCovers' => [],
+            'totals' => ['orphanedComics' => 1, 'orphanedCovers' => 0],
+        ]);
+        $cleanup->method('apply')->willReturn([
+            'orphanedComics' => [],
+            'orphanedCovers' => [],
+            'totals' => ['orphanedComics' => 0, 'orphanedCovers' => 0],
+            'error' => 'Comics directory disappeared.',
+        ]);
+
+        $tester = new CommandTester(new CleanupComicsCommand($cleanup));
+
+        self::assertSame(Command::FAILURE, $tester->execute(['--force' => true]));
+        self::assertStringContainsString('Comics directory disappeared.', $tester->getDisplay());
+    }
 }

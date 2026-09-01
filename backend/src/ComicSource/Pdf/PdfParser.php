@@ -181,7 +181,10 @@ final class PdfParser
             $char = $this->buffer[$this->position++];
 
             if ($char === '\\') {
-                $next = $this->buffer[$this->position++] ?? '';
+                $next = $this->position < strlen($this->buffer)
+                    ? $this->buffer[$this->position]
+                    : '';
+                ++$this->position;
                 $value .= match ($next) {
                     'n' => "\n", 'r' => "\r", 't' => "\t", 'b' => "\x08", 'f' => "\x0C",
                     default => $next,

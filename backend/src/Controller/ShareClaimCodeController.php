@@ -131,7 +131,7 @@ final class ShareClaimCodeController extends AbstractController
         $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        $code = is_array($data) ? ($data['code'] ?? null) : null;
+        $code = $data['code'] ?? null;
 
         if (!is_string($code)) {
             return $this->json(['message' => 'A sharing code is required.'], Response::HTTP_BAD_REQUEST);
@@ -145,10 +145,6 @@ final class ShareClaimCodeController extends AbstractController
         $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($data)) {
-            return $this->json(['message' => 'Invalid request body.'], Response::HTTP_BAD_REQUEST);
-        }
-
         $rawComicIds = $data['comicIds'] ?? null;
         if (!is_array($rawComicIds) || $rawComicIds === []) {
             return $this->json(['message' => 'Select at least one comic to share.'], Response::HTTP_BAD_REQUEST);

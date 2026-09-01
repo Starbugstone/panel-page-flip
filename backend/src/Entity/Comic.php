@@ -54,9 +54,11 @@ class Comic
     #[ORM\JoinColumn(nullable: false)]
     private ?User $owner = null;
     
+    /** @var Collection<int, Tag> */
     #[ORM\ManyToMany(targetEntity: Tag::class, inversedBy: 'comics')]
     private Collection $tags;
     
+    /** @var Collection<int, ComicReadingProgress> */
     #[ORM\OneToMany(mappedBy: 'comic', targetEntity: ComicReadingProgress::class, cascade: ['remove'])]
     private Collection $readingProgresses;
     

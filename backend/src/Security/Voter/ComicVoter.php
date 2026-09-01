@@ -14,6 +14,8 @@ use Symfony\Component\Security\Core\Authorization\Voter\Voter;
  * Every endpoint that serves any part of a comic — metadata, cover, page,
  * archive — asks this the same question, so a recipient's access cannot be
  * correct in one place and missing in another.
+ *
+ * @extends Voter<string, Comic>
  */
 final class ComicVoter extends Voter
 {

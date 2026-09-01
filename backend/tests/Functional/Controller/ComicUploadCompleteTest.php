@@ -99,6 +99,33 @@ final class ComicUploadCompleteTest extends AbstractApiTestCase
         }
     }
 
+    public function testCreateRejectsMalformedTagJsonBeforeCallingTheUploadService(): void
+    {
+        $this->createAndLoginUser();
+        $comicService = $this->createMock(ComicService::class);
+        $comicService->expects(self::never())->method('uploadComic');
+        static::getContainer()->set(ComicService::class, $comicService);
+        $path = tempnam(sys_get_temp_dir(), 'comic-');
+        self::assertIsString($path);
+        file_put_contents($path, 'cbz');
+
+        $this->browser()->request(
+            'POST',
+            '/api/comics',
+            ['title' => 'Malformed tags', 'tags' => '{not-json'],
+            ['file' => new UploadedFile($path, 'issue.cbz', 'application/zip', null, true)],
+            array_merge(['HTTP_ACCEPT' => 'application/json'], $this->csrfHeader())
+        );
+
+        self::assertResponseStatusCodeSame(400);
+        $payload = json_decode((string) $this->browser()->getResponse()->getContent(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame('Tags must be a JSON array of strings.', $payload['message']);
+
+        if (is_file($path)) {
+            unlink($path);
+        }
+    }
+
     public function testCreatePreservesTheVettedMalformedSourceRejectionFromTheUploadService(): void
     {
         $this->createAndLoginUser();

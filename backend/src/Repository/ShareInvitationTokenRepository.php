@@ -8,11 +8,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<ShareInvitationToken>
- *
- * @method ShareInvitationToken|null find($id, $lockMode = null, $lockVersion = null)
- * @method ShareInvitationToken|null findOneBy(array $criteria, array $orderBy = null)
- * @method ShareInvitationToken[]    findAll()
- * @method ShareInvitationToken[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class ShareInvitationTokenRepository extends ServiceEntityRepository
 {

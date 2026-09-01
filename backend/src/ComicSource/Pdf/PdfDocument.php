@@ -124,7 +124,7 @@ final class PdfDocument
         // gets the author's own bytes at the author's own quality.
         if ($filters === ['/DCTDecode']) {
             $info = @getimagesizefromstring($stream->raw);
-            if (!is_array($info) || ($info['mime'] ?? '') !== 'image/jpeg') return null;
+            if (!is_array($info) || $info['mime'] !== 'image/jpeg') return null;
             return new PdfPageImage($stream->raw, 'image/jpeg', $width, $height);
         }
 
@@ -133,7 +133,7 @@ final class PdfDocument
             $inflated = @gzuncompress($stream->raw, self::MAX_STREAM_BYTES);
             if (!is_string($inflated)) return null;
             $info = @getimagesizefromstring($inflated);
-            if (!is_array($info) || ($info['mime'] ?? '') !== 'image/jpeg') return null;
+            if (!is_array($info) || $info['mime'] !== 'image/jpeg') return null;
             return new PdfPageImage($inflated, 'image/jpeg', $width, $height);
         }
 
@@ -208,7 +208,7 @@ final class PdfDocument
     /**
      * Reduce a PDF colour space to the three shapes a PNG can carry directly.
      *
-     * @return array{type: string, palette?: string}|null
+     * @return array{type: 'gray'|'rgb'}|array{type: 'indexed', palette: string}|null
      */
     private function colourSpace(mixed $space, int $depth = 0): ?array
     {
@@ -287,6 +287,7 @@ final class PdfDocument
      * @param array<string, mixed> $node
      * @param list<array<string, mixed>> $pages
      * @param array<string, mixed> $inherited
+     * @param array<string, true>|null $seen
      */
     private function collectPages(array $node, array &$pages, array $inherited, int $depth, ?array $seen = null): void
     {

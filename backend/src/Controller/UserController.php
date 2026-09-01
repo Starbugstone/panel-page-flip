@@ -55,13 +55,16 @@ class UserController extends AbstractController
             'timezone' => $request->query->get('filterTimezone'),
         ]);
         $stats = $userRepository->getOwnedContentStats(
-            array_map(static fn (User $u): int => $u->getId(), $page->items)
+            array_values(array_map(static fn (User $u): int => $u->getId() ?? throw new \LogicException('Persisted user has no identifier.'), $page->items))
         );
 
         // One query for the whole page rather than one per row: the personal
         // credential is not an association on User, precisely so that loading a
         // user never drags it along.
-        $withCredential = $credentialRepository->findUserIdsWithCredential(array_map(static fn (User $u): int => $u->getId(), $page->items));
+        $withCredential = $credentialRepository->findUserIdsWithCredential(array_values(array_map(
+            static fn (User $u): int => $u->getId() ?? throw new \LogicException('Persisted user has no identifier.'),
+            $page->items
+        )));
 
         $usersArray = array_map(
             fn (User $u): array => $this->serializeUser(
@@ -95,7 +98,7 @@ class UserController extends AbstractController
             'email' => $user->getEmail(),
             'name' => $user->getName(),
             'roles' => $user->getRoles(),
-            'createdAt' => $user->getCreatedAt()?->format('c'),
+            'createdAt' => $user->getCreatedAt()->format('c'),
             'lastLoginAt' => $user->getLastLoginAt()?->format('c'),
             'isEmailVerified' => $user->isEmailVerified(),
             'comicCount' => $stats['comicCount'] ?? $user->getComics()->count(),
@@ -134,11 +137,12 @@ class UserController extends AbstractController
         // The same grouped query the list uses, for a page of one. Counting the
         // user's collections here instead would give this endpoint a second
         // definition of comic count and no storage figure at all.
-        $stats = $userRepository->getOwnedContentStats([$targetUser->getId()]);
+        $targetUserId = $targetUser->getId() ?? throw new \LogicException('Persisted user has no identifier.');
+        $stats = $userRepository->getOwnedContentStats([$targetUserId]);
 
         $userData = $this->serializeUser(
             $targetUser,
-            $stats[$targetUser->getId()] ?? null,
+            $stats[$targetUserId] ?? null,
             $credentialRepository->findForUser($targetUser) !== null,
             $storageQuota
         );
@@ -203,10 +207,13 @@ class UserController extends AbstractController
 
         // Set roles, ensuring ROLE_USER is always present
         $roles = $data['roles'] ?? ['ROLE_USER'];
-        if (!in_array('ROLE_USER', $roles)) {
+        if (!is_array($roles) || !array_is_list($roles) || array_filter($roles, static fn (mixed $role): bool => !is_string($role)) !== []) {
+            return $this->json(['message' => 'Roles must be an array of role names.'], Response::HTTP_BAD_REQUEST);
+        }
+        if (!in_array('ROLE_USER', $roles, true)) {
             $roles[] = 'ROLE_USER';
         }
-        $user->setRoles(array_unique($roles)); // Ensure roles are unique
+        $user->setRoles(array_values(array_unique($roles)));
         $user->setCreatedAt(new \DateTimeImmutable()); // Set creation date
         $user->setIsEmailVerified(true);
 
@@ -383,7 +390,7 @@ class UserController extends AbstractController
 
         $afterRoles = $targetUser->getRoles();
 
-        if ($user instanceof User && $user->isAdmin()) {
+        if ($user->isAdmin()) {
             if ($beforeRoles !== $afterRoles || $user->getId() !== $targetUser->getId()) {
                 $auditService->log($user, 'user_update', 'user', $targetUser->getId(), [
                     'email' => $targetUser->getEmail(),
@@ -676,8 +683,8 @@ class UserController extends AbstractController
     {
         $errors = [];
         foreach ($violations as $violation) {
-            $field = $violation->getPropertyPath() ?: 'form';
-            $errors[$field][] = $violation->getMessage();
+            $field = (string) $violation->getPropertyPath();
+            $errors[$field !== '' ? $field : 'form'][] = (string) $violation->getMessage();
         }
 
         return $errors;

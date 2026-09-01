@@ -24,6 +24,7 @@ class Tag
     #[Assert\Length(max: 50)]
     private ?string $name = null;
 
+    /** @var Collection<int, Comic> */
     #[ORM\ManyToMany(targetEntity: Comic::class, mappedBy: 'tags')]
     private Collection $comics;
 

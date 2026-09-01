@@ -112,7 +112,7 @@ class ComicShareService
      *
      * @param list<Comic> $comics
      *
-     * @return array<int, array{status: string, message?: string, code?: string, shareId?: int|null}>
+     * @return array<int, array{status: string, message?: string, code?: string, shareId?: int|null, notificationState?: string}>
      *                                                                                                 keyed by comic id
      *
      * @throws ShareException when the whole batch is refused — a bad recipient,
@@ -130,6 +130,7 @@ class ComicShareService
         $this->assertSenderResponsibility($senderResponsibilityAccepted);
         $email = $this->assertInvitableRecipient($owner, $recipientEmail);
 
+        /** @var array<int, array{status: string, message?: string, code?: string, shareId?: int|null, notificationState?: string}> $outcomes */
         $outcomes = [];
         $invitable = [];
         $existing = $this->shareRepository->findForComicsAndRecipient($comics, $email);
@@ -247,6 +248,7 @@ class ComicShareService
             ]);
         }
 
+        /** @var array<int, array{status: string, message?: string, code?: string, shareId?: int|null, notificationState?: string}> $outcomes */
         return $outcomes;
     }
 
@@ -1147,7 +1149,7 @@ class ComicShareService
     /** The two records every new sharing relationship leaves behind. */
     private function auditInvitation(ComicShare $share, User $owner): void
     {
-        $comic = $share->getComic();
+        $comic = $share->getComic() ?? throw new \LogicException('A new share must reference a comic.');
 
         $this->auditLogger->audit(SecurityAuditLogger::SHARE_CREATED, [
             'actor_user_id' => $owner->getId(),

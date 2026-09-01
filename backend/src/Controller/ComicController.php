@@ -21,13 +21,10 @@ use App\Service\ComicLibraryQueryService;
 use App\Service\ComicSerializer;
 use App\Service\ComicService;
 use App\Service\ComicShareService;
-use App\Service\ComicUploadRejectedException;
 use App\Service\LibraryFolderService;
 use App\Service\MetadataProviderRegistry;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
-use App\Service\StorageQuotaBusyException;
-use App\Service\StorageQuotaExceededException;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
@@ -174,10 +171,6 @@ class ComicController extends AbstractController
         $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($data)) {
-            return $this->json(['message' => 'Invalid JSON payload'], Response::HTTP_BAD_REQUEST);
-        }
-
         $updates = $this->normaliseComicUpdates($data['updates'] ?? null);
         if ($updates === []) {
             return $this->json(['message' => 'A valid updates array is required'], Response::HTTP_BAD_REQUEST);
@@ -376,7 +369,7 @@ class ComicController extends AbstractController
         $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        $comicIds = is_array($data) ? $this->normaliseBulkComicIds($data['comicIds'] ?? null) : [];
+        $comicIds = $this->normaliseBulkComicIds($data['comicIds'] ?? null);
         if ($comicIds === []) {
             return $this->json(['message' => 'comicIds are required'], Response::HTTP_BAD_REQUEST);
         }
@@ -516,91 +509,6 @@ class ComicController extends AbstractController
         );
     }
 
-    #[Route('', name: 'create', methods: ['POST'])]
-    public function create(
-        Request $request,
-        ComicService $comicService,
-        LibraryFolderService $folderService
-    ): JsonResponse {
-        $user = $this->requireUser();
-
-        // Get uploaded file
-        $comicFile = $request->files->get('file');
-        if (!$comicFile) {
-            return $this->json(['message' => 'No file uploaded'], Response::HTTP_BAD_REQUEST);
-        }
-
-        // Get form data
-        $title = $request->request->get('title');
-        $author = $request->request->get('author');
-        $publisher = $request->request->get('publisher');
-        $description = $request->request->get('description');
-        $tagsString = $request->request->get('tags');
-        $tags = $tagsString ? json_decode($tagsString, true) : [];
-        $folderId = $request->request->get('folderId');
-
-        // Validate title
-        if (!$title) {
-            return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
-        }
-        if ($folderId !== null && $folderId !== '') {
-            if (!ctype_digit((string) $folderId) || (int) $folderId < 1 || $folderService->findOwned($user, (int) $folderId) === null) {
-                return $this->json(['message' => 'Folder not found.'], Response::HTTP_BAD_REQUEST);
-            }
-            $folderId = (int) $folderId;
-        } else {
-            $folderId = null;
-        }
-
-        try {
-            // Use the comic service to handle the upload
-            $comic = $comicService->uploadComic(
-                $comicFile,
-                $user,
-                $title,
-                $author,
-                $publisher,
-                $description,
-                $tags
-            );
-            $folderService->placeUploadedComic($user, $comic, $folderId);
-
-            return $this->json([
-                'message' => 'Comic uploaded successfully',
-                'comic' => [
-                    'id' => $comic->getId(),
-                    'title' => $comic->getTitle()
-                ]
-            ], Response::HTTP_CREATED);
-
-        } catch (ComicUploadRejectedException $e) {
-            $this->logger->warning('Comic upload failed.', ['user_id' => $user->getId(), 'exception' => $e]);
-
-            return $this->json(['message' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
-        } catch (StorageQuotaExceededException $e) {
-            $this->logger->warning('Comic upload exceeded storage quota.', ['user_id' => $user->getId(), 'exception' => $e]);
-
-            return $this->json(['message' => 'User storage quota exceeded.'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
-        } catch (StorageQuotaBusyException $e) {
-            $this->logger->warning('Comic upload could not acquire the storage lock.', ['user_id' => $user->getId(), 'exception' => $e]);
-
-            return $this->json(
-                ['message' => 'Another storage operation is already in progress. Please try again.'],
-                Response::HTTP_CONFLICT
-            );
-        } catch (\Throwable $e) {
-            $this->logger->error('Comic upload failed because of an internal error.', [
-                'user_id' => $user->getId(),
-                'exception' => $e,
-            ]);
-
-            return $this->json(
-                ['message' => 'Upload failed because of a server error. Please try again later.'],
-                Response::HTTP_INTERNAL_SERVER_ERROR
-            );
-        }
-    }
-
     #[Route('/{id}', name: 'update', methods: ['PUT', 'PATCH'])]
     public function update(
         int $id,
@@ -647,23 +555,19 @@ class ComicController extends AbstractController
         }
 
         // array_key_exists rather than isset, so unticking the box — an explicit
-        // false — is a change the same way ticking it is. Guarded on is_array
-        // because a valid JSON scalar body ("5") decodes without error and
-        // array_key_exists would fatal on it.
-        if (is_array($data) && array_key_exists('explicitContent', $data) && is_bool($data['explicitContent'])) {
+        // false — is a change the same way ticking it is.
+        if (array_key_exists('explicitContent', $data) && is_bool($data['explicitContent'])) {
             $comic->setExplicitContent($data['explicitContent']);
         }
 
         // Accepting a suggestion is an ordinary edit, so it arrives here rather
         // than through a route of its own and is authorised the same way.
-        if (is_array($data)) {
-            $structured = new StructuredMetadataInput($this->providerKeys($providers));
-            if (!$structured->applyTo($data, $comic)) {
-                return $this->json(
-                    ['message' => implode(' ', $structured->errors())],
-                    Response::HTTP_UNPROCESSABLE_ENTITY
-                );
-            }
+        $structured = new StructuredMetadataInput($this->providerKeys($providers));
+        if (!$structured->applyTo($data, $comic)) {
+            return $this->json(
+                ['message' => implode(' ', $structured->errors())],
+                Response::HTTP_UNPROCESSABLE_ENTITY
+            );
         }
 
         // Update tags if provided

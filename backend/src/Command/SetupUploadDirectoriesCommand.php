@@ -2,14 +2,13 @@
 
 namespace App\Command;
 
-use App\Entity\User;
-use Doctrine\ORM\EntityManagerInterface;
+use App\Repository\UserRepository;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
  * Creates the necessary upload directories for the application.
@@ -44,59 +43,62 @@ use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 )]
 class SetupUploadDirectoriesCommand extends Command
 {
-    private ParameterBagInterface $parameterBag;
-    private EntityManagerInterface $entityManager;
-
-    public function __construct(ParameterBagInterface $parameterBag, EntityManagerInterface $entityManager)
-    {
+    public function __construct(
+        #[Autowire('%comics_directory%')]
+        private readonly string $comicsDirectory,
+        private readonly UserRepository $users
+    ) {
         parent::__construct();
-        $this->parameterBag = $parameterBag;
-        $this->entityManager = $entityManager;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
         
-        // Get the comics directory from parameters
-        $comicsDirectory = $this->parameterBag->get('comics_directory');
-        $coversDirectory = $comicsDirectory . '/covers';
-        
-        // Create directories if they don't exist
-        $this->createDirectory($comicsDirectory, $io);
-        $this->createDirectory($coversDirectory, $io);
-        
-        // Create user-specific directories for existing users
-        $users = $this->entityManager->getRepository(User::class)->findAll();
-        $io->note(sprintf('Creating user-specific directories for %d users', count($users)));
-        
-        foreach ($users as $user) {
-            $userDirectory = $comicsDirectory . '/' . $user->getId();
-            $this->createDirectory($userDirectory, $io);
+        if (!$this->createDirectory($this->comicsDirectory, $io)
+            || !$this->createDirectory($this->comicsDirectory.'/covers', $io)) {
+            return Command::FAILURE;
         }
-        
+
+        $users = $this->users->findAll();
+        $io->note(sprintf('Creating user-specific directories for %d users', count($users)));
+
+        foreach ($users as $user) {
+            $id = $user->getId();
+            if ($id === null || !$this->createDirectory($this->comicsDirectory.'/'.$id, $io)) {
+                return Command::FAILURE;
+            }
+        }
+
         $io->success('Upload directories created successfully.');
-        
+
         return Command::SUCCESS;
     }
-    
-    private function createDirectory(string $directory, SymfonyStyle $io): void
+
+    private function createDirectory(string $directory, SymfonyStyle $io): bool
     {
         if (!file_exists($directory)) {
             $io->note(sprintf('Creating directory: %s', $directory));
-            if (!mkdir($directory, 0775, true)) {
+            if (!@mkdir($directory, 0775, true) && !is_dir($directory)) {
                 $io->error(sprintf('Failed to create directory: %s', $directory));
-                return;
+
+                return false;
             }
         } else {
             $io->note(sprintf('Directory already exists: %s', $directory));
         }
-        
+
         // Ensure directory is writable by the owner and group (PHP-FPM and the
         // web server share a group; world-writable uploads are not needed).
         if (!is_writable($directory)) {
             $io->note(sprintf('Setting permissions on directory: %s', $directory));
-            chmod($directory, 0775);
+            if (!@chmod($directory, 0775)) {
+                $io->error(sprintf('Failed to make directory writable: %s', $directory));
+
+                return false;
+            }
         }
+
+        return true;
     }
 }

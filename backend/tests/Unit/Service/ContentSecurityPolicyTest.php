@@ -73,4 +73,27 @@ final class ContentSecurityPolicyTest extends TestCase
         self::assertStringContainsString('https://*.google-analytics.com', $header);
         self::assertStringContainsString('https://www.googletagmanager.com', $header);
     }
+
+    public function testMalformedManifestIsRejectedAtTheBoundary(): void
+    {
+        $manifest = tempnam(sys_get_temp_dir(), 'csp-');
+        self::assertIsString($manifest);
+        file_put_contents($manifest, json_encode([
+            'directives' => ['default-src' => "'self'"],
+            'scriptSrcWithoutAdvertising' => ["'self'"],
+            'scriptSrcWithAdvertising' => ["'nonce-{nonce}'"],
+        ], JSON_THROW_ON_ERROR));
+        $policy = new ContentSecurityPolicy(
+            new AdvertisingConfiguration(false, '', new NullLogger()),
+            $manifest
+        );
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('CSP manifest');
+            $policy->header();
+        } finally {
+            unlink($manifest);
+        }
+    }
 }

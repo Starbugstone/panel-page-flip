@@ -11,11 +11,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<AdminAuditLog>
- *
- * @method AdminAuditLog|null find($id, $lockMode = null, $lockVersion = null)
- * @method AdminAuditLog|null findOneBy(array $criteria, array $orderBy = null)
- * @method AdminAuditLog[]    findAll()
- * @method AdminAuditLog[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class AdminAuditLogRepository extends ServiceEntityRepository
 {

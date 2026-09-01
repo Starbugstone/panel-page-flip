@@ -177,8 +177,9 @@ overwrites a value the uploader typed — see the field rules in slice 1.
    the actual deliverable for #86 and the hardest thing to change later.**
 
 5. **Ingestion at import.** All four entry points funnel through
-   `ComicService::uploadComic()` (`ComicController` x2, `ImportComicsCommand`,
-   `DropboxImportService`), so there is exactly one place to hook. A comic whose
+   `ComicService::uploadComic()` (`ComicUploadController` for direct and chunked
+   uploads, `ImportComicsCommand`, and `DropboxImportService`), so there is
+   exactly one place to hook. A comic whose
    ComicInfo is missing or unparseable must import exactly as it does today.
 
 6. **Serialization.** Extend `ComicSerializer` so the frontend can see the new

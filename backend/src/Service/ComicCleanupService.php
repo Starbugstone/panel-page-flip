@@ -7,6 +7,28 @@ use App\Enum\ComicSourceType;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Finder\Finder;
 
+/**
+ * @phpstan-type ComicFile array{filename: string, path: string|false, userId: int|null}
+ * @phpstan-type CoverFile array{filename: string, path: string|false, comicId: int|null}
+ * @phpstan-type CleanupInventory array{
+ *     orphanedComics: list<ComicFile>,
+ *     orphanedCovers: list<CoverFile>,
+ *     totals: array{orphanedComics: int, orphanedCovers: int}
+ * }
+ * @phpstan-type CleanupFailure array{
+ *     orphanedComics: list<ComicFile>,
+ *     orphanedCovers: list<CoverFile>,
+ *     totals: array{orphanedComics: int, orphanedCovers: int},
+ *     error: string
+ * }
+ * @phpstan-type CleanupScan CleanupInventory|CleanupFailure
+ * @phpstan-type CleanupApplied array{
+ *     orphanedComics: list<ComicFile>,
+ *     orphanedCovers: list<CoverFile>,
+ *     totals: array{orphanedComics: int, orphanedCovers: int},
+ *     quarantined: array{orphanedComics: int, orphanedCovers: int}
+ * }
+ */
 class ComicCleanupService
 {
     public function __construct(
@@ -16,6 +38,7 @@ class ComicCleanupService
     ) {
     }
 
+    /** @return CleanupScan */
     public function scan(): array
     {
         if (!is_dir($this->comicsDirectory)) {
@@ -67,6 +90,7 @@ class ComicCleanupService
         ];
     }
 
+    /** @return CleanupFailure|CleanupApplied */
     public function apply(): array
     {
         $scan = $this->scan();
@@ -99,6 +123,7 @@ class ComicCleanupService
         return '/\.(?:'.implode('|', array_map('preg_quote', ComicSourceType::extensions())).')$/i';
     }
 
+    /** @return list<ComicFile> */
     private function findDiskComicFiles(): array
     {
         $files = [];
@@ -137,6 +162,7 @@ class ComicCleanupService
         return $files;
     }
 
+    /** @return list<CoverFile> */
     private function findDiskCoverFiles(): array
     {
         $files = [];
@@ -154,6 +180,7 @@ class ComicCleanupService
         return $files;
     }
 
+    /** @param list<CoverFile> $files */
     private function collectCoverFilesFromDirectory(string $coversDirectory, array &$files): void
     {
         if (!is_dir($coversDirectory)) {
@@ -186,6 +213,7 @@ class ComicCleanupService
         }
     }
 
+    /** @param list<ComicFile|CoverFile> $files */
     private function quarantineFiles(array $files): int
     {
         $paths = array_values(array_filter(array_column($files, 'path'), 'is_string'));

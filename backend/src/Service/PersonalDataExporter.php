@@ -78,8 +78,8 @@ final class PersonalDataExporter
                 'name' => $user->getName(),
                 'roles' => $user->getRoles(),
                 'emailVerified' => $user->isEmailVerified(),
-                'createdAt' => $user->getCreatedAt()?->format(\DateTimeInterface::ATOM),
-                'updatedAt' => $user->getUpdatedAt()?->format(\DateTimeInterface::ATOM),
+                'createdAt' => $user->getCreatedAt()->format(\DateTimeInterface::ATOM),
+                'updatedAt' => $user->getUpdatedAt()->format(\DateTimeInterface::ATOM),
                 'lastLoginAt' => $user->getLastLoginAt()?->format(\DateTimeInterface::ATOM),
                 'dropboxConnected' => $user->getDropboxAccessToken() !== null
                     || $user->getDropboxRefreshToken() !== null,

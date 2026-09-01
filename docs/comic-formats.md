@@ -91,4 +91,9 @@ Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed 
 
 Direct uploads, chunked uploads, Dropbox import, and `app:import-comics` all use the same enabled-format and provider validation pipeline. A configured format whose runtime later disappears is omitted from uploader configuration and rejected until the runtime is restored or the format is disabled.
 
+The direct multipart endpoint validates its form before admitting the file:
+title and optional metadata must be strings, tags must be a JSON list of
+strings, and a destination must be a positive owned-folder identifier. Bad
+form data is a 400 response and never reaches storage or format inspection.
+
 Upload size and per-user storage quota continue to apply to the original canonical source. Generated pages, including rendered PDF ones, are rebuildable server cache and count towards nobody's quota.

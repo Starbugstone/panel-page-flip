@@ -91,6 +91,21 @@ class UserControllerSecurityTest extends AbstractApiTestCase
         self::assertCount(4, $payload['errors']['password']);
     }
 
+    public function testAdminCannotCreateUserWithMalformedRoles(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $payload = $this->postJson('/api/users', [
+            'email' => 'invalid-roles@test.local',
+            'name' => 'Invalid Roles',
+            'password' => 'Valid!Password123',
+            'roles' => 'ROLE_ADMIN',
+        ]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('Roles must be an array of role names.', $payload['message']);
+    }
+
     public function testAdminUserCreationErrorsAreKeyedByField(): void
     {
         $this->createAndLoginAdmin();
