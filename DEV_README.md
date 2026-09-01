@@ -132,6 +132,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Authentication Pages**: Login and registration implemented in `Login.jsx`
 - **Password Reset**: Forgot password and reset password pages implemented in `ForgotPassword.jsx` and `ResetPassword.jsx`
 - **Dashboard**: Comic library view implemented in `Dashboard.jsx`
+- **Settings Boundaries**: `UserSettings.jsx` only composes the page. Personal-tag CRUD, conversion-tool downloads, OAuth callback notices, and privacy/account deletion each live in their own focused component or hook with direct behavior tests.
 
 #### ✅ Comic Reader
 - **Reading Interface**: Core reading functionality implemented in `ComicReader.jsx`
