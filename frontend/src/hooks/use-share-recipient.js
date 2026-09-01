@@ -14,6 +14,53 @@ import {
 } from "@/lib/sharing";
 import { MODES, TARGETS } from "@/lib/sharing-workflow";
 
+function initialTarget(initialRecipient, initialUserCode) {
+  if (initialUserCode) return TARGETS.CODE;
+  if (initialRecipient) return TARGETS.EMAIL;
+  return TARGETS.USERNAME;
+}
+
+function recipientRequest(target, username, userCode) {
+  if (target === TARGETS.CODE) {
+    return api.post("/api/shares/user-code/resolve", { userCode: parseShareCode(userCode)?.code });
+  }
+
+  return api.post("/api/users/resolve-username", { username: stripUsernamePrefix(username) });
+}
+
+function recipientIsChosen(mode, target, recipientEmail, username, userCode, confirmed) {
+  if (mode === MODES.CODE) return true;
+  if (target === TARGETS.EMAIL) return isValidShareEmail(recipientEmail);
+  if (!confirmed) return false;
+
+  return target === TARGETS.USERNAME
+    ? isValidUsername(username)
+    : isValidShareCode(userCode, SHARE_CODE_TYPES.USER);
+}
+
+function confirmationIsPending(mode, target, username, userCode, confirmed) {
+  if (mode !== MODES.DIRECT || target === TARGETS.EMAIL || confirmed) return false;
+
+  return target === TARGETS.USERNAME
+    ? isValidUsername(username)
+    : isValidShareCode(userCode, SHARE_CODE_TYPES.USER);
+}
+
+function recipientLabel(target, recipientEmail, resolved, username, userCode) {
+  if (target === TARGETS.EMAIL) return recipientEmail.trim() || "the recipient";
+
+  return resolved?.label
+    || usernameHandle(stripUsernamePrefix(username))
+    || userCode
+    || "the recipient";
+}
+
+function recipientPayload(target, username, userCode, recipientEmail) {
+  if (target === TARGETS.USERNAME) return { username: stripUsernamePrefix(username) };
+  if (target === TARGETS.CODE) return { userCode: parseShareCode(userCode)?.code };
+  return { email: recipientEmail.trim() };
+}
+
 /**
  * Who a direct share is for, and whether the sender has actually seen whose
  * library it goes to.
@@ -26,11 +73,7 @@ import { MODES, TARGETS } from "@/lib/sharing-workflow";
  * which is what makes the name on screen the identity being shared with.
  */
 export function useShareRecipient({ initialRecipient, initialUsername, initialUserCode, initialResolved, mode, onError }) {
-  const [target, setTarget] = useState(() => {
-    if (initialUserCode) return TARGETS.CODE;
-    if (initialRecipient) return TARGETS.EMAIL;
-    return TARGETS.USERNAME;
-  });
+  const [target, setTarget] = useState(() => initialTarget(initialRecipient, initialUserCode));
   const [username, setUsername] = useState(initialUsername);
   const [recipientEmail, setRecipientEmail] = useState(initialRecipient);
   const [userCode, setUserCode] = useState(initialUserCode);
@@ -44,10 +87,7 @@ export function useShareRecipient({ initialRecipient, initialUsername, initialUs
     setResolved(null);
 
     try {
-      const data = target === TARGETS.CODE
-        ? await api.post("/api/shares/user-code/resolve", { userCode: parseShareCode(userCode)?.code })
-        : await api.post("/api/users/resolve-username", { username: stripUsernamePrefix(username) });
-
+      const data = await recipientRequest(target, username, userCode);
       setResolved(data.recipient);
     } catch (err) {
       logger.error("Resolving a recipient failed:", err);
@@ -58,17 +98,15 @@ export function useShareRecipient({ initialRecipient, initialUsername, initialUs
   };
 
   const recipientConfirmed = resolved !== null;
-  const recipientChosen = mode === MODES.CODE
-    || (target === TARGETS.EMAIL && isValidShareEmail(recipientEmail))
-    || (target === TARGETS.USERNAME && isValidUsername(username) && recipientConfirmed)
-    || (target === TARGETS.CODE && isValidShareCode(userCode, SHARE_CODE_TYPES.USER) && recipientConfirmed);
+  const recipientChosen = recipientIsChosen(
+    mode, target, recipientEmail, username, userCode, recipientConfirmed
+  );
 
   // Said out loud, because an inert Send button with no reason beside it reads
   // as a broken dialog rather than as a step not yet taken.
-  const confirmationPending = mode === MODES.DIRECT
-    && target !== TARGETS.EMAIL
-    && !recipientConfirmed
-    && (target === TARGETS.USERNAME ? isValidUsername(username) : isValidShareCode(userCode, SHARE_CODE_TYPES.USER));
+  const confirmationPending = confirmationIsPending(
+    mode, target, username, userCode, recipientConfirmed
+  );
 
   return {
     target, setTarget, username, setUsername, recipientEmail, setRecipientEmail,
@@ -79,14 +117,8 @@ export function useShareRecipient({ initialRecipient, initialUsername, initialUs
     // genuine and its holder simply has it in the wrong box.
     targetMisuse: target === TARGETS.CODE ? shareCodeMisuse(userCode, SHARE_CODE_TYPES.USER) : null,
     /** The recipient as the sender knows them. */
-    label: target === TARGETS.EMAIL
-      ? (recipientEmail.trim() || "the recipient")
-      : (resolved?.label || usernameHandle(stripUsernamePrefix(username)) || userCode || "the recipient"),
+    label: recipientLabel(target, recipientEmail, resolved, username, userCode),
     /** Exactly one of the three ways to name a recipient goes on the wire. */
-    payload: () => target === TARGETS.USERNAME
-      ? { username: stripUsernamePrefix(username) }
-      : target === TARGETS.CODE
-        ? { userCode: parseShareCode(userCode)?.code }
-        : { email: recipientEmail.trim() },
+    payload: () => recipientPayload(target, username, userCode, recipientEmail),
   };
 }

@@ -3,6 +3,40 @@ import { useCallback, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 
+function applySavedProgress(response, revisionRef, comicId, onSaved) {
+  const savedProgress = response?.progress;
+  const savedRevision = savedProgress?.revision;
+
+  if (typeof savedRevision === "number" && savedRevision > revisionRef.current) {
+    revisionRef.current = savedRevision;
+  }
+  if (savedProgress) onSaved(comicId, savedProgress);
+}
+
+function isRetryableNetworkError(error) {
+  return error.name === "TypeError" && error.message.includes("Failed to fetch");
+}
+
+function reportSaveError(error, controller, isMounted, toast) {
+  if (error.name === "AbortError" || controller.signal.aborted) return;
+
+  // Losing the network is not something to interrupt reading over; the next
+  // page turn saves this page and the one after it together.
+  if (isRetryableNetworkError(error)) {
+    logger.warn("Network error when saving reading progress - will retry on next page change");
+    return;
+  }
+
+  logger.error("Failed to save reading progress:", error);
+  if (!isMounted) return;
+
+  toast({
+    title: "Error saving progress",
+    description: error.message || "Could not save your reading progress. Please try again.",
+    variant: "destructive",
+  });
+}
+
 /**
  * Where the reader got to, kept on the server.
  *
@@ -37,26 +71,9 @@ export function useReaderProgress({ comic, comicId, pageCount, currentPage, toas
         { currentPage: pageToSave, revision },
         { signal: controller.signal, keepalive: true }
       );
-      if (typeof response?.progress?.revision === "number" && response.progress.revision > revisionRef.current) {
-        revisionRef.current = response.progress.revision;
-      }
-      if (response?.progress) onSaved(comicId, response.progress);
+      applySavedProgress(response, revisionRef, comicId, onSaved);
     } catch (error) {
-      if (error.name === "AbortError" || controller.signal.aborted) return;
-      // Losing the network is not something to interrupt reading over; the next
-      // page turn saves this page and the one after it together.
-      if (error.name === "TypeError" && error.message.includes("Failed to fetch")) {
-        logger.warn("Network error when saving reading progress - will retry on next page change");
-        return;
-      }
-      logger.error("Failed to save reading progress:", error);
-      if (isMountedRef.current) {
-        toast({
-          title: "Error saving progress",
-          description: error.message || "Could not save your reading progress. Please try again.",
-          variant: "destructive",
-        });
-      }
+      reportSaveError(error, controller, isMountedRef.current, toast);
     } finally {
       if (abortController.current === controller) abortController.current = null;
     }

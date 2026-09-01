@@ -39,6 +39,19 @@ function prepareBody(body, headers) {
 }
 
 export async function request(path, options = {}) {
+  const prepared = prepareRequest(options);
+  const response = await fetchResponse(path, prepared.fetchOptions);
+  const data = await responseData(response, prepared.responseType);
+
+  if (!response.ok) {
+    reportUnauthorized(response, prepared.notifyUnauthorized);
+    throw apiResponseError(response, data);
+  }
+
+  return data;
+}
+
+function prepareRequest(options) {
   const {
     responseType = "auto",
     notifyUnauthorized = true,
@@ -53,23 +66,31 @@ export async function request(path, options = {}) {
     Object.entries(getCsrfHeaders()).forEach(([key, value]) => headers.set(key, value));
   }
 
-  let response;
-  try {
-    response = await fetch(path, {
+  return {
+    responseType,
+    notifyUnauthorized,
+    fetchOptions: {
       ...fetchOptions,
       method,
       body,
       credentials: "include",
       headers,
-    });
+    },
+  };
+}
+
+async function fetchResponse(path, fetchOptions) {
+  try {
+    return await fetch(path, fetchOptions);
   } catch (error) {
     if (error.name === "AbortError") throw error;
     throw new ApiError("Unable to reach the server", { data: error });
   }
+}
 
-  let data;
+async function responseData(response, responseType) {
   try {
-    data = await parseResponse(response, responseType);
+    return await parseResponse(response, responseType);
   } catch (error) {
     throw new ApiError("The server returned an invalid response", {
       status: response.status,
@@ -77,23 +98,24 @@ export async function request(path, options = {}) {
       response,
     });
   }
+}
 
-  if (!response.ok) {
-    if (response.status === 401 && notifyUnauthorized && typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
-    }
-
-    const message = typeof data === "object" && data !== null
-      ? data.message || data.error
-      : data;
-    throw new ApiError(message || `Request failed (${response.status})`, {
-      status: response.status,
-      data,
-      response,
-    });
+function reportUnauthorized(response, notifyUnauthorized) {
+  if (response.status === 401 && notifyUnauthorized && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
   }
+}
 
-  return data;
+function apiResponseError(response, data) {
+  const message = typeof data === "object" && data !== null
+    ? data.message || data.error
+    : data;
+
+  return new ApiError(message || `Request failed (${response.status})`, {
+    status: response.status,
+    data,
+    response,
+  });
 }
 
 export const api = {
