@@ -1,6 +1,8 @@
 export { formatFileSize } from "@/lib/format";
 
 export const CHUNK_SIZE_BYTES = 1024 * 1024;
+export const DEFAULT_CONCURRENT_CHUNKS = 4;
+export const DEFAULT_COMIC_FORMATS = ["cbz"];
 // Every format the application knows about. What a given installation actually
 // accepts is narrower and comes from the server, since an optional format needs
 // a runtime the admin has to have installed and enabled; this list is only the
@@ -9,6 +11,14 @@ export const COMIC_EXTENSIONS = ["cbz", "cbr", "cb7", "cbt", "pdf"];
 export const comicFileAccept = (extensions) => extensions.map((extension) => `.${extension}`).join(",");
 
 export const DEFAULT_PARALLEL_FILES = 2;
+
+export function configuredConcurrentChunks(config) {
+  return config.upload?.maxConcurrentUploads || DEFAULT_CONCURRENT_CHUNKS;
+}
+
+export function configuredComicFormats(config) {
+  return config.upload?.comicFormats || DEFAULT_COMIC_FORMATS;
+}
 
 /**
  * How many comics a bulk upload sends at once, from `MAX_PARALLEL_FILE_UPLOADS`.
