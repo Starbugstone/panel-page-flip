@@ -11,6 +11,8 @@ final class CloverCoverage
         private readonly int $lines,
         private readonly int $coveredMethods,
         private readonly int $methods,
+        /** @var list<string> */
+        private readonly array $uncoveredFiles,
     ) {
     }
 
@@ -38,11 +40,21 @@ final class CloverCoverage
             throw new \InvalidArgumentException('Coverage report project metrics are empty.');
         }
 
+        $uncoveredFiles = [];
+        foreach ($report->project->file as $file) {
+            $fileMetrics = $file->metrics;
+            if ((int) $fileMetrics['statements'] > 0 && (int) $fileMetrics['coveredstatements'] === 0) {
+                $uncoveredFiles[] = (string) $file['name'];
+            }
+        }
+        sort($uncoveredFiles);
+
         return new self(
             (int) $metrics['coveredstatements'],
             $lines,
             (int) $metrics['coveredmethods'],
             $methods,
+            $uncoveredFiles,
         );
     }
 
@@ -72,6 +84,12 @@ final class CloverCoverage
                 'Method coverage %.2f%% is below %.2f%%.',
                 $this->methodPercentage(),
                 $minimumMethods,
+            );
+        }
+        if ($this->uncoveredFiles !== []) {
+            $failures[] = sprintf(
+                'Production files with no executed lines: %s.',
+                implode(', ', $this->uncoveredFiles),
             );
         }
 

@@ -20,8 +20,9 @@ Do not commit a Bun lockfile unless package-manager policy deliberately changes.
 
 `test:coverage` instruments every production JavaScript and JSX source file,
 including files a test never imports. The checked-in thresholds ratchet the
-current statement, branch, function and line totals; lowering one requires an
-explicitly reviewed policy change. `check:dead-code` uses Knip to reject
+current statement, branch, function and line totals, and the follow-up policy
+check rejects any coverable production file with zero executed lines. Lowering
+a threshold requires an explicitly reviewed policy change. `check:dead-code` uses Knip to reject
 unreachable source files, unused dependencies, unlisted imports and duplicate
 exports. Test-only access to an internal helper is not treated as a dead
 production file.
@@ -103,7 +104,8 @@ composer test:coverage
 ```
 
 `composer test:coverage` runs the complete suite with PCOV and rejects line or
-method coverage below the checked-in ratchet. PCOV is installed in the PHP image
+method coverage below the checked-in ratchet, as well as any coverable source
+file with zero executed lines. PCOV is installed in the PHP image
 but disabled for ordinary CLI and FPM requests; only this command enables it.
 
 PHPStan checks all backend source at level 8 with the Doctrine and Symfony

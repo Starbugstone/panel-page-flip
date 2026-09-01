@@ -134,10 +134,10 @@ export default defineConfig(({ mode }) => {
       reporter: ["text", "json-summary"],
       reportsDirectory: ".coverage",
       thresholds: {
-        statements: 73,
-        branches: 70,
-        functions: 71,
-        lines: 75,
+        statements: 78,
+        branches: 72,
+        functions: 74,
+        lines: 79,
       },
     },
     projects: [

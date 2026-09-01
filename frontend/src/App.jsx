@@ -1,5 +1,4 @@
 import { lazy, Suspense } from "react";
-import { Toaster } from "@/components/ui/toaster.jsx";
 import { Toaster as Sonner } from "@/components/ui/sonner.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip.jsx";
 import SessionMonitor from "@/components/SessionMonitor.jsx";
@@ -144,7 +143,6 @@ const App = () => {
                   badge and the dashboard alert cannot disagree about it. */}
               <SharingProvider>
                 <TooltipProvider>
-                  <Toaster />
                   <Sonner />
                   <SessionMonitor />
                   <BrowserRouter>
