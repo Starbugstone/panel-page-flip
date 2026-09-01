@@ -78,11 +78,17 @@ SSH_BACKUP_COMMAND="${SSH_BACKUP_COMMAND:-}"
 SSH_OPTS=(-p "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30)
 [ -n "${SSH_KEY:-}" ] && SSH_OPTS+=(-i "$SSH_KEY")
 
+# Loaded from the operator-owned deployment file above; ShellCheck cannot
+# follow that dynamic source but the required-variable loop has validated it.
+# shellcheck disable=SC2153
 ssh_target="$SSH_USER@$SSH_HOST"
 
 run_remote() {
     local cmd="$1"
     log "ssh $ssh_target -- $(echo "$cmd" | head -c 80)..."
+    # The command is assembled locally on purpose, then passed as SSH's single
+    # remote command argument.
+    # shellcheck disable=SC2029
     ssh "${SSH_OPTS[@]}" "$ssh_target" "$cmd"
 }
 

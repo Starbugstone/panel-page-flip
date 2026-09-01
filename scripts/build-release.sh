@@ -124,7 +124,8 @@ esac
 
 # Try to read PHP_VERSION / NODE_VERSION from the project's .env if present.
 if [ -f "$REPO_ROOT/.env" ]; then
-    # shellcheck disable=SC1091
+    # The generated process-substitution path cannot be followed statically.
+    # shellcheck disable=SC1090
     source <(grep -E '^(PHP_VERSION|NODE_VERSION)=' "$REPO_ROOT/.env" || true)
 fi
 PHP_VERSION="${PHP_VERSION:-$PHP_VERSION_DEFAULT}"

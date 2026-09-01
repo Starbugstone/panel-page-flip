@@ -40,6 +40,12 @@ npm run check:csp      # strict Content-Security-Policy in nginx
 
 `check:seo` reads `APP_URL` and inspects a build, so run `npm run build` with the same `APP_URL` first. It also requires the built `index.html` to contain the public landing copy from `src/lib/landing-copy.js`, because production serves that file to crawlers that never run the React tree. `check:tools` is what stops an edit to a script under `scripts/comic-conversion/` shipping a download that no longer matches the checksum displayed beside it.
 
+CI also runs ShellCheck across every Bash deployment and conversion script, then
+executes the Unix and Windows conversion suites on their native runners. The
+download checksum check proves that the published archives match the source;
+the platform suites prove that the source still converts, skips, reports, and
+cleans up correctly.
+
 ### Content-Security-Policy
 
 `backend/config/csp.json` contains the shared policy inputs. Symfony reads it to
