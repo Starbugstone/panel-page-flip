@@ -57,6 +57,9 @@ describe("the Nginx request logs", () => {
 describe("deployments and the host's runtime configuration", () => {
   const ftp = read("scripts/deploy-ftp.sh");
   const ssh = read("scripts/deploy-ssh.sh");
+  const build = read("scripts/build-release.sh");
+  const deployExample = read("scripts/.env.deploy.example");
+  const serverInstaller = read("scripts/server/server-install.sh");
 
   /**
    * `backend/.env.local` is the supported production source of truth and is
@@ -84,5 +87,24 @@ describe("deployments and the host's runtime configuration", () => {
 
     expect(exclusions(serverLocalOnly)).toHaveLength(1);
     expect(exclusions(source)).toHaveLength(1);
+  });
+
+  it("carries optional social sign-in credentials into compiled releases", () => {
+    for (const name of ["OAUTH_GOOGLE_CLIENT_ID", "OAUTH_GOOGLE_CLIENT_SECRET"]) {
+      expect(deployExample).toContain(`PROD_${name}=`);
+      expect(build).toContain(`write_dotenv ${name} "\${PROD_${name}:-}"`);
+    }
+  });
+
+  it("schedules every required retention command in the server installer", () => {
+    for (const command of [
+      "app:cleanup-personal-data",
+      "app:cleanup-expired-shares",
+      "app:cleanup-content-reports",
+      "app:cleanup-logs",
+    ]) {
+      expect(serverInstaller).toContain(command);
+    }
+    expect(serverInstaller).toContain("without these four");
   });
 });

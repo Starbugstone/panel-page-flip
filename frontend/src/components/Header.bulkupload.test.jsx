@@ -100,6 +100,20 @@ describe("the Dropbox destination", () => {
   });
 });
 
+describe("the desktop library header", () => {
+  it("stays at the top while the collection scrolls", () => {
+    renderHeader("/dashboard");
+
+    expect(screen.getByRole("banner")).toHaveClass("lg:sticky", "lg:top-0", "z-30", "bg-background");
+  });
+
+  it("does not change the scrolling model on other pages", () => {
+    renderHeader("/sharing");
+
+    expect(screen.getByRole("banner")).not.toHaveClass("lg:sticky");
+  });
+});
+
 describe("the narrow-screen navigation", () => {
   it("puts every signed-in destination in one comfortably sized menu", async () => {
     const user = userEvent.setup();

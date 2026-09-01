@@ -1,4 +1,4 @@
-import { FolderInput, FolderPlus, History, Pencil, Share2, Trash2 } from "lucide-react";
+import { FolderInput, FolderPlus, History, ListOrdered, Pencil, Share2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LibraryBreadcrumbs } from "@/components/library/LibraryBreadcrumbs";
 
@@ -10,7 +10,7 @@ import { LibraryBreadcrumbs } from "@/components/library/LibraryBreadcrumbs";
  * jump to the last-read comic only arrives when there is a card to jump to —
  * the caller withholds it in table view and when nothing here has been opened.
  */
-export function LibraryFolderBar({ folders, activeFolderId, onNavigate, onCreate, onShare, onMove, onRename, onDelete, onJumpToLastRead }) {
+export function LibraryFolderBar({ folders, activeFolderId, onNavigate, onCreate, onShare, onMove, onRename, onDelete, onAutoRename, onJumpToLastRead }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2">
       <LibraryBreadcrumbs folders={folders} folderId={activeFolderId} onNavigate={onNavigate} />
@@ -25,6 +25,12 @@ export function LibraryFolderBar({ folders, activeFolderId, onNavigate, onCreate
           <FolderPlus className="mr-1 h-4 w-4" />
           {activeFolderId == null ? "New folder" : "New subfolder"}
         </Button>
+        {onAutoRename && (
+          <Button variant="outline" size="sm" onClick={onAutoRename}>
+            <ListOrdered className="mr-1 h-4 w-4" />
+            Auto rename comics
+          </Button>
+        )}
         {activeFolderId != null && (
           <>
             {/* Named for the folder rather than for the comics in it: the

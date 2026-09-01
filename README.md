@@ -382,8 +382,11 @@ set the feature values in the host's
 [`docs/analytics.md`](docs/analytics.md).
 
 Google social sign-in also requires account-side setup. Configure each
-installation's exact callback URI and keep its client secret in the host's
-ignored `backend/.env.local`; see [`docs/social-sign-in.md`](docs/social-sign-in.md).
+installation's exact callback URI. The default server-local mode keeps its
+client credentials in the host's ignored `backend/.env.local`; compiled releases
+take the `PROD_OAUTH_GOOGLE_CLIENT_ID` and `PROD_OAUTH_GOOGLE_CLIENT_SECRET`
+pair from `scripts/.env.deploy`. See
+[`docs/social-sign-in.md`](docs/social-sign-in.md).
 
 ## Project layout
 

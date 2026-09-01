@@ -15,12 +15,18 @@ credential or frontend Google SDK is involved.
 5. For local development, add the exact localhost URI if needed, for example
    `http://localhost:8080/api/auth/oauth/google/callback`. Production callbacks
    must use HTTPS.
-6. Put the client values in the host's ignored `backend/.env.local`:
+6. For the normal server-local deployment, put the client values in the host's
+   ignored `backend/.env.local`:
 
    ```dotenv
    OAUTH_GOOGLE_CLIENT_ID=123456789-example.apps.googleusercontent.com
    OAUTH_GOOGLE_CLIENT_SECRET=replace-with-the-google-client-secret
    ```
+
+   A compiled release instead reads `PROD_OAUTH_GOOGLE_CLIENT_ID` and
+   `PROD_OAUTH_GOOGLE_CLIENT_SECRET` from the ignored
+   `scripts/.env.deploy`. The build refuses a partial pair and writes the two
+   canonical `OAUTH_GOOGLE_*` names into `.env.local.php`.
 
 7. Clear the Symfony cache or redeploy.
 8. Confirm `GET /api/auth/providers` reports `{"google":true}`, then test a

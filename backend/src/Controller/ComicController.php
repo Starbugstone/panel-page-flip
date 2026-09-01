@@ -29,6 +29,7 @@ use App\Service\SecurityAuditLogger;
 use App\Service\StorageQuotaBusyException;
 use App\Service\StorageQuotaExceededException;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
 use Psr\Log\LoggerInterface;
@@ -53,6 +54,8 @@ use Symfony\Component\Routing\Attribute\Route;
 class ComicController extends AbstractController
 {
     use RequiresAuthenticatedUser;
+
+    private const BULK_TITLE_UPDATE_LIMIT = 5000;
 
     /**
      * How many comics one request may remove before an administrator is told.
@@ -296,6 +299,68 @@ class ComicController extends AbstractController
 
         return $this->json([
             'message' => sprintf('%d comic(s) updated', count($comics)),
+            'updatedComicIds' => $comicIds,
+        ]);
+    }
+
+    #[Route('/titles', name: 'batch_update_titles', methods: ['PATCH'])]
+    public function batchUpdateTitles(Request $request, EntityManagerInterface $entityManager): JsonResponse
+    {
+        $user = $this->requireUser();
+        $data = \App\Http\JsonRequestDecoder::decode($request);
+        $updates = $this->normaliseComicTitleUpdates($data['updates'] ?? null);
+        if ($updates === []) {
+            return $this->json(['message' => 'A valid title updates array is required'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $comicIds = array_column($updates, 'id');
+        $entityManager->beginTransaction();
+        try {
+            $comics = $entityManager->createQueryBuilder()
+                ->select('comic')
+                ->from(Comic::class, 'comic')
+                ->where('comic.id IN (:ids)')
+                ->andWhere('comic.owner = :owner')
+                ->setParameter('ids', $comicIds)
+                ->setParameter('owner', $user)
+                ->getQuery()
+                ->setLockMode(LockMode::PESSIMISTIC_WRITE)
+                ->getResult();
+            if (count($comics) !== count($comicIds)) {
+                $entityManager->rollback();
+
+                return $this->json(['message' => 'One or more comics were not found'], Response::HTTP_NOT_FOUND);
+            }
+
+            $comicsById = [];
+            foreach ($comics as $comic) {
+                $comicsById[$comic->getId()] = $comic;
+            }
+            foreach ($updates as $update) {
+                if ($comicsById[$update['id']]->getTitle() !== $update['currentTitle']) {
+                    $entityManager->rollback();
+
+                    return $this->json(
+                        ['message' => 'One or more comic titles changed. Preview the rename again.'],
+                        Response::HTTP_CONFLICT
+                    );
+                }
+            }
+
+            foreach ($updates as $update) {
+                $comicsById[$update['id']]->setTitle($update['title']);
+            }
+            $entityManager->flush();
+            $entityManager->commit();
+        } catch (\Throwable $exception) {
+            if ($entityManager->getConnection()->isTransactionActive()) {
+                $entityManager->rollback();
+            }
+            throw $exception;
+        }
+
+        return $this->json([
+            'message' => sprintf('%d comic title(s) updated', count($updates)),
             'updatedComicIds' => $comicIds,
         ]);
     }
@@ -1076,6 +1141,46 @@ class ComicController extends AbstractController
             }
 
             $normalised[$ids[0]] = ['id' => $ids[0], 'changes' => $changes];
+        }
+
+        return array_values($normalised);
+    }
+
+    /**
+     * @return list<array{id: int, currentTitle: string, title: string}>
+     */
+    private function normaliseComicTitleUpdates(mixed $updates): array
+    {
+        if (!is_array($updates) || $updates === [] || count($updates) > self::BULK_TITLE_UPDATE_LIMIT) {
+            return [];
+        }
+
+        $normalised = [];
+        foreach ($updates as $update) {
+            if (!is_array($update) || array_diff(array_keys($update), ['id', 'currentTitle', 'title']) !== []) {
+                return [];
+            }
+
+            $ids = $this->normaliseBulkComicIds([$update['id'] ?? null]);
+            $currentTitle = $update['currentTitle'] ?? null;
+            $title = $update['title'] ?? null;
+            if (
+                count($ids) !== 1
+                || !is_string($currentTitle)
+                || !is_string($title)
+                || mb_strlen($currentTitle) > 255
+                || trim($title) === ''
+                || mb_strlen(trim($title)) > 255
+                || isset($normalised[$ids[0]])
+            ) {
+                return [];
+            }
+
+            $normalised[$ids[0]] = [
+                'id' => $ids[0],
+                'currentTitle' => $currentTitle,
+                'title' => trim($title),
+            ];
         }
 
         return array_values($normalised);

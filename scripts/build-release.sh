@@ -285,6 +285,8 @@ if [ "$DO_BACKEND" = "1" ]; then
     # would have accepted, and abort the release over surrounding whitespace.
     PROD_ADSENSE_CLIENT="$(printf '%s' "${PROD_ADSENSE_CLIENT:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID="$(printf '%s' "${PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:lower:]' '[:upper:]')"
+    PROD_OAUTH_GOOGLE_CLIENT_ID="$(printf '%s' "${PROD_OAUTH_GOOGLE_CLIENT_ID:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    PROD_OAUTH_GOOGLE_CLIENT_SECRET="$(printf '%s' "${PROD_OAUTH_GOOGLE_CLIENT_SECRET:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     TURNSTILE_SITE_KEY="$(printf '%s' "${TURNSTILE_SITE_KEY:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     TURNSTILE_SECRET_KEY="$(printf '%s' "${TURNSTILE_SECRET_KEY:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     if [ "$DEPLOY_CONFIG_MODE" = "server-local" ]; then
@@ -292,6 +294,8 @@ if [ "$DO_BACKEND" = "1" ]; then
         PROD_ADSENSE_CLIENT=
         PROD_GOOGLE_ANALYTICS_ENABLED=false
         PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID=
+        PROD_OAUTH_GOOGLE_CLIENT_ID=
+        PROD_OAUTH_GOOGLE_CLIENT_SECRET=
         TURNSTILE_ENABLED=false
         TURNSTILE_SITE_KEY=
         TURNSTILE_SECRET_KEY=
@@ -310,6 +314,10 @@ if [ "$DO_BACKEND" = "1" ]; then
             ca-pub-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
             *) fail "PROD_ADSENSE_CLIENT must be ca-pub- followed by 16 digits when PROD_ADSENSE_ENABLED is true." ;;
         esac
+    fi
+    if { [ -n "$PROD_OAUTH_GOOGLE_CLIENT_ID" ] && [ -z "$PROD_OAUTH_GOOGLE_CLIENT_SECRET" ]; } \
+        || { [ -z "$PROD_OAUTH_GOOGLE_CLIENT_ID" ] && [ -n "$PROD_OAUTH_GOOGLE_CLIENT_SECRET" ]; }; then
+        fail "PROD_OAUTH_GOOGLE_CLIENT_ID and PROD_OAUTH_GOOGLE_CLIENT_SECRET must both be set to enable Google social sign-in."
     fi
     if [ "${TURNSTILE_ENABLED:-false}" = "true" ] \
         && { [ -z "$TURNSTILE_SITE_KEY" ] || [ -z "$TURNSTILE_SECRET_KEY" ]; }; then
@@ -359,6 +367,8 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv ADSENSE_CLIENT "$PROD_ADSENSE_CLIENT"
     write_dotenv GOOGLE_ANALYTICS_ENABLED "${PROD_GOOGLE_ANALYTICS_ENABLED:-false}"
     write_dotenv GOOGLE_ANALYTICS_MEASUREMENT_ID "$PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID"
+    write_dotenv OAUTH_GOOGLE_CLIENT_ID "${PROD_OAUTH_GOOGLE_CLIENT_ID:-}"
+    write_dotenv OAUTH_GOOGLE_CLIENT_SECRET "${PROD_OAUTH_GOOGLE_CLIENT_SECRET:-}"
     write_dotenv TURNSTILE_ENABLED "${TURNSTILE_ENABLED:-false}"
     write_dotenv TURNSTILE_SITE_KEY "$TURNSTILE_SITE_KEY"
     write_dotenv TURNSTILE_SECRET_KEY "$TURNSTILE_SECRET_KEY"

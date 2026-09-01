@@ -28,6 +28,9 @@ export function ComicTableRow({ comic, checked, folderNames, onToggle, onEdit })
       </TableCell>
       <TableCell>
         <Link to={`/read/${comic.id}`} className="font-medium hover:underline">{comic.title}</Link>
+        {comic.autoRenameOriginalTitle && (
+          <p className="text-xs text-muted-foreground">Was {comic.autoRenameOriginalTitle}</p>
+        )}
         {comic.isShared && (
           <Badge variant="secondary" className="ml-2 align-middle text-xs">
             Shared by {comic.sharedBy?.name || "another user"}

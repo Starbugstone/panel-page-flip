@@ -4,11 +4,13 @@ import { SearchBar } from "@/components/SearchBar.jsx";
 import { LibraryDialogs } from "@/components/library/LibraryDialogs";
 import { LibraryFolderBar } from "@/components/library/LibraryFolderBar";
 import { LibraryResults } from "@/components/library/LibraryResults";
-import { LibrarySidebar } from "@/components/library/LibrarySidebar";
+import { DesktopLibrarySidebar, LibrarySidebar } from "@/components/library/LibrarySidebar";
 import { LibraryToolbar } from "@/components/library/LibraryToolbar";
+import { ComicTitleRenameBar } from "@/components/library/ComicTitleRenameBar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
 import { useJumpToComic } from "@/hooks/use-jump-to-comic";
+import { useFolderComicTitleRenamer } from "@/hooks/use-folder-comic-title-renamer";
 import { useLibraryContents } from "@/hooks/use-library-contents";
 import { useLibraryComicActions } from "@/hooks/use-library-comic-actions";
 import { useLibraryFolderActions } from "@/hooks/use-library-folder-actions";
@@ -61,8 +63,14 @@ export default function Dashboard() {
     folders, activeFolderId, navigateFolder, createFolder, updateFolder, deleteFolder,
   });
 
+  const titleRenamer = useFolderComicTitleRenamer({
+    locationKey: isFolderView ? `folder:${activeFolderId ?? "root"}` : `view:${activeView}`,
+    comics,
+    refreshCurrent,
+  });
+
   const { visibleComics, childFolders, folderNames } = useLibraryContents({
-    comics, folders, activeView, activeFolderId, isSearchActive, isFolderView, sort,
+    comics: titleRenamer.previewComics, folders, activeView, activeFolderId, isSearchActive, isFolderView, sort,
   });
 
   // Only the grid renders the cards the jump scrolls to, and only a comic
@@ -113,7 +121,7 @@ export default function Dashboard() {
       </Sheet>
 
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <div className="hidden rounded-lg border bg-card p-3 lg:block">{sidebar}</div>
+        <DesktopLibrarySidebar>{sidebar}</DesktopLibrarySidebar>
         <main className="min-w-0 space-y-5">
           {isFolderView && (
             <LibraryFolderBar
@@ -125,7 +133,16 @@ export default function Dashboard() {
               onMove={() => setMovingFolder(true)}
               onRename={folderActions.renameCurrentFolder}
               onDelete={folderActions.deleteCurrentFolder}
+              onAutoRename={!isSearchActive && !titleRenamer.session ? titleRenamer.startPreview : null}
               onJumpToLastRead={lastReadComic && (() => jumpToComicCard(lastReadComic.id))}
+            />
+          )}
+
+          {isFolderView && (
+            <ComicTitleRenameBar
+              session={titleRenamer.session}
+              onAccept={titleRenamer.accept}
+              onUndo={titleRenamer.undo}
             />
           )}
 
