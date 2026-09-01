@@ -77,8 +77,12 @@ export function SignInMethodsCard({ onConnectionsChange = ignoreConnections }) {
 
   const visibleProviders = providers.filter((provider) => provider.enabled || provider.connected);
 
+  if (loading || visibleProviders.length === 0) {
+    return null;
+  }
+
   return (
-    <Card>
+    <Card className="mb-6">
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Link2 className="h-5 w-5" /> Sign-in methods</CardTitle>
         <CardDescription>
@@ -86,11 +90,7 @@ export function SignInMethodsCard({ onConnectionsChange = ignoreConnections }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Loading sign-in methods…</p>
-        ) : visibleProviders.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No social sign-in providers are configured on this installation.</p>
-        ) : visibleProviders.map((provider) => (
+        {visibleProviders.map((provider) => (
           <div key={provider.provider} className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-medium">{providerName(provider.provider)}</p>

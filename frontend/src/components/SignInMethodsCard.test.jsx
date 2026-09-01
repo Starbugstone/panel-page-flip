@@ -34,4 +34,23 @@ describe("SignInMethodsCard", () => {
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith("/api/auth/oauth/google"));
     expect(toast).toHaveBeenCalledWith({ title: "Google disconnected" });
   });
+
+  it("does not render when no sign-in providers are configured", async () => {
+    const onConnectionsChange = vi.fn();
+    vi.mocked(api.get).mockResolvedValue({
+      hasPassword: true,
+      providers: [{
+        provider: "google",
+        enabled: false,
+        connected: false,
+        email: null,
+      }],
+    });
+
+    const { container } = render(<SignInMethodsCard onConnectionsChange={onConnectionsChange} />);
+
+    await waitFor(() => expect(onConnectionsChange).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText("Sign-in methods")).not.toBeInTheDocument();
+  });
 });

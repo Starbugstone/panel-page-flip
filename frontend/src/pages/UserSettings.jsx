@@ -221,9 +221,7 @@ export default function UserSettings() {
         <AccountSettingsCard />
       </div>
 
-      <div className="mb-6">
-        <SignInMethodsCard onConnectionsChange={setOauthConnections} />
-      </div>
+      <SignInMethodsCard onConnectionsChange={setOauthConnections} />
 
       <Card>
         <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
