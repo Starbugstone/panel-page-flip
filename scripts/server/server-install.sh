@@ -103,6 +103,11 @@ DATABASE_URL="mysql://USER:PASSWORD@127.0.0.1:3306/cbz_reader?serverVersion=8.0.
 CORS_ALLOW_ORIGIN=^https://comics\.yourdomain\.com$
 APP_URL=https://comics.yourdomain.com
 
+# Optional Managed Turnstile widget for the APP_URL hostname.
+TURNSTILE_ENABLED=false
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
+
 MAILER_DSN=smtp://user:pass@smtp.yourdomain.com:587
 MAILER_TRANSPORT=smtp
 MAILER_FROM_ADDRESS=noreply@yourdomain.com

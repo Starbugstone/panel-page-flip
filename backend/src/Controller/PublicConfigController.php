@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Service\AdvertisingConfiguration;
 use App\Service\GoogleAnalyticsConfiguration;
+use App\Service\TurnstileConfiguration;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -33,6 +34,7 @@ final class PublicConfigController extends AbstractController
     public function __construct(
         private readonly AdvertisingConfiguration $advertising,
         private readonly GoogleAnalyticsConfiguration $analytics,
+        private readonly TurnstileConfiguration $turnstile,
         #[Autowire('%privacy_operator%')]
         private readonly string $privacyOperator,
         #[Autowire('%privacy_email%')]
@@ -54,6 +56,7 @@ final class PublicConfigController extends AbstractController
                     ? $this->advertising->consentClient()
                     : $this->analytics->consentClient(),
             ],
+            'turnstile' => $this->turnstile->publicConfiguration(),
             'operator' => $this->privacyOperator,
             'privacyEmail' => $this->privacyEmail,
             'legalEmail' => $this->legalEmail,

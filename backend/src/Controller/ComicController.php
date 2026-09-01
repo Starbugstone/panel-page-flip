@@ -114,12 +114,20 @@ class ComicController extends AbstractController
 
             /** @var ComicRepository $comicRepository */
             $comicRepository = $entityManager->getRepository(Comic::class);
-            $page = $comicRepository->findAdminPage($pagination, $ownerId);
+            $page = $comicRepository->findAdminPage($pagination, $ownerId, [
+                'titleAuthor' => $request->query->get('filterTitleAuthor'),
+                'owner' => $request->query->get('filterOwner'),
+                'uploadedAt' => $request->query->get('filterUploadedAt'),
+                'pageCount' => $request->query->get('filterPageCount'),
+                'tags' => $request->query->get('filterTags'),
+                'timezone' => $request->query->get('filterTimezone'),
+            ]);
             $comics = $this->comicSerializer->serializeMany($page->items, $user, true);
 
             return $this->json([
                 'items' => $comics,
                 'comics' => $comics,
+                'pageCountMax' => $comicRepository->getMaximumPageCount($ownerId),
                 'pagination' => $page->toArray(),
             ]);
         }

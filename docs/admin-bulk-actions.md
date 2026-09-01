@@ -105,3 +105,8 @@ The library's own table (`ComicTableView`) shares the first three. Its bulk
 operations are different — tag, move, share, and a real batch delete endpoint
 scoped to the owner — but the tick boxes underneath are the same code, which is
 why shift-click behaves identically in both places.
+
+## Related
+
+- [admin-table-controls.md](admin-table-controls.md) — the per-column sorting
+  and filtering that decides which rows are there to tick

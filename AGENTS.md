@@ -16,33 +16,44 @@ a preference.
 
 The only work that ships without tests is documentation and comments.
 
-Run before every push — all of it, not a subset, but only before a requested push. never during a normal code update unless necessary:
+For a normal code change, run the tests that cover what you touched. Run the
+full list below only before a requested push — all of it, not a subset — unless
+the change could break a gate you are not already exercising.
 
 ```bash
-docker compose exec -T php php bin/phpunit          # backend
+docker compose exec -T php composer validate --strict
+docker compose exec -T php composer audit --locked --no-dev
+docker compose exec -T php php bin/console lint:container --env=test
+docker compose exec -T php php bin/console lint:twig templates   # all Twig; currently mail
+docker compose exec -T php php bin/console doctrine:schema:validate --env=test
 docker compose exec -T php composer analyse         # PHPStan
 docker compose exec -T php composer cs:check        # PHP-CS-Fixer
-docker compose exec -T php php bin/console lint:twig templates   # email templates
-npm test --prefix frontend                          # frontend
+docker compose exec -T php php bin/phpunit          # backend
+npm run audit:production --prefix frontend
 npm run lint --prefix frontend                      # --max-warnings=0
-npm run build --prefix frontend
+npm test --prefix frontend                          # host; see below
 npm run check:routes --prefix frontend              # committed artefacts
-npm run check:tools --prefix frontend               # host only, see below
-npm run check:seo --prefix frontend                 # after build, same APP_URL
-npm run check:csp --prefix frontend                 # CSP across deployment targets
+npm run check:csp --prefix frontend                 # host only; CSP across nginx targets
+npm run check:tools --prefix frontend               # host only; conversion-tool zips
+APP_URL=https://comics.starbugstone.com npm run build --prefix frontend
+APP_URL=https://comics.starbugstone.com npm run check:seo --prefix frontend
 ```
 
 CI gates on all of these. `lint` fails on a single warning, and the `check:`
 scripts guard generated files that are committed rather than rebuilt on the way
-to production — see `docs/development-tooling.md`.
+to production — see `docs/development-tooling.md`. `check:seo` reads `APP_URL`
+and inspects a build, so the two must use the same value; CI uses
+`https://comics.starbugstone.com`.
 
-`check:tools` and `src/lib/conversion-tools.test.js` only work from the host.
-`frontend_dev` deliberately does not mount `scripts/`, which can hold deploy
-credentials, so inside the container they report a missing source file. That
-failure is the mount, not the repository.
+`check:tools`, `check:csp`, and `frontend/src/lib/conversion-tools.test.js` only
+work from the host. `frontend_dev` mounts `./frontend` and only
+`scripts/generate-nginx-routes.mjs` out of `scripts/`, because that directory
+can hold deploy credentials. `check:tools` needs `scripts/comic-conversion/`
+and `check:csp` needs `scripts/generate-csp.mjs`, so inside the container they
+report a missing source file. That failure is the mount, not the repository.
 
-Report failures honestly, with the output. A suite you did not run is a suite
-that failed.
+On a requested push, report failures honestly, with the output. A gate you did
+not run is a gate that failed.
 
 ## Code should read without commentary
 
@@ -72,11 +83,23 @@ entries, PDF objects, XML, filenames — is attacker-controlled.
 
 ## Conventions
 
-- Backend: PHP 8.2 / Symfony 6.4 / Doctrine. Migrations are
+- Backend: PHP 8.2 / Symfony 6.4 / Doctrine. New migrations are
   `VersionYYYYMMDDHHMMSS`, MySQL-only, and guard with `abortIf` on the platform.
+  Older migrations may omit the guard; do not backfill them unless you are
+  already changing that file.
 - Frontend: React 19 / Vite / Tailwind / Radix. Node >= 22.12.
 - Per-feature documentation lives in `docs/`; `DEV_README.md` indexes every page.
   A behaviour change updates its page in the same PR.
 - Branch from `main`; never commit to it directly. `develop` is the integration
   branch — work wanting manual testing on a real deployment lands there first
   and reaches `main` as one merge.
+  Always keep the documentation up to date with the latest modifications
+
+## Always commit
+
+GitHub is the source of truth: several agents may be working at once, and
+uncommitted work is invisible to them. When a task is finished, commit and push
+the files that task changed. Do not wait for a separate "please commit" — this
+section is that request.
+
+Never commit secrets (`.env`, credentials, deploy keys). That exception is absolute.

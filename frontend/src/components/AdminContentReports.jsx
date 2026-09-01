@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { AdminDateRangePopover } from "@/components/admin/AdminDateRangePicker";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
+import { filterAndSortAdminRows } from "@/lib/admin-client-table";
+import {
+  adminFilterSuggestions,
+  matchesAdminDateRange,
+  parseAdminDateRange,
+  serializeAdminDateRange,
+} from "@/lib/admin-table-filters";
 
 const emptyReview = {
   status: "under_review",
@@ -39,6 +49,18 @@ export function AdminContentReports() {
   const [error, setError] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [saving, setSaving] = useState(false);
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
+  const visibleReports = useMemo(() => filterAndSortAdminRows(reports, tableControls, {
+    reference: { value: (report) => report.reference },
+    category: { value: (report) => label(report.category) },
+    reporter: { value: (report) => report.reporterDisplay },
+    createdAt: {
+      value: (report) => report.createdAt,
+      filter: (value, query) => matchesAdminDateRange(value, query),
+    },
+    target: { value: (report) => report.linkedTarget?.label || "Unresolved" },
+    status: { value: (report) => label(report.status) },
+  }), [reports, tableControls]);
 
   const setDetail = useCallback((report) => {
     setSelected(report);
@@ -173,18 +195,34 @@ export function AdminContentReports() {
           <CardDescription>Private legal notice queue. Full allegations and reporter contact details load only when a case is opened.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid items-end gap-3 md:grid-cols-3">
             <FilterSelect label="Status" value={filters.status} onChange={(value) => setFilters((current) => ({ ...current, status: value }))} options={statuses} />
             <FilterSelect label="Category" value={filters.category} onChange={(value) => setFilters((current) => ({ ...current, category: value }))} options={categories} />
-            <Field label="From"><Input id="reportFrom" type="date" value={filters.from} onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value }))} /></Field>
-            <Field label="To"><Input id="reportTo" type="date" value={filters.to} onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value }))} /></Field>
+            <AdminDateRangePopover
+              label="Submitted"
+              align="start"
+              value={serializeAdminDateRange({ from: filters.from, to: filters.to })}
+              onChange={(value) => {
+                const range = parseAdminDateRange(value);
+                setFilters((current) => ({ ...current, from: range.from, to: range.to }));
+              }}
+              className="w-full"
+            />
           </div>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead><tr className="border-b"><th className="p-2">Reference</th><th className="p-2">Category</th><th className="p-2">Reporter</th><th className="p-2">Submitted</th><th className="p-2">Target</th><th className="p-2">Status</th><th className="p-2"></th></tr></thead>
+              <thead><tr className="border-b">
+                <th className="p-2"><AdminColumnHeader label="Reference" sortField="reference" filterField="reference" filterSuggestions={adminFilterSuggestions(reports, (report) => report.reference)} filterValue={tableControls.columnFilters.reference} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Category" sortField="category" filterField="category" filterType="select" filterOptions={categories.map(label)} filterValue={tableControls.columnFilters.category} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Reporter" sortField="reporter" filterField="reporter" filterSuggestions={adminFilterSuggestions(reports, (report) => report.reporterDisplay)} filterValue={tableControls.columnFilters.reporter} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Submitted" sortField="createdAt" filterField="createdAt" filterType="date" filterValue={tableControls.columnFilters.createdAt} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Target" sortField="target" filterField="target" filterSuggestions={["Unresolved", ...adminFilterSuggestions(reports, (report) => report.linkedTarget?.label)]} filterValue={tableControls.columnFilters.target} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Status" sortField="status" filterField="status" filterType="select" filterOptions={statuses.map(label)} filterValue={tableControls.columnFilters.status} {...tableControls.headerProps} /></th>
+                <th className="p-2"></th>
+              </tr></thead>
               <tbody>
-                {reports.map((report) => (
+                {visibleReports.map((report) => (
                   <tr key={report.id} className="border-b align-top">
                     <td className="p-2 font-mono text-xs">{report.reference}</td>
                     <td className="p-2">{label(report.category)}</td>
@@ -195,7 +233,7 @@ export function AdminContentReports() {
                     <td className="p-2"><Button size="sm" variant="outline" disabled={loadingDetail} onClick={() => open(report)} aria-label={`Review ${report.reference}`}>Review</Button></td>
                   </tr>
                 ))}
-                {reports.length === 0 && <tr><td className="p-4 text-muted-foreground" colSpan={7}>No reports match these filters.</td></tr>}
+                {visibleReports.length === 0 && <tr><td className="p-4 text-muted-foreground" colSpan={7}>No reports match these filters.</td></tr>}
               </tbody>
             </table>
           </div>

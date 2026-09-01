@@ -25,8 +25,10 @@ lives in [`docs/`](docs/):
 | [content-reporting.md](docs/content-reporting.md) | Illegal-content notices and restrictions |
 | [administrator-notices.md](docs/administrator-notices.md) | Warning one account about their activity |
 | [admin-bulk-actions.md](docs/admin-bulk-actions.md) | Tick-box selection and bulk actions across the admin tables |
+| [admin-table-controls.md](docs/admin-table-controls.md) | Per-column sorting and filtering across the admin tables |
 | [advertising.md](docs/advertising.md) | Optional AdSense, consent, AdSense Offerwall, strict CSP |
 | [analytics.md](docs/analytics.md) | Optional privacy-first GA4, basic consent mode, route minimisation |
+| [social-sign-in.md](docs/social-sign-in.md) | Optional Google OAuth, account linking, passwordless accounts |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
 
@@ -1943,7 +1945,7 @@ These are decisions that keep being rediscovered, not a backlog.
    No endpoint reimplements ownership; see
    [docs/comic-access.md](docs/comic-access.md).
 
-5. **Every change ships with tests.** See `CLAUDE.md` — this is a hard rule, and
+5. **Every change ships with tests.** See `AGENTS.md` — this is a hard rule, and
    the suites under [Automated Test Suites](#automated-test-suites) plus the CI
    gates in [README.md](README.md#continuous-integration) are what enforce it.
 

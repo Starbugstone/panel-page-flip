@@ -1,10 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { formatBytes, formatDateTime } from "@/lib/format";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
+import { filterAndSortAdminRows } from "@/lib/admin-client-table";
+import { adminFilterSuggestions, matchesAdminDateRange } from "@/lib/admin-table-filters";
 
 export function AdminOverview() {
   const { toast } = useToast();
@@ -12,6 +16,15 @@ export function AdminOverview() {
   const [cleanup, setCleanup] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCleaning, setIsCleaning] = useState(false);
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
+  const recentSignups = useMemo(() => filterAndSortAdminRows(stats?.recentSignups || [], tableControls, {
+    user: { value: (user) => `${user.name || ""} ${user.email}` },
+    verified: { value: (user) => user.isEmailVerified ? "Yes" : "No" },
+    createdAt: {
+      value: (user) => user.createdAt,
+      filter: (value, query) => matchesAdminDateRange(value, query),
+    },
+  }), [stats?.recentSignups, tableControls]);
 
   useEffect(() => {
     api.get("/api/admin/stats")
@@ -50,9 +63,13 @@ export function AdminOverview() {
         <CardHeader><CardTitle>Recent Sign-ups</CardTitle></CardHeader>
         <CardContent>
           <Table>
-            <TableHeader><TableRow><TableHead>User</TableHead><TableHead>Verified</TableHead><TableHead>Created</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow>
+              <TableHead><AdminColumnHeader label="User" sortField="user" filterField="user" filterSuggestions={adminFilterSuggestions(stats?.recentSignups || [], (user) => [user.name, user.email])} filterValue={tableControls.columnFilters.user} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Verified" sortField="verified" filterField="verified" filterType="select" filterOptions={["Yes", "No"]} filterValue={tableControls.columnFilters.verified} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="createdAt" filterType="date" filterValue={tableControls.columnFilters.createdAt} {...tableControls.headerProps} /></TableHead>
+            </TableRow></TableHeader>
             <TableBody>
-              {(stats?.recentSignups || []).map((user) => (
+              {recentSignups.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell>{user.name || user.email}<div className="text-sm text-muted-foreground">{user.email}</div></TableCell>
                   <TableCell>{user.isEmailVerified ? "Yes" : "No"}</TableCell>

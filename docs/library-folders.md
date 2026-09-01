@@ -145,6 +145,11 @@ answer.
   only: scrolls to and briefly highlights the comic in the current view with
   the newest `readingProgress.lastReadAt`, so a long folder reopens where
   reading stopped
+- `hooks/use-jump-to-comic.js` — the same scroll, for the comic named by
+  `?jump=` in the URL, retried until the list holding it has arrived
+- `components/BackToLibraryLink.jsx` — the reader's way out, aimed at the
+  folder holding the comic and at the comic itself. See
+  [Leaving the reader](reader.md#leaving-the-reader)
 
 ## Related
 

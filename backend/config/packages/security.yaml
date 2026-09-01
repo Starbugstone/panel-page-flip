@@ -44,6 +44,9 @@ security:
                 success_handler: App\Security\AuthenticationSuccessHandler
                 failure_handler: App\Security\AuthenticationFailureHandler
 
+            custom_authenticators:
+                - App\Security\OAuthAuthenticator
+
 
     # Easy way to control access for large sections of your site
     # Note: Only the *first* access control that matches will be used
@@ -57,6 +60,10 @@ security:
         - { path: '^/api/reset-password/reset/[A-Fa-f0-9]{64}$', methods: [POST], roles: PUBLIC_ACCESS }
         - { path: '^/api/email-verification/verify/[A-Fa-f0-9]{64}$', methods: [GET], roles: PUBLIC_ACCESS }
         - { path: ^/api/email-verification/resend$, methods: [POST], roles: PUBLIC_ACCESS }
+        - { path: ^/api/auth/providers$, methods: [GET], roles: PUBLIC_ACCESS }
+        - { path: '^/api/auth/oauth/[^/]+/(start|callback)$', methods: [GET], roles: PUBLIC_ACCESS }
+        - { path: ^/api/auth/oauth/pending$, methods: [GET], roles: PUBLIC_ACCESS }
+        - { path: ^/api/auth/oauth/complete-registration$, methods: [POST], roles: PUBLIC_ACCESS }
         # Whether this installation shows advertising, needed by the landing and
         # login pages before anybody has signed in. Nothing account-specific.
         - { path: ^/api/public-config$, methods: [GET], roles: PUBLIC_ACCESS }

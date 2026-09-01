@@ -8,6 +8,7 @@ import { LibrarySidebar } from "@/components/library/LibrarySidebar";
 import { LibraryToolbar } from "@/components/library/LibraryToolbar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
+import { useJumpToComic } from "@/hooks/use-jump-to-comic";
 import { useLibraryContents } from "@/hooks/use-library-contents";
 import { useLibraryComicActions } from "@/hooks/use-library-comic-actions";
 import { useLibraryFolderActions } from "@/hooks/use-library-folder-actions";
@@ -46,7 +47,7 @@ export default function Dashboard() {
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const location = useLibraryLocation({ folders, foldersLoading, onNavigate: closeSidebar });
-  const { isFolderView, activeFolderId, activeView, ownership, invalidFolder, navigateFolder, navigateView } = location;
+  const { isFolderView, activeFolderId, activeView, jumpComicId, ownership, invalidFolder, navigateFolder, navigateView } = location;
   const { sort, setSort } = useLibrarySorts(activeView);
 
   const { isSearching, isSearchActive, search, loadComics, refreshCurrent } = useLibrarySearch({
@@ -69,6 +70,13 @@ export default function Dashboard() {
   const lastReadComic = viewMode === "grid" ? latestReadComic(visibleComics) : null;
 
   const showSkeleton = (isLoading || foldersLoading) && !isSearching;
+
+  // The reader's way back names the comic it left; the same scroll takes it.
+  // Wait until the grid itself is rendered: the provider may still hold the
+  // previous list while the folder tree has temporarily replaced it with a
+  // skeleton, and attempting the jump against that skeleton loses the request.
+  useJumpToComic(jumpComicId, visibleComics, !showSkeleton && viewMode === "grid");
+
   const hasContent = visibleComics.length > 0 || childFolders.length > 0;
   const uploadUrl = isFolderView ? `/upload?folder=${activeFolderId == null ? "root" : activeFolderId}` : "/upload";
 

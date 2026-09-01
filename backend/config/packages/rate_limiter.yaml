@@ -16,7 +16,30 @@ framework:
             policy: fixed_window
             limit: 5
             interval: '1 hour'
+        # OAuth redirects are intentionally generous human-retry ceilings. The
+        # callback limit also bounds authorization-code exchanges against the
+        # upstream provider.
+        oauth_start:
+            policy: sliding_window
+            limit: 20
+            interval: '15 minutes'
+        oauth_callback:
+            policy: sliding_window
+            limit: 20
+            interval: '15 minutes'
+        oauth_registration:
+            policy: fixed_window
+            limit: 5
+            interval: '1 hour'
         content_report:
+            policy: sliding_window
+            limit: 5
+            interval: '1 hour'
+        content_report_burst:
+            policy: sliding_window
+            limit: 2
+            interval: '1 minute'
+        content_report_acknowledgement:
             policy: sliding_window
             limit: 5
             interval: '1 hour'
@@ -129,7 +152,11 @@ when@test:
                 limit: 1000
             verification_resend:
                 limit: 1000
-            content_report:
+            oauth_start:
+                limit: 1000
+            oauth_callback:
+                limit: 1000
+            oauth_registration:
                 limit: 1000
             comic_search:
                 limit: 1000

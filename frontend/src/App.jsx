@@ -10,6 +10,7 @@ import { AdminNoticeBanner } from "@/components/AdminNoticeBanner.jsx";
 import { Header } from "@/components/Header.jsx";
 import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { AdSenseProvider } from "@/components/ads/AdSenseProvider.jsx";
+import { PublicConfigProvider } from "@/components/config/PublicConfigProvider.jsx";
 import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
 import { Footer } from "@/components/Footer.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
@@ -19,6 +20,7 @@ import { SharingProvider } from "./hooks/use-sharing.jsx";
 
 const Landing = lazy(() => import("./pages/Landing.jsx"));
 const Login = lazy(() => import("./pages/Login.jsx"));
+const CompleteSocialSignup = lazy(() => import("./pages/CompleteSocialSignup.jsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
 const UploadComic = lazy(() => import("./pages/UploadComic.jsx"));
 const BulkUploadGate = lazy(() => import("./pages/BulkUploadGate.jsx"));
@@ -95,6 +97,7 @@ const AppRoutes = () => {
           <Routes>
           <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Landing />} />
           <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login />} />
+          <Route path="/complete-social-signup" element={isAuthenticated ? <Navigate to="/dashboard" /> : <CompleteSocialSignup />} />
           <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ForgotPassword />} />
           <Route path="/reset-password/:token" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ResetPassword />} />
           <Route path="/email-verification" element={<EmailVerification />} />
@@ -149,11 +152,13 @@ const App = () => {
                         decides where advertising may run at all; outside the
                         routed pages because Google's site code is loaded once
                         for the whole application, never per page. */}
-                    <AdSenseProvider>
-                      <GoogleAnalyticsProvider>
-                        <AppRoutes />
-                      </GoogleAnalyticsProvider>
-                    </AdSenseProvider>
+                    <PublicConfigProvider>
+                      <AdSenseProvider>
+                        <GoogleAnalyticsProvider>
+                          <AppRoutes />
+                        </GoogleAnalyticsProvider>
+                      </AdSenseProvider>
+                    </PublicConfigProvider>
                   </BrowserRouter>
                 </TooltipProvider>
               </SharingProvider>

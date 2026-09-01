@@ -5,15 +5,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AdminPagination } from "@/components/AdminPagination";
 import { useAdminList } from "@/hooks/use-admin-list";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { formatDateTime } from "@/lib/format";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { adminFilterSuggestions } from "@/lib/admin-table-filters";
 
 const ALL_ACTIONS = "all";
 
 export function AdminAuditList() {
   const [action, setAction] = useState(ALL_ACTIONS);
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
   const filters = useMemo(
-    () => (action === ALL_ACTIONS ? {} : { action }),
-    [action]
+    () => ({ ...(action === ALL_ACTIONS ? {} : { action }), ...tableControls.query }),
+    [action, tableControls.query]
   );
 
   const {
@@ -78,11 +82,11 @@ export function AdminAuditList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>When</TableHead>
-                <TableHead>Admin</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Target</TableHead>
-                <TableHead>Details</TableHead>
+                <TableHead><AdminColumnHeader label="When" sortField="createdAt" filterField="filterCreatedAt" filterType="date" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
+                <TableHead><AdminColumnHeader label="Admin" sortField="admin" filterField="filterAdmin" filterSuggestions={adminFilterSuggestions(logs, (log) => [log.admin?.name, log.admin?.email])} filterValue={tableControls.columnFilters.filterAdmin} {...tableControls.headerProps} /></TableHead>
+                <TableHead><AdminColumnHeader label="Action" sortField="action" filterField="filterAction" filterType="select" filterOptions={availableActions} filterValue={tableControls.columnFilters.filterAction} {...tableControls.headerProps} /></TableHead>
+                <TableHead><AdminColumnHeader label="Target" sortField="targetType" filterField="filterTarget" filterPlaceholder="Type or exact ID…" filterSuggestions={payload?.filters?.targetTypes || []} filterValue={tableControls.columnFilters.filterTarget} {...tableControls.headerProps} /></TableHead>
+                <TableHead><AdminColumnHeader label="Details" sortField="details" filterField="filterDetails" filterSuggestions={adminFilterSuggestions(logs, (log) => log.payload ? JSON.stringify(log.payload) : null)} filterValue={tableControls.columnFilters.filterDetails} {...tableControls.headerProps} /></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

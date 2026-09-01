@@ -2,12 +2,11 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import {
-  useAdvertisingConfig,
+  usePublicConfig,
   ADVERTISING_OFF,
   ANALYTICS_OFF,
   GOOGLE_CONSENT_OFF,
-  LEGAL_CONTACT_UNKNOWN,
-} from "@/hooks/use-advertising.jsx";
+} from "@/components/config/PublicConfigProvider.jsx";
 import { isAdSafeRoute, isAdvertisingActive } from "@/lib/advertising";
 import { keepRouteAdFree, loadAdSenseScript } from "@/lib/adsense-loader";
 
@@ -38,7 +37,6 @@ const AdSenseContext = createContext({
   config: ADVERTISING_OFF,
   analytics: ANALYTICS_OFF,
   consent: GOOGLE_CONSENT_OFF,
-  legal: LEGAL_CONTACT_UNKNOWN,
   isLoading: false,
   /** Whether this installation shows advertising at all. */
   isActive: false,
@@ -47,7 +45,7 @@ const AdSenseContext = createContext({
 });
 
 export function AdSenseProvider({ children }) {
-  const { config, analytics, consent, legal, isLoading } = useAdvertisingConfig();
+  const { adsense: config, analytics, consent, isLoading } = usePublicConfig();
   const { pathname } = useLocation();
   // Null until an attempt settles. "loading" is derived rather than stored, so
   // the effect below never has to write state just to say it has started.
@@ -83,7 +81,7 @@ export function AdSenseProvider({ children }) {
   }, [adSafe, pathname]);
 
   return (
-    <AdSenseContext.Provider value={{ config, analytics, consent, legal, isLoading, isActive: active, scriptStatus }}>
+    <AdSenseContext.Provider value={{ config, analytics, consent, isLoading, isActive: active, scriptStatus }}>
       {children}
     </AdSenseContext.Provider>
   );

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyViewFilter,
   buildLibraryUrl,
+  libraryPathToComic,
   nextComicForReader,
   resolveLibraryLocation,
   sortComics,
@@ -58,6 +59,22 @@ describe("resolveLibraryLocation", () => {
   it("falls back to every comic when the URL names a view that does not exist", () => {
     expect(resolveLibraryLocation(params("view=favourites"), folders, false).activeView).toBe("all");
   });
+
+  it("reads the comic to scroll to alongside the folder holding it", () => {
+    expect(resolveLibraryLocation(params("folder=7&jump=42"), folders, false))
+      .toMatchObject({ activeFolderId: 7, jumpComicId: 42 });
+  });
+
+  it("has nothing to scroll to when the URL does not ask", () => {
+    expect(resolveLibraryLocation(params("folder=7"), folders, false).jumpComicId).toBeNull();
+  });
+
+  // A jump is a scroll, not a request: a malformed id is dropped where a
+  // malformed folder would send the library back to the root.
+  it("ignores a comic id that is not a number, without invalidating the location", () => {
+    expect(resolveLibraryLocation(params("jump=../etc"), folders, false))
+      .toMatchObject({ jumpComicId: null, invalidFolder: false });
+  });
 });
 
 describe("buildLibraryUrl", () => {
@@ -74,6 +91,22 @@ describe("buildLibraryUrl", () => {
   it("carries both the ownership and the folder", () => {
     expect(buildLibraryUrl({ ownership: "shared", isFolderView: true, activeFolderId: 7 }))
       .toBe("/api/comics?ownership=shared&folder=7");
+  });
+});
+
+describe("libraryPathToComic", () => {
+  it("names the folder holding the comic, and the comic to scroll to", () => {
+    expect(libraryPathToComic({ id: 42, libraryFolderId: 7 })).toBe("/dashboard?folder=7&jump=42");
+  });
+
+  // The root folder view hides everything that is filed. An unfiled comic is
+  // in the plain library, and the jump finds it there.
+  it("leaves an unfiled comic in the whole library", () => {
+    expect(libraryPathToComic({ id: 42, libraryFolderId: null })).toBe("/dashboard?jump=42");
+  });
+
+  it("falls back to the library when there is no comic to return to", () => {
+    expect(libraryPathToComic(undefined)).toBe("/dashboard");
   });
 });
 

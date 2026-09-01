@@ -451,6 +451,14 @@ class AdminController extends AbstractController
             $pagination,
             $request->query->get('action'),
             $request->query->get('targetType'),
+            [
+                'createdAt' => $request->query->get('filterCreatedAt'),
+                'admin' => $request->query->get('filterAdmin'),
+                'action' => $request->query->get('filterAction'),
+                'target' => $request->query->get('filterTarget'),
+                'details' => $request->query->get('filterDetails'),
+                'timezone' => $request->query->get('filterTimezone'),
+            ],
         );
 
         $logs = array_map(fn (AdminAuditLog $log): array => [

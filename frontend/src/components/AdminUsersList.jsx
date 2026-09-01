@@ -9,6 +9,7 @@ import { AdminUsersTable } from "@/components/admin/AdminUsersTable";
 import { AdminUsersToolbar } from "@/components/admin/AdminUsersToolbar";
 import { useAdminBulkAction } from "@/hooks/use-admin-bulk-action";
 import { useAdminList } from "@/hooks/use-admin-list";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { useAdminUserActions } from "@/hooks/use-admin-user-actions";
 import { useAuth } from "@/hooks/use-auth";
 import { useRowSelection } from "@/hooks/use-row-selection";
@@ -36,9 +37,14 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
   // the two cannot drift apart in what they say or what they send.
   const [warningTargets, setWarningTargets] = useState([]);
 
-  const filters = useMemo(() => (showOnlyUnverified ? { verified: "false" } : {}), [showOnlyUnverified]);
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
 
-  const { items: users, setItems: setUsers, listKey, pagination, isLoading, searchInput, setSearch, setPage, setLimit, reload } = useAdminList({
+  const filters = useMemo(() => ({
+    ...(showOnlyUnverified ? { verified: "false" } : {}),
+    ...tableControls.query,
+  }), [showOnlyUnverified, tableControls.query]);
+
+  const { items: users, setItems: setUsers, payload, listKey, pagination, isLoading, searchInput, setSearch, setPage, setLimit, reload } = useAdminList({
     basePath: "/api/users",
     filters,
     // Separate keys so the pending and users tabs do not share a page number.
@@ -171,6 +177,10 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
               onVerify: (user) => actions.verifyUser(user.id),
               onResendVerification: actions.resendVerification,
             }}
+            tableControls={tableControls}
+            comicCountMax={payload?.comicCountMax ?? 0}
+            storageMaxBytes={payload?.storageMaxBytes ?? 0}
+            showContentColumns={!showOnlyUnverified}
           />
         </>
       )}

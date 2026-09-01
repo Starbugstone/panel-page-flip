@@ -209,6 +209,20 @@ describe("AdminUsersList bulk actions", () => {
   });
 });
 
+describe("the pending users table", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("omits activity and content columns for accounts that have never signed in", async () => {
+    await renderList({ showOnlyUnverified: true }, [
+      account(2, "Bob", { isEmailVerified: false }),
+    ]);
+
+    expect(screen.queryByRole("columnheader", { name: "Last login" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Comics" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Storage" })).not.toBeInTheDocument();
+  });
+});
+
 describe("AdminUsersList bulk actions on the pending tab", () => {
   const PENDING = [
     account(2, "Bob", { isEmailVerified: false }),

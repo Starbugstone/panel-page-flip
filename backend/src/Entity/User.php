@@ -106,9 +106,9 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     
 
     /**
-     * @var string The hashed password
+     * @var string|null The hashed password, or null for a social-only account
      */
-    #[ORM\Column]
+    #[ORM\Column(nullable: true)]
     private ?string $password = null;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
@@ -178,6 +178,10 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\OneToMany(targetEntity: EmailVerificationToken::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
     private Collection $emailVerificationTokens;
 
+    /** @var Collection<int, UserOAuthIdentity> */
+    #[ORM\OneToMany(targetEntity: UserOAuthIdentity::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
+    private Collection $oauthIdentities;
+
     public function getDropboxAccessToken(): ?string
     {
         return $this->dropboxAccessToken;
@@ -231,6 +235,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         $this->createdTags = new ArrayCollection();
         $this->resetPasswordTokens = new ArrayCollection();
         $this->emailVerificationTokens = new ArrayCollection();
+        $this->oauthIdentities = new ArrayCollection();
         $this->isEmailVerified = false;
 
         $this->createdAt = new \DateTimeImmutable();
@@ -398,15 +403,20 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     /**
      * @see PasswordAuthenticatedUserInterface
      */
-    public function getPassword(): string
+    public function getPassword(): ?string
     {
         return $this->password;
     }
 
-    public function setPassword(string $password): static
+    public function setPassword(?string $password): static
     {
         $this->password = $password;
         return $this;
+    }
+
+    public function hasPassword(): bool
+    {
+        return ($this->password ?? '') !== '';
     }
 
     /**
@@ -517,6 +527,28 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function getCreatedTags(): Collection
     {
         return $this->createdTags;
+    }
+
+    /** @return Collection<int, UserOAuthIdentity> */
+    public function getOAuthIdentities(): Collection
+    {
+        return $this->oauthIdentities;
+    }
+
+    public function addOAuthIdentity(UserOAuthIdentity $identity): static
+    {
+        if (!$this->oauthIdentities->contains($identity)) {
+            $this->oauthIdentities->add($identity);
+        }
+
+        return $this;
+    }
+
+    public function removeOAuthIdentity(UserOAuthIdentity $identity): static
+    {
+        $this->oauthIdentities->removeElement($identity);
+
+        return $this;
     }
     
 }

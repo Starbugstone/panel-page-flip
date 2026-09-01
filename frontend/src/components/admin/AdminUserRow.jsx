@@ -9,7 +9,7 @@ import { describeRoles } from "@/lib/admin-user-roles";
 import { formatDateTime } from "@/lib/format";
 
 /** One account, with everything an administrator can do to it from the list. */
-export function AdminUserRow({ user, checked, onToggle, onEdit, onWarn, onDelete, onVerify, onResendVerification }) {
+export function AdminUserRow({ user, checked, onToggle, onEdit, onWarn, onDelete, onVerify, onResendVerification, showContentColumns = true }) {
   const who = user.name || user.email;
 
   return (
@@ -36,15 +36,19 @@ export function AdminUserRow({ user, checked, onToggle, onEdit, onWarn, onDelete
           : <Badge variant="destructive">Pending</Badge>}
       </TableCell>
       <TableCell>{formatDateTime(user.createdAt)}</TableCell>
-      <TableCell>{formatDateTime(user.lastLoginAt, "Never")}</TableCell>
-      <TableCell>{user.comicCount}</TableCell>
-      <TableCell>
-        <UserStorageUsage
-          usedBytes={user.storageUsedBytes}
-          quotaBytes={user.storageQuotaBytes}
-          unmeasuredComicCount={user.unmeasuredComicCount}
-        />
-      </TableCell>
+      {showContentColumns && (
+        <>
+          <TableCell>{formatDateTime(user.lastLoginAt, "Never")}</TableCell>
+          <TableCell>{user.comicCount}</TableCell>
+          <TableCell>
+            <UserStorageUsage
+              usedBytes={user.storageUsedBytes}
+              quotaBytes={user.storageQuotaBytes}
+              unmeasuredComicCount={user.unmeasuredComicCount}
+            />
+          </TableCell>
+        </>
+      )}
       <TableCell className="text-right">
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" aria-label={`Edit ${who}`} title="Edit user" onClick={onEdit}>
