@@ -24,6 +24,7 @@ set -euo pipefail
 : "${APP_DIR:?APP_DIR must be set (e.g. /var/www/comics)}"
 WEB_USER="${WEB_USER:-www-data}"
 WEB_GROUP="${WEB_GROUP:-$WEB_USER}"
+DEPLOY_ENVIRONMENT="${DEPLOY_ENVIRONMENT:-production}"
 
 log()  { printf "\033[1;36m[install]\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m[warn]\033[0m    %s\n" "$*"; }
@@ -81,10 +82,27 @@ fi
 # =============================================================================
 [ -d "$APP_DIR/backend" ] || fail "$APP_DIR/backend missing — clone the repo first."
 
+case "$DEPLOY_ENVIRONMENT" in
+    staging|production) ;;
+    *) fail "DEPLOY_ENVIRONMENT must be staging or production." ;;
+esac
+
+IDENTITY_FILE="$APP_DIR/.panel-page-flip-environment"
+if [ -f "$IDENTITY_FILE" ]; then
+    [ "$(tr -d '\r\n' < "$IDENTITY_FILE")" = "$DEPLOY_ENVIRONMENT" ] \
+        || fail "$IDENTITY_FILE already binds this checkout to a different environment."
+else
+    printf '%s\n' "$DEPLOY_ENVIRONMENT" > "$IDENTITY_FILE"
+    chmod 600 "$IDENTITY_FILE"
+fi
+
 cd "$APP_DIR"
 
 mkdir -p backend/var/cache backend/var/log backend/var/page-cache
 mkdir -p backend/public/uploads
+if [ ! -f backend/public/.htaccess ]; then
+    cp scripts/deploy/htaccess.dist backend/public/.htaccess
+fi
 
 # =============================================================================
 # Bootstrap the editable, server-local production environment
@@ -128,6 +146,11 @@ DROPBOX_RATE_LIMIT=60
 # Token used by /_post-deploy.php (only relevant if you ALSO expose that endpoint).
 DEPLOY_TOKEN=REPLACE_WITH_openssl_rand_-hex_32
 EOF
+    if [ "$DEPLOY_ENVIRONMENT" = "staging" ]; then
+        sed -i 's#^MAILER_DSN=.*#MAILER_DSN=null://null#' "$ENV_FILE"
+        printf '\nADSENSE_ENABLED=false\nSTAGING_ISOLATION_CONFIRMED=0\n' >> "$ENV_FILE"
+        printf '# Change the isolation confirmation to 1 only after completing docs/continuous-deployment.md.\n' >> "$ENV_FILE"
+    fi
     chmod 600 "$ENV_FILE"
     cat <<MSG
 
@@ -149,11 +172,13 @@ fi
 # First build
 # =============================================================================
 log "Running first build via server-deploy.sh"
+deploy_script="$APP_DIR/scripts/server/server-deploy.sh"
 APP_DIR="$APP_DIR" \
+DEPLOY_ENVIRONMENT="$DEPLOY_ENVIRONMENT" \
 WEB_USER="$WEB_USER" \
 WEB_GROUP="$WEB_GROUP" \
 BACKUP_COMMAND=true \
-"$APP_DIR/scripts/server/server-deploy.sh"
+"$deploy_script"
 
 # =============================================================================
 # Next steps

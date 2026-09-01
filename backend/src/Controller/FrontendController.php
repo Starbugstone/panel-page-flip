@@ -6,6 +6,7 @@ use App\Service\FrontendRouteRegistry;
 use App\Service\ContentSecurityPolicy;
 use App\Service\PublicUrl;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
@@ -18,6 +19,8 @@ class FrontendController extends AbstractController
         private readonly FrontendRouteRegistry $routes,
         private readonly PublicUrl $publicUrl,
         private readonly ContentSecurityPolicy $contentSecurityPolicy,
+        #[Autowire('%frontend_index_file%')]
+        private readonly string $frontendIndexFile,
     ) {
     }
 
@@ -29,13 +32,11 @@ class FrontendController extends AbstractController
     public function index(string $reactRouting = ''): Response
     {
         // Return the index.html file that loads the React app
-        $indexFile = $this->getParameter('kernel.project_dir') . '/public/index.html';
-        
-        if (!file_exists($indexFile)) {
+        if (!file_exists($this->frontendIndexFile)) {
             throw $this->createNotFoundException('Frontend application not found');
         }
-        
-        $content = file_get_contents($indexFile);
+
+        $content = file_get_contents($this->frontendIndexFile);
         
         $path = $reactRouting === '' ? '/' : '/'.ltrim($reactRouting, '/');
         $isKnownRoute = $this->routes->isKnown($path);

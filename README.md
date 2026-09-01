@@ -317,8 +317,9 @@ and `ci/**`, and on pushes to `main` and `develop`. A weekly
 `security-audit.yml` re-runs the frontend and backend dependency audits on their
 own schedule.
 
-CI validates releases and deliberately does not deploy them: frontend and
-backend must ship together through the backup-gated release scripts described
+Pull requests validate without deploying. After the documented O2Switch setup,
+successful pushes to `develop` and `main` deploy the same validated frontend
+artifact and backend commit through the backup-gated transaction described
 under [Production deployment](#production-deployment).
 
 ## Dropbox integration
@@ -365,8 +366,11 @@ Before every production upgrade:
 
 ## Production deployment
 
-Production releases are backup-gated and intentionally separate from CI:
+Production releases are backup-gated. Validated pushes to `develop` and `main`
+can deploy staging and production automatically after the one-time O2Switch
+setup:
 
+- [O2Switch continuous deployment](docs/continuous-deployment.md) — automatic staging/production, isolation and rollback checklist
 - [SSH deployment guide](SSH-deploy.md) — recommended for a server with SSH and Git access
 - [FTP/FTPS deployment guide](deploy.md) — packaged releases for shared hosting
 

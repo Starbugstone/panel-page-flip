@@ -4,6 +4,7 @@
 # Put parameters here that don't need to change on each machine where the app is deployed
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
 parameters:
+    frontend_index_file: '%kernel.project_dir%/public/index.html'
     comics_directory: '%kernel.project_dir%/public/uploads/comics'
     quarantine_directory: '%kernel.project_dir%/var/quarantine/comics'
     # Generated page images, deliberately under var/ rather than public/: these

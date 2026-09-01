@@ -39,6 +39,7 @@ release/
 release.tar.gz
 scripts/.env.deploy
 frontend/dist/
+.panel-page-flip-environment
 
 # Uploaded content
 backend/public/uploads/
