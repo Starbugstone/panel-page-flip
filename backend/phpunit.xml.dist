@@ -21,6 +21,19 @@
         -->
         <ini name="memory_limit" value="512M" />
         <server name="APP_ENV" value="test" force="true" />
+        <!--
+            Docker passes APP_URL into the container, and Dotenv::bootEnv() does
+            not override a real environment variable — so .env.test's value lost
+            to whatever the developer's stack publishes. That is per checkout
+            now (scripts/dev-env.sh), which made every canonical-URL assertion
+            fail in a worktree while passing in the main repo. Forced here so
+            the suite is hermetic wherever it runs.
+
+            <env>, not <server>: php.ini here sets variables_order=EGPCS, so the
+            container's value is in $_ENV, and that is the first place Symfony's
+            env-var processor looks.
+        -->
+        <env name="APP_URL" value="http://localhost:8080" force="true" />
         <server name="SHELL_VERBOSITY" value="-1" />
         <server name="SYMFONY_PHPUNIT_REMOVE" value="" />
         <server name="SYMFONY_PHPUNIT_VERSION" value="9.5" />

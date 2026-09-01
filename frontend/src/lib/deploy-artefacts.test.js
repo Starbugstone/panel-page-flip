@@ -128,6 +128,21 @@ describe("the local Docker environment", () => {
   });
 
   /**
+   * Docker passes APP_URL into the container and Dotenv::bootEnv() does not
+   * override a real environment variable, so .env.test's value loses to
+   * whatever the developer's stack publishes — which is per checkout now. The
+   * suite asserts canonical URLs against localhost:8080, so without this pin
+   * every worktree fails nine tests for reasons that have nothing to do with
+   * the code. It must be <env>: variables_order is EGPCS in docker/php, so the
+   * container's value reaches $_ENV, which Symfony reads before $_SERVER.
+   */
+  it("pins APP_URL for the backend suite so it does not depend on the port", () => {
+    expect(read("backend/phpunit.xml.dist")).toMatch(
+      /<env name="APP_URL" value="http:\/\/localhost:8080" force="true" \/>/,
+    );
+  });
+
+  /**
    * Nginx serves uploads and public assets and has no reason to write into the
    * checkout; anything it did write would arrive owned by the nginx user.
    */
