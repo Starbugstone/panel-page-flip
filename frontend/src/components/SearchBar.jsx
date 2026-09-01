@@ -5,24 +5,25 @@ import { Button } from "@/components/ui/button";
 import { TagBadge } from "@/components/TagBadge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Search, X, Tag as TagIcon } from "lucide-react";
-import { api } from "@/lib/api";
-import { logger } from "@/lib/logger";
 import { fuzzyFilter } from "@/lib/fuzzy-search";
 import { isTypingTarget } from "@/lib/keyboard";
 import { PAGE_LAYER_CLASSES } from "@/lib/overlay-layers";
+import { MAX_TAG_FETCH_RETRIES, useTagOptions } from "@/hooks/use-tag-options";
 
 export function SearchBar({ onSearch, isSearching = false }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchInputRef = useRef(null);
   const [selectedTags, setSelectedTags] = useState([]);
-  const [availableTags, setAvailableTags] = useState([]);
-  const [isLoadingTags, setIsLoadingTags] = useState(true);
-  const [tagFetchError, setTagFetchError] = useState(null);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
-  const [retryCount, setRetryCount] = useState(0);
-  const MAX_RETRIES = 3;
+  const {
+    availableTags,
+    isLoadingTags,
+    tagFetchError,
+    retryCount,
+    retryTagFetch,
+  } = useTagOptions();
   const filteredTags = useMemo(() => {
     return fuzzyFilter(availableTags, tagQuery, ["name"])
       .sort((a, b) => {
@@ -31,36 +32,6 @@ export function SearchBar({ onSearch, isSearching = false }) {
         return Number(bSelected) - Number(aSelected) || a.name.localeCompare(b.name);
       });
   }, [availableTags, selectedTags, tagQuery]);
-
-  useEffect(() => {
-    const fetchTags = async () => {
-      setIsLoadingTags(true);
-      setTagFetchError(null);
-      try {
-        const data = await api.get("/api/tags");
-        setAvailableTags(data.tags || []); // Assuming the API returns { tags: [...] }
-        setRetryCount(0); // Reset retry count on success
-      } catch (error) {
-        logger.error("Error fetching tags:", error);
-        setTagFetchError(error.message);
-        
-        // Implement retry logic for network errors
-        if (retryCount < MAX_RETRIES && (error.message.includes('network') || error.message.includes('Server error'))) {
-          setRetryCount(prev => prev + 1);
-          const retryDelay = Math.pow(2, retryCount) * 1000; // Exponential backoff
-          setTimeout(() => {
-            logger.log(`Retrying tag fetch (${retryCount + 1}/${MAX_RETRIES})...`);
-            // This will trigger the useEffect again
-            setTagFetchError(null);
-          }, retryDelay);
-        }
-      } finally {
-        setIsLoadingTags(false);
-      }
-    };
-
-    fetchTags();
-  }, [retryCount]);
 
   // "/" jumps to the search box, Ctrl/Cmd+K too.
   useEffect(() => {
@@ -199,10 +170,10 @@ export function SearchBar({ onSearch, isSearching = false }) {
                 {tagFetchError && (
                   <div className="text-sm text-destructive">
                     <p>Error: {tagFetchError}</p>
-                    {retryCount < MAX_RETRIES && (
+                    {retryCount < MAX_TAG_FETCH_RETRIES && (
                       <button 
                         className="text-sm text-primary hover:text-primary-focus mt-1"
-                        onClick={() => setRetryCount(prev => prev + 1)}
+                        onClick={retryTagFetch}
                       >
                         Retry
                       </button>
