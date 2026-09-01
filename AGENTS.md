@@ -93,6 +93,7 @@ entries, PDF objects, XML, filenames — is attacker-controlled.
 - Branch from `main`; never commit to it directly. `develop` is the integration
   branch — work wanting manual testing on a real deployment lands there first
   and reaches `main` as one merge.
+  Always keep the documentation up to date with the latest modifications
 
 ## Always commit
 
