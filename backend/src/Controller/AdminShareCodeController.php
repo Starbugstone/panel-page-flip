@@ -58,7 +58,7 @@ final class AdminShareCodeController extends AbstractController
         );
 
         $status = $request->query->get('status');
-        if (!in_array($status, ['active', 'expired', 'withdrawn', 'exhausted', 'comics_removed'], true)) {
+        if (!array_key_exists((string) $status, ShareClaimCodeRepository::ADMIN_STATUS_LABELS)) {
             $status = null;
         }
 
@@ -69,6 +69,19 @@ final class AdminShareCodeController extends AbstractController
             'createdTo' => $this->date($request->query->get('createdTo'), endOfDay: true),
             'expiresFrom' => $this->date($request->query->get('expiresFrom')),
             'expiresTo' => $this->date($request->query->get('expiresTo'), endOfDay: true),
+            // The Status column is typed into rather than picked from, so it
+            // arrives as a label and the repository resolves it against the
+            // same statuses the dropdown above sends.
+            'columnStatus' => $request->query->get('filterStatus'),
+            'id' => $request->query->get('filterId'),
+            'owner' => $request->query->get('filterOwner'),
+            'comics' => $request->query->get('filterComics'),
+            'uses' => $request->query->get('filterUses'),
+            'columnCreatedAt' => $this->date($request->query->get('filterCreatedAt')),
+            'columnCreatedTo' => $this->date($request->query->get('filterCreatedAt'), endOfDay: true),
+            'columnExpiresAt' => $this->date($request->query->get('filterExpiresAt')),
+            'columnExpiresTo' => $this->date($request->query->get('filterExpiresAt'), endOfDay: true),
+            'deletedAfter' => $this->date($request->query->get('filterDeletedAfter')),
         ]);
 
         return $this->json([

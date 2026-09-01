@@ -4,8 +4,9 @@ namespace App\Repository;
 
 use App\Entity\Comic;
 use App\Entity\Tag;
-use App\Service\Pagination\PaginatedResult;
+use App\Service\Pagination\ColumnFilter;
 use App\Service\Pagination\LikePattern;
+use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
@@ -47,6 +48,8 @@ class ComicRepository extends ServiceEntityRepository
         'uploadedAt' => 'c.uploadedAt',
         'pageCount' => 'c.pageCount',
         'fileSize' => 'c.fileSize',
+        'owner' => 'o.email',
+        'tags' => 'SIZE(c.tags)',
     ];
 
     public function __construct(ManagerRegistry $registry)
@@ -58,9 +61,11 @@ class ComicRepository extends ServiceEntityRepository
      * One page of the admin comic list, across every owner unless one is named.
      *
      * @param int|null $ownerId Restrict to a single owner's library.
+     * @param array{titleAuthor?: string|null, owner?: string|null, uploadedAt?: string|null,
+     *               pageCount?: string|null, tags?: string|null} $filters
      * @return PaginatedResult<Comic>
      */
-    public function findAdminPage(PaginationRequest $request, ?int $ownerId = null): PaginatedResult
+    public function findAdminPage(PaginationRequest $request, ?int $ownerId = null, array $filters = []): PaginatedResult
     {
         $qb = $this->createQueryBuilder('c')->leftJoin('c.owner', 'o');
 
@@ -89,6 +94,38 @@ class ComicRepository extends ServiceEntityRepository
                 'LOWER(o.email) LIKE :search',
                 $qb->expr()->exists($taggedSubquery),
             ))->setParameter('search', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['titleAuthor'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(c.title) LIKE :filterTitleAuthor',
+                'LOWER(c.author) LIKE :filterTitleAuthor',
+            ))->setParameter('filterTitleAuthor', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['owner'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(o.name) LIKE :filterOwner',
+                'LOWER(o.email) LIKE :filterOwner',
+            ))->setParameter('filterOwner', $pattern);
+        }
+
+        ColumnFilter::applyDay($qb, 'c.uploadedAt', 'filterUploadedAt', $filters['uploadedAt'] ?? null);
+
+        $pageCount = ColumnFilter::text($filters['pageCount'] ?? null);
+        if (ctype_digit($pageCount)) {
+            $qb->andWhere('c.pageCount = :filterPageCount')->setParameter('filterPageCount', (int) $pageCount);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['tags'] ?? null)) {
+            $filterTagSubquery = $this->getEntityManager()->createQueryBuilder()
+                ->select('1')
+                ->from(Tag::class, 'filterTag')
+                ->join('filterTag.comics', 'filterTaggedComic')
+                ->where('filterTaggedComic = c')
+                ->andWhere('LOWER(filterTag.name) LIKE :filterTags')
+                ->getDQL();
+            $qb->andWhere($qb->expr()->exists($filterTagSubquery))->setParameter('filterTags', $pattern);
         }
 
         $total = (int) (clone $qb)->select('COUNT(c.id)')

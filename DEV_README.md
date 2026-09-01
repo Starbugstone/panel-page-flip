@@ -25,6 +25,7 @@ lives in [`docs/`](docs/):
 | [content-reporting.md](docs/content-reporting.md) | Illegal-content notices and restrictions |
 | [administrator-notices.md](docs/administrator-notices.md) | Warning one account about their activity |
 | [admin-bulk-actions.md](docs/admin-bulk-actions.md) | Tick-box selection and bulk actions across the admin tables |
+| [admin-table-controls.md](docs/admin-table-controls.md) | Per-column sorting and filtering across the admin tables |
 | [advertising.md](docs/advertising.md) | Optional AdSense, consent, AdSense Offerwall, strict CSP |
 | [analytics.md](docs/analytics.md) | Optional privacy-first GA4, basic consent mode, route minimisation |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |

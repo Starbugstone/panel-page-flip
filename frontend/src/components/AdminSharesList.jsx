@@ -25,11 +25,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAdminList } from "@/hooks/use-admin-list";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { logger } from "@/lib/logger";
 import { SHARE_STATUS_LABELS } from "@/lib/sharing";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 
 /** The statuses the backend filters on, in the order an operator wants them. */
 const STATUSES = [
@@ -63,11 +65,13 @@ export function AdminSharesList() {
   // cannot drift apart in what they say or what they send.
   const [warningTargets, setWarningTargets] = useState([]);
   const [isBusy, setIsBusy] = useState(false);
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
 
   const filters = useMemo(() => ({
     ...(status ? { status } : {}),
     ...(explicitOnly ? { explicitOnly: "true" } : {}),
-  }), [explicitOnly, status]);
+    ...tableControls.query,
+  }), [explicitOnly, status, tableControls.query]);
 
   const {
     items: shares,
@@ -200,11 +204,11 @@ export function AdminSharesList() {
                       label="Select all shares"
                     />
                   </TableHead>
-                  <TableHead>Comic</TableHead>
-                  <TableHead>Shared by</TableHead>
-                  <TableHead>Shared with</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead><AdminColumnHeader label="Comic" sortField="comicTitle" filterField="filterComic" filterValue={tableControls.columnFilters.filterComic} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Shared by" sortField="owner" filterField="filterOwner" filterValue={tableControls.columnFilters.filterOwner} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Shared with" sortField="recipient" filterField="filterRecipient" filterValue={tableControls.columnFilters.filterRecipient} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Status" sortField="status" filterField="filterStatus" filterPlaceholder="Accepted, pending, declined, or revoked…" filterValue={tableControls.columnFilters.filterStatus} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="filterCreatedAt" filterPlaceholder="YYYY-MM-DD…" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>

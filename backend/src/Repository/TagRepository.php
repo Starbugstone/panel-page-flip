@@ -4,6 +4,7 @@ namespace App\Repository;
 
 use App\Entity\Tag;
 use App\Entity\User;
+use App\Service\Pagination\ColumnFilter;
 use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
@@ -24,7 +25,16 @@ class TagRepository extends ServiceEntityRepository
         'name' => 't.name',
         'createdAt' => 't.createdAt',
         'isGlobal' => 't.isGlobal',
+        'hideFromLibrary' => 't.hideFromLibrary',
+        'comicCount' => 'SIZE(t.comics)',
+        'creator' => 'creator.email',
     ];
+
+    /** The Scope column's two values, as its cells spell them. */
+    private const SCOPE_LABELS = ['global' => 'Global', 'personal' => 'Personal'];
+
+    /** Likewise for the Default library column. */
+    private const VISIBILITY_LABELS = ['visible' => 'Visible', 'hidden' => 'Hidden'];
 
     /** Upper bound on an autocomplete response; nobody scrolls past this. */
     public const SEARCH_LIMIT = 50;
@@ -40,9 +50,11 @@ class TagRepository extends ServiceEntityRepository
      *
      * @param int|null $creatorId Restrict to one user's personal tags. Global
      *                            tags have no creator and are excluded by it.
+     * @param array{name?: string|null, scope?: string|null, visibility?: string|null,
+     *               comicCount?: string|null, creator?: string|null, createdAt?: string|null} $filters
      * @return PaginatedResult<Tag>
      */
-    public function findAdminPage(PaginationRequest $request, ?int $creatorId = null): PaginatedResult
+    public function findAdminPage(PaginationRequest $request, ?int $creatorId = null, array $filters = []): PaginatedResult
     {
         $qb = $this->createQueryBuilder('t')->leftJoin('t.creator', 'creator');
 
@@ -57,6 +69,39 @@ class TagRepository extends ServiceEntityRepository
                 'LOWER(creator.email) LIKE :search',
             ))->setParameter('search', $pattern);
         }
+
+        if ($pattern = ColumnFilter::pattern($filters['name'] ?? null)) {
+            $qb->andWhere('LOWER(t.name) LIKE :filterName')->setParameter('filterName', $pattern);
+        }
+
+        $scope = ColumnFilter::matchLabel($qb, $filters['scope'] ?? null, self::SCOPE_LABELS);
+        if ($scope !== null) {
+            $qb->andWhere('t.isGlobal = :filterScope')->setParameter('filterScope', $scope === 'global');
+        }
+
+        $visibility = ColumnFilter::matchLabel($qb, $filters['visibility'] ?? null, self::VISIBILITY_LABELS);
+        if ($visibility !== null) {
+            $qb->andWhere('t.hideFromLibrary = :filterVisibility')
+                ->setParameter('filterVisibility', $visibility === 'hidden');
+        }
+
+        $comicCount = ColumnFilter::text($filters['comicCount'] ?? null);
+        if (ctype_digit($comicCount)) {
+            $qb->andWhere('SIZE(t.comics) = :filterComicCount')->setParameter('filterComicCount', (int) $comicCount);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['creator'] ?? null)) {
+            if (mb_strtolower(ColumnFilter::text($filters['creator'])) === 'system') {
+                $qb->andWhere('t.creator IS NULL');
+            } else {
+                $qb->andWhere($qb->expr()->orX(
+                    'LOWER(creator.name) LIKE :filterCreator',
+                    'LOWER(creator.email) LIKE :filterCreator',
+                ))->setParameter('filterCreator', $pattern);
+            }
+        }
+
+        ColumnFilter::applyDay($qb, 't.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null);
 
         $total = (int) (clone $qb)->select('COUNT(t.id)')
             ->getQuery()

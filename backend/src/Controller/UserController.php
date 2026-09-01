@@ -44,7 +44,15 @@ class UserController extends AbstractController
 
         /** @var UserRepository $userRepository */
         $userRepository = $entityManager->getRepository(User::class);
-        $page = $userRepository->findAdminPage($pagination, $verified);
+        $page = $userRepository->findAdminPage($pagination, $verified, [
+            'identity' => $request->query->get('filterIdentity'),
+            'role' => $request->query->get('filterRole'),
+            'verified' => $request->query->get('filterVerified'),
+            'createdAt' => $request->query->get('filterCreatedAt'),
+            'lastLoginAt' => $request->query->get('filterLastLoginAt'),
+            'comicCount' => $request->query->get('filterComicCount'),
+            'storage' => $request->query->get('filterStorage'),
+        ]);
         $stats = $userRepository->getOwnedContentStats(
             array_map(static fn (User $u): int => $u->getId(), $page->items)
         );

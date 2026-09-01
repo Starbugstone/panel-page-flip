@@ -57,6 +57,11 @@ final class AdminShareController extends AbstractController
             'comicId' => $request->query->has('comicId') ? $request->query->getInt('comicId') : null,
             'ownerId' => $request->query->has('ownerId') ? $request->query->getInt('ownerId') : null,
             'explicitOnly' => $request->query->getBoolean('explicitOnly'),
+            'comic' => $request->query->get('filterComic'),
+            'owner' => $request->query->get('filterOwner'),
+            'recipient' => $request->query->get('filterRecipient'),
+            'columnStatus' => $request->query->get('filterStatus'),
+            'createdAt' => $request->query->get('filterCreatedAt'),
         ]);
 
         return $this->json([

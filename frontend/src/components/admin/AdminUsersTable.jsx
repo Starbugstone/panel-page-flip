@@ -2,12 +2,22 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { AdminPagination } from "@/components/AdminPagination";
 import { AdminUserRow } from "@/components/admin/AdminUserRow";
 import { SelectAllCheckbox } from "@/components/SelectionCheckbox";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 
-const COLUMNS = ["Name / Email", "Role", "Verified?", "Created", "Last login", "Comics", "Storage", "Actions"];
+const COLUMNS = [
+  { label: "Name / Email", sortField: "name", filterField: "filterIdentity" },
+  { label: "Role", sortField: "role", filterField: "filterRole", filterPlaceholder: "Admin or user…" },
+  { label: "Verified?", sortField: "verified", filterField: "filterVerified", filterPlaceholder: "Verified or pending…" },
+  { label: "Created", sortField: "createdAt", filterField: "filterCreatedAt", filterPlaceholder: "YYYY-MM-DD…" },
+  { label: "Last login", sortField: "lastLoginAt", filterField: "filterLastLoginAt", filterPlaceholder: "YYYY-MM-DD or never…" },
+  { label: "Comics", sortField: "comicCount", filterField: "filterComicCount", filterPlaceholder: "Exact count…" },
+  { label: "Storage", sortField: "storage", filterField: "filterStorage", filterPlaceholder: "For example 177.3 MiB…" },
+  { label: "Actions" },
+];
 
 const headClass = (column) => {
-  if (column === "Storage") return "w-[13rem]";
-  return column === "Actions" ? "text-right" : undefined;
+  if (column.label === "Storage") return "w-[13rem]";
+  return column.label === "Actions" ? "text-right" : undefined;
 };
 
 /**
@@ -17,7 +27,7 @@ const headClass = (column) => {
  * spinner, so the layout does not collapse and move the next button out from
  * under the cursor.
  */
-export function AdminUsersTable({ users, selection, pagination, isLoading, emptyMessage, label, onPageChange, onLimitChange, rowActions }) {
+export function AdminUsersTable({ users, selection, pagination, isLoading, emptyMessage, label, onPageChange, onLimitChange, rowActions, tableControls }) {
   return (
     <div className="overflow-x-auto rounded-md border">
       <Table>
@@ -26,7 +36,18 @@ export function AdminUsersTable({ users, selection, pagination, isLoading, empty
             <TableHead className="w-12">
               <SelectAllCheckbox state={selection.headerState} onToggleAll={selection.toggleAll} label={`Select all ${label}`} />
             </TableHead>
-            {COLUMNS.map((column) => <TableHead key={column} className={headClass(column)}>{column}</TableHead>)}
+            {COLUMNS.map((column) => (
+              <TableHead key={column.label} className={headClass(column)}>
+                {column.sortField || column.filterField ? (
+                  <AdminColumnHeader
+                    {...column}
+                    {...tableControls.headerProps}
+                    filterValue={tableControls.columnFilters[column.filterField]}
+                    className={column.label === "Actions" ? "justify-end" : undefined}
+                  />
+                ) : column.label}
+              </TableHead>
+            ))}
           </TableRow>
         </TableHeader>
         <TableBody>

@@ -174,6 +174,44 @@ final class AdminPaginationTest extends AbstractApiTestCase
         self::assertSame(1, $row['tagCount']);
     }
 
+    public function testUserColumnFiltersAndComicCountSortApplyToTheWholeResultSet(): void
+    {
+        $this->createAndLoginSearchAdmin();
+        $barbara = UserFactory::createOne(['name' => 'Barbara Gordon', 'email' => 'oracle@example.com']);
+        $bruce = UserFactory::createOne(['name' => 'Bruce Wayne', 'email' => 'bat@example.com']);
+        ComicFactory::new()->ownedBy($barbara)->with(['fileSize' => 524_288])->many(2)->create();
+        ComicFactory::new()->ownedBy($bruce)->create(['fileSize' => 262_144]);
+
+        $filtered = $this->getJson('/api/users?filterIdentity=oracle&filterComicCount=2');
+        self::assertResponseIsSuccessful();
+        self::assertSame([$barbara->getId()], array_column($filtered['items'], 'id'));
+
+        $byStorage = $this->getJson('/api/users?filterStorage=' . urlencode('1.0 MiB') . '&sort=storage&direction=DESC');
+        self::assertResponseIsSuccessful();
+        self::assertSame([$barbara->getId()], array_column($byStorage['items'], 'id'));
+
+        $sorted = $this->getJson('/api/users?sort=comicCount&direction=DESC');
+        self::assertResponseIsSuccessful();
+        self::assertSame($barbara->getId(), $sorted['items'][0]['id']);
+    }
+
+    /**
+     * A word the Verified? column never shows excludes every row. Dropping the
+     * filter instead would answer a search for "nobody" with the whole user
+     * table, which reads as though every account had matched it.
+     */
+    public function testAColumnFilterMatchingNoLabelReturnsNothing(): void
+    {
+        $this->createAndLoginAdmin();
+        UserFactory::createOne(['email' => 'someone@example.com']);
+
+        $payload = $this->getJson('/api/users?filterVerified=nobody');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([], $payload['items']);
+        self::assertSame(0, $payload['pagination']['totalItems']);
+    }
+
     public function testUnknownSortFieldFallsBackToTheDefaultInsteadOfFailing(): void
     {
         $this->createAndLoginAdmin();
@@ -267,6 +305,23 @@ final class AdminPaginationTest extends AbstractApiTestCase
         self::assertCount(1, $payload['items']);
     }
 
+    public function testAdminComicColumnFiltersCanBeCombined(): void
+    {
+        $this->createAndLoginAdmin();
+        $owner = UserFactory::createOne(['name' => 'Selina Kyle', 'email' => 'cat@example.com']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Gotham Nights', 'pageCount' => 42]);
+        $tag = TagFactory::new()->createdBy($owner)->create(['name' => 'Noir']);
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->find(\App\Entity\Comic::class, $comic->getId())
+            ->addTag($entityManager->find(\App\Entity\Tag::class, $tag->getId()));
+        $entityManager->flush();
+
+        $payload = $this->getJson('/api/comics?adminContext=true&filterTitleAuthor=gotham&filterOwner=selina&filterTags=noir&filterPageCount=42&sort=tags&direction=ASC');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([$comic->getId()], array_column($payload['items'], 'id'));
+    }
+
     public function testAdminTagListIsPagedAndFilteredByCreator(): void
     {
         $this->createAndLoginAdmin();
@@ -303,6 +358,36 @@ final class AdminPaginationTest extends AbstractApiTestCase
         self::assertTrue($payload['items'][0]['isGlobal']);
         self::assertNull($payload['items'][0]['creator']);
         self::assertSame(2, $payload['items'][0]['comicCount']);
+    }
+
+    public function testAdminTagColumnFiltersAndUsageSortWorkTogether(): void
+    {
+        $admin = $this->createAndLoginAdmin();
+        $popular = TagFactory::createOne(['name' => 'Popular Noir', 'isGlobal' => true, 'creator' => null]);
+        $unused = TagFactory::createOne(['name' => 'Unused Noir', 'isGlobal' => true, 'creator' => null]);
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        foreach (ComicFactory::new()->ownedBy($admin)->many(2)->create() as $comic) {
+            $entityManager->find(\App\Entity\Comic::class, $comic->getId())
+                ->addTag($entityManager->find(\App\Entity\Tag::class, $popular->getId()));
+        }
+        $entityManager->flush();
+
+        $payload = $this->getJson('/api/tags?all=true&adminContext=true&filterName=noir&filterScope=global&sort=comicCount&direction=DESC');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([$popular->getId(), $unused->getId()], array_column($payload['items'], 'id'));
+    }
+
+    public function testATagScopeFilterMatchingNoLabelReturnsNothing(): void
+    {
+        $this->createAndLoginAdmin();
+        TagFactory::createOne(['name' => 'Noir', 'isGlobal' => true, 'creator' => null]);
+
+        $payload = $this->getJson('/api/tags?all=true&adminContext=true&filterScope=nonsense');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([], $payload['items']);
+        self::assertSame(0, $payload['pagination']['totalItems']);
     }
 
     public function testCreatorIdDoesNotLeakAnotherUsersTagsToANonAdmin(): void
@@ -362,6 +447,25 @@ final class AdminPaginationTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
         self::assertSame(1, $payload['pagination']['totalItems']);
         self::assertSame(42, $payload['items'][0]['targetId']);
+    }
+
+    public function testAuditLogColumnFiltersMatchAdminTargetAndDetails(): void
+    {
+        $admin = $this->createAndLoginAdmin(['name' => 'Audit Operator', 'email' => 'operator@example.com']);
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->persist((new AdminAuditLog())
+            ->setAdminUser($entityManager->find(\App\Entity\User::class, $admin->getId()))
+            ->setAction('comic_update')
+            ->setTargetType('comic')
+            ->setTargetId(77)
+            ->setPayload(['reason' => 'duplicate']));
+        $entityManager->flush();
+
+        $payload = $this->getJson('/api/admin/audit-logs?filterAdmin=operator&filterAction=update&filterTarget=77&filterDetails=duplicate&sort=details&direction=ASC');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame(1, $payload['pagination']['totalItems']);
+        self::assertSame(77, $payload['items'][0]['targetId']);
     }
 
     public function testAuditLogRejectsANonAdmin(): void

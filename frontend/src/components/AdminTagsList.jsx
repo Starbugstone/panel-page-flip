@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { TagBadge, HIDDEN_TAG_EXPLANATION } from "@/components/TagBadge";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminList } from "@/hooks/use-admin-list";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { AdminPagination } from "@/components/AdminPagination";
 import { AdminBulkActionsBar } from "@/components/admin/AdminBulkActionsBar";
 import { SelectAllCheckbox, SelectionCheckbox } from "@/components/SelectionCheckbox";
@@ -18,6 +19,7 @@ import { pluralize, summariseLabels } from "@/lib/bulk-actions";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { formatDate } from "@/lib/format";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,10 +47,11 @@ export function AdminTagsList({ creatorId, embedded = false }) {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [hideFromLibrary, setHideFromLibrary] = useState(false);
+  const tableControls = useAdminTableControls({ defaultSort: "name", defaultDirection: "ASC" });
 
   const filters = useMemo(
-    () => ({ all: "true", adminContext: "true", ...(creatorId ? { creatorId } : {}) }),
-    [creatorId]
+    () => ({ all: "true", adminContext: "true", ...(creatorId ? { creatorId } : {}), ...tableControls.query }),
+    [creatorId, tableControls.query]
   );
 
   const {
@@ -205,12 +208,12 @@ export function AdminTagsList({ creatorId, embedded = false }) {
                       label="Select all tags"
                     />
                   </TableHead>
-                  <TableHead>Tag Name</TableHead>
-                  <TableHead>Scope</TableHead>
-                  <TableHead>Default library</TableHead>
-                  <TableHead>Comics Using</TableHead>
-                  <TableHead>Created By</TableHead>
-                  <TableHead>Created Date</TableHead>
+                  <TableHead><AdminColumnHeader label="Tag name" sortField="name" filterField="filterName" filterValue={tableControls.columnFilters.filterName} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Scope" sortField="isGlobal" filterField="filterScope" filterPlaceholder="Global or personal…" filterValue={tableControls.columnFilters.filterScope} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Default library" sortField="hideFromLibrary" filterField="filterVisibility" filterPlaceholder="Visible or hidden…" filterValue={tableControls.columnFilters.filterVisibility} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Comics using" sortField="comicCount" filterField="filterComicCount" filterPlaceholder="Exact count…" filterValue={tableControls.columnFilters.filterComicCount} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Created by" sortField="creator" filterField="filterCreator" filterValue={tableControls.columnFilters.filterCreator} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Created date" sortField="createdAt" filterField="filterCreatedAt" filterPlaceholder="YYYY-MM-DD…" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>

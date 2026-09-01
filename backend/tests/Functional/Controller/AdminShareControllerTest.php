@@ -82,6 +82,64 @@ final class AdminShareControllerTest extends AbstractApiTestCase
         self::assertNotContains($ordinary->getId(), $ids);
     }
 
+    /**
+     * The search box reaches the invited address, which is the only identity a
+     * share made by email has until it is claimed. It reads the normalised
+     * column because that is the only one the entity keeps; naming the
+     * unnormalised one made every search of this table a 500.
+     */
+    public function testSearchingTheShareListReachesTheInvitedAddress(): void
+    {
+        $share = $this->share(['title' => 'Preacher Special']);
+        $this->share(['title' => 'Sandman Special']);
+
+        $this->createAndLoginAdmin();
+        $recipientEmail = (string) $share->getRecipientUser()?->getEmail();
+        $payload = $this->getJson('/api/admin/shares?search=' . urlencode($recipientEmail));
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([$share->getId()], array_column($payload['items'], 'id'));
+    }
+
+    /**
+     * A Status nobody has excludes everything, rather than falling through to
+     * the unfiltered table and reading as though every share matched.
+     */
+    public function testAStatusColumnFilterMatchingNoLabelReturnsNothing(): void
+    {
+        $this->share(['title' => 'Preacher Special']);
+
+        $this->createAndLoginAdmin();
+        $payload = $this->getJson('/api/admin/shares?filterStatus=nonsense');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([], $payload['items']);
+        self::assertSame(0, $payload['pagination']['totalItems']);
+    }
+
+    public function testColumnFiltersNarrowEveryDisplayedShareIdentity(): void
+    {
+        $share = $this->share(['title' => 'Preacher Special']);
+        $this->share(['title' => 'Sandman Special']);
+
+        $this->createAndLoginAdmin();
+        $ownerEmail = (string) $share->getOwner()?->getEmail();
+        $recipientEmail = (string) $share->getRecipientUser()?->getEmail();
+        $query = http_build_query([
+            'filterComic' => 'Preacher',
+            'filterOwner' => $ownerEmail,
+            'filterRecipient' => $recipientEmail,
+            'filterStatus' => 'accepted',
+            'sort' => 'recipient',
+            'direction' => 'ASC',
+        ]);
+
+        $payload = $this->getJson('/api/admin/shares?' . $query);
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([$share->getId()], array_column($payload['items'], 'id'));
+    }
+
     public function testRevokingTakesAccessAwayWithoutTouchingTheComic(): void
     {
         $share = $this->share(['title' => 'Sandman #1']);

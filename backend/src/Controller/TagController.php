@@ -44,7 +44,14 @@ class TagController extends AbstractController
             );
             $creatorId = $request->query->has('creatorId') ? $request->query->getInt('creatorId') : null;
 
-            $page = $tagRepository->findAdminPage($pagination, $creatorId);
+            $page = $tagRepository->findAdminPage($pagination, $creatorId, [
+                'name' => $request->query->get('filterName'),
+                'scope' => $request->query->get('filterScope'),
+                'visibility' => $request->query->get('filterVisibility'),
+                'comicCount' => $request->query->get('filterComicCount'),
+                'creator' => $request->query->get('filterCreator'),
+                'createdAt' => $request->query->get('filterCreatedAt'),
+            ]);
             $comicCounts = $tagRepository->countComicsPerTag($page->items);
             $tagsArray = array_map(
                 fn (Tag $tag): array => $this->serializeTag($tag, true, $comicCounts[$tag->getId()] ?? 0),

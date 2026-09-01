@@ -8,6 +8,7 @@ import { LibrarySidebar } from "@/components/library/LibrarySidebar";
 import { LibraryToolbar } from "@/components/library/LibraryToolbar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
+import { useJumpToComic } from "@/hooks/use-jump-to-comic";
 import { useLibraryContents } from "@/hooks/use-library-contents";
 import { useLibraryComicActions } from "@/hooks/use-library-comic-actions";
 import { useLibraryFolderActions } from "@/hooks/use-library-folder-actions";
@@ -46,7 +47,7 @@ export default function Dashboard() {
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const location = useLibraryLocation({ folders, foldersLoading, onNavigate: closeSidebar });
-  const { isFolderView, activeFolderId, activeView, ownership, invalidFolder, navigateFolder, navigateView } = location;
+  const { isFolderView, activeFolderId, activeView, jumpComicId, ownership, invalidFolder, navigateFolder, navigateView } = location;
   const { sort, setSort } = useLibrarySorts(activeView);
 
   const { isSearching, isSearchActive, search, loadComics, refreshCurrent } = useLibrarySearch({
@@ -67,6 +68,9 @@ export default function Dashboard() {
   // Only the grid renders the cards the jump scrolls to, and only a comic
   // someone has opened counts as a place to return to.
   const lastReadComic = viewMode === "grid" ? latestReadComic(visibleComics) : null;
+
+  // The reader's way back names the comic it left; the same scroll takes it.
+  useJumpToComic(jumpComicId, visibleComics);
 
   const showSkeleton = (isLoading || foldersLoading) && !isSearching;
   const hasContent = visibleComics.length > 0 || childFolders.length > 0;

@@ -1,5 +1,6 @@
 
 import { Link } from "react-router-dom";
+import { BackToLibraryLink } from "./BackToLibraryLink.jsx";
 import { ThemeToggle } from "./ThemeToggle.jsx";
 import { useLocation } from "react-router-dom";
 import { SignedInNav } from "./HeaderSignedInNav.jsx";
@@ -35,9 +36,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
       return (
         <header className="reader-header-fullscreen fixed left-0 right-0 top-0 z-[60] bg-gradient-to-b from-background/90 to-transparent p-2 transition-opacity duration-300 motion-reduce:transition-none">
           <div className="flex justify-between items-center">
-            <Link to="/dashboard" className="text-foreground hover:text-comic-purple text-sm">
-              Back to Library
-            </Link>
+            <BackToLibraryLink className="text-foreground hover:text-comic-purple text-sm" />
             <ThemeToggle />
           </div>
         </header>
@@ -47,9 +46,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
       return (
         <header className={`reader-header relative w-full shrink-0 border-b border-border bg-background ${PAGE_LAYER_CLASSES.header}`}>
           <div className="flex h-full items-center justify-between">
-            <Link to="/dashboard" className="text-foreground hover:text-comic-purple text-sm">
-              Back to Library
-            </Link>
+            <BackToLibraryLink className="text-foreground hover:text-comic-purple text-sm" />
             <ThemeToggle />
           </div>
         </header>

@@ -2,9 +2,11 @@
 
 namespace App\Repository;
 
+use App\Entity\Comic;
 use App\Entity\ShareClaimCode;
 use App\Entity\User;
 use App\Enum\ShareCodeType;
+use App\Service\Pagination\ColumnFilter;
 use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\ParsedShareCode;
@@ -23,6 +25,24 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
         'expiresAt' => 'c.expiresAt',
         'maxUses' => 'c.maxUses',
         'usesRemaining' => 'c.usesRemaining',
+        'id' => 'c.id',
+        'owner' => 'o.email',
+        'comicCount' => 'SIZE(c.comics)',
+        'timesUsed' => 'timesUsedSort',
+        'status' => 'statusSort',
+    ];
+
+    /**
+     * The status filter's values, and the label the Status column shows for
+     * each. The dropdown sends a value and the column filter is typed against a
+     * label, so both have to come from here or they drift apart.
+     */
+    public const ADMIN_STATUS_LABELS = [
+        'active' => 'Active',
+        'comics_removed' => 'Comics removed',
+        'withdrawn' => 'Withdrawn',
+        'expired' => 'Expired',
+        'exhausted' => 'Used up',
     ];
 
     public function __construct(ManagerRegistry $registry)
@@ -106,7 +126,11 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
      *
      * @param array{status?: string|null, ownerId?: int|null, createdFrom?: \DateTimeImmutable|null,
      *              createdTo?: \DateTimeImmutable|null, expiresFrom?: \DateTimeImmutable|null,
-     *              expiresTo?: \DateTimeImmutable|null} $filters
+     *              expiresTo?: \DateTimeImmutable|null, id?: string|null, owner?: string|null,
+     *              comics?: string|null, uses?: string|null, columnStatus?: string|null,
+     *              columnCreatedAt?: \DateTimeImmutable|null, columnCreatedTo?: \DateTimeImmutable|null,
+     *              columnExpiresAt?: \DateTimeImmutable|null, columnExpiresTo?: \DateTimeImmutable|null,
+     *              deletedAfter?: \DateTimeImmutable|null} $filters
      *
      * @return PaginatedResult<ShareClaimCode>
      */
@@ -129,7 +153,47 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
             ))->setParameter('search', $pattern);
         }
 
-        switch ($filters['status'] ?? null) {
+        $filterId = ColumnFilter::text($filters['id'] ?? null);
+        if (ctype_digit($filterId)) {
+            $qb->andWhere('c.id = :filterId')->setParameter('filterId', (int) $filterId);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['owner'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(o.name) LIKE :filterOwner',
+                'LOWER(o.email) LIKE :filterOwner',
+            ))->setParameter('filterOwner', $pattern);
+        }
+
+        $filterComics = ColumnFilter::text($filters['comics'] ?? null);
+        if (ctype_digit($filterComics)) {
+            $qb->andWhere('SIZE(c.comics) = :filterComicCount')->setParameter('filterComicCount', (int) $filterComics);
+        } elseif ($filterComics !== '') {
+            $comicSubquery = $this->getEntityManager()->createQueryBuilder()
+                ->select('1')
+                ->from(Comic::class, 'filterCodeComic')
+                ->where('filterCodeComic MEMBER OF c.comics')
+                ->andWhere('LOWER(filterCodeComic.title) LIKE :filterComics')
+                ->getDQL();
+            $qb->andWhere($qb->expr()->exists($comicSubquery))
+                ->setParameter('filterComics', ColumnFilter::pattern($filterComics));
+        }
+
+        $filterUses = ColumnFilter::text($filters['uses'] ?? null);
+        if (preg_match('/^(\d+)\s*\/\s*(\d+)$/', $filterUses, $matches)) {
+            $qb->andWhere('(c.maxUses - c.usesRemaining) = :filterTimesUsed')
+                ->andWhere('c.maxUses = :filterMaxUses')
+                ->setParameter('filterTimesUsed', (int) $matches[1])
+                ->setParameter('filterMaxUses', (int) $matches[2]);
+        } elseif (ctype_digit($filterUses)) {
+            $qb->andWhere('(c.maxUses - c.usesRemaining) = :filterTimesUsed')
+                ->setParameter('filterTimesUsed', (int) $filterUses);
+        }
+
+        $status = $filters['status']
+            ?? ColumnFilter::matchLabel($qb, $filters['columnStatus'] ?? null, self::ADMIN_STATUS_LABELS);
+
+        switch ($status) {
             case 'active':
                 $qb->andWhere('c.revokedAt IS NULL')
                     ->andWhere('c.usesRemaining > 0')
@@ -177,7 +241,35 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
             }
         }
 
+        foreach ([
+            'columnCreatedAt' => ['c.createdAt >= :columnCreatedAt', 'columnCreatedAt'],
+            'columnCreatedTo' => ['c.createdAt <= :columnCreatedTo', 'columnCreatedTo'],
+            'columnExpiresAt' => ['c.expiresAt >= :columnExpiresAt', 'columnExpiresAt'],
+            'columnExpiresTo' => ['c.expiresAt <= :columnExpiresTo', 'columnExpiresTo'],
+        ] as $key => [$expression, $parameter]) {
+            if (($filters[$key] ?? null) !== null) {
+                $qb->andWhere($expression)->setParameter($parameter, $filters[$key]);
+            }
+        }
+
+        if (($filters['deletedAfter'] ?? null) instanceof \DateTimeImmutable) {
+            $expiryDay = $filters['deletedAfter']->modify('-' . ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+'));
+            $qb->andWhere('c.expiresAt >= :deletedAfterFrom')
+                ->andWhere('c.expiresAt < :deletedAfterTo')
+                ->setParameter('deletedAfterFrom', $expiryDay)
+                ->setParameter('deletedAfterTo', $expiryDay->modify('+1 day'));
+        }
+
         $total = (int) (clone $qb)->select('COUNT(c.id)')->getQuery()->getSingleScalarResult();
+
+        if ($request->sortField === 'timesUsed') {
+            $qb->addSelect('(c.maxUses - c.usesRemaining) AS HIDDEN timesUsedSort');
+        }
+        if ($request->sortField === 'status') {
+            $qb->addSelect(sprintf(
+                'CASE WHEN c.revokedAt IS NOT NULL THEN 4 WHEN c.usesRemaining <= 0 THEN 3 WHEN c.expiresAt <= CURRENT_TIMESTAMP() THEN 2 WHEN SIZE(c.comics) <> c.issuedComicCount THEN 1 ELSE 0 END AS HIDDEN statusSort'
+            ));
+        }
 
         $codes = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)

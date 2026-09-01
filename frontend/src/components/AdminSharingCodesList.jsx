@@ -17,10 +17,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AdminPagination } from "@/components/AdminPagination";
 import { useAdminList } from "@/hooks/use-admin-list";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { formatDate } from "@/lib/format";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 
 /** The statuses the backend filters on, in the order an operator wants them. */
 const STATUSES = [
@@ -61,13 +63,15 @@ export function AdminSharingCodesList() {
   const [codeToRevoke, setCodeToRevoke] = useState(null);
   const [isCleanupOpen, setIsCleanupOpen] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
 
   const filters = useMemo(() => ({
     ...(status ? { status } : {}),
     ...(ownerId.trim() ? { ownerId: ownerId.trim() } : {}),
     ...(createdFrom ? { createdFrom } : {}),
     ...(createdTo ? { createdTo } : {}),
-  }), [status, ownerId, createdFrom, createdTo]);
+    ...tableControls.query,
+  }), [status, ownerId, createdFrom, createdTo, tableControls.query]);
 
   const {
     items: codes,
@@ -199,14 +203,17 @@ export function AdminSharingCodesList() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Owner</TableHead>
-              <TableHead>Comics</TableHead>
-              <TableHead>Uses</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Expires</TableHead>
-              <TableHead>Deleted after</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead><AdminColumnHeader label="ID" sortField="id" filterField="filterId" filterPlaceholder="Exact ID…" filterValue={tableControls.columnFilters.filterId} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Owner" sortField="owner" filterField="filterOwner" filterValue={tableControls.columnFilters.filterOwner} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Comics" sortField="comicCount" filterField="filterComics" filterPlaceholder="Title or exact count…" filterValue={tableControls.columnFilters.filterComics} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Uses" sortField="timesUsed" filterField="filterUses" filterPlaceholder="Used or used / maximum…" filterValue={tableControls.columnFilters.filterUses} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="filterCreatedAt" filterPlaceholder="YYYY-MM-DD…" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
+              {/* Deletion is a fixed span after expiry, so Expires already
+                  sorts this column's order; a second control for it would
+                  light two headings up as the active sort at once. */}
+              <TableHead><AdminColumnHeader label="Expires" sortField="expiresAt" filterField="filterExpiresAt" filterPlaceholder="YYYY-MM-DD…" filterValue={tableControls.columnFilters.filterExpiresAt} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Deleted after" filterField="filterDeletedAfter" filterPlaceholder="YYYY-MM-DD…" filterValue={tableControls.columnFilters.filterDeletedAfter} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Status" sortField="status" filterField="filterStatus" filterPlaceholder="Active, expired, used up, withdrawn…" filterValue={tableControls.columnFilters.filterStatus} {...tableControls.headerProps} /></TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>

@@ -133,6 +133,22 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         $searched = $this->getJson('/api/admin/sharing-codes?search=somebody-else');
         self::assertSame(1, $searched['pagination']['totalItems']);
 
+        $columnFiltered = $this->getJson('/api/admin/sharing-codes?' . http_build_query([
+            'filterId' => $ids[1],
+            'filterOwner' => (string) $owner->getEmail(),
+            'filterComics' => '1',
+            'filterUses' => '0 / 1',
+            'filterStatus' => 'active',
+            'sort' => 'status',
+            'direction' => 'ASC',
+        ]));
+        self::assertResponseIsSuccessful();
+        self::assertSame([$ids[1]], array_column($columnFiltered['items'], 'id'));
+
+        $unmatched = $this->getJson('/api/admin/sharing-codes?filterStatus=nonsense');
+        self::assertResponseIsSuccessful();
+        self::assertSame([], $unmatched['items'], 'a status nobody shows excludes every code');
+
         // Withdraw one and the status filters separate the two halves.
         $this->postJson(sprintf('/api/admin/sharing-codes/%d/revoke', $ids[0]), []);
         self::assertResponseIsSuccessful();

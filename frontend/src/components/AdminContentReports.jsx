@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
+import { filterAndSortAdminRows } from "@/lib/admin-client-table";
 
 const emptyReview = {
   status: "under_review",
@@ -39,6 +42,23 @@ export function AdminContentReports() {
   const [error, setError] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [saving, setSaving] = useState(false);
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
+  const visibleReports = useMemo(() => filterAndSortAdminRows(reports, tableControls, {
+    reference: { value: (report) => report.reference },
+    category: { value: (report) => label(report.category) },
+    reporter: { value: (report) => report.reporterDisplay },
+    // Matched against both spellings, because the cell shows the local date
+    // while the row carries the ISO stamp it sorts by.
+    createdAt: {
+      value: (report) => report.createdAt,
+      filter: (value, query) => (
+        String(value ?? "").toLocaleLowerCase().includes(query)
+        || new Date(value).toLocaleDateString().toLocaleLowerCase().includes(query)
+      ),
+    },
+    target: { value: (report) => report.linkedTarget?.label || "Unresolved" },
+    status: { value: (report) => label(report.status) },
+  }), [reports, tableControls]);
 
   const setDetail = useCallback((report) => {
     setSelected(report);
@@ -182,9 +202,17 @@ export function AdminContentReports() {
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead><tr className="border-b"><th className="p-2">Reference</th><th className="p-2">Category</th><th className="p-2">Reporter</th><th className="p-2">Submitted</th><th className="p-2">Target</th><th className="p-2">Status</th><th className="p-2"></th></tr></thead>
+              <thead><tr className="border-b">
+                <th className="p-2"><AdminColumnHeader label="Reference" sortField="reference" filterField="reference" filterValue={tableControls.columnFilters.reference} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Category" sortField="category" filterField="category" filterValue={tableControls.columnFilters.category} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Reporter" sortField="reporter" filterField="reporter" filterValue={tableControls.columnFilters.reporter} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Submitted" sortField="createdAt" filterField="createdAt" filterPlaceholder="Date…" filterValue={tableControls.columnFilters.createdAt} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Target" sortField="target" filterField="target" filterValue={tableControls.columnFilters.target} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Status" sortField="status" filterField="status" filterValue={tableControls.columnFilters.status} {...tableControls.headerProps} /></th>
+                <th className="p-2"></th>
+              </tr></thead>
               <tbody>
-                {reports.map((report) => (
+                {visibleReports.map((report) => (
                   <tr key={report.id} className="border-b align-top">
                     <td className="p-2 font-mono text-xs">{report.reference}</td>
                     <td className="p-2">{label(report.category)}</td>
@@ -195,7 +223,7 @@ export function AdminContentReports() {
                     <td className="p-2"><Button size="sm" variant="outline" disabled={loadingDetail} onClick={() => open(report)} aria-label={`Review ${report.reference}`}>Review</Button></td>
                   </tr>
                 ))}
-                {reports.length === 0 && <tr><td className="p-4 text-muted-foreground" colSpan={7}>No reports match these filters.</td></tr>}
+                {visibleReports.length === 0 && <tr><td className="p-4 text-muted-foreground" colSpan={7}>No reports match these filters.</td></tr>}
               </tbody>
             </table>
           </div>

@@ -202,6 +202,19 @@ behind them.
 - **Keep screen awake** requests the browser's screen wake lock while the reader
   is open. Unsupported or denied wake locks do not interrupt reading.
 
+## Leaving the reader
+
+**Back to Library** returns to the comic, not to the top of the library: the
+folder holding it opens, and its card is scrolled into view and briefly
+highlighted — the same landing the folder bar's **Last read** button gives. A
+comic filed nowhere returns to the whole library, where its card is found the
+same way.
+
+The folder comes from the library list the header already holds, so a reader
+opened without one behind it — a bookmark, a fresh tab, a shared link — returns
+to the plain library instead. The URL carries the request as `?jump=<comic id>`
+alongside the folder, and any navigation within the library drops it.
+
 ## Keyboard controls
 
 | Key | Action |
