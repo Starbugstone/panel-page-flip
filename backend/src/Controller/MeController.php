@@ -56,6 +56,7 @@ class MeController extends AbstractController
                 'username' => $user->getUsername(),
                 'roles' => $user->getRoles(),
                 'isAdmin' => $user->isAdmin(),
+                'hasPassword' => $user->hasPassword(),
             ],
             'sessionRefreshed' => $sessionRefreshed,
         ]);

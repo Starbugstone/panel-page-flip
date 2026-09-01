@@ -77,9 +77,10 @@ final class ResetPasswordControllerTest extends AbstractApiTestCase
         self::assertNotEmpty($payload['errors']['password']);
     }
 
-    public function testAValidTokenCanResetThePassword(): void
+    public function testASocialOnlyAccountCanSetItsFirstPasswordWithAValidToken(): void
     {
-        $user = UserFactory::createOne(['password' => 'Old!Password123']);
+        $user = UserFactory::createOne(['password' => null]);
+        self::assertFalse($user->hasPassword());
         $plainToken = bin2hex(random_bytes(32));
         $entityManager = self::getContainer()->get(EntityManagerInterface::class);
 
@@ -100,6 +101,10 @@ final class ResetPasswordControllerTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame('Password has been reset successfully', $payload['message']);
+        $entityManager->clear();
+        $reloadedUser = $entityManager->find(\App\Entity\User::class, $user->getId());
+        self::assertNotNull($reloadedUser);
+        self::assertTrue($reloadedUser->hasPassword());
 
         self::assertEmailCount(1);
         $message = self::getMailerMessage();

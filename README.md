@@ -23,6 +23,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
 - Optional Google AdSense, off unless an operator turns it on, confined by an allowlist to pages that render no uploaded comic content, with consent and the bulk-upload Offerwall owned by Google's supported account-side products — see [advertising, consent, and AdSense Offerwall](docs/advertising.md)
 - Optional Google Analytics 4, off unless an operator turns it on, blocked behind Google Privacy & Messaging basic consent mode and restricted to sanitized application-owned route categories — see [privacy-first Google Analytics](docs/analytics.md)
+- Optional Google social sign-in with safe account linking, passwordless onboarding, and provider-neutral identity storage — see [social sign-in setup and security model](docs/social-sign-in.md)
 
 ## Technology
 
@@ -116,6 +117,7 @@ Important configuration variables:
 - `MAX_PARALLEL_FILE_UPLOADS` — how many comics a bulk upload sends at once (2 when omitted). Those files share the budget above, so this decides how many comics move together, not how much load reaches PHP-FPM
 - `UPLOAD_USER_QUOTA_BYTES` — default canonical comic storage per account in bytes (10 GiB when omitted); administrators can override it per user, and `0` deliberately means unlimited
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REDIRECT_URI` — optional Dropbox OAuth settings
+- `OAUTH_GOOGLE_CLIENT_ID`, `OAUTH_GOOGLE_CLIENT_SECRET` — optional Google social sign-in; both empty disables it. Register the exact `APP_URL` callback described in [`docs/social-sign-in.md`](docs/social-sign-in.md)
 - `DROPBOX_APP_FOLDER`, `DROPBOX_SYNC_LIMIT`, `DROPBOX_RATE_LIMIT` — optional Dropbox import settings
 - `ADSENSE_ENABLED`, `ADSENSE_CLIENT` — optional Google AdSense, off by default.
   Advertising runs only when both are set and the client is a publisher id in
@@ -373,6 +375,10 @@ set the feature values in the host's
 `backend/.env.local`; they do not need to be duplicated in
 `scripts/.env.deploy`. See [`docs/advertising.md`](docs/advertising.md) and
 [`docs/analytics.md`](docs/analytics.md).
+
+Google social sign-in also requires account-side setup. Configure each
+installation's exact callback URI and keep its client secret in the host's
+ignored `backend/.env.local`; see [`docs/social-sign-in.md`](docs/social-sign-in.md).
 
 ## Project layout
 
