@@ -36,4 +36,9 @@ export default [
     ],
     rules: { "react-refresh/only-export-components": "off" },
   },
+  {
+    files: ["src/**/*.{js,jsx,mjs}"],
+    ignores: ["src/**/*.test.{js,jsx,mjs}"],
+    rules: { complexity: ["error", 15] },
+  },
 ];

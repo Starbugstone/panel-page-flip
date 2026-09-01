@@ -17,6 +17,9 @@ npm run build
 Do not commit a Bun lockfile unless package-manager policy deliberately changes.
 
 `npm run lint` runs with `--max-warnings=0`. A warning fails the build, so there is no such thing as a lint warning that can be left for later.
+Production functions also have a cyclomatic-complexity ceiling of 15. Split
+view derivation, policy, and side effects into named units instead of raising
+the ceiling; this keeps the single-responsibility audit as a permanent gate.
 
 `test:coverage` instruments every production JavaScript and JSX source file,
 including files a test never imports. The checked-in thresholds ratchet the
