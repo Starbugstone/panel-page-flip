@@ -8,6 +8,26 @@ import { cn } from "@/lib/utils";
 /** Where quota use stops being background information and starts being news. */
 const WARNING_PERCENT = 90;
 
+function storageUsageView(usedBytes, quotaBytes, unmeasuredComicCount) {
+  const used = Math.max(0, Number(usedBytes) || 0);
+  const quota = Math.max(0, Number(quotaBytes) || 0);
+  const unmeasured = Math.max(0, Number(unmeasuredComicCount) || 0);
+  const percent = quota > 0 ? (used / quota) * 100 : null;
+  const barValue = percent === null ? 0 : Math.min(100, Math.max(0, percent));
+  const percentLabel = percent === null ? "Unlimited" : `${percent.toFixed(1)}%`;
+  const usedLabel = formatBytes(used);
+  const quotaLabel = quota > 0 ? formatBytes(quota) : null;
+  const incompleteNote = unmeasured > 0
+    ? `${unmeasured} ${unmeasured === 1 ? "comic has" : "comics have"} no stored file-size metadata; actual usage may be higher.`
+    : null;
+  const heading = incompleteNote ? "Measured storage used" : "Storage used";
+  const summary = quotaLabel
+    ? `${heading}: ${usedLabel} of ${quotaLabel}, ${percentLabel}.`
+    : `${heading}: ${usedLabel}. Unlimited storage quota.`;
+
+  return { used, quota, percent, barValue, percentLabel, usedLabel, quotaLabel, incompleteNote, summary };
+}
+
 /**
  * How much of an account's storage quota is gone: one table cell, or one block
  * of a card.
@@ -23,27 +43,13 @@ const WARNING_PERCENT = 90;
  * @param {string} [props.className]
  */
 export function UserStorageUsage({ usedBytes, quotaBytes, unmeasuredComicCount = 0, className }) {
-  const used = Math.max(0, Number(usedBytes) || 0);
-  const quota = Math.max(0, Number(quotaBytes) || 0);
-  const unmeasured = Math.max(0, Number(unmeasuredComicCount) || 0);
-
   // A quota of zero is unlimited, not a full disk: there is no percentage to
-  // report and nothing honest to fill the bar with.
-  const percent = quota > 0 ? (used / quota) * 100 : null;
-  // Only the bar is clamped. If the data says 112%, every number here says 112%.
-  const barValue = percent === null ? 0 : Math.min(100, Math.max(0, percent));
-  const percentLabel = percent === null ? "Unlimited" : `${percent.toFixed(1)}%`;
-
-  const usedLabel = formatBytes(used);
-  const quotaLabel = quota > 0 ? formatBytes(quota) : null;
-
-  const incompleteNote = unmeasured > 0
-    ? `${unmeasured} ${unmeasured === 1 ? "comic has" : "comics have"} no stored file-size metadata; actual usage may be higher.`
-    : null;
-  const heading = incompleteNote ? "Measured storage used" : "Storage used";
-  const summary = quotaLabel
-    ? `${heading}: ${usedLabel} of ${quotaLabel}, ${percentLabel}.`
-    : `${heading}: ${usedLabel}. Unlimited storage quota.`;
+  // report and nothing honest to fill the bar with. Only the bar is clamped;
+  // if the data says 112%, every number shown here says 112%.
+  const view = storageUsageView(usedBytes, quotaBytes, unmeasuredComicCount);
+  const {
+    used, quota, percent, barValue, percentLabel, usedLabel, quotaLabel, incompleteNote, summary,
+  } = view;
 
   return (
     <TooltipProvider>

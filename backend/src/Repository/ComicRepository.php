@@ -13,11 +13,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<Comic>
- *
- * @method Comic|null find($id, $lockMode = null, $lockVersion = null)
- * @method Comic|null findOneBy(array $criteria, array $orderBy = null)
- * @method Comic[]    findAll()
- * @method Comic[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class ComicRepository extends ServiceEntityRepository
 {

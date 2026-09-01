@@ -24,9 +24,13 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
         $pages = $this->index($sourcePath, $type);
         if ($page < 1 || !isset($pages[$page - 1])) throw new \OutOfRangeException('Page not found.');
         $process = new Process(['7z', 'x', '-so', '-spd', '--', $sourcePath, $pages[$page - 1]]);
-        $process->setTimeout(self::TIMEOUT); $process->setInput(null); $process->run();
-        if (!$process->isSuccessful() || $process->getOutput() === '') throw new \RuntimeException('Archive page extraction failed.');
-        return PageResult::fromImageContent($process->getOutput());
+        $content = $this->runWithBoundedOutput(
+            $process,
+            ComicSourceLimits::MAX_PAGE_BYTES,
+            'Archive page exceeds the safety limit.',
+        );
+        if (!$process->isSuccessful() || $content === '') throw new \RuntimeException('Archive page extraction failed.');
+        return PageResult::fromImageContent($content);
     }
     /** @return list<string> */
     private function index(string $path, ComicSourceType $type): array
@@ -46,26 +50,19 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
     {
         try {
             $entry = $this->comicInfoEntry($this->listing($sourcePath, $type));
+            if ($entry === null) return null;
+
+            $process = new Process(['7z', 'x', '-so', '-spd', '--', $sourcePath, $entry]);
+            $xml = $this->runWithBoundedOutput(
+                $process,
+                ComicSourceLimits::MAX_METADATA_BYTES,
+                'ComicInfo.xml exceeds the safety limit.',
+            );
         } catch (\RuntimeException) {
             return null;
         }
 
-        if ($entry === null) return null;
-
-        $process = new Process(['7z', 'x', '-so', '-spd', '--', $sourcePath, $entry]);
-        $process->setTimeout(self::TIMEOUT); $process->setInput(null);
-
-        // Read incrementally and stop at the cap. getOutput() would hold the
-        // whole entry first, and how large that is was decided by whoever built
-        // the archive.
-        $xml = ''; $tooLarge = false;
-        $process->run(static function (string $type, string $chunk) use (&$xml, &$tooLarge, $process): void {
-            if ($type !== Process::OUT || $tooLarge) return;
-            $xml .= $chunk;
-            if (strlen($xml) > ComicSourceLimits::MAX_METADATA_BYTES) { $tooLarge = true; $process->stop(0); }
-        });
-
-        if ($tooLarge || !$process->isSuccessful() || $xml === '') return null;
+        if (!$process->isSuccessful() || $xml === '') return null;
 
         return $xml;
     }
@@ -84,7 +81,12 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
     /** Raw `7z l -slt` output, once the archive is confirmed to match its extension. */
     private function listing(string $path, ComicSourceType $type): string
     {
-        $process = new Process(['7z', 'l', '-slt', '--', $path]); $process->setTimeout(self::TIMEOUT); $process->run();
+        $process = new Process(['7z', 'l', '-slt', '--', $path]);
+        $listing = $this->runWithBoundedOutput(
+            $process,
+            ComicSourceLimits::MAX_LISTING_BYTES,
+            'Archive listing exceeds the safety limit.',
+        );
         if (!$process->isSuccessful()) {
             // "Is 7z installed?" sends an administrator looking in the wrong
             // place for CBR, where the usual cause is a 7z built without the
@@ -94,12 +96,47 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
                 ? 'Could not read this RAR archive. Check Admin → Formats: CBR needs a 7z built with RAR support.'
                 : sprintf('Could not read this %s archive with 7z.', strtoupper($type->value)));
         }
-        if (!preg_match('/^Type = (\S+)/mi', $process->getOutput(), $format)) throw new \RuntimeException('Archive format could not be identified.');
+        if (!preg_match('/^Type = (\S+)/mi', $listing, $format)) throw new \RuntimeException('Archive format could not be identified.');
         $actual = strtolower($format[1]);
         $expected = match ($type) { ComicSourceType::CBR => ['rar', 'rar5'], ComicSourceType::CB7 => ['7z'], ComicSourceType::CBT => ['tar'], default => [] };
         if (!in_array($actual, $expected, true)) throw new \RuntimeException('Archive content does not match its extension.');
 
-        return $process->getOutput();
+        return $listing;
+    }
+
+    private function runWithBoundedOutput(Process $process, int $limitBytes, string $limitMessage): string
+    {
+        $output = '';
+        $receivedBytes = 0;
+        $tooLarge = false;
+        $process->setTimeout(self::TIMEOUT);
+        $process->setInput(null);
+        // The callback owns the only output buffer. Otherwise Process retains
+        // a second copy internally, doubling the memory cost at the limit.
+        $process->disableOutput();
+        $process->run(static function (string $channel, string $chunk) use (
+            $process,
+            $limitBytes,
+            &$output,
+            &$receivedBytes,
+            &$tooLarge,
+        ): void {
+            if ($tooLarge) return;
+
+            $chunkBytes = strlen($chunk);
+            if (ComicSourceLimits::wouldExceedByteLimit($receivedBytes, $chunkBytes, $limitBytes)) {
+                $tooLarge = true;
+                $process->stop(0);
+
+                return;
+            }
+            $receivedBytes += $chunkBytes;
+            if ($channel === Process::OUT) $output .= $chunk;
+        });
+
+        if ($tooLarge) throw new \RuntimeException($limitMessage);
+
+        return $output;
     }
 
     /** @return list<string> */
@@ -117,6 +154,9 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
                 if ($currentPath !== null && ZipPageProvider::isSafeImage($currentPath) && $entrySize > ComicSourceLimits::MAX_PAGE_BYTES) throw new \RuntimeException('Archive contains an oversized page.');
             }
             if ($entries > ComicSourceLimits::MAX_ENTRIES || $total > ComicSourceLimits::MAX_UNCOMPRESSED_BYTES) throw new \RuntimeException('Archive exceeds safety limits.');
+        }
+        if (ComicSourceLimits::hasUnsafeExpansionRatio($total, (int) @filesize($path))) {
+            throw new \RuntimeException('Archive has an unsafe compression ratio.');
         }
         usort($pages, 'strnatcasecmp'); if ($pages === []) throw new \RuntimeException('Archive contains no supported pages.');
         return $pages;

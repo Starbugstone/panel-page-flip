@@ -408,17 +408,19 @@ export function TermsOfService() {
   );
 }
 
+function optionalStorageSummaryFor(advertising, analytics) {
+  if (advertising && analytics) return "Google advertising and optional Google Analytics use";
+  if (advertising) return "Google advertising uses";
+  return "Optional Google Analytics uses";
+}
+
 export function CookieNoticePage() {
   const services = useOptionalServicesInUse();
   const advertising = services?.advertising;
   const analytics = services?.analytics;
   const googleServices = Boolean(advertising || analytics);
   const turnstile = services?.turnstile;
-  const optionalStorageSummary = advertising && analytics
-    ? "Google advertising and optional Google Analytics use"
-    : advertising
-      ? "Google advertising uses"
-      : "Optional Google Analytics uses";
+  const optionalStorageSummary = optionalStorageSummaryFor(advertising, analytics);
 
   return (
     <LegalLayout title="Cookie Notice">

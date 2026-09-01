@@ -67,6 +67,11 @@ class CleanupComicsCommand extends Command
         }
 
         $result = $this->cleanupService->apply();
+        if (isset($result['error'])) {
+            $io->error($result['error']);
+            return Command::FAILURE;
+        }
+
         $io->success([
             sprintf('Quarantined %d orphaned comic files.', $result['quarantined']['orphanedComics']),
             sprintf('Quarantined %d orphaned cover images.', $result['quarantined']['orphanedCovers']),

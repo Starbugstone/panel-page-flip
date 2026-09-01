@@ -14,7 +14,7 @@ import { orderPageStates, readerPageStates } from "@/lib/reader-pages";
 export function useReaderViewModel({
   comic, comicId, pageCount, currentPage, currentPageRef, layout, pageGeometry,
   imageCache, loadedVariants, variantFor, retryPage, fallbackImages,
-  settings, profile, transform, isZoomed, isFullscreen, isChromeHidden, showThumbnails,
+  settings, profile, transform, isZoomed, isFullscreen, isChromeHidden, isSettingsOpen, showThumbnails,
   swipeOffset, isSwiping, preferredZoomLevel, hasContextOverride, preferencesState,
   pointer, settingsActions, turns, goToLogicalPage, toggleChrome, forceReload,
   changeZoomLevel, zoomToFit, zoomIn, setSettingsOpen, toggleThumbnails,
@@ -34,7 +34,7 @@ export function useReaderViewModel({
   };
 
   const view = {
-    settings, profile, transform, isZoomed, isFullscreen, isChromeHidden, showThumbnails,
+    settings, profile, transform, isZoomed, isFullscreen, isChromeHidden, isSettingsOpen, showThumbnails,
     swipeOffset, isSwiping, preferredZoomLevel, hasContextOverride, preferences: preferencesState,
   };
 

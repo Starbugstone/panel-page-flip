@@ -88,7 +88,11 @@
             "@auto-scripts"
         ],
         "analyse": "phpstan analyse --no-progress",
-        "cs:check": "php-cs-fixer fix --dry-run --diff --using-cache=no"
+        "cs:check": "php-cs-fixer fix --dry-run --diff --using-cache=no",
+        "test:coverage": [
+            "@php -d pcov.enabled=1 bin/phpunit --coverage-clover=.phpunit.cache/coverage.xml",
+            "@php bin/check-coverage --report=.phpunit.cache/coverage.xml --min-lines=85 --min-methods=75"
+        ]
     },
     "conflict": {
         "symfony/symfony": "*"
@@ -104,6 +108,8 @@
         "dg/bypass-finals": "^1.11",
         "friendsofphp/php-cs-fixer": "^3.80",
         "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-doctrine": "^2.0",
+        "phpstan/phpstan-symfony": "^2.0",
         "phpunit/phpunit": "^9.5",
         "symfony/browser-kit": "6.4.*",
         "symfony/css-selector": "6.4.*",

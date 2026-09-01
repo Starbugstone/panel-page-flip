@@ -159,11 +159,12 @@ fi
 # First build
 # =============================================================================
 log "Running first build via server-deploy.sh"
-APP_DIR="$APP_DIR" \
-WEB_USER="$WEB_USER" \
-WEB_GROUP="$WEB_GROUP" \
-BACKUP_COMMAND=true \
-"$APP_DIR/scripts/server/server-deploy.sh"
+env \
+    APP_DIR="$APP_DIR" \
+    WEB_USER="$WEB_USER" \
+    WEB_GROUP="$WEB_GROUP" \
+    BACKUP_COMMAND=true \
+    "$APP_DIR/scripts/server/server-deploy.sh"
 
 # =============================================================================
 # Next steps

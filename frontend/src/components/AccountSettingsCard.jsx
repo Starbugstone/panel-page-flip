@@ -13,6 +13,82 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { stripUsernamePrefix, validateUsername } from "@/lib/sharing";
 
+function usernameDraftState(user, draft) {
+  const stored = user?.username || "";
+  const username = draft.forUsername === stored ? draft.text : stored;
+  const trimmed = stripUsernamePrefix(username);
+  const unchanged = trimmed === stored;
+
+  return {
+    stored,
+    username,
+    trimmed,
+    unchanged,
+    problem: unchanged ? null : validateUsername(trimmed),
+  };
+}
+
+function AccountIdentity({ username, problem, isSaving, unchanged, onChange, onSave }) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="account-username">Username</Label>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+        <div className="flex-1 space-y-1">
+          <Input
+            id="account-username"
+            value={username}
+            onChange={(event) => onChange(event.target.value)}
+            maxLength={40}
+            autoComplete="username"
+            aria-describedby={problem ? "account-username-problem" : undefined}
+            aria-invalid={problem ? "true" : undefined}
+            disabled={isSaving}
+          />
+          {problem && (
+            <p id="account-username-problem" className="text-sm text-destructive">{problem}</p>
+          )}
+        </div>
+        <Button onClick={onSave} disabled={isSaving || unchanged || Boolean(problem)}>
+          {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Change username
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Changing it updates the name people see. Comics already shared with you are
+        unaffected, and your U- code stays the same unless you replace it.
+      </p>
+    </div>
+  );
+}
+
+function AccountStorage({ usage, isLoading }) {
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading storage usage…</p>;
+  }
+  if (!usage) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Your storage usage could not be loaded. Reload the page to try again.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <UserStorageUsage
+        usedBytes={usage.storageUsedBytes}
+        quotaBytes={usage.storageQuotaBytes}
+        unmeasuredComicCount={usage.unmeasuredComicCount}
+        className="max-w-md"
+      />
+      <p className="text-xs text-muted-foreground">
+        {usage.comicCount === 1 ? "1 comic" : `${usage.comicCount} comics`} you own. Comics
+        shared with you belong to their owner and do not count against your quota.
+      </p>
+    </>
+  );
+}
+
 /**
  * The account itself: who you are, and how much room you have left.
  *
@@ -30,16 +106,8 @@ export function AccountSettingsCard() {
   // replaces an untouched field rather than being overwritten by it.
   const [draft, setDraft] = useState({ forUsername: null, text: "" });
   const [isSaving, setIsSaving] = useState(false);
-
-  const stored = user?.username || "";
-  const username = draft.forUsername === stored ? draft.text : stored;
+  const { stored, username, trimmed, unchanged, problem } = usernameDraftState(user, draft);
   const setUsername = (text) => setDraft({ forUsername: stored, text });
-
-  const trimmed = stripUsernamePrefix(username);
-  const unchanged = trimmed === (user?.username || "");
-  // Only once something has been typed: telling somebody their own username is
-  // wrong the moment the page loads would be an odd greeting.
-  const problem = unchanged ? null : validateUsername(trimmed);
 
   const saveUsername = async () => {
     setIsSaving(true);
@@ -76,59 +144,20 @@ export function AccountSettingsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="space-y-2">
-          <Label htmlFor="account-username">Username</Label>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-            <div className="flex-1 space-y-1">
-              <Input
-                id="account-username"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                maxLength={40}
-                autoComplete="username"
-                aria-describedby={problem ? "account-username-problem" : undefined}
-                aria-invalid={problem ? "true" : undefined}
-                disabled={isSaving}
-              />
-              {problem && (
-                <p id="account-username-problem" className="text-sm text-destructive">{problem}</p>
-              )}
-            </div>
-            <Button onClick={saveUsername} disabled={isSaving || unchanged || Boolean(problem)}>
-              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Change username
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Changing it updates the name people see. Comics already shared with you are
-            unaffected, and your U- code stays the same unless you replace it.
-          </p>
-        </div>
+        <AccountIdentity
+          username={username}
+          problem={problem}
+          isSaving={isSaving}
+          unchanged={unchanged}
+          onChange={setUsername}
+          onSave={saveUsername}
+        />
 
         <div className="space-y-2 border-t pt-4">
           <h3 className="flex items-center gap-1.5 text-sm font-medium">
             <HardDrive className="h-4 w-4" /> Storage used
           </h3>
-          {isLoadingUsage ? (
-            <p className="text-sm text-muted-foreground">Loading storage usage…</p>
-          ) : usage ? (
-            <>
-              <UserStorageUsage
-                usedBytes={usage.storageUsedBytes}
-                quotaBytes={usage.storageQuotaBytes}
-                unmeasuredComicCount={usage.unmeasuredComicCount}
-                className="max-w-md"
-              />
-              <p className="text-xs text-muted-foreground">
-                {usage.comicCount === 1 ? "1 comic" : `${usage.comicCount} comics`} you own. Comics
-                shared with you belong to their owner and do not count against your quota.
-              </p>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Your storage usage could not be loaded. Reload the page to try again.
-            </p>
-          )}
+          <AccountStorage usage={usage} isLoading={isLoadingUsage} />
         </div>
       </CardContent>
     </Card>

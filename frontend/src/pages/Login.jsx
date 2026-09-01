@@ -12,15 +12,7 @@ import { validatePassword } from "@/lib/password-policy";
 import { stripUsernamePrefix, validateUsername } from "@/lib/sharing";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
-
-const isLocalRedirect = (path) => typeof path === "string"
-  && path.startsWith("/")
-  && !path.startsWith("//")
-  && !path.includes("\\")
-  && !Array.from(path).some((character) => {
-    const code = character.charCodeAt(0);
-    return code < 32 || code === 127;
-  });
+import { resolveLocalRedirect } from "@/lib/local-redirect";
 
 export default function Login() {
   // Login form state
@@ -46,7 +38,7 @@ export default function Login() {
   const defaultTab = searchParams.get("signup") ? "signup" : "login";
   const requestedRedirect = searchParams.get("redirect");
   const oauthError = searchParams.get("oauth_error");
-  const redirectPath = isLocalRedirect(requestedRedirect) ? requestedRedirect : "/dashboard";
+  const redirectPath = resolveLocalRedirect(requestedRedirect);
   const { toast } = useToast();
   const { login, register } = useAuth();
   const registerPasswordErrors = validatePassword(registerPassword);
@@ -228,7 +220,9 @@ export default function Login() {
                   <Label htmlFor="login-email">Email</Label>
                   <Input 
                     id="login-email" 
+                    name="email"
                     type="email" 
+                    autoComplete="username"
                     placeholder="your@email.com" 
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
@@ -244,7 +238,9 @@ export default function Login() {
                   </div>
                   <Input 
                     id="login-password" 
+                    name="password"
                     type="password" 
+                    autoComplete="current-password"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     required
@@ -265,7 +261,9 @@ export default function Login() {
                   <Label htmlFor="signup-name">Name</Label>
                   <Input 
                     id="signup-name" 
+                    name="name"
                     type="text" 
+                    autoComplete="name"
                     placeholder="Your Name" 
                     value={registerName}
                     onChange={(e) => setRegisterName(e.target.value)}
@@ -277,7 +275,9 @@ export default function Login() {
                   <div className="flex gap-2">
                     <Input
                       id="signup-username"
+                      name="username"
                       type="text"
+                      autoComplete="username"
                       placeholder="SilverOtter4821"
                       value={registerUsername}
                       onChange={(e) => setRegisterUsername(stripUsernamePrefix(e.target.value))}
@@ -303,7 +303,9 @@ export default function Login() {
                   <Label htmlFor="signup-email">Email</Label>
                   <Input 
                     id="signup-email" 
+                    name="email"
                     type="email" 
+                    autoComplete="email"
                     placeholder="your@email.com" 
                     value={registerEmail}
                     onChange={(e) => setRegisterEmail(e.target.value)}
@@ -314,7 +316,9 @@ export default function Login() {
                   <Label htmlFor="signup-password">Password</Label>
                   <Input 
                     id="signup-password" 
+                    name="password"
                     type="password" 
+                    autoComplete="new-password"
                     value={registerPassword}
                     onChange={(e) => setRegisterPassword(e.target.value)}
                     minLength={12}

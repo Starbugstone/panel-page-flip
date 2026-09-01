@@ -9,12 +9,32 @@ cd frontend
 npm ci
 npm run lint
 npm run test
+npm run test:coverage
+npm run check:dead-code
+npm run check:duplication
 npm run build
 ```
 
 Do not commit a Bun lockfile unless package-manager policy deliberately changes.
 
 `npm run lint` runs with `--max-warnings=0`. A warning fails the build, so there is no such thing as a lint warning that can be left for later.
+Production functions also have a cyclomatic-complexity ceiling of 15. Split
+view derivation, policy, and side effects into named units instead of raising
+the ceiling; this keeps the single-responsibility audit as a permanent gate.
+
+`test:coverage` instruments every production JavaScript and JSX source file,
+including files a test never imports. The checked-in thresholds ratchet the
+current statement, branch, function and line totals, and the follow-up policy
+check rejects any coverable production file with zero executed lines. Lowering
+a threshold requires an explicitly reviewed policy change. `check:dead-code` uses Knip to reject
+unreachable source files, unused dependencies, unlisted imports and duplicate
+exports. Test-only access to an internal helper is not treated as a dead
+production file.
+
+`check:duplication` scans production PHP, JavaScript, JSX and operational
+scripts for repeated blocks of at least 15 lines and 100 tokens. The threshold
+is zero: a match must be expressed once or shown to be smaller structural
+boilerplate by tightening the detector deliberately, not ignored ad hoc.
 
 ### Checks over committed artefacts
 
@@ -24,25 +44,34 @@ Four things in this repository are generated, committed, and never rebuilt on th
 npm run check:routes   # nginx SPA route manifest vs frontend/index.html
 npm run check:tools    # conversion-tool zips and their published checksums
 npm run check:seo      # sitemap, robots.txt, canonicals, crawlable landing copy
-npm run check:csp      # strict Content-Security-Policy across nginx targets
+npm run check:csp      # strict Content-Security-Policy in nginx
 ```
 
 `check:seo` reads `APP_URL` and inspects a build, so run `npm run build` with the same `APP_URL` first. It also requires the built `index.html` to contain the public landing copy from `src/lib/landing-copy.js`, because production serves that file to crawlers that never run the React tree. `check:tools` is what stops an edit to a script under `scripts/comic-conversion/` shipping a download that no longer matches the checksum displayed beside it.
+
+CI also runs ShellCheck across every Bash deployment and conversion script, then
+executes the Unix and Windows conversion suites on their native runners. The
+download checksum check proves that the published archives match the source;
+the platform suites prove that the source still converts, skips, reports, and
+cleans up correctly.
 
 ### Content-Security-Policy
 
 `backend/config/csp.json` contains the shared policy inputs. Symfony reads it to
 build Apache responses with a cryptographic per-response nonce.
 `scripts/generate-csp.mjs` emits the equivalent `$request_id` nonce policy into
-the two nginx targets:
+the production nginx header include:
 
 | File | Form |
 | --- | --- |
 | `docker/nginx_frontend/security-headers.conf` | nginx `add_header`, production |
-| `docker/nginx_frontend/nginx.dev.conf` | nginx, plus what the Vite dev server needs |
 
 Run `node scripts/generate-csp.mjs` after editing the manifest, and
 `npm run check:csp --prefix frontend` to verify — CI runs the check.
+
+Local development is served directly by the Node 22 Vite container declared in
+`docker-compose.yml`. There is no second Node/nginx development image to keep in
+sync with that service.
 
 Apache `.htaccess` must not add CSP: a second static policy would intersect with
 the dynamic Symfony header and reject its nonce. The nonce and
@@ -86,11 +115,18 @@ php bin/console doctrine:schema:validate --env=test
 composer analyse      # PHPStan
 composer cs:check     # PHP-CS-Fixer, dry run
 php bin/phpunit
+composer test:coverage
 ```
 
-PHPStan uses a baseline for pre-existing findings so new code cannot silently increase static-analysis debt. Reduce the baseline opportunistically when touching existing code.
+`composer test:coverage` runs the complete suite with PCOV and rejects line or
+method coverage below the checked-in ratchet, as well as any coverable source
+file with zero executed lines. PCOV is installed in the PHP image
+but disabled for ordinary CLI and FPM requests; only this command enables it.
 
-The baseline is a record of accepted debt, not a list of harmless noise: entries have hidden real bugs here before. When an entry sits on code you are changing, read what it is actually claiming before re-baselining it.
+PHPStan checks all backend source at level 8 with the Doctrine and Symfony
+extensions and no baseline. A finding must be resolved in the code or explained
+by a narrowly scoped type assertion; generating a baseline would hide new debt
+and is not part of the workflow.
 
 ## What CI enforces
 

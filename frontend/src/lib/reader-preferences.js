@@ -85,20 +85,34 @@ export function normalizeReaderPreferences(candidate) {
 
   return {
     schemaVersion: 1,
-    settings: {
-      mode: MODE_VALUES.has(settings.mode) ? settings.mode : DEFAULT_READER_PREFERENCES.settings.mode,
-      direction: DIRECTION_VALUES.has(settings.direction) ? settings.direction : "ltr",
-      fit: FIT_VALUES.has(settings.fit) ? settings.fit : "contain",
-      autoHideControls: typeof settings.autoHideControls === "boolean" ? settings.autoHideControls : true,
-      showProgress: typeof settings.showProgress === "boolean" ? settings.showProgress : true,
-      wakeLock: typeof settings.wakeLock === "boolean" ? settings.wakeLock : true,
-      coverAlone: typeof settings.coverAlone === "boolean" ? settings.coverAlone : true,
-    },
+    settings: normalizeSettings(settings),
     overrides: isCurrentSchema ? normalizeOverrides(candidate.overrides) : [],
-    dismissedSuggestions: isCurrentSchema && Array.isArray(candidate.dismissedSuggestions)
-      ? [...new Set(candidate.dismissedSuggestions.filter((value) => typeof value === "string" && value.length > 0 && value.length <= 80))].slice(0, 24)
-      : [],
+    dismissedSuggestions: isCurrentSchema ? normalizeDismissedSuggestions(candidate.dismissedSuggestions) : [],
   };
+}
+
+function normalizeSettings(settings) {
+  return {
+    mode: MODE_VALUES.has(settings.mode) ? settings.mode : DEFAULT_READER_PREFERENCES.settings.mode,
+    direction: DIRECTION_VALUES.has(settings.direction) ? settings.direction : "ltr",
+    fit: FIT_VALUES.has(settings.fit) ? settings.fit : "contain",
+    autoHideControls: booleanSetting(settings.autoHideControls, true),
+    showProgress: booleanSetting(settings.showProgress, true),
+    wakeLock: booleanSetting(settings.wakeLock, true),
+    coverAlone: booleanSetting(settings.coverAlone, true),
+  };
+}
+
+function booleanSetting(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizeDismissedSuggestions(candidate) {
+  if (!Array.isArray(candidate)) return [];
+
+  return [...new Set(candidate.filter((value) => (
+    typeof value === "string" && value.length > 0 && value.length <= 80
+  )))].slice(0, 24);
 }
 
 export function updateReaderSettings(preferences, patch) {

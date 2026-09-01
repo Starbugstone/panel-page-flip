@@ -26,6 +26,16 @@ final class ComicUploadCompleteTest extends AbstractApiTestCase
         self::assertSame('Missing fileId parameter', $payload['message']);
     }
 
+    public function testCompleteRejectsAContainerFileId(): void
+    {
+        $this->createAndLoginUser();
+
+        $payload = $this->postJson('/api/comics/upload/complete', ['fileId' => ['not-a-scalar']]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('Invalid fileId.', $payload['message']);
+    }
+
     public function testCompleteForAnUnknownUploadIsRejected(): void
     {
         $this->createAndLoginUser();
@@ -93,6 +103,33 @@ final class ComicUploadCompleteTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(400);
         $payload = json_decode((string) $this->browser()->getResponse()->getContent(), true);
         self::assertSame('Title is required', $payload['message']);
+
+        if (is_file($path)) {
+            unlink($path);
+        }
+    }
+
+    public function testCreateRejectsMalformedTagJsonBeforeCallingTheUploadService(): void
+    {
+        $this->createAndLoginUser();
+        $comicService = $this->createMock(ComicService::class);
+        $comicService->expects(self::never())->method('uploadComic');
+        static::getContainer()->set(ComicService::class, $comicService);
+        $path = tempnam(sys_get_temp_dir(), 'comic-');
+        self::assertIsString($path);
+        file_put_contents($path, 'cbz');
+
+        $this->browser()->request(
+            'POST',
+            '/api/comics',
+            ['title' => 'Malformed tags', 'tags' => '{not-json'],
+            ['file' => new UploadedFile($path, 'issue.cbz', 'application/zip', null, true)],
+            array_merge(['HTTP_ACCEPT' => 'application/json'], $this->csrfHeader())
+        );
+
+        self::assertResponseStatusCodeSame(400);
+        $payload = json_decode((string) $this->browser()->getResponse()->getContent(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame('Tags must be a JSON array of strings.', $payload['message']);
 
         if (is_file($path)) {
             unlink($path);

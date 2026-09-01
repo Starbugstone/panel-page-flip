@@ -41,9 +41,9 @@ final class MetadataProviderSecretsSubscriber
 
     public function __construct(private readonly AppDataEncryptionService $encryption)
     {
-        // WeakMap TValue is invariant, so PHPStan cannot infer the documented
-        // generic value type from the empty constructor.
-        $this->logicalSnapshots = new \WeakMap(); // @phpstan-ignore assign.propertyType
+        /** @var \WeakMap<MetadataProviderConfiguration|UserMetadataCredential, array{metron: ?string, comicVine: ?string}> $snapshots */
+        $snapshots = new \WeakMap();
+        $this->logicalSnapshots = $snapshots;
     }
 
     public function postLoad(PostLoadEventArgs $args): void
@@ -136,6 +136,7 @@ final class MetadataProviderSecretsSubscriber
         $unitOfWork->setOriginalEntityProperty($oid, 'comicVineApiKey', $comicVine);
     }
 
+    /** @phpstan-assert-if-true MetadataProviderConfiguration|UserMetadataCredential $entity */
     private function holdsSecrets(object $entity): bool
     {
         return $entity instanceof MetadataProviderConfiguration || $entity instanceof UserMetadataCredential;

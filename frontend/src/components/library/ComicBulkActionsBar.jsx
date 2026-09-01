@@ -6,6 +6,21 @@ import { useTags } from "@/hooks/use-tags.jsx";
 import { MAX_SHAREABLE_SELECTION } from "@/lib/comic-selection";
 import { describeTagSubmission } from "@/lib/tag-suggestions";
 
+function bulkActionState(selection, availableTags, tagName, canMove) {
+  const submission = describeTagSubmission(availableTags, tagName);
+  const nothingSelected = selection.selectedComicIds.length === 0;
+  const ownerActionDisabled = nothingSelected || selection.isUpdating || !selection.ownerActionsAllowed;
+
+  return {
+    submission,
+    ownerActionDisabled,
+    shareDisabled: !selection.canShareSelection || selection.isUpdating,
+    moveDisabled: nothingSelected || selection.isUpdating || !canMove,
+    canAddTag: !ownerActionDisabled
+      && (submission.status === "existing" || submission.status === "new"),
+  };
+}
+
 /**
  * What the current selection can be done to, and why some of it cannot.
  *
@@ -24,12 +39,7 @@ export function ComicBulkActionsBar({ selection, totalCount, onShare, onMove, on
   // Bulk tagging submits the canonical name of an existing tag where one
   // matches, so picking "sci fi" out of the list does not create a second
   // spelling of "Sci Fi".
-  const submission = describeTagSubmission(availableTags, tagName);
-  const nothingSelected = selection.selectedComicIds.length === 0;
-  const canAddTag = !nothingSelected
-    && selection.ownerActionsAllowed
-    && !selection.isUpdating
-    && (submission.status === "existing" || submission.status === "new");
+  const actions = bulkActionState(selection, availableTags, tagName, canMove);
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -54,11 +64,11 @@ export function ComicBulkActionsBar({ selection, totalCount, onShare, onMove, on
       <div className="flex flex-col gap-2 sm:flex-row">
         {/* The selection goes straight through, so nobody is asked to pick the
             same comics a second time in the share dialog's own list. */}
-        <Button variant="outline" onClick={onShare} disabled={!selection.canShareSelection || selection.isUpdating}>
+        <Button variant="outline" onClick={onShare} disabled={actions.shareDisabled}>
           <Share2 className="mr-2 h-4 w-4" />
           Share selected
         </Button>
-        <Button variant="outline" onClick={onMove} disabled={nothingSelected || selection.isUpdating || !canMove}>
+        <Button variant="outline" onClick={onMove} disabled={actions.moveDisabled}>
           <FolderInput className="mr-2 h-4 w-4" />
           Move selected
         </Button>
@@ -66,19 +76,19 @@ export function ComicBulkActionsBar({ selection, totalCount, onShare, onMove, on
           value={tagName}
           onChange={setTagName}
           onSubmit={addTag}
-          disabled={nothingSelected || selection.isUpdating || !selection.ownerActionsAllowed}
+          disabled={actions.ownerActionDisabled}
           placeholder="Tag selected comics"
           label="Tag selected comics"
           className="sm:w-56"
         />
-        <Button variant="secondary" onClick={() => addTag(submission.name)} disabled={!canAddTag}>
+        <Button variant="secondary" onClick={() => addTag(actions.submission.name)} disabled={!actions.canAddTag}>
           <Tags className="mr-2 h-4 w-4" />
           Add tag
         </Button>
         <Button
           variant="destructive"
           onClick={onDelete}
-          disabled={nothingSelected || selection.isUpdating || !selection.ownerActionsAllowed}
+          disabled={actions.ownerActionDisabled}
         >
           <Trash2 className="mr-2 h-4 w-4" />
           Delete selected

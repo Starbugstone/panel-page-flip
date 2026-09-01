@@ -18,31 +18,35 @@ const NUMERIC_ID = /^\d+$/;
  * jump that does not happen, not a request that fails.
  */
 export function resolveLibraryLocation(searchParams, folders, foldersLoading) {
-  const rawFolder = searchParams.get("folder");
-  const isFolderView = rawFolder !== null;
-  const wellFormed = rawFolder !== null && (rawFolder === "root" || NUMERIC_ID.test(rawFolder));
-  const activeFolderId = rawFolder && rawFolder !== "root" && NUMERIC_ID.test(rawFolder)
-    ? Number(rawFolder)
-    : null;
-
-  const rawJump = searchParams.get("jump");
-  const jumpComicId = rawJump !== null && NUMERIC_ID.test(rawJump) ? Number(rawJump) : null;
-
-  const requestedView = searchParams.get("view") || "all";
-  const activeView = LIBRARY_VIEWS.has(requestedView) ? requestedView : "all";
-
-  const missingFolder = !foldersLoading
-    && activeFolderId != null
-    && !folders.some((folder) => Number(folder.id) === activeFolderId);
+  const folder = resolveFolder(searchParams.get("folder"), folders, foldersLoading);
+  const activeView = resolveLibraryView(searchParams.get("view"));
 
   return {
-    isFolderView,
-    activeFolderId,
+    isFolderView: folder.requested,
+    activeFolderId: folder.id,
     activeView,
-    jumpComicId,
+    jumpComicId: numericParameter(searchParams.get("jump")),
     ownership: activeView === "mine" || activeView === "shared" ? activeView : "all",
-    invalidFolder: (isFolderView && !wellFormed) || missingFolder,
+    invalidFolder: folder.invalid,
   };
+}
+
+function resolveFolder(rawFolder, folders, loading) {
+  const requested = rawFolder !== null;
+  const root = rawFolder === "root";
+  const numeric = typeof rawFolder === "string" && NUMERIC_ID.test(rawFolder);
+  const id = numeric ? Number(rawFolder) : null;
+  const missing = !loading && id !== null && !folders.some((folder) => Number(folder.id) === id);
+
+  return { requested, id, invalid: (requested && !root && !numeric) || missing };
+}
+
+function numericParameter(value) {
+  return value !== null && NUMERIC_ID.test(value) ? Number(value) : null;
+}
+
+function resolveLibraryView(value) {
+  return value && LIBRARY_VIEWS.has(value) ? value : "all";
 }
 
 /**

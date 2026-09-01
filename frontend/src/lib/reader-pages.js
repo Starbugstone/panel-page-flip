@@ -49,26 +49,6 @@ export function selectPageVariant({ cssWidth, pixelRatio = 1, zoomLevel = 1 } = 
   return (READER_LADDER.find((rung) => rung.width >= target) ?? READER_LADDER[READER_LADDER.length - 1]).name;
 }
 
-/**
- * The larger of two variants.
- *
- * The reader only ever moves up. Going back down would spend a fresh download
- * to show less than what is already on screen — the bytes are already paid for.
- */
-export function largerPageVariant(current, next) {
-  return rungIndex(next) > rungIndex(current) ? next : current;
-}
-
-export function createComicPageUrls(comicId, pageCount, variant) {
-  if (!comicId || !Number.isInteger(pageCount) || pageCount <= 0) return [];
-
-  const encodedComicId = encodeURIComponent(String(comicId));
-  return Array.from(
-    { length: pageCount },
-    (_, index) => createComicPageUrl(encodedComicId, index + 1, variant)
-  );
-}
-
 export function createPageThumbnailUrl(comicId, pageNumber) {
   if (!comicId || !Number.isInteger(pageNumber) || pageNumber < 1) return null;
 

@@ -222,8 +222,8 @@ class DropboxController extends AbstractController
         }
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        $filePath = is_array($data) ? ($data['path'] ?? null) : null;
-        $fileName = is_array($data) ? ($data['fileName'] ?? null) : null;
+        $filePath = $data['path'] ?? null;
+        $fileName = $data['fileName'] ?? null;
         $filePath = is_string($filePath) && $filePath !== '' ? $filePath : null;
         $fileName = is_string($fileName) && $fileName !== '' ? $fileName : null;
 

@@ -185,7 +185,7 @@ final class UserWarningService
     {
         $address = $warning->getRecipient()->getEmail();
 
-        if (!is_string($address) || $address === '') {
+        if ($address === '') {
             return false;
         }
 

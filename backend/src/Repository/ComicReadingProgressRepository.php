@@ -10,11 +10,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<ComicReadingProgress>
- *
- * @method ComicReadingProgress|null find($id, $lockMode = null, $lockVersion = null)
- * @method ComicReadingProgress|null findOneBy(array $criteria, array $orderBy = null)
- * @method ComicReadingProgress[]    findAll()
- * @method ComicReadingProgress[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class ComicReadingProgressRepository extends ServiceEntityRepository
 {

@@ -9,7 +9,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 /** Builds the HTML CSP and keeps its nonce coupled to the script attributes. */
 final class ContentSecurityPolicy
 {
-    /** @var array<string, mixed>|null */
+    /** @var array{directives: array<string, list<string>>, scriptSrcWithoutAdvertising: list<string>, scriptSrcWithAdvertising: list<string>}|null */
     private ?array $manifest = null;
 
     public function __construct(
@@ -72,7 +72,7 @@ final class ContentSecurityPolicy
         ) ?? $html;
     }
 
-    /** @return array<string, mixed> */
+    /** @return array{directives: array<string, list<string>>, scriptSrcWithoutAdvertising: list<string>, scriptSrcWithAdvertising: list<string>} */
     private function manifest(): array
     {
         if ($this->manifest !== null) {
@@ -85,10 +85,45 @@ final class ContentSecurityPolicy
         }
 
         $decoded = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
-        if (!is_array($decoded)) {
-            throw new \RuntimeException('The CSP manifest must contain an object.');
+        if (!is_array($decoded)
+            || !is_array($decoded['directives'] ?? null)
+            || !is_array($decoded['scriptSrcWithoutAdvertising'] ?? null)
+            || !is_array($decoded['scriptSrcWithAdvertising'] ?? null)) {
+            throw new \RuntimeException('The CSP manifest has an invalid shape.');
         }
 
-        return $this->manifest = $decoded;
+        $directives = [];
+        foreach ($decoded['directives'] as $name => $sources) {
+            if (!is_string($name) || ($sourceList = $this->sourceList($sources)) === null) {
+                throw new \RuntimeException('The CSP manifest has an invalid directive.');
+            }
+            $directives[$name] = $sourceList;
+        }
+        $withoutAdvertising = $this->sourceList($decoded['scriptSrcWithoutAdvertising']);
+        $withAdvertising = $this->sourceList($decoded['scriptSrcWithAdvertising']);
+        if ($withoutAdvertising === null || $withAdvertising === null) {
+            throw new \RuntimeException('The CSP manifest has an invalid script source list.');
+        }
+
+        return $this->manifest = [
+            'directives' => $directives,
+            'scriptSrcWithoutAdvertising' => $withoutAdvertising,
+            'scriptSrcWithAdvertising' => $withAdvertising,
+        ];
+    }
+
+    /** @return list<string>|null */
+    private function sourceList(mixed $sources): ?array
+    {
+        if (!is_array($sources) || !array_is_list($sources)) {
+            return null;
+        }
+        foreach ($sources as $source) {
+            if (!is_string($source) || $source === '') {
+                return null;
+            }
+        }
+
+        return $sources;
     }
 }

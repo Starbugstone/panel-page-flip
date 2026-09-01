@@ -12,11 +12,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<Tag>
- *
- * @method Tag|null find($id, $lockMode = null, $lockVersion = null)
- * @method Tag|null findOneBy(array $criteria, array $orderBy = null)
- * @method Tag[]    findAll()
- * @method Tag[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class TagRepository extends ServiceEntityRepository
 {
@@ -170,7 +165,10 @@ class TagRepository extends ServiceEntityRepository
             return [];
         }
 
-        $counts = array_fill_keys(array_map(static fn (Tag $tag): int => $tag->getId(), $tags), 0);
+        $counts = array_fill_keys(array_map(
+            static fn (Tag $tag): int => $tag->getId() ?? throw new \LogicException('Persisted tag has no identifier.'),
+            $tags
+        ), 0);
 
         $rows = $this->getEntityManager()->createQueryBuilder()
             ->select('t.id AS tagId', 'COUNT(c.id) AS total')

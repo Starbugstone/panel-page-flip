@@ -18,6 +18,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\HttpKernel\EventListener\AbstractSessionListener;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Routing\Attribute\Route;
 
 /**
@@ -61,7 +62,9 @@ class ComicPageController extends AbstractController
     public function __construct(
         private readonly string $comicsDirectory,
         private readonly LoggerInterface $logger,
-        private readonly ComicAccess $comicAccess
+        private readonly ComicAccess $comicAccess,
+        #[Autowire('%kernel.project_dir%')]
+        private readonly string $projectDir
     ) {
     }
 
@@ -137,6 +140,9 @@ class ComicPageController extends AbstractController
 
         // Always look for the comic in the user's directory first
         $owner = $comic->getOwner();
+        if ($owner === null) {
+            throw new ComicNotAccessibleException();
+        }
         $relativePath = basename((string) $comic->getFilePath());
         $userDirectory = $this->comicsDirectory . '/' . $owner->getId();
         $filePath = $userDirectory . '/' . $relativePath;
@@ -353,7 +359,7 @@ class ComicPageController extends AbstractController
 
         if (!file_exists($absolutePath) || !is_readable($absolutePath)) {
             $this->logger->warning('Cover file not found or unreadable.', ['comic_id' => $comicId, 'user_id' => $userId]);
-            $placeholderPath = $this->getParameter('kernel.project_dir') . '/public/comic.png';
+            $placeholderPath = $this->projectDir.'/public/comic.png';
             if (is_readable($placeholderPath)) {
                 return $this->cacheableImageResponse(
                     $placeholderPath,

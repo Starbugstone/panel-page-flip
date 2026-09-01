@@ -536,27 +536,3 @@ export function shareDisplayTitle(share) {
 
   return share?.comicTitle || "Untitled comic";
 }
-
-/**
- * Whether "Send invitation" may be pressed.
- *
- * Both conditions, always. The acknowledgement is not a formality the UI can
- * skip once an address looks right — the backend rejects a share without it —
- * and putting the rule here keeps the button and the request in agreement.
- */
-export function canSendInvitation({ email, responsibilityAccepted }) {
-  return isValidShareEmail(email) && responsibilityAccepted === true;
-}
-
-/**
- * The body of an invitation request.
- *
- * The acknowledgement goes on the wire as a literal `true`; the server accepts
- * nothing else, and the timestamp it stores is its own.
- */
-export function buildInvitationRequest({ email, responsibilityAccepted }) {
-  return {
-    email: typeof email === "string" ? email.trim() : "",
-    senderResponsibilityAccepted: responsibilityAccepted === true,
-  };
-}

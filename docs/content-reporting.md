@@ -2,7 +2,7 @@
 
 Panel Page Flip provides a narrow notice-and-action workflow for specific allegedly illegal material. It is not a public moderation system and does not scan private libraries proactively.
 
-The public `/report-content` page accepts copyright/IP and other illegal-content notices without requiring an account or any internal database ID. Reporters classify the locator they actually have: an invitation URL, a C-/G- content code, a U- user code, an account reference, comic/publication metadata, a `/read/{id}` URL, or other evidence. Optional title, account and source-context fields help distinguish search results. Layered local limits, a hidden honeypot and optional Cloudflare Turnstile protect the endpoint. Public responses are deliberately generic and never confirm whether a private user, comic, share, code or invitation exists. A honeypot submission receives the same success message but no case reference, because no case row exists.
+The public `/report-content` page accepts copyright/IP and other illegal-content notices without requiring an account or any internal database ID. Reporters classify the locator they actually have: an invitation URL, a C-/G- content code, a U- user code, an account reference, comic/publication metadata, a `/read/{id}` URL, or other evidence. Optional title, account and source-context fields help distinguish search results. Reporter identity fields expose standard browser autofill metadata, and every control has a stable form name, including the honeypot. Layered local limits, that hidden honeypot and optional Cloudflare Turnstile protect the endpoint. Public responses are deliberately generic and never confirm whether a private user, comic, share, code or invitation exists. A honeypot submission receives the same success message but no case reference, because no case row exists.
 
 The server parses application URLs locally and never fetches a reporter-supplied URL. Invitation and `/read/{id}` URLs must use the exact public origin configured by `APP_URL`; a matching path on another host is rejected and cannot resolve a local record. Exact application-issued locators are resolved privately: invitation links identify their share, C- codes identify one comic, U- codes identify one account and `/read/{id}` identifies one comic. A G- code and text-like references produce bounded administrator-only candidates and never choose a target automatically.
 
@@ -63,6 +63,13 @@ php bin/console app:cleanup-content-reports
 ## Review workflow
 
 Administrators use the **Content reports** tab. The queue carries summary fields only; reporter contact details, locators and allegations are fetched from the detail endpoint when **Review** is opened. Exact resolution and bounded title/account search produce human-readable candidates. Numeric IDs are diagnostic details after a candidate is shown, not something the administrator has to discover and type.
+
+The frontend keeps those boundaries explicit: `AdminContentReports` coordinates
+API state, `ContentReportsQueue` owns summary filtering and sorting,
+`ContentReportReview` owns the opened case form, and
+`lib/content-report-review.js` is the tested three-state target/payload model.
+Column popovers likewise delegate sorting and each filter type to focused
+controls instead of carrying every branch in one render function.
 
 A linked target can also be cleared, by sending `targetType` and `targetId` as
 null (or every `linked*Id` key it names as null). Reports are auto-linked at

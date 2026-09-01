@@ -13,11 +13,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<ComicShare>
- *
- * @method ComicShare|null find($id, $lockMode = null, $lockVersion = null)
- * @method ComicShare|null findOneBy(array $criteria, array $orderBy = null)
- * @method ComicShare[]    findAll()
- * @method ComicShare[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class ComicShareRepository extends ServiceEntityRepository
 {

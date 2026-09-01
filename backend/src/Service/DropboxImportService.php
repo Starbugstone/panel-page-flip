@@ -321,7 +321,7 @@ class DropboxImportService
     {
         $title = str_replace(['_', '-'], ' ', pathinfo($filename, PATHINFO_FILENAME));
 
-        return ucwords(trim(preg_replace('/\s+/', ' ', $title)));
+        return ucwords(trim(preg_replace('/\s+/', ' ', $title) ?? $title));
     }
 
     public function formatFileSize(int $bytes): string
@@ -368,16 +368,16 @@ class DropboxImportService
     private function formatFolderName(string $folderName): string
     {
         $formatted = str_replace(['_', '-'], ' ', $folderName);
-        $formatted = preg_replace('/([a-z])([A-Z])/', '$1 $2', $formatted);
-        $formatted = preg_replace('/\s+/', ' ', $formatted);
+        $formatted = preg_replace('/([a-z])([A-Z])/', '$1 $2', $formatted) ?? $formatted;
+        $formatted = preg_replace('/\s+/', ' ', $formatted) ?? $formatted;
 
         return ucwords(strtolower(trim($formatted)));
     }
 
     private function normaliseTitle(string $title): string
     {
-        $normalised = preg_replace('/[^a-z0-9\s]/', '', strtolower($title));
+        $normalised = preg_replace('/[^a-z0-9\s]/', '', strtolower($title)) ?? strtolower($title);
 
-        return trim(preg_replace('/\s+/', ' ', $normalised));
+        return trim(preg_replace('/\s+/', ' ', $normalised) ?? $normalised);
     }
 }

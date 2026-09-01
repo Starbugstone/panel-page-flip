@@ -57,10 +57,15 @@ describe("conversion tool downloads", () => {
     expect(result.status).toBe(0);
   });
 
-  it("is rendered by the settings page", () => {
+  it("is rendered by the settings page through its dedicated card", () => {
     const page = readFileSync(join(frontendDir, "src", "pages", "UserSettings.jsx"), "utf8");
+    const card = readFileSync(
+      join(frontendDir, "src", "components", "settings", "ConversionToolsCard.jsx"),
+      "utf8"
+    );
 
-    expect(page).toContain("CONVERSION_TOOLS");
-    expect(page).toContain("7-Zip");
+    expect(page).toContain("<ConversionToolsCard />");
+    expect(card).toContain("CONVERSION_TOOLS");
+    expect(card).toContain("7-Zip");
   });
 });

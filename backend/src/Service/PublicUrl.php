@@ -27,7 +27,7 @@ final class PublicUrl
      * The capture groups from $pathPattern when $url is one of this
      * installation's own URLs, or null when it is not ours or does not match.
      *
-     * @return list<string>|null
+     * @return array<int|string, string>|null
      */
     public function matchPath(string $url, string $pathPattern): ?array
     {

@@ -68,6 +68,33 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
         yield 'excessive byte length' => [str_repeat('a', 252) . '.cbz'];
     }
 
+    /** @dataProvider invalidInitializationTypeProvider */
+    public function testUploadInitializationRejectsContainerValuesForScalarParameters(array $override): void
+    {
+        $user = $this->createAndLoginUser();
+        $fileId = 'upload-type-test';
+        $this->temporaryUploadDirectories[] = sys_get_temp_dir()
+            . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+
+        $payload = $this->postJson('/api/comics/upload/init', array_replace([
+            'fileId' => $fileId,
+            'filename' => 'types.cbz',
+            'totalChunks' => 1,
+            'metadata' => ['title' => 'Type validation'],
+        ], $override));
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('Invalid upload parameter types', $payload['message']);
+    }
+
+    public function invalidInitializationTypeProvider(): iterable
+    {
+        yield 'file ID array' => [['fileId' => ['upload-type-test']]];
+        yield 'filename array' => [['filename' => ['types.cbz']]];
+        yield 'chunk count array' => [['totalChunks' => [1]]];
+        yield 'metadata string' => [['metadata' => 'not-an-object']];
+    }
+
     /**
      * Staging is bounded while it fills, not once it is full.
      *
@@ -128,6 +155,72 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
         $this->uploadChunk($fileId, 0, str_repeat('X', 64));
 
         self::assertResponseIsSuccessful();
+    }
+
+    /**
+     * An invalid form value must not become chunk zero through PHP's integer
+     * cast. Otherwise a malformed or tampered request silently replaces a
+     * valid first chunk and the corruption is discovered only after upload.
+     */
+    public function testNonNumericChunkIndexDoesNotOverwriteChunkZero(): void
+    {
+        $user = $this->createAndLoginUser();
+        $fileId = 'upload-invalid-index-test';
+        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $this->temporaryUploadDirectories[] = $chunkDirectory;
+
+        $this->postJson('/api/comics/upload/init', [
+            'fileId' => $fileId,
+            'filename' => 'invalid-index.cbz',
+            'totalChunks' => 1,
+            'metadata' => ['title' => 'Invalid index test'],
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $this->uploadChunk($fileId, 0, 'original chunk zero');
+        self::assertResponseIsSuccessful();
+
+        $this->uploadChunk($fileId, 'not-a-number', 'replacement payload');
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('original chunk zero', file_get_contents($chunkDirectory . '/chunk_0'));
+    }
+
+    /**
+     * Reusing an active file ID used to reset metadata while leaving its chunk
+     * files behind. The next completion then reported missing chunks, and a
+     * second upload could mutate the first one's staging area.
+     */
+    public function testActiveUploadCannotBeReinitialized(): void
+    {
+        $user = $this->createAndLoginUser();
+        $fileId = 'upload-reinitialize-test';
+        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $this->temporaryUploadDirectories[] = $chunkDirectory;
+
+        $this->postJson('/api/comics/upload/init', [
+            'fileId' => $fileId,
+            'filename' => 'original.cbz',
+            'totalChunks' => 2,
+            'metadata' => ['title' => 'Original upload'],
+        ]);
+        self::assertResponseIsSuccessful();
+        $this->uploadChunk($fileId, 0, 'first chunk');
+        self::assertResponseIsSuccessful();
+
+        $payload = $this->postJson('/api/comics/upload/init', [
+            'fileId' => $fileId,
+            'filename' => 'replacement.cbz',
+            'totalChunks' => 1,
+            'metadata' => ['title' => 'Replacement upload'],
+        ]);
+
+        self::assertResponseStatusCodeSame(409);
+        self::assertSame('Upload already initialized', $payload['message']);
+        $metadata = json_decode((string) file_get_contents($chunkDirectory . '/metadata.json'), true);
+        self::assertSame('original.cbz', $metadata['filename']);
+        self::assertSame([0], $metadata['receivedChunks']);
+        self::assertSame('first chunk', file_get_contents($chunkDirectory . '/chunk_0'));
     }
 
     /**
@@ -243,7 +336,26 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
         );
     }
 
-    private function uploadChunk(string $fileId, int $chunkIndex, string $contents): void
+    public function testChunkUploadRejectsAContainerFileId(): void
+    {
+        $this->createAndLoginUser();
+
+        $this->browser()->request(
+            'POST',
+            '/api/comics/upload/chunk',
+            ['fileId' => ['not-a-scalar'], 'chunkIndex' => '0'],
+            [],
+            array_merge(['HTTP_ACCEPT' => 'application/json'], $this->csrfHeader())
+        );
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame(
+            'Invalid fileId.',
+            json_decode((string) $this->browser()->getResponse()->getContent(), true)['message']
+        );
+    }
+
+    private function uploadChunk(string $fileId, int|string $chunkIndex, string $contents): void
     {
         $chunkPath = tempnam(sys_get_temp_dir(), 'chunk_');
         file_put_contents($chunkPath, $contents);

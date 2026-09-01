@@ -66,9 +66,9 @@ class AdminController extends AbstractController
     public function updateComicFormats(Request $request, ComicFormatService $formats, AdminAuditService $auditService, EntityManagerInterface $entityManager): JsonResponse
     {
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($data) || !is_array($data['enabled'] ?? null)) return $this->json(['message' => 'Enabled formats must be an array.'], Response::HTTP_BAD_REQUEST);
+        if (!is_array($data['enabled'] ?? null)) return $this->json(['message' => 'Enabled formats must be an array.'], Response::HTTP_BAD_REQUEST);
         try {
-            $enabled = array_map(static fn (mixed $value): ComicSourceType => ComicSourceType::from((string) $value), $data['enabled']);
+            $enabled = array_values(array_map(static fn (mixed $value): ComicSourceType => ComicSourceType::from((string) $value), $data['enabled']));
             $formats->save($enabled);
             $saved = $formats->enabled();
             $auditService->log($this->getAdminUser(), 'comic_formats_updated', 'configuration', 1, ['enabled' => array_map(static fn (ComicSourceType $type): string => $type->value, $saved)]);
@@ -117,9 +117,6 @@ class AdminController extends AbstractController
         MetadataProviderRegistry $providers
     ): JsonResponse {
         $submitted = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($submitted)) {
-            $submitted = [];
-        }
 
         $typed = static function (string $field) use ($submitted): ?string {
             $value = $submitted[$field] ?? null;
@@ -146,10 +143,6 @@ class AdminController extends AbstractController
         EntityManagerInterface $entityManager
     ): JsonResponse {
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($data)) {
-            return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
-        }
-
         $settings = $configuration->get();
 
         foreach (['metronToken', 'comicVineApiKey'] as $field) {
@@ -300,7 +293,7 @@ class AdminController extends AbstractController
         // entire library — every row, every column — to compare one string, so
         // opening this page hydrated the comic table once per Dropbox user.
         $comicCounts = $entityManager->getRepository(Comic::class)->countByOwnerWithDescription(
-            array_map(static fn (User $user): int => $user->getId(), $users),
+            array_values(array_map(static fn (User $user): int => $user->getId() ?? throw new \LogicException('Persisted user has no identifier.'), $users)),
             DropboxImportService::IMPORT_DESCRIPTION
         );
 
@@ -463,7 +456,7 @@ class AdminController extends AbstractController
 
         $logs = array_map(fn (AdminAuditLog $log): array => [
             'id' => $log->getId(),
-            'admin' => $this->serializeUser($log->getAdminUser()),
+            'admin' => ($admin = $log->getAdminUser()) instanceof User ? $this->serializeUser($admin) : null,
             'action' => $log->getAction(),
             'targetType' => $log->getTargetType(),
             'targetId' => $log->getTargetId(),
@@ -490,17 +483,16 @@ class AdminController extends AbstractController
         return $user;
     }
 
-    private function serializeUser(?User $user): ?array
+    /**
+     * @return array{id: int|null, email: string, name: string|null, createdAt: string, isEmailVerified: bool}
+     */
+    private function serializeUser(User $user): array
     {
-        if (!$user) {
-            return null;
-        }
-
         return [
             'id' => $user->getId(),
             'email' => $user->getEmail(),
             'name' => $user->getName(),
-            'createdAt' => $user->getCreatedAt()?->format('c'),
+            'createdAt' => $user->getCreatedAt()->format('c'),
             'isEmailVerified' => $user->isEmailVerified(),
         ];
     }

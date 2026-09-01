@@ -21,6 +21,57 @@ import { useLibrarySearch } from "@/hooks/use-library-search";
 import { useSharing } from "@/hooks/use-sharing.jsx";
 import { jumpToComicCard, latestReadComic } from "@/lib/last-read-jump";
 
+function titleRenameLocation(isFolderView, activeFolderId, activeView) {
+  return isFolderView ? `folder:${activeFolderId ?? "root"}` : `view:${activeView}`;
+}
+
+function uploadPath(isFolderView, activeFolderId) {
+  if (!isFolderView) return "/upload";
+  return `/upload?folder=${activeFolderId == null ? "root" : activeFolderId}`;
+}
+
+function FolderWorkspaceHeader({
+  isFolderView,
+  folders,
+  activeFolderId,
+  folderActions,
+  setCreatingFolder,
+  setSharingFolder,
+  setMovingFolder,
+  isSearchActive,
+  titleRenamer,
+  lastReadComic,
+}) {
+  if (!isFolderView) return null;
+
+  return (
+    <>
+      <LibraryFolderBar
+        folders={folders}
+        activeFolderId={activeFolderId}
+        onNavigate={folderActions.navigateFolder}
+        onCreate={() => setCreatingFolder(true)}
+        onShare={async () => setSharingFolder(await folderActions.shareCurrentFolder())}
+        onMove={() => setMovingFolder(true)}
+        onRename={folderActions.renameCurrentFolder}
+        onDelete={folderActions.deleteCurrentFolder}
+        onAutoRename={!isSearchActive && !titleRenamer.session ? titleRenamer.startPreview : null}
+        onJumpToLastRead={lastReadComic && (() => jumpToComicCard(lastReadComic.id))}
+      />
+      <ComicTitleRenameBar
+        session={titleRenamer.session}
+        onAccept={titleRenamer.accept}
+        onUndo={titleRenamer.undo}
+      />
+    </>
+  );
+}
+
+function LibrarySearchStatus({ isSearching, showSkeleton }) {
+  if (!isSearching || showSkeleton) return null;
+  return <div className="rounded-lg border bg-card p-4 text-center" role="status">Searching the whole library…</div>;
+}
+
 /**
  * The library: where the URL points, what came back, and what can be done to it.
  *
@@ -64,7 +115,7 @@ export default function Dashboard() {
   });
 
   const titleRenamer = useFolderComicTitleRenamer({
-    locationKey: isFolderView ? `folder:${activeFolderId ?? "root"}` : `view:${activeView}`,
+    locationKey: titleRenameLocation(isFolderView, activeFolderId, activeView),
     comics,
     refreshCurrent,
   });
@@ -86,7 +137,7 @@ export default function Dashboard() {
   useJumpToComic(jumpComicId, visibleComics, !showSkeleton && viewMode === "grid");
 
   const hasContent = visibleComics.length > 0 || childFolders.length > 0;
-  const uploadUrl = isFolderView ? `/upload?folder=${activeFolderId == null ? "root" : activeFolderId}` : "/upload";
+  const uploadUrl = uploadPath(isFolderView, activeFolderId);
 
   const sidebar = (
     <LibrarySidebar
@@ -122,33 +173,21 @@ export default function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
         <DesktopLibrarySidebar>{sidebar}</DesktopLibrarySidebar>
-        <main className="min-w-0 space-y-5">
-          {isFolderView && (
-            <LibraryFolderBar
-              folders={folders}
-              activeFolderId={activeFolderId}
-              onNavigate={navigateFolder}
-              onCreate={() => setCreatingFolder(true)}
-              onShare={async () => setSharingFolder(await folderActions.shareCurrentFolder())}
-              onMove={() => setMovingFolder(true)}
-              onRename={folderActions.renameCurrentFolder}
-              onDelete={folderActions.deleteCurrentFolder}
-              onAutoRename={!isSearchActive && !titleRenamer.session ? titleRenamer.startPreview : null}
-              onJumpToLastRead={lastReadComic && (() => jumpToComicCard(lastReadComic.id))}
-            />
-          )}
+        <section className="min-w-0 space-y-5" aria-label="Library results">
+          <FolderWorkspaceHeader
+            isFolderView={isFolderView}
+            folders={folders}
+            activeFolderId={activeFolderId}
+            folderActions={{ ...folderActions, navigateFolder }}
+            setCreatingFolder={setCreatingFolder}
+            setSharingFolder={setSharingFolder}
+            setMovingFolder={setMovingFolder}
+            isSearchActive={isSearchActive}
+            titleRenamer={titleRenamer}
+            lastReadComic={lastReadComic}
+          />
 
-          {isFolderView && (
-            <ComicTitleRenameBar
-              session={titleRenamer.session}
-              onAccept={titleRenamer.accept}
-              onUndo={titleRenamer.undo}
-            />
-          )}
-
-          {isSearching && !showSkeleton && (
-            <div className="rounded-lg border bg-card p-4 text-center" role="status">Searching the whole library…</div>
-          )}
+          <LibrarySearchStatus isSearching={isSearching} showSkeleton={showSkeleton} />
 
           <LibraryResults
             showSkeleton={showSkeleton}
@@ -175,7 +214,7 @@ export default function Dashboard() {
               onShareComics: setSharingComicIds,
             }}
           />
-        </main>
+        </section>
       </div>
 
       <LibraryDialogs

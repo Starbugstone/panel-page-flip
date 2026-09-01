@@ -134,7 +134,7 @@ final class SharingWorkflowController extends AbstractController
         $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        $code = is_array($data) ? ($data['userCode'] ?? null) : null;
+        $code = $data['userCode'] ?? null;
 
         if (!is_string($code)) {
             return $this->json(['message' => 'A user code is required.'], Response::HTTP_BAD_REQUEST);
@@ -159,10 +159,6 @@ final class SharingWorkflowController extends AbstractController
         $user = $this->requireUser();
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($data)) {
-            return $this->json(['message' => 'Invalid request body.'], Response::HTTP_BAD_REQUEST);
-        }
-
         if (($data['senderResponsibilityAccepted'] ?? null) !== true) {
             // Carries the error code as well as the sentence, so a client can
             // reopen the acknowledgement rather than only display the failure.

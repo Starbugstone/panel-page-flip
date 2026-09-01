@@ -126,23 +126,17 @@ final class MetronProvider extends HttpMetadataProvider
     /** @return list<ProviderCandidate> */
     private function candidates(mixed $results): array
     {
-        if (!is_array($results)) {
-            return [];
-        }
-
-        $candidates = [];
-
-        foreach (array_slice($results, 0, self::MAX_RESULTS) as $result) {
-            if (!is_array($result) || !isset($result['id'])) {
-                continue;
+        return $this->mapCandidateRows($results, function (array $result): ?ProviderCandidate {
+            if (!isset($result['id'])) {
+                return null;
             }
 
             $series = is_array($result['series'] ?? null) ? (string) ($result['series']['name'] ?? '') : '';
             if ($series === '') {
-                continue;
+                return null;
             }
 
-            $candidates[] = new ProviderCandidate(
+            return new ProviderCandidate(
                 provider: $this->key(),
                 externalId: (string) $result['id'],
                 series: $series,
@@ -152,9 +146,7 @@ final class MetronProvider extends HttpMetadataProvider
                 publishedAt: $this->date($result['cover_date'] ?? null),
                 coverUrl: isset($result['image']) ? (string) $result['image'] : null,
             );
-        }
-
-        return $candidates;
+        });
     }
 
     private function detailedCandidate(mixed $result): ?ProviderCandidate

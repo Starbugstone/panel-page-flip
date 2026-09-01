@@ -10,6 +10,8 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Entity(repositoryClass: EmailVerificationTokenRepository::class)]
 class EmailVerificationToken
 {
+    use ExpiringUserTokenTrait;
+
     private ?string $plainToken = null;
 
     #[ORM\Id]
@@ -39,50 +41,9 @@ class EmailVerificationToken
         $this->expiresAt = (new \DateTimeImmutable())->modify('+24 hours'); // Token expires in 24 hours
     }
 
-    public function getId(): ?int
-    {
-        return $this->id;
-    }
-
-    public function getToken(): ?string
-    {
-        return $this->token;
-    }
-
     public function getPlainToken(): ?string
     {
         return $this->plainToken;
-    }
-
-    public function setToken(string $token): static
-    {
-        $this->token = $token;
-
-        return $this;
-    }
-
-    public function getUser(): ?User
-    {
-        return $this->user;
-    }
-
-    public function setUser(?User $user): static
-    {
-        $this->user = $user;
-
-        return $this;
-    }
-
-    public function getExpiresAt(): ?\DateTimeImmutable
-    {
-        return $this->expiresAt;
-    }
-
-    public function setExpiresAt(\DateTimeImmutable $expiresAt): static
-    {
-        $this->expiresAt = $expiresAt;
-
-        return $this;
     }
 
     public function getCreatedAt(): ?\DateTimeImmutable
@@ -95,10 +56,5 @@ class EmailVerificationToken
         $this->createdAt = $createdAt;
 
         return $this;
-    }
-
-    public function isExpired(): bool
-    {
-        return $this->expiresAt < new \DateTimeImmutable();
     }
 }

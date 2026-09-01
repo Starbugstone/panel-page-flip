@@ -18,7 +18,10 @@ final class PaginatedResult
     ) {
     }
 
-    /** @param list<T> $items */
+    /**
+     * @param list<T> $items
+     * @return self<T>
+     */
     public static function fromRequest(array $items, int $totalItems, PaginationRequest $request): self
     {
         return new self($items, $totalItems, $request->page, $request->limit);

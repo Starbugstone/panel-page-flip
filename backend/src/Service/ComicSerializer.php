@@ -159,7 +159,7 @@ class ComicSerializer
             ),
             'readingProgress' => $progress ? [
                 'currentPage' => $progress->getCurrentPage(),
-                'lastReadAt' => $progress->getLastReadAt()?->format('c'),
+                'lastReadAt' => $progress->getLastReadAt()->format('c'),
                 'completed' => $progress->isCompleted(),
                 // Lets a reader continue the revision sequence across sessions
                 // instead of restarting below the stored value.

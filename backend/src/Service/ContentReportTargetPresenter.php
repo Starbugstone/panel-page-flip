@@ -34,27 +34,27 @@ final class ContentReportTargetPresenter
     /**
      * The one record a report points at, most specific first.
      *
-     * @return array{type: string, id: int|null, label: string|null, title?: string|null, name?: string|null, email?: string|null, owner?: array{id: int|null, name: string}|null}|null
+     * @return array{type: string, id: int|null, label: string|null, title?: string|null, name?: string|null, email?: string, owner?: array{id: int|null, name: string}|null, status?: string}|null
      */
     public function linked(ContentReport $report): ?array
     {
         if ($report->getLinkedShare() !== null) {
             $target = $this->entity($report->getLinkedShare());
-            $target['label'] = $target['title'];
+            $target['label'] = $target['title'] ?? null;
             $target['owner'] ??= $this->owner($report->getLinkedUser());
 
             return $target;
         }
         if ($report->getLinkedComic() !== null) {
             $target = $this->entity($report->getLinkedComic());
-            $target['label'] = $target['title'];
+            $target['label'] = $target['title'] ?? null;
             $target['owner'] ??= $this->owner($report->getLinkedUser());
 
             return $target;
         }
         if ($report->getLinkedUser() !== null) {
             $target = $this->entity($report->getLinkedUser());
-            $target['label'] = $target['name'];
+            $target['label'] = $target['name'] ?? null;
 
             return $target;
         }
@@ -112,7 +112,7 @@ final class ContentReportTargetPresenter
         };
     }
 
-    /** @return array<string, mixed> */
+    /** @return array{type: string, id: int|null, title?: string|null, name?: string|null, email?: string, owner?: array{id: int|null, name: string}|null, status?: string} */
     private function entity(Comic|User|ComicShare $entity): array
     {
         return match (true) {
@@ -141,6 +141,9 @@ final class ContentReportTargetPresenter
     /** @return array{id: int|null, name: string}|null */
     private function owner(?User $owner): ?array
     {
-        return $owner === null ? null : ['id' => $owner->getId(), 'name' => $owner->getName()];
+        return $owner === null ? null : [
+            'id' => $owner->getId(),
+            'name' => $owner->getName() ?? $owner->getUsername(),
+        ];
     }
 }

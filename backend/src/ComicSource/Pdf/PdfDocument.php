@@ -21,6 +21,7 @@ final class PdfDocument
     private const MAX_OBJECTS = 500_000;
     private const MAX_PAGES = 20_000;
     private const MAX_TREE_DEPTH = 64;
+    private const MAX_DOCUMENT_BYTES = 67_108_864;
     /** ~600 megapixels: far past any comic page, well short of exhausting memory. */
     private const MAX_PIXELS = 600_000_000;
 
@@ -63,8 +64,13 @@ final class PdfDocument
 
     public static function open(string $path): self
     {
-        $buffer = @file_get_contents($path);
+        // Read one byte past the ceiling rather than trusting a prior stat:
+        // this stays bounded even if the source is replaced between the size
+        // check and the read. Larger documents use the provider's Poppler
+        // fallback, which streams them without holding the source in PHP.
+        $buffer = @file_get_contents($path, false, null, 0, self::MAX_DOCUMENT_BYTES + 1);
         if ($buffer === false || !str_starts_with($buffer, '%PDF-')) throw new PdfException('Not a PDF.');
+        if (strlen($buffer) > self::MAX_DOCUMENT_BYTES) throw new PdfException('PDF is too large for the native reader.');
 
         $document = new self($buffer);
         $document->loadCrossReferences();
@@ -124,7 +130,7 @@ final class PdfDocument
         // gets the author's own bytes at the author's own quality.
         if ($filters === ['/DCTDecode']) {
             $info = @getimagesizefromstring($stream->raw);
-            if (!is_array($info) || ($info['mime'] ?? '') !== 'image/jpeg') return null;
+            if (!is_array($info) || $info['mime'] !== 'image/jpeg') return null;
             return new PdfPageImage($stream->raw, 'image/jpeg', $width, $height);
         }
 
@@ -133,7 +139,7 @@ final class PdfDocument
             $inflated = @gzuncompress($stream->raw, self::MAX_STREAM_BYTES);
             if (!is_string($inflated)) return null;
             $info = @getimagesizefromstring($inflated);
-            if (!is_array($info) || ($info['mime'] ?? '') !== 'image/jpeg') return null;
+            if (!is_array($info) || $info['mime'] !== 'image/jpeg') return null;
             return new PdfPageImage($inflated, 'image/jpeg', $width, $height);
         }
 
@@ -208,7 +214,7 @@ final class PdfDocument
     /**
      * Reduce a PDF colour space to the three shapes a PNG can carry directly.
      *
-     * @return array{type: string, palette?: string}|null
+     * @return array{type: 'gray'|'rgb'}|array{type: 'indexed', palette: string}|null
      */
     private function colourSpace(mixed $space, int $depth = 0): ?array
     {
@@ -287,6 +293,7 @@ final class PdfDocument
      * @param array<string, mixed> $node
      * @param list<array<string, mixed>> $pages
      * @param array<string, mixed> $inherited
+     * @param array<string, true>|null $seen
      */
     private function collectPages(array $node, array &$pages, array $inherited, int $depth, ?array $seen = null): void
     {

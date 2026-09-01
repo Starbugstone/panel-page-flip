@@ -43,10 +43,6 @@ final class PrivacyController extends AbstractController
     ): JsonResponse {
         $user = $this->authenticatedUser();
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($data)) {
-            return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
-        }
-
         if (($data['confirmation'] ?? null) !== 'DELETE') {
             return $this->json(
                 ['message' => 'Enter DELETE to confirm permanent account deletion.'],

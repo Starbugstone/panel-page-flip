@@ -11,13 +11,8 @@ use App\Message\ShareInvitationNotification;
 use App\Repository\ShareInvitationTokenRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
-use Symfony\Component\Mailer\MailerInterface;
-use Symfony\Component\Mime\Address;
-use Symfony\Component\Mime\Email;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
-use Twig\Environment;
 
 /**
  * Everything that changes a sharing relationship.
@@ -57,26 +52,17 @@ class ComicShareService
      * every share that was possible before folder sharing existed still gets
      * exactly the email it always got.
      */
-    public const MAX_LISTED_INVITATIONS = 20;
-
-    /** How many titles a summarised notice names before it stops counting. */
-    private const SUMMARY_SAMPLE_SIZE = 10;
+    public const MAX_LISTED_INVITATIONS = ComicShareInvitationMailer::MAX_LISTED_INVITATIONS;
 
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly ComicShareRepository $shareRepository,
         private readonly ShareInvitationTokenRepository $tokenRepository,
-        private readonly MailerInterface $mailer,
-        private readonly Environment $twig,
+        private readonly ComicShareInvitationMailer $invitationMailer,
         private readonly LoggerInterface $logger,
         private readonly SecurityAuditLogger $auditLogger,
         private readonly RateLimiterFactory $shareInvitationLimiter,
         private readonly MessageBusInterface $messageBus,
-        private readonly PublicUrl $publicUrl,
-        #[Autowire('%mailer_from_address%')]
-        private readonly string $mailerFromAddress,
-        #[Autowire('%mailer_from_name%')]
-        private readonly string $mailerFromName,
     ) {
     }
 
@@ -112,7 +98,7 @@ class ComicShareService
      *
      * @param list<Comic> $comics
      *
-     * @return array<int, array{status: string, message?: string, code?: string, shareId?: int|null}>
+     * @return array<int, array{status: string, message?: string, code?: string, shareId?: int|null, notificationState?: string}>
      *                                                                                                 keyed by comic id
      *
      * @throws ShareException when the whole batch is refused — a bad recipient,
@@ -130,6 +116,7 @@ class ComicShareService
         $this->assertSenderResponsibility($senderResponsibilityAccepted);
         $email = $this->assertInvitableRecipient($owner, $recipientEmail);
 
+        /** @var array<int, array{status: string, message?: string, code?: string, shareId?: int|null, notificationState?: string}> $outcomes */
         $outcomes = [];
         $invitable = [];
         $existing = $this->shareRepository->findForComicsAndRecipient($comics, $email);
@@ -247,6 +234,7 @@ class ComicShareService
             ]);
         }
 
+        /** @var array<int, array{status: string, message?: string, code?: string, shareId?: int|null, notificationState?: string}> $outcomes */
         return $outcomes;
     }
 
@@ -434,7 +422,7 @@ class ComicShareService
         $this->entityManager->flush();
 
         try {
-            $this->sendInvitationEmail($share, $comic, $owner, $plaintext);
+            $this->invitationMailer->send($share, $comic, $owner, $plaintext);
         } catch (\Throwable $exception) {
             $share->markNotificationFailed();
             $this->entityManager->flush();
@@ -1133,7 +1121,7 @@ class ComicShareService
         // against are committed by the time anybody can click one.
         $this->entityManager->flush();
 
-        $this->sendGroupedInvitationEmail($prepared, $owner, $folderName);
+        $this->invitationMailer->sendGrouped($prepared, $owner, $folderName);
 
         foreach ($prepared as $invitation) {
             $invitation->share->markNotified();
@@ -1147,7 +1135,7 @@ class ComicShareService
     /** The two records every new sharing relationship leaves behind. */
     private function auditInvitation(ComicShare $share, User $owner): void
     {
-        $comic = $share->getComic();
+        $comic = $share->getComic() ?? throw new \LogicException('A new share must reference a comic.');
 
         $this->auditLogger->audit(SecurityAuditLogger::SHARE_CREATED, [
             'actor_user_id' => $owner->getId(),
@@ -1196,160 +1184,6 @@ class ComicShareService
         return $outcome;
     }
 
-    private function sendInvitationEmail(ComicShare $share, Comic $comic, User $owner, string $plaintextToken): void
-    {
-        $ownerName = $owner->getName() ?: '@'.$owner->getUsername();
-
-        // An email is the least controlled surface there is: it sits in an inbox,
-        // gets previewed on a lock screen and is scanned on the way. For an
-        // explicit comic the template is given no title and no cover to show, so
-        // the identifying details stay behind the age gate rather than being
-        // announced by the notification of it.
-        $body = $this->twig->render('emails/share_comic.html.twig', [
-            'comic' => $comic,
-            'explicitContent' => $comic->isExplicitContent(),
-            'userName' => $ownerName,
-            'siteName' => $this->mailerFromName,
-            'shareLink' => $this->invitationUrl($plaintextToken),
-            'privacyUrl' => $this->publicUrl->to('/privacy'),
-            'expiresAt' => $share->getExpiresAt(),
-        ]);
-
-        $email = (new Email())
-            ->from(new Address($this->mailerFromAddress, $this->mailerFromName))
-            ->replyTo((string) $owner->getEmail())
-            ->to($share->getRecipientEmailNormalized())
-            ->subject($ownerName . ' shared a comic with you!')
-            ->html($body);
-
-        $this->mailer->send($email);
-    }
-
-    /**
-     * One message for a whole bulk share.
-     *
-     * A hand-picked bulk share keeps one link per comic. A folder share carries
-     * one link for the whole snapshot, because it is accepted or declined as
-     * one invitation even though its resulting grants remain per comic.
-     *
-     * For a hand-picked bulk share past {@see MAX_LISTED_INVITATIONS}, the links
-     * come out and a summary goes in; those independent invitations wait on the
-     * Sharing page. A folder batch is different: its summary keeps the single
-     * batch link, regardless of how many comics the folder contains.
-     *
-     * @param list<PreparedInvitation> $prepared
-     */
-    private function sendGroupedInvitationEmail(array $prepared, User $owner, ?string $folderName = null): void
-    {
-        $isFolderBatch = $prepared[0]->share->getInvitationBatchId() !== null;
-        if ($isFolderBatch && $folderName === null) {
-            $folderName = $prepared[0]->share->getInvitationBatchName();
-        }
-
-        // One comic is not a group. Falling back keeps the ordinary case on the
-        // template that has always described it.
-        if (count($prepared) === 1 && !$isFolderBatch) {
-            $only = $prepared[0];
-            $this->sendInvitationEmail($only->share, $only->comic, $owner, $only->plaintextToken);
-
-            return;
-        }
-
-        $ownerName = $owner->getName() ?: '@'.$owner->getUsername();
-        $recipient = $prepared[0]->share->getRecipientEmailNormalized();
-        $expiresAt = $prepared[0]->share->getExpiresAt();
-        $listLinks = !$isFolderBatch && count($prepared) <= self::MAX_LISTED_INVITATIONS;
-
-        $invitations = array_map(
-            function (PreparedInvitation $invitation) use ($listLinks): array {
-                $explicit = $invitation->comic->isExplicitContent();
-
-                return [
-                    // Withheld rather than rendered and hidden: an email is
-                    // previewed on lock screens and read by scanners, so an
-                    // explicit comic must not be named in one at all.
-                    'title' => $explicit ? null : $invitation->comic->getTitle(),
-                    'author' => $explicit ? null : $invitation->comic->getAuthor(),
-                    'explicitContent' => $explicit,
-                    // Not minted into the summary at all. A link that is not
-                    // rendered is a capability that never entered the message,
-                    // which is the same reason the queue carries ids only.
-                    'shareLink' => $listLinks ? $this->invitationUrl($invitation->plaintextToken) : null,
-                ];
-            },
-            $prepared
-        );
-
-        $body = $this->twig->render('emails/share_comics.html.twig', [
-            'invitations' => $invitations,
-            'listLinks' => $listLinks,
-            'isFolderBatch' => $isFolderBatch,
-            'batchLink' => $isFolderBatch
-                ? $this->invitationUrl($prepared[0]->plaintextToken)
-                : null,
-            // The same age gate the per-comic blocks apply, so a summary cannot
-            // become the one place an explicit comic gets named.
-            'sampleTitles' => $listLinks ? [] : $this->summaryTitles($invitations),
-            'sharingUrl' => $this->publicUrl->to('/sharing'),
-            'folderName' => $folderName,
-            'comicCount' => count($invitations),
-            'explicitCount' => count(array_filter($invitations, static fn (array $i): bool => $i['explicitContent'])),
-            'userName' => $ownerName,
-            'siteName' => $this->mailerFromName,
-            'privacyUrl' => $this->publicUrl->to('/privacy'),
-            'expiresAt' => $expiresAt,
-        ]);
-
-        $email = (new Email())
-            ->from(new Address($this->mailerFromAddress, $this->mailerFromName))
-            ->replyTo((string) $owner->getEmail())
-            ->to($recipient)
-            ->subject($folderName === null
-                ? sprintf(
-                    '%s shared %d %s with you!',
-                    $ownerName,
-                    count($invitations),
-                    count($invitations) === 1 ? 'comic' : 'comics'
-                )
-                : sprintf(
-                    '%s shared %d %s from "%s" with you!',
-                    $ownerName,
-                    count($invitations),
-                    count($invitations) === 1 ? 'comic' : 'comics',
-                    $folderName
-                ))
-            ->html($body);
-
-        $this->mailer->send($email);
-    }
-
-    /**
-     * A few titles, so a summary says what it is about rather than only how
-     * many. Explicit comics are skipped rather than truncated into: they are
-     * counted separately in the same email and naming one here would undo the
-     * gate every other part of this file keeps shut.
-     *
-     * @param list<array{title: string|null, explicitContent: bool}> $invitations
-     *
-     * @return list<string>
-     */
-    private function summaryTitles(array $invitations): array
-    {
-        $titles = [];
-        foreach ($invitations as $invitation) {
-            if ($invitation['explicitContent'] || $invitation['title'] === null) {
-                continue;
-            }
-
-            $titles[] = $invitation['title'];
-            if (count($titles) === self::SUMMARY_SAMPLE_SIZE) {
-                break;
-            }
-        }
-
-        return $titles;
-    }
-
     /**
      * All durable grants represented by the invitation that contains this row.
      * Public so response presenters can describe the one decision accurately.
@@ -1388,7 +1222,7 @@ class ComicShareService
 
     public function invitationUrl(string $plaintextToken): string
     {
-        return $this->publicUrl->to('/share/invitation/'.$plaintextToken);
+        return $this->invitationMailer->invitationUrl($plaintextToken);
     }
 
     /**

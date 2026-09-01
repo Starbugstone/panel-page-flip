@@ -133,6 +133,8 @@ convert_one() {
   status=0
 
   # Runs on success and failure alike: no temporary directory is left behind.
+  # Invoked indirectly by the RETURN trap below.
+  # shellcheck disable=SC2317,SC2329
   cleanup() { rm -rf -- "$work_dir"; rm -f -- "$staged"; }
   trap 'cleanup' RETURN
 

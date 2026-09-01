@@ -36,13 +36,13 @@ class ComicReadingProgress
     private ?Comic $comic = null;
 
     #[ORM\Column]
-    private ?int $currentPage = null;
+    private int $currentPage = 1;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
-    private ?\DateTimeImmutable $lastReadAt = null;
+    private \DateTimeImmutable $lastReadAt;
 
     #[ORM\Column]
-    private ?bool $completed = null;
+    private bool $completed = false;
 
     /**
      * Counter supplied by the reader with each save. Saves for this comic can
@@ -55,9 +55,7 @@ class ComicReadingProgress
 
     public function __construct()
     {
-        $this->currentPage = 1;
         $this->lastReadAt = new \DateTimeImmutable();
-        $this->completed = false;
     }
 
     #[ORM\PreUpdate]
@@ -95,7 +93,7 @@ class ComicReadingProgress
         return $this;
     }
 
-    public function getCurrentPage(): ?int
+    public function getCurrentPage(): int
     {
         return $this->currentPage;
     }
@@ -107,7 +105,7 @@ class ComicReadingProgress
         return $this;
     }
 
-    public function getLastReadAt(): ?\DateTimeImmutable
+    public function getLastReadAt(): \DateTimeImmutable
     {
         return $this->lastReadAt;
     }
@@ -119,7 +117,7 @@ class ComicReadingProgress
         return $this;
     }
 
-    public function isCompleted(): ?bool
+    public function isCompleted(): bool
     {
         return $this->completed;
     }

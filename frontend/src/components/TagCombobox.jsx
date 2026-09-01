@@ -13,6 +13,91 @@ import {
   tagKeyOf,
 } from "@/lib/tag-suggestions.js";
 
+function shouldShowSuggestions(isOpen, suggestions, canCreate, value) {
+  return isOpen && (suggestions.length > 0 || canCreate || value.trim() !== "");
+}
+
+function TagSuggestionList({
+  visible,
+  listId,
+  suggestions,
+  canCreate,
+  value,
+  submission,
+  appliedKeys,
+  activeIndex,
+  setActiveIndex,
+  submit,
+}) {
+  if (!visible) return null;
+
+  return (
+    <div
+      id={listId}
+      role="listbox"
+      aria-label="Tag suggestions"
+      className="absolute left-0 right-0 z-10 mt-1 max-h-60 min-w-full overflow-auto rounded-md border bg-background shadow-lg"
+    >
+      {suggestions.map((tag, index) => {
+        const name = normalizeTagName(typeof tag === "string" ? tag : tag.name);
+        const alreadyApplied = appliedKeys.has(tagKeyOf(tag));
+
+        return (
+          <button
+            key={(typeof tag === "object" && tag.id) || name}
+            id={`${listId}-option-${index}`}
+            type="button"
+            role="option"
+            aria-selected={index === activeIndex}
+            disabled={alreadyApplied}
+            // Keep focus in the field so typing can continue after a click.
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseEnter={() => setActiveIndex(index)}
+            onClick={() => submit(tag)}
+            className={cn(
+              "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
+              index === activeIndex && "bg-accent",
+              alreadyApplied && "opacity-50"
+            )}
+          >
+            <span className="truncate">{name}</span>
+            {isGlobalTag(tag) && (
+              <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                <Globe2 className="h-3 w-3" aria-hidden="true" /> Global
+              </span>
+            )}
+            {alreadyApplied && (
+              <span className={cn("shrink-0 text-xs text-muted-foreground", !isGlobalTag(tag) && "ml-auto")}>
+                already added
+              </span>
+            )}
+          </button>
+        );
+      })}
+
+      {canCreate && (
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => submit(value)}
+          className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm hover:bg-accent"
+        >
+          <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">Create “{submission.name}”</span>
+        </button>
+      )}
+
+      {suggestions.length === 0 && !canCreate && (
+        <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+          {submission.status === "duplicate"
+            ? "That tag is already applied."
+            : `No tags match “${normalizeTagName(value)}”.`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * A text field that offers the tags the current user already has.
  *
@@ -165,6 +250,7 @@ export function TagCombobox({
   };
 
   const activeOptionId = activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined;
+  const showSuggestions = shouldShowSuggestions(isOpen, suggestions, canCreate, value);
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
@@ -202,71 +288,18 @@ export function TagCombobox({
         />
       )}
 
-      {isOpen && (suggestions.length > 0 || canCreate || value.trim() !== "") && (
-        <div
-          id={listId}
-          role="listbox"
-          aria-label="Tag suggestions"
-          className="absolute left-0 right-0 z-10 mt-1 max-h-60 min-w-full overflow-auto rounded-md border bg-background shadow-lg"
-        >
-          {suggestions.map((tag, index) => {
-            const name = normalizeTagName(typeof tag === "string" ? tag : tag.name);
-            const alreadyApplied = appliedKeys.has(tagKeyOf(tag));
-
-            return (
-              <button
-                key={(typeof tag === "object" && tag.id) || name}
-                id={`${listId}-option-${index}`}
-                type="button"
-                role="option"
-                aria-selected={index === activeIndex}
-                disabled={alreadyApplied}
-                // Keep focus in the field so typing can continue after a click.
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => submit(tag)}
-                className={cn(
-                  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
-                  index === activeIndex && "bg-accent",
-                  alreadyApplied && "opacity-50"
-                )}
-              >
-                <span className="truncate">{name}</span>
-                {isGlobalTag(tag) && (
-                  <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                    <Globe2 className="h-3 w-3" aria-hidden="true" /> Global
-                  </span>
-                )}
-                {alreadyApplied && (
-                  <span className={cn("shrink-0 text-xs text-muted-foreground", !isGlobalTag(tag) && "ml-auto")}>
-                    already added
-                  </span>
-                )}
-              </button>
-            );
-          })}
-
-          {canCreate && (
-            <button
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => submit(value)}
-              className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm hover:bg-accent"
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">Create “{submission.name}”</span>
-            </button>
-          )}
-
-          {suggestions.length === 0 && !canCreate && (
-            <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-              {submission.status === "duplicate"
-                ? "That tag is already applied."
-                : `No tags match “${normalizeTagName(value)}”.`}
-            </p>
-          )}
-        </div>
-      )}
+      <TagSuggestionList
+        visible={showSuggestions}
+        listId={listId}
+        suggestions={suggestions}
+        canCreate={canCreate}
+        value={value}
+        submission={submission}
+        appliedKeys={appliedKeys}
+        activeIndex={activeIndex}
+        setActiveIndex={setActiveIndex}
+        submit={submit}
+      />
     </div>
   );
 }

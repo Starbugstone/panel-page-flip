@@ -1,10 +1,9 @@
 import { lazy, Suspense } from "react";
-import { Toaster } from "@/components/ui/toaster.jsx";
 import { Toaster as Sonner } from "@/components/ui/sonner.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip.jsx";
 import SessionMonitor from "@/components/SessionMonitor.jsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider.jsx";
 import { AdminNoticeBanner } from "@/components/AdminNoticeBanner.jsx";
 import { Header } from "@/components/Header.jsx";
@@ -17,6 +16,7 @@ import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
 import { TagProvider } from "./hooks/use-tags.jsx";
 import { ComicLibraryProvider } from "./hooks/use-comic-library.jsx";
 import { SharingProvider } from "./hooks/use-sharing.jsx";
+import { resolveLocalRedirect } from "./lib/local-redirect";
 
 const Landing = lazy(() => import("./pages/Landing.jsx"));
 const Login = lazy(() => import("./pages/Login.jsx"));
@@ -44,6 +44,22 @@ const ReportContent = lazy(() => import("./pages/ReportContent.jsx"));
 const queryClient = new QueryClient();
 const PageLoading = () => <div className="flex h-screen items-center justify-center">Loading...</div>;
 
+const SignedOutRedirect = () => {
+  const location = useLocation();
+  const destination = `${location.pathname}${location.search}${location.hash}`;
+
+  return <Navigate to={`/login?redirect=${encodeURIComponent(destination)}`} replace />;
+};
+
+const LoginRoute = () => {
+  const { isAuthenticated } = useAuth();
+  const [searchParams] = useSearchParams();
+
+  if (!isAuthenticated) return <Login />;
+
+  return <Navigate to={resolveLocalRedirect(searchParams.get("redirect"))} replace />;
+};
+
 // Protected route component
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -53,7 +69,7 @@ const ProtectedRoute = ({ children }) => {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" />;
+    return <SignedOutRedirect />;
   }
 
   return children;
@@ -68,7 +84,7 @@ const AdminRoute = ({ children }) => {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" />;
+    return <SignedOutRedirect />;
   }
 
   if (!isAdmin) {
@@ -96,7 +112,7 @@ const AppRoutes = () => {
         <Suspense fallback={<PageLoading />}>
           <Routes>
           <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Landing />} />
-          <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login />} />
+          <Route path="/login" element={<LoginRoute />} />
           <Route path="/complete-social-signup" element={isAuthenticated ? <Navigate to="/dashboard" /> : <CompleteSocialSignup />} />
           <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ForgotPassword />} />
           <Route path="/reset-password/:token" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ResetPassword />} />
@@ -144,7 +160,6 @@ const App = () => {
                   badge and the dashboard alert cannot disagree about it. */}
               <SharingProvider>
                 <TooltipProvider>
-                  <Toaster />
                   <Sonner />
                   <SessionMonitor />
                   <BrowserRouter>

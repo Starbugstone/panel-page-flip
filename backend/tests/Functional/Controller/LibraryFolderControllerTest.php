@@ -114,6 +114,20 @@ final class LibraryFolderControllerTest extends AbstractApiTestCase
         self::assertCount(0, $this->items()->findBy(['user' => $owner]));
     }
 
+    public function testMoveRejectsAnObjectMasqueradingAsAComicIdList(): void
+    {
+        $owner = $this->createAndLoginUser();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+
+        $payload = $this->postJson('/api/library/folders/move-comics', [
+            'comicIds' => ['first' => $comic->getId()],
+            'folderId' => null,
+        ]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('comicIds must be an array of integer identifiers.', $payload['message']);
+    }
+
     public function testARecipientCanFileASharedComicWithoutChangingTheOwner(): void
     {
         $owner = UserFactory::createOne();

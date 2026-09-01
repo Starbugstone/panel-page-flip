@@ -1,11 +1,19 @@
 import { useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { CheckCircle2, Loader2, RotateCcw, Trash2, Upload } from "lucide-react";
 import { createUploadRequestPool, uploadComicInChunks } from "@/hooks/use-chunked-upload";
 import { useAuth } from "@/hooks/use-auth";
 import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
-import { comicFileAccept, formatFileSize, generateTitleFromFilename, isComicFile, resolveParallelFiles } from "@/lib/comic-upload";
+import {
+  comicFileAccept,
+  configuredComicFormats,
+  configuredConcurrentChunks,
+  formatFileSize,
+  generateTitleFromFilename,
+  isComicFile,
+  resolveParallelFiles,
+} from "@/lib/comic-upload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { FolderDestinationSelect } from "@/components/library/FolderDestinationSelect";
 import { useLibraryFolders } from "@/hooks/use-library-folders";
+import { useUploadFolderDestination } from "@/hooks/use-upload-folder-destination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const ACTIVE_STATUSES = new Set(["initialising", "uploading", "completing"]);
@@ -35,35 +44,169 @@ function statusLabel(status) {
   }[status] || status;
 }
 
+function queueProgress(rows) {
+  const completed = rows.filter((row) => row.status === "done").length;
+  const failed = rows.filter((row) => row.status === "error" || row.status === "cancelled").length;
+
+  return {
+    completed,
+    failed,
+    allFinished: rows.length > 0 && completed + failed === rows.length,
+    hasRetryableRows: rows.some((row) => RETRYABLE_STATUSES.includes(row.status) && row.title.trim()),
+  };
+}
+
+function BulkDropZone({ dragging, running, inputRef, comicFormats, onDraggingChange, onFiles }) {
+  return (
+    <div
+      className={`rounded-lg border-2 border-dashed p-8 text-center ${dragging ? "border-primary bg-primary/5" : "border-gray-300"} ${running ? "opacity-60" : "cursor-pointer"}`}
+      onClick={() => !running && inputRef.current?.click()}
+      onDragEnter={(event) => { event.preventDefault(); if (!running) onDraggingChange(true); }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={(event) => { if (event.currentTarget === event.target) onDraggingChange(false); }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDraggingChange(false);
+        if (!running) onFiles(event.dataTransfer.files);
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={comicFileAccept(comicFormats)}
+        className="hidden"
+        disabled={running}
+        onChange={(event) => {
+          onFiles(event.target.files);
+          event.target.value = "";
+        }}
+      />
+      <Upload className="mx-auto mb-2 h-10 w-10 text-gray-400" />
+      <p className="font-medium">Drop supported comic files here or choose files</p>
+    </div>
+  );
+}
+
+function BulkUploadRow({ row, running, onTitleChange, onCancel, onRetry, onRemove }) {
+  const active = ACTIVE_STATUSES.has(row.status);
+  const retryable = row.status === "error" || row.status === "cancelled";
+
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="font-medium">{row.file.name}</div>
+        <div className="text-xs text-muted-foreground">{formatFileSize(row.file.size)}</div>
+      </TableCell>
+      <TableCell>
+        <Input
+          value={row.title}
+          aria-label={`Title for ${row.file.name}`}
+          disabled={running || row.status === "done"}
+          onChange={(event) => onTitleChange(row.id, event.target.value)}
+        />
+      </TableCell>
+      <TableCell className="min-w-36">
+        <Progress value={row.progress} />
+        <span className="text-xs text-muted-foreground">{row.progress}%</span>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1">
+          {active && <Loader2 className="h-4 w-4 animate-spin" />}
+          {row.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-600" />}
+          {statusLabel(row.status)}
+        </div>
+        {row.error && <div className="max-w-52 text-xs text-destructive">{row.error}</div>}
+        {row.comic?.id && <Link className="text-xs text-comic-purple underline" to={`/read/${row.comic.id}`}>Open comic</Link>}
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1">
+          {active && (
+            <Button size="icon" variant="outline" onClick={() => onCancel(row.id)} aria-label={`Cancel ${row.file.name}`}><XIcon /></Button>
+          )}
+          {retryable && (
+            <Button size="icon" variant="outline" disabled={running} onClick={() => onRetry(row)} aria-label={`Retry ${row.file.name}`}>
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          )}
+          {/* Uploaded rows are comics in the library; deleting those belongs to
+              the library, while every inactive unfinished row can leave here. */}
+          {!active && row.status !== "done" && (
+            <Button size="icon" variant="ghost" onClick={() => onRemove(row.id)} aria-label={`Remove ${row.file.name}`}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function BulkUploadTable({ rows, running, onTitleChange, onCancel, onRetry, onRemove }) {
+  if (rows.length === 0) return null;
+
+  return (
+    <Table>
+      <TableHeader><TableRow><TableHead>File</TableHead><TableHead>Title</TableHead><TableHead>Progress</TableHead><TableHead>Status</TableHead><TableHead className="w-28">Actions</TableHead></TableRow></TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <BulkUploadRow
+            key={row.id}
+            row={row}
+            running={running}
+            onTitleChange={onTitleChange}
+            onCancel={onCancel}
+            onRetry={onRetry}
+            onRemove={onRemove}
+          />
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function BulkQueueFooter({ rows, progress, running, foldersLoading, onStart }) {
+  const summary = progress.allFinished
+    ? `${progress.completed} completed, ${progress.failed} failed or cancelled.`
+    : `${rows.length} file${rows.length === 1 ? "" : "s"} queued.`;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="text-sm text-muted-foreground">{summary}</div>
+      <div className="flex gap-2">
+        {progress.allFinished && <Button variant="outline" asChild><Link to="/dashboard">View library</Link></Button>}
+        <Button onClick={onStart} disabled={running || foldersLoading || !progress.hasRetryableRows}>
+          {running ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</> : "Start all"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function BulkUploadQueue() {
   const { toast } = useToast();
   const { refreshSession } = useAuth();
   const { config } = useConfig();
-  const [searchParams] = useSearchParams();
   const { folders, isLoading: foldersLoading, createFolder } = useLibraryFolders();
-  const concurrentChunks = config.upload?.maxConcurrentUploads || 4;
+  const concurrentChunks = configuredConcurrentChunks(config);
   const parallelFiles = resolveParallelFiles(config.upload?.maxParallelFileUploads);
+  const comicFormats = configuredComicFormats(config);
   const requestPool = useMemo(
     () => createUploadRequestPool(concurrentChunks),
     [concurrentChunks]
   );
-  const comicFormats = config.upload?.comicFormats || ["cbz"];
   const [rows, setRows] = useState([]);
   const [tagsInput, setTagsInput] = useState("");
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
-  const requestedFolder = searchParams.get("folder");
-  const [folderId, setFolderId] = useState(() => requestedFolder && /^\d+$/.test(requestedFolder) ? Number(requestedFolder) : null);
-  const selectedFolderId = folderId != null && (foldersLoading || folders.some((folder) => Number(folder.id) === folderId)) ? folderId : null;
+  const { selectedFolderId, setFolderId } = useUploadFolderDestination(folders, foldersLoading);
   const controllers = useRef(new Map());
   // Rows taken out of the queue after it started. The workers below walk a list
   // captured when the run began, so without this a file removed mid-run would
   // still be uploaded after it had left the screen.
   const removedRef = useRef(new Set());
   const inputRef = useRef(null);
-  const completed = rows.filter((row) => row.status === "done").length;
-  const failed = rows.filter((row) => row.status === "error" || row.status === "cancelled").length;
-  const allFinished = rows.length > 0 && completed + failed === rows.length;
+  const progress = queueProgress(rows);
   const tags = useMemo(() => tagsInput.split(",").map((tag) => tag.trim()).filter(Boolean), [tagsInput]);
 
   const updateRow = (id, updates) => {
@@ -152,6 +295,12 @@ export default function BulkUploadQueue() {
     setRunning(false);
   };
 
+  const retryRow = async (row) => {
+    setRunning(true);
+    await uploadRow(row);
+    setRunning(false);
+  };
+
   return (
     <Card className="w-full max-w-6xl">
       <CardHeader>
@@ -162,18 +311,14 @@ export default function BulkUploadQueue() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div
-          className={`rounded-lg border-2 border-dashed p-8 text-center ${dragging ? "border-primary bg-primary/5" : "border-gray-300"} ${running ? "opacity-60" : "cursor-pointer"}`}
-          onClick={() => !running && inputRef.current?.click()}
-          onDragEnter={(event) => { event.preventDefault(); if (!running) setDragging(true); }}
-          onDragOver={(event) => event.preventDefault()}
-          onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
-          onDrop={(event) => { event.preventDefault(); setDragging(false); if (!running) addFiles(event.dataTransfer.files); }}
-        >
-          <input ref={inputRef} type="file" multiple accept={comicFileAccept(comicFormats)} className="hidden" disabled={running} onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />
-          <Upload className="mx-auto mb-2 h-10 w-10 text-gray-400" />
-          <p className="font-medium">Drop supported comic files here or choose files</p>
-        </div>
+        <BulkDropZone
+          dragging={dragging}
+          running={running}
+          inputRef={inputRef}
+          comicFormats={comicFormats}
+          onDraggingChange={setDragging}
+          onFiles={addFiles}
+        />
 
         <div className="space-y-2">
           <Label htmlFor="bulk-tags">Tags applied to every comic (comma-separated)</Label>
@@ -188,58 +333,16 @@ export default function BulkUploadQueue() {
           disabled={running || foldersLoading}
         />
 
-        {rows.length > 0 && (
-          <Table>
-            <TableHeader><TableRow><TableHead>File</TableHead><TableHead>Title</TableHead><TableHead>Progress</TableHead><TableHead>Status</TableHead><TableHead className="w-28">Actions</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell><div className="font-medium">{row.file.name}</div><div className="text-xs text-muted-foreground">{formatFileSize(row.file.size)}</div></TableCell>
-                  <TableCell><Input value={row.title} aria-label={`Title for ${row.file.name}`} disabled={running || row.status === "done"} onChange={(event) => updateRow(row.id, { title: event.target.value })} /></TableCell>
-                  <TableCell className="min-w-36"><Progress value={row.progress} /><span className="text-xs text-muted-foreground">{row.progress}%</span></TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">{ACTIVE_STATUSES.has(row.status) && <Loader2 className="h-4 w-4 animate-spin" />}{row.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-600" />}{statusLabel(row.status)}</div>
-                    {row.error && <div className="max-w-52 text-xs text-destructive">{row.error}</div>}
-                    {row.comic?.id && <Link className="text-xs text-comic-purple underline" to={`/read/${row.comic.id}`}>Open comic</Link>}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      {ACTIVE_STATUSES.has(row.status) && (
-                        <Button size="icon" variant="outline" onClick={() => controllers.current.get(row.id)?.abort()} aria-label={`Cancel ${row.file.name}`}><XIcon /></Button>
-                      )}
-                      {(row.status === "error" || row.status === "cancelled") && (
-                        <Button size="icon" variant="outline" disabled={running} onClick={async () => {
-                          setRunning(true);
-                          await uploadRow(row);
-                          setRunning(false);
-                        }} aria-label={`Retry ${row.file.name}`}><RotateCcw className="h-4 w-4" /></Button>
-                      )}
-                      {/* Anything not in flight and not already uploaded. A file
-                          mid-upload is cancelled first, and an uploaded one is a
-                          comic in the library — deleting that is the library's
-                          job, not this queue's. */}
-                      {!ACTIVE_STATUSES.has(row.status) && row.status !== "done" && (
-                        <Button size="icon" variant="ghost" onClick={() => removeRow(row.id)} aria-label={`Remove ${row.file.name}`}><Trash2 className="h-4 w-4" /></Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+        <BulkUploadTable
+          rows={rows}
+          running={running}
+          onTitleChange={(id, title) => updateRow(id, { title })}
+          onCancel={(id) => controllers.current.get(id)?.abort()}
+          onRetry={retryRow}
+          onRemove={removeRow}
+        />
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-muted-foreground">
-            {allFinished ? `${completed} completed, ${failed} failed or cancelled.` : `${rows.length} file${rows.length === 1 ? "" : "s"} queued.`}
-          </div>
-          <div className="flex gap-2">
-            {allFinished && <Button variant="outline" asChild><Link to="/dashboard">View library</Link></Button>}
-            <Button onClick={startAll} disabled={running || foldersLoading || !rows.some((row) => RETRYABLE_STATUSES.includes(row.status) && row.title.trim())}>
-              {running ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</> : "Start all"}
-            </Button>
-          </div>
-        </div>
+        <BulkQueueFooter rows={rows} progress={progress} running={running} foldersLoading={foldersLoading} onStart={startAll} />
       </CardContent>
     </Card>
   );

@@ -31,6 +31,17 @@ use Symfony\Contracts\Cache\CacheInterface;
  */
 final class MetadataProviderRegistryTest extends TestCase
 {
+    public function testListsTheRegisteredProviderKeysInPreferenceOrder(): void
+    {
+        $registry = $this->registry(
+            [$this->provider('metron'), $this->provider('comicvine')],
+            sharedMetron: true,
+            sharedComicVine: true
+        );
+
+        self::assertSame(['metron', 'comicvine'], $registry->keys());
+    }
+
     public function testAsksOnlyOneProvider(): void
     {
         $metron = $this->provider('metron');
