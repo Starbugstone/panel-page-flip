@@ -135,6 +135,31 @@ class UserControllerSecurityTest extends AbstractApiTestCase
         self::assertSame('You cannot remove your own admin role', $payload['message']);
     }
 
+    public function testUserUpdateRejectsMalformedRolesInsteadOfCrashing(): void
+    {
+        $this->createAndLoginAdmin();
+        $target = UserFactory::createOne();
+
+        $payload = $this->patchJson('/api/users/'.$target->getId(), ['roles' => 'ROLE_ADMIN']);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('Roles must be an array of role names.', $payload['message']);
+    }
+
+    public function testUserUpdateRejectsNonStringProfileFieldsInsteadOfCrashing(): void
+    {
+        $this->createAndLoginAdmin();
+        $target = UserFactory::createOne();
+
+        $payload = $this->patchJson('/api/users/'.$target->getId(), ['name' => ['not', 'a', 'name']]);
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame(['Name must be a string.'], $payload['errors']['name']);
+
+        $payload = $this->patchJson('/api/users/'.$target->getId(), ['password' => ['not', 'a', 'password']]);
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame(['Password must be a string.'], $payload['errors']['password']);
+    }
+
     public function testAdminCannotDeleteSelf(): void
     {
         $admin = $this->createAndLoginAdmin();

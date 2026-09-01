@@ -41,6 +41,7 @@ lives in [`docs/`](docs/):
 - **Registration**: Implemented in `RegistrationController.php`
 - **Password Reset**: Implemented in `ResetPasswordController.php` with email notifications
 - **Password Policy**: Registration, admin API changes and operator console commands all use `PasswordValidator`
+- **User Updates**: `UserUpdateService` validates profile, role, metadata-access, and password changes before touching the managed account, then persists and records admin/security audits in the correct order. `UserController` only authorizes, loads, and presents the result.
 - **Auth Email Branding**: Verification, reset and password-change mail uses the configured `MAILER_FROM_NAME`
 - **User Entity**: Defined in `User.php` with proper properties and relationships
 - **Security**: Access control rules defined to secure API endpoints
