@@ -5,6 +5,7 @@ namespace App\Service;
 use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\User;
+use App\Entity\UserOAuthIdentity;
 use App\Entity\UserWarning;
 use App\Repository\ComicShareRepository;
 use App\Repository\UserWarningRepository;
@@ -84,6 +85,15 @@ final class PersonalDataExporter
                     || $user->getDropboxRefreshToken() !== null,
                 'dropboxLastSyncedAt' => $user->getDropboxLastSyncedAt()?->format(\DateTimeInterface::ATOM),
                 'readerPreferences' => $user->getReaderPreferences(),
+                'connectedAccounts' => array_map(
+                    static fn (UserOAuthIdentity $identity): array => [
+                        'provider' => $identity->getProvider(),
+                        'providerEmail' => $identity->getProviderEmail(),
+                        'linkedAt' => $identity->getCreatedAt()->format(\DateTimeInterface::ATOM),
+                        'lastUsedAt' => $identity->getLastUsedAt()?->format(\DateTimeInterface::ATOM),
+                    ],
+                    $user->getOAuthIdentities()->toArray(),
+                ),
             ],
             'comics' => $comics,
             'readingProgress' => $progress,

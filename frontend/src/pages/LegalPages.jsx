@@ -244,6 +244,7 @@ export function PrivacyPolicy() {
         <li>Reading activity: current page, completion status, and last-read time.</li>
         <li>Sharing data: usernames, recipient email addresses, sharing-code records, invitation and redemption records, and the identities of the people sharing and receiving comics.</li>
         <li>Dropbox data, when connected: encrypted OAuth credentials, import paths, and last-sync time.</li>
+        <li>Social sign-in data, when connected: provider name, the stable provider account identifier needed to find your local account, provider email snapshot, and linked/last-used times. Login tokens are not stored.</li>
         <li>Metadata-provider credentials, when you add your own: an encrypted API token, write-only after saving and removable at any time.</li>
         <li>Security and operations data: session identifiers, IP-based rate-limit entries, access logs, and administrator audit records.</li>
         <li>Content reports: reporter contact details, the supplied allegation and references, review notes, linked internal records, and action history.</li>

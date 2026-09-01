@@ -55,6 +55,7 @@ class AuthenticationSuccessHandler implements AuthenticationSuccessHandlerInterf
                 'email' => $user->getUserIdentifier(),
                 'name' => $user->getName(),
                 'roles' => $user->getRoles(),
+                'hasPassword' => $user->hasPassword(),
             ],
             'message' => 'Login successful',
         ]);

@@ -40,6 +40,20 @@ describe("the Apache front controller rules", () => {
   });
 });
 
+describe("the Nginx request logs", () => {
+  it.each([
+    "docker/nginx_frontend/nginx.conf",
+    "docker/nginx_frontend/nginx.dev.conf",
+  ])("%s never records OAuth codes or other query values", (path) => {
+    const source = read(path);
+    const format = source.match(/log_format ppf_without_query[\s\S]*?;/)?.[0] ?? "";
+
+    expect(format).toContain("$ppf_request_path");
+    expect(format).not.toMatch(/\$request(?:_uri)?\b/);
+    expect(source).toMatch(/access_log\s+\/var\/log\/nginx\/project_access\.log\s+ppf_without_query;/);
+  });
+});
+
 describe("deployments and the host's runtime configuration", () => {
   const ftp = read("scripts/deploy-ftp.sh");
   const ssh = read("scripts/deploy-ssh.sh");
