@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Download, Edit, FileArchive, Plus, ShieldAlert, Tags, Trash2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { useToast } from "@/hooks/use-toast";
 import { useTags } from "@/hooks/use-tags";
 import { AccountSettingsCard } from "@/components/AccountSettingsCard";
+import { SignInMethodsCard } from "@/components/SignInMethodsCard";
 import { TagBadge } from "@/components/TagBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,8 +21,9 @@ import { CONVERSION_TOOLS, CONVERSION_TOOLS_VERSION } from "@/lib/conversion-too
 
 export default function UserSettings() {
   const { toast } = useToast();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { fetchTags } = useTags();
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,10 +32,46 @@ export default function UserSettings() {
   const [tagName, setTagName] = useState("");
   const [tagToDelete, setTagToDelete] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(() => searchParams.has("oauth_reauthenticated"));
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [oauthConnections, setOauthConnections] = useState([]);
+
+  const oauthReauthenticated = searchParams.get("oauth_reauthenticated");
+  const oauthConnected = searchParams.get("oauth_connected");
+  const oauthError = searchParams.get("oauth_error");
+
+  useEffect(() => {
+    if (!oauthReauthenticated && !oauthConnected && !oauthError) return;
+
+    if (oauthReauthenticated) {
+      toast({ title: "Identity confirmed", description: `Continue to delete the account within five minutes.` });
+    } else if (oauthConnected) {
+      toast({ title: "Sign-in method connected", description: `${oauthConnected === "google" ? "Google" : oauthConnected} can now sign in to this account.` });
+    } else {
+      const messages = {
+        identity_in_use: "That provider account is already connected to another user.",
+        wrong_account: "The provider account did not match this user.",
+        sign_in_required: "Your session expired before the provider could be connected.",
+        invalid_state: "The provider response could not be verified. Please try again.",
+        cancelled: "The provider connection was cancelled or not completed.",
+        expired: "The provider connection expired. Please try again.",
+      };
+      toast({
+        title: "Provider connection unsuccessful",
+        description: messages[oauthError] || "The provider connection could not be completed.",
+        variant: "destructive",
+      });
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("oauth_reauthenticated");
+    next.delete("oauth_connected");
+    next.delete("oauth_error");
+    next.delete("provider");
+    setSearchParams(next, { replace: true });
+  }, [oauthConnected, oauthError, oauthReauthenticated, searchParams, setSearchParams, toast]);
 
   const setAccountDeletionDialogOpen = (open) => {
     setDeleteDialogOpen(open);
@@ -137,7 +175,10 @@ export default function UserSettings() {
     setDeletingAccount(true);
     try {
       await api.delete("/api/privacy/account", {
-        body: { confirmation: deleteConfirmation, currentPassword },
+        body: {
+          confirmation: deleteConfirmation,
+          ...(user?.hasPassword === false ? {} : { currentPassword }),
+        },
       });
       await logout();
       navigate("/", { replace: true });
@@ -150,6 +191,25 @@ export default function UserSettings() {
     }
   };
 
+  const beginAccountDeletion = () => {
+    if (user?.hasPassword !== false) {
+      setAccountDeletionDialogOpen(true);
+      return;
+    }
+
+    const connection = oauthConnections.find((provider) => provider.connected && provider.enabled);
+    if (!connection) {
+      toast({
+        title: "Provider reauthentication unavailable",
+        description: "Ask the site operator to enable your connected provider, or use password reset to add a password first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    window.location.assign(`/api/auth/oauth/${connection.provider}/start?purpose=delete-account&redirect=${encodeURIComponent("/settings")}`);
+  };
+
   return (
     <div className="container mx-auto max-w-5xl px-4 py-8">
       <div className="mb-6">
@@ -159,6 +219,10 @@ export default function UserSettings() {
 
       <div className="mb-6">
         <AccountSettingsCard />
+      </div>
+
+      <div className="mb-6">
+        <SignInMethodsCard onConnectionsChange={setOauthConnections} />
       </div>
 
       <Card>
@@ -275,7 +339,7 @@ export default function UserSettings() {
           <Button variant="outline" onClick={downloadPersonalData}>
             <Download className="mr-2 h-4 w-4" /> Download my data
           </Button>
-          <Button variant="destructive" onClick={() => setAccountDeletionDialogOpen(true)}>
+          <Button variant="destructive" onClick={beginAccountDeletion}>
             <Trash2 className="mr-2 h-4 w-4" /> Delete my account
           </Button>
         </CardContent>
@@ -309,16 +373,22 @@ export default function UserSettings() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="delete-current-password">Current password</Label>
-              <Input
-                id="delete-current-password"
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-              />
-            </div>
+            {user?.hasPassword === false ? (
+              <p className="rounded-md border p-3 text-sm text-muted-foreground">
+                Your connected provider has recently confirmed your identity. This confirmation expires after five minutes.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="delete-current-password">Current password</Label>
+                <Input
+                  id="delete-current-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="delete-confirmation">Type DELETE to confirm</Label>
               <Input
@@ -332,7 +402,7 @@ export default function UserSettings() {
             <AlertDialogCancel disabled={deletingAccount}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteConfirmation !== "DELETE" || currentPassword === "" || deletingAccount}
+              disabled={deleteConfirmation !== "DELETE" || (user?.hasPassword !== false && currentPassword === "") || deletingAccount}
               onClick={(event) => {
                 event.preventDefault();
                 deleteAccount();

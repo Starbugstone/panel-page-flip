@@ -19,6 +19,7 @@ import { SharingProvider } from "./hooks/use-sharing.jsx";
 
 const Landing = lazy(() => import("./pages/Landing.jsx"));
 const Login = lazy(() => import("./pages/Login.jsx"));
+const CompleteSocialSignup = lazy(() => import("./pages/CompleteSocialSignup.jsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
 const UploadComic = lazy(() => import("./pages/UploadComic.jsx"));
 const BulkUploadGate = lazy(() => import("./pages/BulkUploadGate.jsx"));
@@ -95,6 +96,7 @@ const AppRoutes = () => {
           <Routes>
           <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Landing />} />
           <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login />} />
+          <Route path="/complete-social-signup" element={isAuthenticated ? <Navigate to="/dashboard" /> : <CompleteSocialSignup />} />
           <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ForgotPassword />} />
           <Route path="/reset-password/:token" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ResetPassword />} />
           <Route path="/email-verification" element={<EmailVerification />} />

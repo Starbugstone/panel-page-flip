@@ -71,6 +71,8 @@ services:
         exclude:
             - '../tests/bootstrap.php'
 
+    App\OAuth\OAuthProviderClientInterface: '@App\Tests\Support\FakeOAuthProviderClient'
+
     # Sharing's notification guarantees are about what happens when a send
     # fails, and the cases worth proving go through a real HTTP request. A
     # service cannot be swapped once the container has initialised it, so the

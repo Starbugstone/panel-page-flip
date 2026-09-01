@@ -37,6 +37,8 @@ class SecurityAuditLogger
     public const AUTHENTICATION_SUCCEEDED = 'security.authentication.succeeded';
     public const AUTHENTICATION_FAILED = 'security.authentication.failed';
     public const AUTHENTICATION_UNVERIFIED = 'security.authentication.unverified';
+    public const OAUTH_CALLBACK_REJECTED = 'security.oauth.callback_rejected';
+    public const OAUTH_PROVIDER_LINK_REFUSED = 'security.oauth.provider_link_refused';
     public const AUTHORIZATION_DENIED = 'security.authorization.denied';
     public const ADMIN_ACCESS_DENIED = 'security.authorization.admin_denied';
     public const RATE_LIMIT_TRIGGERED = 'security.rate_limit.triggered';
@@ -70,6 +72,8 @@ class SecurityAuditLogger
     public const USER_EMAIL_VERIFIED = 'audit.user.email_verified';
     public const USER_VERIFICATION_RESENT = 'audit.user.verification_resent';
     public const USER_REGISTERED = 'audit.user.registered';
+    public const OAUTH_PROVIDER_LINKED = 'audit.oauth.provider_linked';
+    public const OAUTH_PROVIDER_DISCONNECTED = 'audit.oauth.provider_disconnected';
     public const USER_ACCOUNT_DELETION_REQUESTED = 'audit.user.account_deletion_requested';
     public const USER_ACCOUNT_DELETED = 'audit.user.account_deleted';
     public const USER_ROLES_CHANGED = 'audit.user.roles_changed';

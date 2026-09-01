@@ -13,6 +13,15 @@ import { stripUsernamePrefix, validateUsername } from "@/lib/sharing";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 
+const isLocalRedirect = (path) => typeof path === "string"
+  && path.startsWith("/")
+  && !path.startsWith("//")
+  && !path.includes("\\")
+  && !Array.from(path).some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
+
 export default function Login() {
   // Login form state
   const [loginEmail, setLoginEmail] = useState("");
@@ -30,18 +39,46 @@ export default function Login() {
   const [isSuggestingUsername, setIsSuggestingUsername] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
+  const [socialProviders, setSocialProviders] = useState({});
   
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const defaultTab = searchParams.get("signup") ? "signup" : "login";
   const requestedRedirect = searchParams.get("redirect");
-  const redirectPath = requestedRedirect?.startsWith("/") && !requestedRedirect.startsWith("//")
-    ? requestedRedirect
-    : "/dashboard";
+  const oauthError = searchParams.get("oauth_error");
+  const redirectPath = isLocalRedirect(requestedRedirect) ? requestedRedirect : "/dashboard";
   const { toast } = useToast();
   const { login, register } = useAuth();
   const registerPasswordErrors = validatePassword(registerPassword);
   const registerUsernameError = registerUsername === "" ? null : validateUsername(registerUsername);
+
+  useEffect(() => {
+    let active = true;
+    api.get("/api/auth/providers", { notifyUnauthorized: false })
+      .then((data) => { if (active) setSocialProviders(data || {}); })
+      .catch((error) => logger.warn("Could not load social sign-in providers:", error.message));
+
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!oauthError) return;
+
+    const messages = {
+      account_exists: "An account already exists with this email. Sign in with your existing method, then connect Google from Settings.",
+      verification_required: "Verify the email on this account before signing in.",
+      expired: "This social sign-in attempt expired. Please try again.",
+      invalid_state: "Social sign-in could not be verified. Please try again.",
+      cancelled: "Social sign-in was cancelled or not completed.",
+      unavailable: "That social sign-in provider is not available on this installation.",
+      failed: "Social sign-in could not be completed. Please try again.",
+    };
+    toast({
+      title: "Social sign-in unsuccessful",
+      description: messages[oauthError] || "Social sign-in could not be completed. Please try again.",
+      variant: "destructive",
+    });
+  }, [oauthError, toast]);
 
   const fetchSuggestion = useCallback(
     () => api.get("/api/users/username-suggestion")
@@ -78,6 +115,10 @@ export default function Login() {
     const username = await fetchSuggestion();
     if (username) setRegisterUsername(username);
     setIsSuggestingUsername(false);
+  };
+
+  const socialLogin = (provider) => {
+    window.location.assign(`/api/auth/oauth/${provider}/start?redirect=${encodeURIComponent(redirectPath)}`);
   };
 
   const handleLoginSubmit = async (event) => {
@@ -162,6 +203,19 @@ export default function Login() {
             <h1 className="mt-4 font-comic text-2xl">Welcome to Panel Page Flip</h1>
             <p className="mt-2 text-muted-foreground">Access your comic collection</p>
           </div>
+
+          {socialProviders.google && (
+            <div className="space-y-4">
+              <Button type="button" variant="outline" className="w-full" onClick={() => socialLogin("google")}>
+                Continue with Google
+              </Button>
+              <div className="flex items-center gap-3" aria-label="or">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            </div>
+          )}
 
           <Tabs defaultValue={defaultTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
