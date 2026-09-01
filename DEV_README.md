@@ -47,7 +47,7 @@ lives in [`docs/`](docs/):
 
 #### ✅ Comic Management System
 - **Comic Entity**: Defined in `Comic.php` with properties for title, file path, cover image, etc.
-- **Comic Controller**: Implemented in `ComicController.php` with endpoints for CRUD operations. Includes refined permission checks for operations like comic deletion (owner/admin only).
+- **Comic Controllers**: `ComicController.php` owns listing and single-entry CRUD, `ComicBulkController.php` owns all-or-nothing multi-comic mutations, and `ComicProgressController.php` owns per-reader progress. Upload, metadata, page delivery, and cover routes retain their own focused controllers under the same `/api/comics` prefix.
 - **File Storage**: Comics are stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
 - **Cover Images**: Stored under `backend/public/uploads/comics/{user_id}/covers/{comic_id}/{cover_image}` and served only through `GET /api/comics/cover/{userId}/{comicId}/{filename}`
 - **Chunked Upload**: Implemented chunked file upload system to handle large comic files (1MB chunks)
@@ -57,7 +57,7 @@ lives in [`docs/`](docs/):
 
 #### ✅ Reading Progress Tracking
 - **ComicReadingProgress Entity**: Defined in `ComicReadingProgress.php` to track user reading progress
-- **API Endpoints**: Available for saving and retrieving reading progress
+- **API Endpoints**: `ComicProgressController.php` saves and resets per-user reading progress, including revision ordering for concurrent reader saves
 
 #### ✅ Tag System
 - **Tag Entity**: Defined in `Tag.php` for categorizing comics

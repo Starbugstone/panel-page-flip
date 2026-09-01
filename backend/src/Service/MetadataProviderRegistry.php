@@ -44,6 +44,15 @@ final class MetadataProviderRegistry
         return array_values(iterator_to_array($this->providers, false));
     }
 
+    /** @return list<string> */
+    public function keys(): array
+    {
+        return array_map(
+            static fn (MetadataProviderInterface $provider): string => $provider->key(),
+            $this->all()
+        );
+    }
+
     public function get(string $key): ?MetadataProviderInterface
     {
         foreach ($this->providers as $provider) {
