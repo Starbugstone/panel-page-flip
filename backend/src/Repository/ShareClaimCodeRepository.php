@@ -185,9 +185,11 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
                 ->andWhere('c.maxUses = :filterMaxUses')
                 ->setParameter('filterTimesUsed', (int) $matches[1])
                 ->setParameter('filterMaxUses', (int) $matches[2]);
-        } elseif (ctype_digit($filterUses)) {
-            $qb->andWhere('(c.maxUses - c.usesRemaining) = :filterTimesUsed')
-                ->setParameter('filterTimesUsed', (int) $filterUses);
+        } elseif (($uses = ColumnFilter::integerRange($filterUses)) !== null) {
+            $qb->andWhere('(c.maxUses - c.usesRemaining) >= :filterTimesUsedMin')
+                ->andWhere('(c.maxUses - c.usesRemaining) <= :filterTimesUsedMax')
+                ->setParameter('filterTimesUsedMin', $uses[0])
+                ->setParameter('filterTimesUsedMax', $uses[1]);
         }
 
         $statuses = array_key_exists((string) ($filters['status'] ?? null), self::ADMIN_STATUS_LABELS)
@@ -259,6 +261,18 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
             ->getResult();
 
         return PaginatedResult::fromRequest($codes, $total, $request);
+    }
+
+    public function getMaximumTimesUsed(): int
+    {
+        $result = $this->createQueryBuilder('c')
+            ->select('(c.maxUses - c.usesRemaining) AS timesUsed')
+            ->orderBy('timesUsed', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        return (int) ($result['timesUsed'] ?? 0);
     }
 
     /** @param list<string>|null $statuses */

@@ -69,9 +69,8 @@ final class AdminShareCodeController extends AbstractController
             'createdTo' => $this->date($request->query->get('createdTo'), endOfDay: true),
             'expiresFrom' => $this->date($request->query->get('expiresFrom')),
             'expiresTo' => $this->date($request->query->get('expiresTo'), endOfDay: true),
-            // The Status column is typed into rather than picked from, so it
-            // arrives as a label and the repository resolves it against the
-            // same statuses the dropdown above sends.
+            // The Status column sends its display label; the repository
+            // resolves it against the same statuses the dropdown above sends.
             'columnStatus' => $request->query->get('filterStatus'),
             'id' => $request->query->get('filterId'),
             'owner' => $request->query->get('filterOwner'),
@@ -89,6 +88,7 @@ final class AdminShareCodeController extends AbstractController
                 $page->items
             ),
             'pagination' => $page->toArray(),
+            'usesMax' => $this->contentCodes->getMaximumTimesUsed(),
             'retentionAfterExpiry' => ltrim(ShareClaimCode::RETENTION_AFTER_EXPIRY, '+'),
             // Two windows on two clocks. The sweep dialog describes both, so it
             // reads them from here rather than assuming they stay equal.

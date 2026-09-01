@@ -58,6 +58,7 @@ export function AdminComicsList({ ownerId, embedded = false }) {
 
   const {
     items: comics,
+    payload,
     listKey,
     pagination,
     isLoading,
@@ -173,7 +174,7 @@ export function AdminComicsList({ ownerId, embedded = false }) {
                   <TableHead><AdminColumnHeader label="Title / Author" sortField="title" filterField="filterTitleAuthor" filterSuggestions={adminFilterSuggestions(comics, (comic) => [comic.title, comic.author])} filterValue={tableControls.columnFilters.filterTitleAuthor} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Owner" sortField="owner" filterField="filterOwner" filterSuggestions={adminFilterSuggestions(comics, (comic) => [comic.owner?.name, comic.owner?.email])} filterValue={tableControls.columnFilters.filterOwner} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Uploaded" sortField="uploadedAt" filterField="filterUploadedAt" filterType="date" filterValue={tableControls.columnFilters.filterUploadedAt} {...tableControls.headerProps} /></TableHead>
-                  <TableHead><AdminColumnHeader label="Pages" sortField="pageCount" filterField="filterPageCount" filterPlaceholder="Exact page count…" filterValue={tableControls.columnFilters.filterPageCount} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Pages" sortField="pageCount" filterField="filterPageCount" filterType="range" filterMax={payload?.pageCountMax ?? 0} filterValue={tableControls.columnFilters.filterPageCount} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Tags" sortField="tags" filterField="filterTags" filterSuggestions={adminFilterSuggestions(comics, (comic) => (comic.tags || []).map((tag) => typeof tag === "string" ? tag : tag.name))} filterValue={tableControls.columnFilters.filterTags} {...tableControls.headerProps} /></TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>

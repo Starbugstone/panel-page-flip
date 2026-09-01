@@ -65,7 +65,7 @@ export function AdminOverview() {
           <Table>
             <TableHeader><TableRow>
               <TableHead><AdminColumnHeader label="User" sortField="user" filterField="user" filterSuggestions={adminFilterSuggestions(stats?.recentSignups || [], (user) => [user.name, user.email])} filterValue={tableControls.columnFilters.user} {...tableControls.headerProps} /></TableHead>
-              <TableHead><AdminColumnHeader label="Verified" sortField="verified" filterField="verified" filterPlaceholder="Yes or no…" filterSuggestions={["Yes", "No"]} filterValue={tableControls.columnFilters.verified} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Verified" sortField="verified" filterField="verified" filterType="select" filterOptions={["Yes", "No"]} filterValue={tableControls.columnFilters.verified} {...tableControls.headerProps} /></TableHead>
               <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="createdAt" filterType="date" filterValue={tableControls.columnFilters.createdAt} {...tableControls.headerProps} /></TableHead>
             </TableRow></TableHeader>
             <TableBody>

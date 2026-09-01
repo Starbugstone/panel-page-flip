@@ -190,14 +190,14 @@ export function AdminSharingCodesList() {
               <TableHead><AdminColumnHeader label="ID" sortField="id" filterField="filterId" filterPlaceholder="Exact ID…" filterValue={tableControls.columnFilters.filterId} {...tableControls.headerProps} /></TableHead>
               <TableHead><AdminColumnHeader label="Owner" sortField="owner" filterField="filterOwner" filterSuggestions={adminFilterSuggestions(codes, (code) => [code.ownerName, code.ownerEmail])} filterValue={tableControls.columnFilters.filterOwner} {...tableControls.headerProps} /></TableHead>
               <TableHead><AdminColumnHeader label="Comics" sortField="comicCount" filterField="filterComics" filterPlaceholder="Title or exact count…" filterSuggestions={adminFilterSuggestions(codes, (code) => code.comics?.map((comic) => comic.title) || [])} filterValue={tableControls.columnFilters.filterComics} {...tableControls.headerProps} /></TableHead>
-              <TableHead><AdminColumnHeader label="Uses" sortField="timesUsed" filterField="filterUses" filterPlaceholder="Used or used / maximum…" filterValue={tableControls.columnFilters.filterUses} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Uses" sortField="timesUsed" filterField="filterUses" filterType="range" filterMax={payload?.usesMax ?? 0} filterValue={tableControls.columnFilters.filterUses} {...tableControls.headerProps} /></TableHead>
               <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="filterCreatedAt" filterType="date" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
               {/* Deletion is a fixed span after expiry, so Expires already
                   sorts this column's order; a second control for it would
                   light two headings up as the active sort at once. */}
               <TableHead><AdminColumnHeader label="Expires" sortField="expiresAt" filterField="filterExpiresAt" filterType="date" filterValue={tableControls.columnFilters.filterExpiresAt} {...tableControls.headerProps} /></TableHead>
               <TableHead><AdminColumnHeader label="Deleted after" filterField="filterDeletedAfter" filterType="date" filterValue={tableControls.columnFilters.filterDeletedAfter} {...tableControls.headerProps} /></TableHead>
-              <TableHead><AdminColumnHeader label="Status" sortField="status" filterField="filterStatus" filterPlaceholder="Active, expired, used up, withdrawn…" filterSuggestions={["Active", "Expired", "Used up", "Withdrawn", "Comics removed"]} filterValue={tableControls.columnFilters.filterStatus} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Status" sortField="status" filterField="filterStatus" filterType="select" filterOptions={["Active", "Expired", "Used up", "Withdrawn", "Comics removed"]} filterValue={tableControls.columnFilters.filterStatus} {...tableControls.headerProps} /></TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>

@@ -112,9 +112,11 @@ class ComicRepository extends ServiceEntityRepository
 
         ColumnFilter::applyDay($qb, 'c.uploadedAt', 'filterUploadedAt', $filters['uploadedAt'] ?? null, $filters['timezone'] ?? null);
 
-        $pageCount = ColumnFilter::text($filters['pageCount'] ?? null);
-        if (ctype_digit($pageCount)) {
-            $qb->andWhere('c.pageCount = :filterPageCount')->setParameter('filterPageCount', (int) $pageCount);
+        if (($pageCount = ColumnFilter::integerRange($filters['pageCount'] ?? null)) !== null) {
+            $qb->andWhere('c.pageCount >= :filterPageCountMin')
+                ->andWhere('c.pageCount <= :filterPageCountMax')
+                ->setParameter('filterPageCountMin', $pageCount[0])
+                ->setParameter('filterPageCountMax', $pageCount[1]);
         }
 
         if ($pattern = ColumnFilter::pattern($filters['tags'] ?? null)) {
@@ -290,5 +292,43 @@ class ComicRepository extends ServiceEntityRepository
             ->select(self::STORAGE_BYTES)
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    /** Highest measured canonical-source usage belonging to one account. */
+    public function getMaximumStorageBytesForOwner(): int
+    {
+        $result = $this->createQueryBuilder('c')
+            ->select(self::STORAGE_BYTES . ' AS storageUsedBytes')
+            ->groupBy('c.owner')
+            ->orderBy('storageUsedBytes', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        return (int) ($result['storageUsedBytes'] ?? 0);
+    }
+
+    public function getMaximumPageCount(?int $ownerId = null): int
+    {
+        $qb = $this->createQueryBuilder('c')->select('MAX(c.pageCount)');
+        if ($ownerId !== null) {
+            $qb->where('c.owner = :ownerId')->setParameter('ownerId', $ownerId);
+        }
+
+        return (int) $qb->getQuery()->getSingleScalarResult();
+    }
+
+    /** Highest comic count belonging to one account. */
+    public function getMaximumComicCountForOwner(): int
+    {
+        $result = $this->createQueryBuilder('c')
+            ->select('COUNT(c.id) AS comicCount')
+            ->groupBy('c.owner')
+            ->orderBy('comicCount', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        return (int) ($result['comicCount'] ?? 0);
     }
 }

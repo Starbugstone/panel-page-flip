@@ -73,6 +73,14 @@ export function matchesAdminDateRange(value, query, { emptyValue = null } = {}) 
   return true;
 }
 
+/** Match a numeric cell against the inclusive `minimum..maximum` slider value. */
+export function matchesAdminIntegerRange(value, query) {
+  const match = /^(\d+)\.\.(\d+)$/.exec(String(query ?? ""));
+  if (!match) return Number(value) === Number(query);
+  const number = Number(value);
+  return number >= Number(match[1]) && number <= Number(match[2]);
+}
+
 /**
  * Build a small, local suggestion set from the rows already on screen. This is
  * instant and never fires speculative admin-list requests while somebody is

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -64,6 +64,43 @@ describe("AdminColumnHeader", () => {
     expect(onFilter).toHaveBeenCalledWith("filterOwner", "Selina Kyle");
   });
 
+  it("uses a dropdown for a filter with defined values", async () => {
+    const user = userEvent.setup();
+    const onFilter = vi.fn();
+    const { rerender } = render(
+      <AdminColumnHeader
+        label="Status"
+        filterField="filterStatus"
+        filterType="select"
+        filterOptions={["Accepted", "Pending", "Declined", "Revoked"]}
+        onFilter={onFilter}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Status sort and filter" }));
+    expect(screen.queryByRole("searchbox", { name: "Filter Status" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Filter Status" }));
+    await user.click(screen.getByRole("option", { name: "Pending" }));
+
+    expect(onFilter).toHaveBeenCalledWith("filterStatus", "Pending");
+
+    rerender(
+      <AdminColumnHeader
+        label="Status"
+        filterField="filterStatus"
+        filterType="select"
+        filterOptions={["Accepted", "Pending", "Declined", "Revoked"]}
+        filterValue="Pending"
+        onFilter={onFilter}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: "Status sort and filter" }));
+    await user.click(screen.getByRole("combobox", { name: "Filter Status" }));
+    await user.click(screen.getByRole("option", { name: "Any value" }));
+
+    expect(onFilter).toHaveBeenLastCalledWith("filterStatus", "");
+  });
+
   it("applies an inclusive date range from date controls", async () => {
     const user = userEvent.setup();
     const onFilter = vi.fn();
@@ -89,5 +126,29 @@ describe("AdminColumnHeader", () => {
       String(now.getDate()).padStart(2, "0"),
     ].join("-");
     expect(onFilter).toHaveBeenCalledWith("filterCreatedAt", `${today}..${today}`);
+  });
+
+  it("applies an inclusive storage range from zero to the highest usage", async () => {
+    const user = userEvent.setup();
+    const onFilter = vi.fn();
+    render(
+      <AdminColumnHeader
+        label="Storage"
+        filterField="filterStorage"
+        filterType="range"
+        filterMax={10 * 1024 ** 2}
+        filterStep={1024 ** 2}
+        filterFormat="bytes"
+        onFilter={onFilter}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Storage sort and filter" }));
+    expect(screen.getByText("0 B to 10.0 MiB")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Minimum storage"), { target: { value: String(2 * 1024 ** 2) } });
+    fireEvent.change(screen.getByLabelText("Maximum storage"), { target: { value: String(9 * 1024 ** 2) } });
+    await user.click(screen.getByRole("button", { name: "Apply range" }));
+
+    expect(onFilter).toHaveBeenCalledWith("filterStorage", `${2 * 1024 ** 2}..${9 * 1024 ** 2}`);
   });
 });

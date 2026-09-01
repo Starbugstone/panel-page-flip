@@ -144,6 +144,11 @@ final class AdminShareCodeControllerTest extends AbstractApiTestCase
         ]));
         self::assertResponseIsSuccessful();
         self::assertSame([$ids[1]], array_column($columnFiltered['items'], 'id'));
+        self::assertSame(0, $columnFiltered['usesMax']);
+
+        $usesRange = $this->getJson('/api/admin/sharing-codes?filterUses=' . urlencode('0..1'));
+        self::assertResponseIsSuccessful();
+        self::assertCount(4, $usesRange['items']);
 
         $byOwner = $this->getJson('/api/admin/sharing-codes?sort=owner&direction=ASC');
         self::assertResponseIsSuccessful();

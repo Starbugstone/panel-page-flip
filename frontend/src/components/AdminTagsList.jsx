@@ -57,6 +57,7 @@ export function AdminTagsList({ creatorId, embedded = false }) {
 
   const {
     items: tags,
+    payload,
     listKey,
     pagination,
     isLoading,
@@ -210,9 +211,9 @@ export function AdminTagsList({ creatorId, embedded = false }) {
                     />
                   </TableHead>
                   <TableHead><AdminColumnHeader label="Tag name" sortField="name" filterField="filterName" filterSuggestions={adminFilterSuggestions(tags, (tag) => tag.name)} filterValue={tableControls.columnFilters.filterName} {...tableControls.headerProps} /></TableHead>
-                  <TableHead><AdminColumnHeader label="Scope" sortField="isGlobal" filterField="filterScope" filterPlaceholder="Global or personal…" filterSuggestions={["Global", "Personal"]} filterValue={tableControls.columnFilters.filterScope} {...tableControls.headerProps} /></TableHead>
-                  <TableHead><AdminColumnHeader label="Default library" sortField="hideFromLibrary" filterField="filterVisibility" filterPlaceholder="Visible or hidden…" filterSuggestions={["Visible", "Hidden"]} filterValue={tableControls.columnFilters.filterVisibility} {...tableControls.headerProps} /></TableHead>
-                  <TableHead><AdminColumnHeader label="Comics using" sortField="comicCount" filterField="filterComicCount" filterPlaceholder="Exact count…" filterValue={tableControls.columnFilters.filterComicCount} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Scope" sortField="isGlobal" filterField="filterScope" filterType="select" filterOptions={["Global", "Personal"]} filterValue={tableControls.columnFilters.filterScope} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Default library" sortField="hideFromLibrary" filterField="filterVisibility" filterType="select" filterOptions={["Visible", "Hidden"]} filterValue={tableControls.columnFilters.filterVisibility} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Comics using" sortField="comicCount" filterField="filterComicCount" filterType="range" filterMax={payload?.comicCountMax ?? 0} filterValue={tableControls.columnFilters.filterComicCount} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Created by" sortField="creator" filterField="filterCreator" filterSuggestions={["System", ...adminFilterSuggestions(tags, (tag) => [tag.creator?.name, tag.creator?.email])]} filterValue={tableControls.columnFilters.filterCreator} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Created date" sortField="createdAt" filterField="filterCreatedAt" filterType="date" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
                   <TableHead className="text-right">Actions</TableHead>

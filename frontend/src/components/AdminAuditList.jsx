@@ -84,7 +84,7 @@ export function AdminAuditList() {
               <TableRow>
                 <TableHead><AdminColumnHeader label="When" sortField="createdAt" filterField="filterCreatedAt" filterType="date" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
                 <TableHead><AdminColumnHeader label="Admin" sortField="admin" filterField="filterAdmin" filterSuggestions={adminFilterSuggestions(logs, (log) => [log.admin?.name, log.admin?.email])} filterValue={tableControls.columnFilters.filterAdmin} {...tableControls.headerProps} /></TableHead>
-                <TableHead><AdminColumnHeader label="Action" sortField="action" filterField="filterAction" filterSuggestions={availableActions} filterValue={tableControls.columnFilters.filterAction} {...tableControls.headerProps} /></TableHead>
+                <TableHead><AdminColumnHeader label="Action" sortField="action" filterField="filterAction" filterType="select" filterOptions={availableActions} filterValue={tableControls.columnFilters.filterAction} {...tableControls.headerProps} /></TableHead>
                 <TableHead><AdminColumnHeader label="Target" sortField="targetType" filterField="filterTarget" filterPlaceholder="Type or exact ID…" filterSuggestions={payload?.filters?.targetTypes || []} filterValue={tableControls.columnFilters.filterTarget} {...tableControls.headerProps} /></TableHead>
                 <TableHead><AdminColumnHeader label="Details" sortField="details" filterField="filterDetails" filterSuggestions={adminFilterSuggestions(logs, (log) => log.payload ? JSON.stringify(log.payload) : null)} filterValue={tableControls.columnFilters.filterDetails} {...tableControls.headerProps} /></TableHead>
               </TableRow>

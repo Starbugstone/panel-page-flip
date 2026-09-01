@@ -214,11 +214,11 @@ export function AdminContentReports() {
             <table className="w-full text-left text-sm">
               <thead><tr className="border-b">
                 <th className="p-2"><AdminColumnHeader label="Reference" sortField="reference" filterField="reference" filterSuggestions={adminFilterSuggestions(reports, (report) => report.reference)} filterValue={tableControls.columnFilters.reference} {...tableControls.headerProps} /></th>
-                <th className="p-2"><AdminColumnHeader label="Category" sortField="category" filterField="category" filterSuggestions={categories.map(label)} filterValue={tableControls.columnFilters.category} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Category" sortField="category" filterField="category" filterType="select" filterOptions={categories.map(label)} filterValue={tableControls.columnFilters.category} {...tableControls.headerProps} /></th>
                 <th className="p-2"><AdminColumnHeader label="Reporter" sortField="reporter" filterField="reporter" filterSuggestions={adminFilterSuggestions(reports, (report) => report.reporterDisplay)} filterValue={tableControls.columnFilters.reporter} {...tableControls.headerProps} /></th>
                 <th className="p-2"><AdminColumnHeader label="Submitted" sortField="createdAt" filterField="createdAt" filterType="date" filterValue={tableControls.columnFilters.createdAt} {...tableControls.headerProps} /></th>
                 <th className="p-2"><AdminColumnHeader label="Target" sortField="target" filterField="target" filterSuggestions={["Unresolved", ...adminFilterSuggestions(reports, (report) => report.linkedTarget?.label)]} filterValue={tableControls.columnFilters.target} {...tableControls.headerProps} /></th>
-                <th className="p-2"><AdminColumnHeader label="Status" sortField="status" filterField="status" filterSuggestions={statuses.map(label)} filterValue={tableControls.columnFilters.status} {...tableControls.headerProps} /></th>
+                <th className="p-2"><AdminColumnHeader label="Status" sortField="status" filterField="status" filterType="select" filterOptions={statuses.map(label)} filterValue={tableControls.columnFilters.status} {...tableControls.headerProps} /></th>
                 <th className="p-2"></th>
               </tr></thead>
               <tbody>

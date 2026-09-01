@@ -2,20 +2,24 @@ import { useId, useMemo, useRef, useState } from "react";
 import { ArrowDownAZ, ArrowUpAZ, CalendarRange, ListFilter, X } from "lucide-react";
 
 import { AdminDateRangeCalendar } from "@/components/admin/AdminDateRangePicker";
+import { AdminRangeFilter } from "@/components/admin/AdminRangeFilter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { parseAdminDateRange } from "@/lib/admin-table-filters";
 import { cn } from "@/lib/utils";
 
 const EMPTY_SUGGESTIONS = [];
+const EMPTY_OPTIONS = [];
+const ALL_VALUES = "__all_admin_filter_values__";
 
 /**
  * A table heading with an attached sort/filter dropdown.
  *
- * The filter is applied explicitly instead of on every keystroke. Admin lists
- * are server-paged, and typing five characters should not issue five database
- * queries merely because the dropdown is open.
+ * Free-text and range filters are applied explicitly instead of on every
+ * change. A fixed option can be applied immediately because it takes one
+ * deliberate selection and therefore issues only one query.
  */
 export function AdminColumnHeader({
   label,
@@ -29,7 +33,11 @@ export function AdminColumnHeader({
   filterPlaceholder,
   filterType = "text",
   filterSuggestions = EMPTY_SUGGESTIONS,
+  filterOptions = EMPTY_OPTIONS,
   emptyDateLabel,
+  filterMax,
+  filterStep,
+  filterFormat,
   className,
 }) {
   const [open, setOpen] = useState(false);
@@ -39,13 +47,15 @@ export function AdminColumnHeader({
   const activeSort = Boolean(sortField && sort === sortField);
   const activeFilter = Boolean(filterValue);
   const isDate = filterType === "date";
+  const isSelect = filterType === "select";
+  const isRange = filterType === "range";
   const draftRange = isDate ? parseAdminDateRange(draft) : null;
   const invalidDateRange = Boolean(draftRange && (
     !draftRange.valid
     || (draftRange.from && draftRange.to && draftRange.from > draftRange.to)
   ));
   const matchingSuggestions = useMemo(() => {
-    if (isDate) return [];
+    if (isDate || isSelect || isRange) return [];
     const query = String(draft ?? "").trim().toLocaleLowerCase();
     if (!query) return [];
 
@@ -62,7 +72,7 @@ export function AdminColumnHeader({
           : (leftStarts ? -1 : 1);
       })
       .slice(0, 6);
-  }, [draft, filterSuggestions, isDate]);
+  }, [draft, filterSuggestions, isDate, isRange, isSelect]);
 
   const apply = () => {
     if (invalidDateRange) return;
@@ -76,9 +86,9 @@ export function AdminColumnHeader({
     setOpen(false);
   };
 
-  const chooseSuggestion = (suggestion) => {
-    setDraft(suggestion);
-    if (filterField) onFilter(filterField, suggestion);
+  const chooseValue = (value) => {
+    setDraft(value);
+    if (filterField) onFilter(filterField, value);
     setOpen(false);
   };
 
@@ -139,9 +149,34 @@ export function AdminColumnHeader({
             </div>
           )}
           {filterField && (
-            <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); apply(); }}>
-              {isDate ? (
+            isSelect ? (
+              <Select
+                value={draft || ALL_VALUES}
+                onValueChange={(value) => chooseValue(value === ALL_VALUES ? "" : value)}
+              >
+                <SelectTrigger aria-label={`Filter ${label}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_VALUES}>Any value</SelectItem>
+                  {filterOptions.map((option) => (
+                    <SelectItem key={option} value={option}>{option}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); apply(); }}>
+                {isDate ? (
                 <AdminDateRangeCalendar value={draft} onChange={setDraft} emptyDateLabel={emptyDateLabel} />
+              ) : isRange ? (
+                <AdminRangeFilter
+                  label={label}
+                  value={draft}
+                  max={filterMax}
+                  step={filterStep}
+                  format={filterFormat}
+                  onChange={setDraft}
+                />
               ) : (
                 <>
                   <Input
@@ -174,7 +209,7 @@ export function AdminColumnHeader({
                           role="option"
                           aria-selected={suggestion === draft}
                           className="flex w-full min-w-0 items-center break-words rounded-sm px-2 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent"
-                          onClick={() => chooseSuggestion(suggestion)}
+                          onClick={() => chooseValue(suggestion)}
                         >
                           {suggestion}
                         </button>
@@ -190,10 +225,11 @@ export function AdminColumnHeader({
                   </Button>
                 )}
                 <Button type="submit" size="sm" disabled={invalidDateRange}>
-                  {isDate ? "Apply range" : "Apply filter"}
+                  {isDate || isRange ? "Apply range" : "Apply filter"}
                 </Button>
               </div>
-            </form>
+              </form>
+            )
           )}
         </PopoverContent>
       </Popover>

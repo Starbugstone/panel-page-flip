@@ -127,6 +127,7 @@ class ComicController extends AbstractController
             return $this->json([
                 'items' => $comics,
                 'comics' => $comics,
+                'pageCountMax' => $comicRepository->getMaximumPageCount($ownerId),
                 'pagination' => $page->toArray(),
             ]);
         }

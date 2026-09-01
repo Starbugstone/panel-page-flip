@@ -44,7 +44,7 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
     ...tableControls.query,
   }), [showOnlyUnverified, tableControls.query]);
 
-  const { items: users, setItems: setUsers, listKey, pagination, isLoading, searchInput, setSearch, setPage, setLimit, reload } = useAdminList({
+  const { items: users, setItems: setUsers, payload, listKey, pagination, isLoading, searchInput, setSearch, setPage, setLimit, reload } = useAdminList({
     basePath: "/api/users",
     filters,
     // Separate keys so the pending and users tabs do not share a page number.
@@ -178,6 +178,9 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
               onResendVerification: actions.resendVerification,
             }}
             tableControls={tableControls}
+            comicCountMax={payload?.comicCountMax ?? 0}
+            storageMaxBytes={payload?.storageMaxBytes ?? 0}
+            showContentColumns={!showOnlyUnverified}
           />
         </>
       )}

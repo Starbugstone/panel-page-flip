@@ -77,6 +77,8 @@ class UserController extends AbstractController
         return $this->json([
             'items' => $usersArray,
             'users' => $usersArray,
+            'comicCountMax' => $userRepository->getMaximumOwnedComicCount(),
+            'storageMaxBytes' => $userRepository->getMaximumOwnedStorageBytes(),
             'pagination' => $page->toArray(),
         ]);
     }

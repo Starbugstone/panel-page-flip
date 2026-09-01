@@ -185,10 +185,23 @@ final class AdminPaginationTest extends AbstractApiTestCase
         $filtered = $this->getJson('/api/users?filterIdentity=oracle&filterComicCount=2');
         self::assertResponseIsSuccessful();
         self::assertSame([$barbara->getId()], array_column($filtered['items'], 'id'));
+        self::assertSame(2, $filtered['comicCountMax']);
+
+        $comicRange = $this->getJson('/api/users?filterComicCount=' . urlencode('1..2'));
+        self::assertResponseIsSuccessful();
+        self::assertEqualsCanonicalizing(
+            [$barbara->getId(), $bruce->getId()],
+            array_column($comicRange['items'], 'id'),
+        );
 
         $byStorage = $this->getJson('/api/users?filterStorage=' . urlencode('1.0 MiB') . '&sort=storage&direction=DESC');
         self::assertResponseIsSuccessful();
         self::assertSame([$barbara->getId()], array_column($byStorage['items'], 'id'));
+
+        $storageRange = $this->getJson('/api/users?filterStorage=' . urlencode('500000..1100000'));
+        self::assertResponseIsSuccessful();
+        self::assertSame([$barbara->getId()], array_column($storageRange['items'], 'id'));
+        self::assertSame(1_048_576, $storageRange['storageMaxBytes']);
 
         $sorted = $this->getJson('/api/users?sort=comicCount&direction=DESC');
         self::assertResponseIsSuccessful();
@@ -412,10 +425,11 @@ final class AdminPaginationTest extends AbstractApiTestCase
             ->addTag($entityManager->find(\App\Entity\Tag::class, $tag->getId()));
         $entityManager->flush();
 
-        $payload = $this->getJson('/api/comics?adminContext=true&filterTitleAuthor=gotham&filterOwner=selina&filterTags=noir&filterPageCount=42&sort=tags&direction=ASC');
+        $payload = $this->getJson('/api/comics?adminContext=true&filterTitleAuthor=gotham&filterOwner=selina&filterTags=noir&filterPageCount=' . urlencode('40..45') . '&sort=tags&direction=ASC');
 
         self::assertResponseIsSuccessful();
         self::assertSame([$comic->getId()], array_column($payload['items'], 'id'));
+        self::assertGreaterThanOrEqual(42, $payload['pageCountMax']);
 
         $byDisplayedOwner = $this->getJson('/api/comics?adminContext=true&sort=owner&direction=ASC');
         self::assertResponseIsSuccessful();
@@ -476,6 +490,11 @@ final class AdminPaginationTest extends AbstractApiTestCase
 
         self::assertResponseIsSuccessful();
         self::assertSame([$popular->getId(), $unused->getId()], array_column($payload['items'], 'id'));
+        self::assertSame(2, $payload['comicCountMax']);
+
+        $range = $this->getJson('/api/tags?all=true&adminContext=true&filterComicCount=' . urlencode('1..2'));
+        self::assertResponseIsSuccessful();
+        self::assertSame([$popular->getId()], array_column($range['items'], 'id'));
     }
 
     public function testTagFixedLabelsFilterAndSortAsTheyAreDisplayed(): void

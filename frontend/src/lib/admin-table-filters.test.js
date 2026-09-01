@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   adminFilterSuggestions,
   matchesAdminDateRange,
+  matchesAdminIntegerRange,
   parseAdminDateRange,
   serializeAdminDateRange,
 } from "./admin-table-filters";
@@ -31,6 +32,13 @@ describe("admin table filter helpers", () => {
     expect(matchesAdminDateRange("2026-08-31T08:00:00Z", "2026-08-01..2026-08-31")).toBe(true);
     expect(matchesAdminDateRange("2026-09-01T08:00:00Z", "2026-08-01..2026-08-31")).toBe(false);
     expect(matchesAdminDateRange(null, "never")).toBe(true);
+  });
+
+  it("matches both boundaries of an inclusive integer range", () => {
+    expect(matchesAdminIntegerRange(2, "2..4")).toBe(true);
+    expect(matchesAdminIntegerRange(4, "2..4")).toBe(true);
+    expect(matchesAdminIntegerRange(1, "2..4")).toBe(false);
+    expect(matchesAdminIntegerRange(5, "2..4")).toBe(false);
   });
 
   it("deduplicates useful suggestion fragments without joining cell fields", () => {

@@ -23,7 +23,7 @@ import { pluralize, summariseLabels } from "@/lib/bulk-actions";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { filterAndSortAdminRows } from "@/lib/admin-client-table";
-import { adminFilterSuggestions, matchesAdminDateRange } from "@/lib/admin-table-filters";
+import { adminFilterSuggestions, matchesAdminDateRange, matchesAdminIntegerRange } from "@/lib/admin-table-filters";
 
 const nameOf = (user) => user.name || user.email;
 
@@ -43,7 +43,10 @@ export function AdminDropbox() {
       value: (user) => user.lastSyncedAt,
       filter: (value, query) => matchesAdminDateRange(value, query),
     },
-    dropboxComicCount: { value: (user) => user.dropboxComicCount },
+    dropboxComicCount: {
+      value: (user) => user.dropboxComicCount,
+      filter: (value, query) => matchesAdminIntegerRange(value, query),
+    },
   }), [tableControls, users]);
 
   const loadUsers = useCallback(async () => {
@@ -79,6 +82,7 @@ export function AdminDropbox() {
   const selection = useRowSelection({ rows: visibleUsers, resetKey: `${generation}|${JSON.stringify(tableControls.query)}` });
   const bulk = useAdminBulkAction({ reload: loadUsers });
   const selected = selection.selectedRows;
+  const importedComicMax = Math.max(0, ...users.map((user) => Number(user.dropboxComicCount) || 0));
 
   const bulkActions = [
     {
@@ -143,7 +147,7 @@ export function AdminDropbox() {
               </TableHead>
               <TableHead><AdminColumnHeader label="User" sortField="user" filterField="user" filterSuggestions={adminFilterSuggestions(users, (user) => [user.name, user.email])} filterValue={tableControls.columnFilters.user} {...tableControls.headerProps} /></TableHead>
               <TableHead><AdminColumnHeader label="Last import" sortField="lastSyncedAt" filterField="lastSyncedAt" filterType="date" emptyDateLabel="Never" filterValue={tableControls.columnFilters.lastSyncedAt} {...tableControls.headerProps} /></TableHead>
-              <TableHead><AdminColumnHeader label="Imported comics" sortField="dropboxComicCount" filterField="dropboxComicCount" filterPlaceholder="Exact or partial count…" filterValue={tableControls.columnFilters.dropboxComicCount} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Imported comics" sortField="dropboxComicCount" filterField="dropboxComicCount" filterType="range" filterMax={importedComicMax} filterValue={tableControls.columnFilters.dropboxComicCount} {...tableControls.headerProps} /></TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>

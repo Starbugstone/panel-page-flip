@@ -254,4 +254,54 @@
   .fullscreen-reader-controls {
     @apply fixed bottom-4 left-0 right-0 z-[60] opacity-100 flex justify-between items-center mx-auto max-w-xl bg-card/80 p-2 rounded-md shadow-md;
   }
+
+  /* Two native range inputs share one track, retaining separate keyboard and
+     screen-reader controls while presenting the familiar two-thumb slider. */
+  .admin-range-input {
+    appearance: none;
+    pointer-events: none;
+    background: transparent;
+  }
+
+  .admin-range-input::-webkit-slider-runnable-track {
+    height: 1rem;
+    background: transparent;
+  }
+
+  .admin-range-input::-webkit-slider-thumb {
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0;
+    appearance: none;
+    pointer-events: auto;
+    border: 2px solid hsl(var(--primary));
+    border-radius: 9999px;
+    background: hsl(var(--background));
+    cursor: grab;
+  }
+
+  .admin-range-input::-moz-range-track {
+    height: 1rem;
+    background: transparent;
+  }
+
+  .admin-range-input::-moz-range-thumb {
+    width: 0.75rem;
+    height: 0.75rem;
+    pointer-events: auto;
+    border: 2px solid hsl(var(--primary));
+    border-radius: 9999px;
+    background: hsl(var(--background));
+    cursor: grab;
+  }
+
+  .admin-range-input:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  .admin-range-input:focus-visible::-moz-range-thumb {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
 }

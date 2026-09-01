@@ -1,9 +1,11 @@
 # Sorting and filtering the admin tables
 
 Every admin table heading carries a dropdown: sort ascending or descending, and
-a box to filter that column by. The trigger lights up when the column is the
-active sort or is carrying a filter, so a table narrowed three columns ago says
-so without anything being opened.
+a filter control suited to that column. Columns with a defined set of values,
+such as status, role, scope and verification, offer those values in a select
+instead of asking the administrator to type them. The trigger lights up when
+the column is the active sort or is carrying a filter, so a table narrowed
+three columns ago says so without anything being opened.
 
 One column sorts at a time — a second choice replaces the first. Filters
 accumulate: each column narrows what the ones before it left.
@@ -26,20 +28,20 @@ A server-side filter is a new result set, so `useAdminList` resets to page 1
 when one changes. Landing on page 3 of a list that now has one page shows an
 empty table.
 
-Filters are applied on **Apply filter**, not per keystroke: these lists are
-server-paged, and typing five characters should not run five queries. Text
-boxes still feel immediate because they narrow a small suggestion list built
-from the rows already loaded (plus the column's fixed labels). Choosing a
-suggestion applies it in one click without a speculative API request.
+Text and range filters are applied on **Apply filter**, not per keystroke:
+these lists are server-paged, and typing five characters should not run five
+queries. Text boxes still feel immediate because they narrow a small suggestion
+list built from the rows already loaded. Choosing a suggestion or a value from
+a fixed-value select applies it in one click without a speculative API request.
 
 ## What a column filter matches
 
-| Kind of column | What to type |
+| Kind of column | Filter control and match |
 | --- | --- |
-| Text (owner, title, action, details) | any part of it, case-insensitively |
+| Text (owner, title, details) | any part of it, case-insensitively |
 | Date | an inclusive start/end range, with either edge optional |
-| Count (pages, comics, storage) | the number as the cell shows it |
-| Fixed set (status, scope, verified) | any part of a label the column shows |
+| Number (pages, comics, storage) | an inclusive minimum/maximum range |
+| Fixed set (status, role, scope, verified) | select one of the labels the column defines |
 
 Two rules keep a filter honest. Text is escaped before it reaches `LIKE`, so
 `50%` finds "50% Off" rather than every row — see
@@ -74,8 +76,10 @@ rejected.
   matching the cell needs more than a substring of it.
 - **Either way.** Render the heading with `AdminColumnHeader`, spreading
   `tableControls.headerProps` for the wiring every header shares. Date columns
-  set `filterType="date"`; text columns pass useful `filterSuggestions`, built
-  with `adminFilterSuggestions` where values come from the loaded rows.
+  set `filterType="date"`; finite-value columns set `filterType="select"` and
+  pass their labels through `filterOptions`; text columns pass useful
+  `filterSuggestions`, built with `adminFilterSuggestions` where values come
+  from the loaded rows.
 
 ## Related
 

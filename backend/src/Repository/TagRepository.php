@@ -95,9 +95,11 @@ class TagRepository extends ServiceEntityRepository
             $qb->andWhere($qb->expr()->orX(...$conditions));
         }
 
-        $comicCount = ColumnFilter::text($filters['comicCount'] ?? null);
-        if (ctype_digit($comicCount)) {
-            $qb->andWhere('SIZE(t.comics) = :filterComicCount')->setParameter('filterComicCount', (int) $comicCount);
+        if (($comicCount = ColumnFilter::integerRange($filters['comicCount'] ?? null)) !== null) {
+            $qb->andWhere('SIZE(t.comics) >= :filterComicCountMin')
+                ->andWhere('SIZE(t.comics) <= :filterComicCountMax')
+                ->setParameter('filterComicCountMin', $comicCount[0])
+                ->setParameter('filterComicCountMax', $comicCount[1]);
         }
 
         $creator = ColumnFilter::text($filters['creator'] ?? null);
@@ -137,6 +139,20 @@ class TagRepository extends ServiceEntityRepository
             ->getResult();
 
         return PaginatedResult::fromRequest($tags, $total, $request);
+    }
+
+    public function getMaximumComicCount(?int $creatorId = null): int
+    {
+        $qb = $this->createQueryBuilder('t')
+            ->select('SIZE(t.comics) AS comicCount')
+            ->orderBy('comicCount', 'DESC')
+            ->setMaxResults(1);
+        if ($creatorId !== null) {
+            $qb->where('t.creator = :creatorId')->setParameter('creatorId', $creatorId);
+        }
+        $result = $qb->getQuery()->getOneOrNullResult();
+
+        return (int) ($result['comicCount'] ?? 0);
     }
 
     /**

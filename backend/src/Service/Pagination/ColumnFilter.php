@@ -28,6 +28,25 @@ final class ColumnFilter
         return trim((string) $value);
     }
 
+    /**
+     * An inclusive non-negative integer range encoded as `minimum..maximum`.
+     * A legacy single integer remains an exact-value range.
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    public static function integerRange(mixed $value): ?array
+    {
+        $value = self::text($value);
+        if (ctype_digit($value)) {
+            return [(int) $value, (int) $value];
+        }
+        if (!preg_match('/^(\d+)\.\.(\d+)$/', $value, $matches)) {
+            return null;
+        }
+
+        return [(int) $matches[1], (int) $matches[2]];
+    }
+
     /** A strict calendar day, or null when the box is blank or incomplete. */
     public static function day(mixed $value, mixed $timezone = null): ?\DateTimeImmutable
     {

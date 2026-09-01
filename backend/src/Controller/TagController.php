@@ -62,6 +62,7 @@ class TagController extends AbstractController
             return $this->json([
                 'items' => $tagsArray,
                 'tags' => $tagsArray,
+                'comicCountMax' => $tagRepository->getMaximumComicCount($creatorId),
                 'pagination' => $page->toArray(),
             ]);
         }

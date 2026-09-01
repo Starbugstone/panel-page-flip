@@ -123,12 +123,16 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             ColumnFilter::applyDay($qb, 'u.lastLoginAt', 'filterLastLoginAt', $filters['lastLoginAt'] ?? null, $filters['timezone'] ?? null);
         }
 
-        $comicCount = ColumnFilter::text($filters['comicCount'] ?? null);
-        if (ctype_digit($comicCount)) {
-            $qb->andWhere(sprintf(
-                '(SELECT COUNT(filterComic.id) FROM %s filterComic WHERE filterComic.owner = u) = :filterComicCount',
+        if (($comicCount = ColumnFilter::integerRange($filters['comicCount'] ?? null)) !== null) {
+            $comicCountExpression = static fn (string $alias): string => sprintf(
+                '(SELECT COUNT(%1$s.id) FROM %2$s %1$s WHERE %1$s.owner = u)',
+                $alias,
                 Comic::class,
-            ))->setParameter('filterComicCount', (int) $comicCount);
+            );
+            $qb->andWhere($comicCountExpression('filterComicMin') . ' >= :filterComicCountMin')
+                ->andWhere($comicCountExpression('filterComicMax') . ' <= :filterComicCountMax')
+                ->setParameter('filterComicCountMin', $comicCount[0])
+                ->setParameter('filterComicCountMax', $comicCount[1]);
         }
 
         $storageRange = $this->storageRange($filters['storage'] ?? null);
@@ -193,6 +197,9 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
     private function storageRange(mixed $value): ?array
     {
         $value = ColumnFilter::text($value);
+        if (preg_match('/^(\d+)\.\.(\d+)$/', $value, $range)) {
+            return [(int) $range[1], (int) $range[2]];
+        }
         if (!preg_match('/^(\d+(?:\.\d+)?)\s*(B|KIB|MIB|GIB|TIB)?$/i', $value, $matches)) return null;
 
         $units = [
@@ -218,6 +225,16 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             max($tierMinimum, (int) ceil(($number - $halfStep) * $scale)),
             min($tierMaximum, max(0, (int) floor(($number + $halfStep) * $scale))),
         ];
+    }
+
+    public function getMaximumOwnedStorageBytes(): int
+    {
+        return $this->comics->getMaximumStorageBytesForOwner();
+    }
+
+    public function getMaximumOwnedComicCount(): int
+    {
+        return $this->comics->getMaximumComicCountForOwner();
     }
 
     /** @return list<User> */

@@ -5,16 +5,20 @@ import { SelectAllCheckbox } from "@/components/SelectionCheckbox";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { adminFilterSuggestions } from "@/lib/admin-table-filters";
 
-const COLUMNS = [
+const IDENTITY_COLUMNS = [
   { label: "Name / Email", sortField: "name", filterField: "filterIdentity" },
-  { label: "Role", sortField: "role", filterField: "filterRole", filterPlaceholder: "Admin or user…", filterSuggestions: ["Admin", "Editor", "User"] },
-  { label: "Verified?", sortField: "verified", filterField: "filterVerified", filterPlaceholder: "Verified or pending…", filterSuggestions: ["Verified", "Pending"] },
+  { label: "Role", sortField: "role", filterField: "filterRole", filterType: "select", filterOptions: ["Admin", "Editor", "User"] },
+  { label: "Verified?", sortField: "verified", filterField: "filterVerified", filterType: "select", filterOptions: ["Verified", "Pending"] },
   { label: "Created", sortField: "createdAt", filterField: "filterCreatedAt", filterType: "date" },
-  { label: "Last login", sortField: "lastLoginAt", filterField: "filterLastLoginAt", filterType: "date", emptyDateLabel: "Never" },
-  { label: "Comics", sortField: "comicCount", filterField: "filterComicCount", filterPlaceholder: "Exact count…" },
-  { label: "Storage", sortField: "storage", filterField: "filterStorage", filterPlaceholder: "For example 177.3 MiB…" },
-  { label: "Actions" },
 ];
+
+const CONTENT_COLUMNS = [
+  { label: "Last login", sortField: "lastLoginAt", filterField: "filterLastLoginAt", filterType: "date", emptyDateLabel: "Never" },
+  { label: "Comics", sortField: "comicCount", filterField: "filterComicCount", filterType: "range" },
+  { label: "Storage", sortField: "storage", filterField: "filterStorage", filterType: "range", filterStep: 1024 ** 2, filterFormat: "bytes" },
+];
+
+const ACTIONS_COLUMN = { label: "Actions" };
 
 const headClass = (column) => {
   if (column.label === "Storage") return "w-[13rem]";
@@ -28,7 +32,8 @@ const headClass = (column) => {
  * spinner, so the layout does not collapse and move the next button out from
  * under the cursor.
  */
-export function AdminUsersTable({ users, selection, pagination, isLoading, emptyMessage, label, onPageChange, onLimitChange, rowActions, tableControls }) {
+export function AdminUsersTable({ users, selection, pagination, isLoading, emptyMessage, label, onPageChange, onLimitChange, rowActions, tableControls, comicCountMax = 0, storageMaxBytes = 0, showContentColumns = true }) {
+  const columns = [...IDENTITY_COLUMNS, ...(showContentColumns ? CONTENT_COLUMNS : []), ACTIONS_COLUMN];
   const suggestions = {
     filterIdentity: adminFilterSuggestions(users, (user) => [user.name, user.email]),
   };
@@ -41,7 +46,7 @@ export function AdminUsersTable({ users, selection, pagination, isLoading, empty
             <TableHead className="w-12">
               <SelectAllCheckbox state={selection.headerState} onToggleAll={selection.toggleAll} label={`Select all ${label}`} />
             </TableHead>
-            {COLUMNS.map((column) => (
+            {columns.map((column) => (
               <TableHead key={column.label} className={headClass(column)}>
                 {column.sortField || column.filterField ? (
                   <AdminColumnHeader
@@ -49,6 +54,7 @@ export function AdminUsersTable({ users, selection, pagination, isLoading, empty
                     {...tableControls.headerProps}
                     filterValue={tableControls.columnFilters[column.filterField]}
                     filterSuggestions={column.filterSuggestions || suggestions[column.filterField]}
+                    filterMax={column.filterField === "filterStorage" ? storageMaxBytes : (column.filterField === "filterComicCount" ? comicCountMax : undefined)}
                     className={column.label === "Actions" ? "justify-end" : undefined}
                   />
                 ) : column.label}
@@ -68,10 +74,11 @@ export function AdminUsersTable({ users, selection, pagination, isLoading, empty
               onDelete={() => rowActions.onDelete(user)}
               onVerify={() => rowActions.onVerify(user)}
               onResendVerification={() => rowActions.onResendVerification(user)}
+              showContentColumns={showContentColumns}
             />
           )) : (
             <TableRow>
-              <TableCell colSpan={COLUMNS.length + 1} className="py-8 text-center">{emptyMessage}</TableCell>
+              <TableCell colSpan={columns.length + 1} className="py-8 text-center">{emptyMessage}</TableCell>
             </TableRow>
           )}
         </TableBody>
