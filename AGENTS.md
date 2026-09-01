@@ -101,5 +101,4 @@ uncommitted work is invisible to them. When a task is finished, commit and push
 the files that task changed. Do not wait for a separate "please commit" — this
 section is that request.
 
-Never commit secrets (`.env`, credentials, deploy keys). That exception is
-absolute.
+Never commit secrets (`.env`, credentials, deploy keys). That exception is absolute.
