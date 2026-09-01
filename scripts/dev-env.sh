@@ -98,6 +98,20 @@ HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 APP_URL="http://localhost:${NGINX_PORT}"
 
+# Create the runtime directories on the host first. backend/var/ is gitignored,
+# so a fresh clone or worktree does not have it — and when a bind mount's target
+# is missing, the Docker daemon creates it, as root. The php_cache volume mounts
+# at backend/var/cache, so starting the stack in a fresh checkout would leave a
+# root-owned backend/var that the container, running as this user, then cannot
+# create var/log or var/page-cache inside. Making them here means the daemon
+# never has to.
+mkdir -p \
+  "$REPO_ROOT/backend/var/cache" \
+  "$REPO_ROOT/backend/var/log" \
+  "$REPO_ROOT/backend/var/page-cache" \
+  "$REPO_ROOT/backend/var/quarantine/comics" \
+  "$REPO_ROOT/backend/public/uploads"
+
 # Derived values are authoritative; everything else in .env.example is a default
 # the developer may already have overridden in .env.
 declare -A DERIVED=(
