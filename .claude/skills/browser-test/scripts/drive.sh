@@ -28,7 +28,8 @@ mkdir -p "$CACHE" "$OUT"
 
 if [ ! -d "$CACHE/node_modules/playwright" ]; then
   echo "==> Installing the playwright package (first run only)"
-  docker run --rm -v "$CACHE":/pw -w /pw -e PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 "$IMAGE" \
+  docker run --rm --user "$(id -u):$(id -g)" -e HOME=/pw \
+    -v "$CACHE":/pw -w /pw -e PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 "$IMAGE" \
     sh -c "npm init -y >/dev/null 2>&1 && npm i playwright@1.56.0 --no-audit --no-fund >/dev/null 2>&1"
 fi
 
@@ -39,7 +40,10 @@ cp "$DRIVER" "$CACHE/driver.mjs"
 # password in a tracked file is exactly what secret scanning is for, and a
 # scanner is right not to care that this one is harmless. up.sh prints the
 # export line; drivers that need them fail loudly when they are unset.
+# Screenshots land in $OUT on the host bind mount; without --user they arrive
+# root-owned and the next run cannot overwrite them.
 docker run --rm --network "$NETWORK" \
+  --user "$(id -u):$(id -g)" \
   -v "$CACHE":/pw \
   -v "$OUT/fixtures":/fixtures:ro \
   -v "$OUT":/out \

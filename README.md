@@ -51,12 +51,18 @@ Node.js 22 and PHP/Composer are only required when running tooling outside Docke
 ```bash
 git clone https://github.com/Starbugstone/panel-page-flip.git
 cd panel-page-flip
+scripts/dev-env.sh
 docker compose up -d --build
 docker compose exec php composer install
 docker compose exec php php bin/console doctrine:database:create --if-not-exists
 docker compose exec php php bin/console doctrine:migrations:migrate --no-interaction
 docker compose exec php php bin/console app:setup-upload-directories
 ```
+
+`scripts/dev-env.sh` writes the untracked `.env` this checkout uses: its Compose
+project name, its published ports, and the UID the containers run as so files
+they create belong to you. Run it once per clone or worktree — see
+[docs/local-docker-environment.md](docs/local-docker-environment.md).
 
 Create an administrator for the first login:
 

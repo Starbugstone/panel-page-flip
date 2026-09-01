@@ -52,8 +52,53 @@ can hold deploy credentials. `check:tools` needs `scripts/comic-conversion/`
 and `check:csp` needs `scripts/generate-csp.mjs`, so inside the container they
 report a missing source file. That failure is the mount, not the repository.
 
+Every `docker compose` command above assumes this checkout owns its own stack —
+see "One checkout, one stack" below. Running them against another checkout's
+containers produces results about that checkout's code.
+
 On a requested push, report failures honestly, with the output. A gate you did
 not run is a gate that failed.
+
+## One checkout, one stack
+
+**Run `scripts/dev-env.sh` before the first `docker compose` command in a new
+clone or worktree.** It writes `.env` — untracked — with a Compose project name,
+a port block and the UID/GID this checkout's containers run as.
+
+`.env` used to be tracked, pinning every checkout to
+`COMPOSE_PROJECT_NAME=cbz_reader` and ports 8080/8081/3001/1025/8025. Compose
+keys containers by project name, so the main repo and every worktree resolved to
+one set of containers, and a container keeps the bind mounts it was created
+with. Whichever checkout started the stack first owned it; the rest ran
+`docker compose exec -T php php bin/phpunit` against *that* checkout's source
+while reading their own diff. The failures look like flaky tests, phantom
+regressions, or a fix that "doesn't take" — never like the mount they are.
+
+If a result does not match the code in front of you, check what you are actually
+testing before believing it:
+
+```bash
+docker compose ps --format '{{.Name}}\t{{.Service}}'
+docker inspect "$(docker compose ps -q php)" --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}'
+```
+
+The source path must be the checkout you are working in.
+
+**Destroy the stack before deleting a worktree.** `git worktree remove` knows
+nothing about Docker and leaves containers running, ports held and volumes
+orphaned:
+
+```bash
+scripts/dev-down.sh      # this checkout: containers, network, volumes
+scripts/dev-gc.sh        # list stacks whose checkout is already gone
+scripts/dev-gc.sh --prune
+```
+
+Containers run as your host UID/GID, so anything they write into the checkout —
+`vendor/`, `var/`, `public/uploads/`, `.phpunit.cache/` — belongs to you. If you
+meet a root-owned file left over from before this change, `scripts/fix-ownership.sh`
+repairs a checkout without needing sudo. Do not `chown` inside a container to
+work around a permission error: that is what created the problem.
 
 ## Code should read without commentary
 

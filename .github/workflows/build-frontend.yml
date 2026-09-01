@@ -117,6 +117,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      # .env is untracked and per checkout: it carries the Compose project name,
+      # the published ports and the UID the containers run as. The runner's user
+      # is uid 1001, not the 1000 the compose defaults assume, so without this
+      # the PHP container writes vendor/ and var/ as a user that does not own
+      # the checkout.
+      - name: Write the environment for this checkout
+        run: scripts/dev-env.sh
+
       - name: Start PHP and database containers
         run: docker compose up -d --build database php
 

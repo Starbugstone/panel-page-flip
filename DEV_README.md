@@ -31,6 +31,7 @@ lives in [`docs/`](docs/):
 | [social-sign-in.md](docs/social-sign-in.md) | Optional Google OAuth, account linking, passwordless accounts |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
+| [local-docker-environment.md](docs/local-docker-environment.md) | Per-checkout Compose project, ports, container UID, worktree teardown |
 
 ## Current Implementation Status
 
@@ -1874,26 +1875,32 @@ no debug panel.
 
 ### Setup
 1. Clone the repository
-2. Start the Docker containers:
+2. Write this checkout's `.env` — Compose project name, ports, and the UID the
+   containers run as. Once per clone or worktree; see
+   [docs/local-docker-environment.md](docs/local-docker-environment.md):
+   ```sh
+   scripts/dev-env.sh
+   ```
+3. Start the Docker containers:
    ```sh
    docker compose up -d --build
    ```
-3. Install backend dependencies and create the schema:
+4. Install backend dependencies and create the schema:
    ```sh
    docker compose exec php composer install
    docker compose exec php php bin/console doctrine:database:create --if-not-exists
    docker compose exec php php bin/console doctrine:migrations:migrate --no-interaction
    ```
-4. Set up the upload directories:
+5. Set up the upload directories:
    ```sh
    docker compose exec php bin/console app:setup-upload-directories
    ```
-5. Create test users:
+6. Create test users:
    ```sh
    docker compose exec php bin/console app:create-admin-user testadmin@example.com AdminPass123!
    docker compose exec php bin/console app:create-user testuser1@example.com UserPass123!
    ```
-6. Import comics (optional):
+7. Import comics (optional):
    ```sh
    docker compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com
    ```
@@ -1981,33 +1988,38 @@ The frontend development server may not detect file changes properly when runnin
 - No file change detection messages in the frontend_dev container logs
 
 **Solutions:**
-Update the `frontend_dev` service in `docker-compose.yml` with the following configuration:
+`frontend_dev` already carries the settings this needs — `CHOKIDAR_USEPOLLING`
+and `WATCHPACK_POLLING` for polling-based detection, `--host 0.0.0.0 --force`
+on the Vite command, and an anonymous volume over `/app/node_modules` so the
+container's dependency tree is not masked by the host's. If changes still go
+unnoticed, confirm the container is mounting *this* checkout rather than
+another one's:
 
-```yaml
-frontend_dev:
-  image: node:${NODE_VERSION:-18}-alpine
-  container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
-  volumes:
-    - ./frontend:/app
-    - /app/node_modules
-  working_dir: /app
-  command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --force"
-  ports:
-    - "3001:3000"
-  networks:
-    - app_network
-  depends_on:
-    - nginx
-  environment:
-    - NODE_ENV=development
-    - CHOKIDAR_USEPOLLING=true
-    - WATCHPACK_POLLING=true
+```sh
+docker inspect "$(docker compose ps -q frontend_dev)" --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}'
 ```
 
-Key changes:
-- Added volume mount for `/app/node_modules` to prevent it from being overwritten
-- Enabled file polling with `CHOKIDAR_USEPOLLING` and `WATCHPACK_POLLING` environment variables
-- Added `--host 0.0.0.0` and `--force` flags to the Vite dev command
+See [docs/local-docker-environment.md](docs/local-docker-environment.md).
+
+### Permission errors on generated files
+
+**Symptoms:**
+- `composer install`, `cache:clear` or `git clean` fails with "Permission denied"
+- Files under `backend/var/`, `backend/vendor/` or `frontend/coverage/` are owned by `root` or by uid 33
+- A test fails on code that does not match your working tree
+
+**Solutions:**
+Containers run as your host UID/GID, so this should not recur. To repair a
+checkout that predates that change, and to confirm each checkout owns its own
+stack:
+
+```sh
+scripts/dev-env.sh          # per-checkout project name, ports, UID
+scripts/fix-ownership.sh    # reclaim root-owned files, no sudo needed
+```
+
+Both are documented in
+[docs/local-docker-environment.md](docs/local-docker-environment.md).
 
 ## Production Deployment
 

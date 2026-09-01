@@ -14,6 +14,11 @@ mkdir -p "$DOCKER_CONFIG"
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
+# Without .env this checkout would fall back to Compose's directory-derived
+# project name and the default ports, which is how two checkouts end up sharing
+# containers. dev-env.sh is idempotent, so running it here costs nothing.
+[ -f "$REPO_ROOT/.env" ] || "$REPO_ROOT/scripts/dev-env.sh"
+
 say "Starting containers"
 docker compose up -d --build database php nginx mailpit
 
@@ -34,12 +39,13 @@ docker compose exec -T php php bin/console doctrine:migrations:migrate --no-inte
 
 say "Creating upload directories"
 docker compose exec -T php php bin/console app:setup-upload-directories >/dev/null 2>&1 || true
-# Console commands run as root and leave the chunk staging directory unwritable
-# by the web user, which turns every upload into a 500.
+# Console commands and PHP-FPM are the same user now (the host developer's UID,
+# see docker-compose.yml), so the staging directory a console command creates is
+# already writable by the request that uses it. setup.sh creates them on boot;
+# this only covers a directory an upgrade added since the container started.
 docker compose exec -T php sh -lc '
-  mkdir -p /tmp/comic_uploads
-  chown -R www-data:www-data /tmp/comic_uploads public/uploads var/page-cache 2>/dev/null || true
-  chmod -R 775 /tmp/comic_uploads public/uploads var/page-cache 2>/dev/null || true
+  mkdir -p /tmp/comic_uploads public/uploads var/page-cache
+  chmod -R u+rwX,g+rwX /tmp/comic_uploads public/uploads var/page-cache
 '
 
 say "Creating test accounts"
@@ -61,13 +67,17 @@ docker compose exec -T php php /tmp/make-fixtures.php
 mkdir -p "$REPO_ROOT/var/browser-test/fixtures"
 docker compose cp php:/tmp/fixtures/. "$REPO_ROOT/var/browser-test/fixtures/" >/dev/null
 
+# Ports are per checkout (scripts/dev-env.sh), so read them back rather than
+# printing the numbers the main repo happens to use.
+port() { grep -m1 "^$1=" "$REPO_ROOT/.env" 2>/dev/null | cut -d= -f2- || true; }
+
 cat <<EOF
 
 Ready.
 
-  App        http://localhost:8080
-  Mailpit    http://localhost:8025
-  Adminer    http://localhost:8081
+  App        http://localhost:$(port NGINX_PORT)
+  Mailpit    http://localhost:$(port MAILPIT_UI_PORT)
+  Adminer    http://localhost:$(port ADMINER_PORT)
 
   user       navtest@example.com  / NavTest123!
   admin      navadmin@example.com / NavAdmin123!
