@@ -113,6 +113,10 @@ Important configuration variables:
 - `CORS_ALLOW_ORIGIN` — allowed browser origins
 - `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
 - `PRIVACY_OPERATOR`, `PRIVACY_EMAIL` — public data-controller name and privacy contact
+- `TURNSTILE_ENABLED`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` — optional
+  Cloudflare Turnstile protection for the public content-report form. Create a
+  Managed widget restricted to the `APP_URL` hostname. The secret stays on the
+  backend; see [`docs/content-reporting.md`](docs/content-reporting.md).
 - `MAX_CONCURRENT_UPLOADS` — concurrent upload HTTP requests shared across a batch; keep below the PHP-FPM worker count (the Docker default is 4 requests for 5 workers)
 - `MAX_PARALLEL_FILE_UPLOADS` — how many comics a bulk upload sends at once (2 when omitted). Those files share the budget above, so this decides how many comics move together, not how much load reaches PHP-FPM
 - `UPLOAD_USER_QUOTA_BYTES` — default canonical comic storage per account in bytes (10 GiB when omitted); administrators can override it per user, and `0` deliberately means unlimited

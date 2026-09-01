@@ -2,7 +2,7 @@
 
 Panel Page Flip provides a narrow notice-and-action workflow for specific allegedly illegal material. It is not a public moderation system and does not scan private libraries proactively.
 
-The public `/report-content` page accepts copyright/IP and other illegal-content notices without requiring an account or any internal database ID. Reporters classify the locator they actually have: an invitation URL, a C-/G- content code, a U- user code, an account reference, comic/publication metadata, a `/read/{id}` URL, or other evidence. Optional title, account and source-context fields help distinguish search results. A hidden honeypot and the `content_report` rate limiter protect the endpoint. Public responses are deliberately generic and never confirm whether a private user, comic, share, code or invitation exists. A honeypot submission receives the same success message but no case reference, because no case row exists.
+The public `/report-content` page accepts copyright/IP and other illegal-content notices without requiring an account or any internal database ID. Reporters classify the locator they actually have: an invitation URL, a C-/G- content code, a U- user code, an account reference, comic/publication metadata, a `/read/{id}` URL, or other evidence. Optional title, account and source-context fields help distinguish search results. Layered local limits, a hidden honeypot and optional Cloudflare Turnstile protect the endpoint. Public responses are deliberately generic and never confirm whether a private user, comic, share, code or invitation exists. A honeypot submission receives the same success message but no case reference, because no case row exists.
 
 The server parses application URLs locally and never fetches a reporter-supplied URL. Invitation and `/read/{id}` URLs must use the exact public origin configured by `APP_URL`; a matching path on another host is rejected and cannot resolve a local record. Exact application-issued locators are resolved privately: invitation links identify their share, C- codes identify one comic, U- codes identify one account and `/read/{id}` identifies one comic. A G- code and text-like references produce bounded administrator-only candidates and never choose a target automatically.
 
@@ -16,6 +16,43 @@ The fields follow the elements described by Article 16 of Regulation (EU) 2022/2
 `LEGAL_EMAIL` is the public operational legal contact and reply-to address. It falls back to `PRIVACY_EMAIL`, then `MAILER_FROM_ADDRESS`; do not commit a personal address.
 
 `CONTENT_REPORT_RETENTION_DAYS` defaults to 730 days. Closed and rejected reports older than that are eligible for deletion. Open cases and cases placed on legal hold are never selected by ordinary cleanup.
+
+### Abuse protection
+
+Every request first spends the existing five-per-hour/IP allowance and a
+two-per-minute/IP burst allowance. Configure `TRUSTED_PROXIES` only with proxy
+addresses the installation actually trusts, so Symfony derives the real visitor
+address for both limits and Turnstile's `remoteip`; never trust arbitrary public
+`X-Forwarded-For` headers. There is deliberately no global report cap that an
+attacker could exhaust to block legitimate legal notices.
+
+Turnstile is optional and off by default. To enable it:
+
+1. In the Cloudflare dashboard, create a **Managed** Turnstile widget and allow
+   the exact hostname from `APP_URL`.
+2. Set `TURNSTILE_ENABLED=true`, `TURNSTILE_SITE_KEY` to the public site key and
+   `TURNSTILE_SECRET_KEY` to the private secret in `backend/.env.local`.
+3. Clear/warm the Symfony cache and verify `/api/public-config` contains only
+   `{ "enabled": true, "siteKey": "..." }`; the secret must never appear.
+4. Submit a real test notice. If Siteverify is unavailable, the form retains the
+   typed notice and directs the reporter to `LEGAL_EMAIL` instead.
+
+The backend refuses enabled configuration with a missing key. It validates each
+single-use token with Cloudflare Siteverify, including the `content_report`
+action and the hostname derived from `APP_URL`; the client widget alone is not a
+security boundary. Tokens are request metadata and are never persisted or
+logged. A honeypot hit returns fake success before Siteverify, persistence or
+mail.
+
+Production compiled-env releases use the same `TURNSTILE_*` names in
+`scripts/.env.deploy`; server-local releases read them from the host's ignored
+`backend/.env.local`. Only the file location changes. The release preflight
+rejects an enabled compiled configuration with a missing key without printing
+its value.
+
+Acknowledgement mail has a separate five-per-hour allowance keyed by a stable
+hash of the normalized reporter address. Exhausting it suppresses only the
+reporter's receipt: the durable report and operator notification are preserved.
 
 Run the bounded cleanup from the same scheduler as the existing retention jobs:
 

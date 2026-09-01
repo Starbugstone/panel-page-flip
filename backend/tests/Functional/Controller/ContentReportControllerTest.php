@@ -10,12 +10,16 @@ use App\Enum\ReportedReferenceType;
 use App\Enum\ShareCodeType;
 use App\Service\SecurityAuditLogger;
 use App\Service\SharingCodeFormat;
+use App\Service\TurnstileConfiguration;
+use App\Service\TurnstileVerifier;
 use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 use App\Tests\Functional\SecurityLogAssertions;
 use App\Tests\Support\SwitchableMailer;
 use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
 
 final class ContentReportControllerTest extends AbstractApiTestCase
 {
@@ -187,7 +191,7 @@ final class ContentReportControllerTest extends AbstractApiTestCase
             'reporterEmail' => 'group-code@example.com',
             'referenceType' => ReportedReferenceType::SharingCode->value,
             'reportedReference' => SharingCodeFormat::forDisplay(ShareCodeType::GROUP, $groupToken),
-        ]));
+        ]), ['REMOTE_ADDR' => '198.51.100.163']);
 
         $repository = $entityManager->getRepository(ContentReport::class);
         self::assertSame($first->getId(), $repository->findOneBy(['reporterEmail' => 'comic-code@example.com'])->getLinkedComic()?->getId());
@@ -306,6 +310,170 @@ final class ContentReportControllerTest extends AbstractApiTestCase
         self::assertNull(static::getContainer()->get(EntityManagerInterface::class)
             ->getRepository(ContentReport::class)
             ->findOneBy(['reporterEmail' => 'spam@example.com']));
+    }
+
+    public function testEnabledTurnstileAcceptsAValidBoundToken(): void
+    {
+        $seen = null;
+        $this->enableTurnstile(new MockHttpClient(function (string $method, string $url, array $options) use (&$seen): MockResponse {
+            $seen = [$method, $url, $options['body'] ?? null];
+
+            return $this->turnstileResponse();
+        }));
+
+        $payload = $this->postJson('/api/content-reports', array_replace($this->validReport(), [
+            'turnstileToken' => 'valid-browser-token',
+        ]), ['REMOTE_ADDR' => '203.0.113.19']);
+
+        self::assertResponseStatusCodeSame(201);
+        self::assertArrayHasKey('reference', $payload);
+        self::assertEmailCount(2);
+        self::assertSame('POST', $seen[0]);
+        self::assertSame(TurnstileVerifier::SITEVERIFY_URL, $seen[1]);
+        parse_str((string) $seen[2], $body);
+        self::assertSame('private-test-secret', $body['secret']);
+        self::assertSame('valid-browser-token', $body['response']);
+        self::assertSame('203.0.113.19', $body['remoteip']);
+
+        $report = static::getContainer()->get(EntityManagerInterface::class)
+            ->getRepository(ContentReport::class)
+            ->findOneBy(['reporterEmail' => 'rights@example.com']);
+        self::assertInstanceOf(ContentReport::class, $report);
+    }
+
+    public function testEnabledTurnstileCannotBeBypassedByOmittingTheToken(): void
+    {
+        $this->enableTurnstile(new MockHttpClient(static function (): never {
+            throw new \LogicException('A missing token must be rejected locally.');
+        }));
+
+        $payload = $this->postJson('/api/content-reports', $this->validReport());
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('Complete the anti-bot check and try again.', $payload['errors']['turnstile']);
+        self::assertEmailCount(0);
+        self::assertNull(static::getContainer()->get(EntityManagerInterface::class)
+            ->getRepository(ContentReport::class)
+            ->findOneBy(['reporterEmail' => 'rights@example.com']));
+    }
+
+    /** @dataProvider rejectedTurnstileResponseProvider */
+    public function testEnabledTurnstileRejectsInvalidExpiredOrWrongContextTokens(array $response): void
+    {
+        $token = 'sensitive-browser-token-177';
+        $this->enableTurnstile(new MockHttpClient(new MockResponse(json_encode($response, JSON_THROW_ON_ERROR))));
+        $this->clearSecurityLog();
+
+        $this->postJson('/api/content-reports', array_replace($this->validReport(), [
+            'turnstileToken' => $token,
+        ]));
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertEmailCount(0);
+        $this->assertLoggedSecurityEvent(SecurityAuditLogger::CONTENT_REPORT_TURNSTILE_REJECTED);
+        $this->assertNothingLogged($token, 'Turnstile token');
+        $this->assertNothingLogged('private-test-secret', 'Turnstile secret');
+        $this->assertNothingLogged('rights@example.com', 'reporter email');
+    }
+
+    public static function rejectedTurnstileResponseProvider(): iterable
+    {
+        yield 'invalid' => [[
+            'success' => false,
+            'error-codes' => ['invalid-input-response'],
+        ]];
+        yield 'expired or replayed' => [[
+            'success' => false,
+            'error-codes' => ['timeout-or-duplicate'],
+        ]];
+        yield 'wrong action' => [[
+            'success' => true,
+            'action' => 'account_registration',
+            'hostname' => 'localhost',
+        ]];
+        yield 'wrong hostname' => [[
+            'success' => true,
+            'action' => TurnstileVerifier::ACTION,
+            'hostname' => 'foreign.example',
+        ]];
+    }
+
+    public function testTurnstileProviderFailurePreservesTheLegalNoticeAndOffersEmailFallback(): void
+    {
+        $this->enableTurnstile(new MockHttpClient(new MockResponse('{}', ['http_code' => 503])));
+
+        $payload = $this->postJson('/api/content-reports', array_replace($this->validReport(), [
+            'turnstileToken' => 'valid-looking-token',
+        ]));
+
+        self::assertResponseStatusCodeSame(503);
+        self::assertStringContainsString('legal@example.test', $payload['errors']['turnstile']);
+        self::assertEmailCount(0);
+        self::assertNull(static::getContainer()->get(EntityManagerInterface::class)
+            ->getRepository(ContentReport::class)
+            ->findOneBy(['reporterEmail' => 'rights@example.com']));
+    }
+
+    public function testHoneypotShortCircuitsBeforeEnabledTurnstile(): void
+    {
+        $this->enableTurnstile(new MockHttpClient(static function (): never {
+            throw new \LogicException('Honeypot submissions must not call Siteverify.');
+        }));
+
+        $payload = $this->postJson('/api/content-reports', array_replace($this->validReport(), [
+            'website' => 'https://spam.example',
+        ]));
+
+        self::assertResponseStatusCodeSame(201);
+        self::assertArrayNotHasKey('reference', $payload);
+        self::assertEmailCount(0);
+    }
+
+    public function testShortBurstLimiterRunsBeforePayloadValidation(): void
+    {
+        $this->postJson('/api/content-reports', []);
+        self::assertResponseStatusCodeSame(400);
+        $this->postJson('/api/content-reports', []);
+        self::assertResponseStatusCodeSame(400);
+
+        $payload = $this->postJson('/api/content-reports', []);
+
+        self::assertResponseStatusCodeSame(429);
+        self::assertSame('Too many reports. Please try again later.', $payload['message']);
+        self::assertResponseHasHeader('Retry-After');
+    }
+
+    public function testExistingSustainedLimiterRemainsEnforced(): void
+    {
+        $limiter = static::getContainer()->get('test.limiter.content_report')->create('198.51.100.177');
+        for ($attempt = 0; $attempt < 5; ++$attempt) {
+            self::assertTrue($limiter->consume()->isAccepted());
+        }
+
+        $this->postJson('/api/content-reports', $this->validReport(), ['REMOTE_ADDR' => '198.51.100.177']);
+
+        self::assertResponseStatusCodeSame(429);
+        self::assertEmailCount(0);
+    }
+
+    public function testAcknowledgementLimitSuppressesOnlyVictimEmailAndKeepsEveryReport(): void
+    {
+        $limiter = static::getContainer()->get('test.limiter.content_report_acknowledgement')
+            ->create(hash('sha256', 'rights@example.com'));
+        for ($attempt = 0; $attempt < 5; ++$attempt) {
+            self::assertTrue($limiter->consume()->isAccepted());
+        }
+
+        $this->postJson('/api/content-reports', $this->validReport());
+
+        self::assertResponseStatusCodeSame(201);
+        self::assertEmailCount(1);
+        self::assertSame('legal@example.test', self::getMailerMessage()?->getTo()[0]->getAddress());
+        self::assertCount(1, static::getContainer()->get(EntityManagerInterface::class)
+            ->getRepository(ContentReport::class)->findBy(['reporterEmail' => 'rights@example.com']));
+        $record = $this->assertLoggedSecurityEvent(SecurityAuditLogger::CONTENT_REPORT_ACKNOWLEDGEMENT_RATE_LIMITED);
+        self::assertSame('content_report_acknowledgement', $record->context['limiter']);
+        $this->assertNothingLogged('rights@example.com', 'rate-limited reporter email');
     }
 
     public function testReportQueueRequiresAnAdministrator(): void
@@ -709,5 +877,26 @@ final class ContentReportControllerTest extends AbstractApiTestCase
             'goodFaithAcknowledged' => true,
             'website' => '',
         ];
+    }
+
+    private function enableTurnstile(MockHttpClient $http): void
+    {
+        $configuration = new TurnstileConfiguration(
+            true,
+            'public-test-site-key',
+            'private-test-secret',
+            self::APP_URL
+        );
+        static::getContainer()->set(TurnstileConfiguration::class, $configuration);
+        static::getContainer()->set(TurnstileVerifier::class, new TurnstileVerifier($http, $configuration));
+    }
+
+    private function turnstileResponse(): MockResponse
+    {
+        return new MockResponse(json_encode([
+            'success' => true,
+            'action' => TurnstileVerifier::ACTION,
+            'hostname' => 'localhost',
+        ], JSON_THROW_ON_ERROR));
     }
 }

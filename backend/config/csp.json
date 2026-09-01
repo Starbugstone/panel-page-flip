@@ -1,5 +1,6 @@
 {
   "_comment": "Shared CSP inputs. Advertising-enabled HTML receives a fresh nonce from Symfony (Apache) or nginx's request id (container), and script-src follows Google's supported strict-CSP shape. Non-script directives stay on audited origins rather than broad wildcards.",
+  "turnstileScriptOrigin": "https://challenges.cloudflare.com",
   "directives": {
     "default-src": ["'self'"],
     "object-src": ["'none'"],
@@ -21,7 +22,8 @@
       "https://googleads.g.doubleclick.net",
       "https://tpc.googlesyndication.com",
       "https://www.google.com",
-      "https://fundingchoicesmessages.google.com"
+      "https://fundingchoicesmessages.google.com",
+      "https://challenges.cloudflare.com"
     ],
     "connect-src": [
       "'self'",
@@ -36,14 +38,15 @@
     ],
     "frame-ancestors": ["'none'"]
   },
-  "scriptSrcWithoutAdvertising": ["'self'"],
+  "scriptSrcWithoutAdvertising": ["'self'", "https://challenges.cloudflare.com"],
   "scriptSrcWithAdvertising": [
     "'nonce-{nonce}'",
     "'unsafe-inline'",
     "'unsafe-eval'",
     "'strict-dynamic'",
     "https:",
-    "http:"
+    "http:",
+    "https://challenges.cloudflare.com"
   ],
   "developmentAdditions": {
     "connect-src": ["ws:", "http://localhost:*"]

@@ -63,6 +63,9 @@ class SecurityAuditLogger
     // records describe one deletion from two sides, and sharing a name would
     // make the same sweep appear twice to anything counting by event.
     public const COMIC_BULK_DELETE_UNUSUAL = 'security.comic.bulk_delete_unusual';
+    public const CONTENT_REPORT_TURNSTILE_REJECTED = 'security.content_report.turnstile_rejected';
+    public const CONTENT_REPORT_TURNSTILE_UNAVAILABLE = 'security.content_report.turnstile_unavailable';
+    public const CONTENT_REPORT_ACKNOWLEDGEMENT_RATE_LIMITED = 'security.content_report.acknowledgement_rate_limited';
 
     // Successful state changes worth reconstructing later.
     public const USER_LOGGED_OUT = 'audit.user.logged_out';

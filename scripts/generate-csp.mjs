@@ -18,6 +18,16 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const checkOnly = process.argv.includes("--check");
 const manifest = JSON.parse(readFileSync(resolve(repoRoot, "backend/config/csp.json"), "utf8"));
+const turnstileLoader = readFileSync(resolve(repoRoot, "frontend/src/lib/turnstile-loader.js"), "utf8");
+
+if (!turnstileLoader.includes(`TURNSTILE_SCRIPT_ORIGIN = "${manifest.turnstileScriptOrigin}"`)) {
+  throw new Error("The Turnstile loader origin has drifted from backend/config/csp.json.");
+}
+if (!manifest.directives["frame-src"].includes(manifest.turnstileScriptOrigin)
+  || !manifest.scriptSrcWithoutAdvertising.includes(manifest.turnstileScriptOrigin)
+  || !manifest.scriptSrcWithAdvertising.includes(manifest.turnstileScriptOrigin)) {
+  throw new Error("The Turnstile origin must be present in every applicable script-src and frame-src policy.");
+}
 
 const policy = (directives) => Object.entries(directives)
   .map(([directive, values]) => `${directive} ${values.join(" ")}`)
