@@ -18,7 +18,7 @@ Do not commit a Bun lockfile unless package-manager policy deliberately changes.
 
 ### Checks over committed artefacts
 
-Three things in this repository are generated, committed, and never rebuilt on the way to production. Each has a check that fails when the committed copy stops matching its source:
+Four things in this repository are generated, committed, and never rebuilt on the way to production. Each has a check that fails when the committed copy stops matching its source:
 
 ```bash
 npm run check:routes   # nginx SPA route manifest vs frontend/index.html
@@ -53,13 +53,18 @@ non-script sources remain explicit in the manifest.
 
 `/` is indexable. The words on that page live in `frontend/src/lib/landing-copy.js`. `Landing.jsx` renders them after JavaScript starts; `frontend/index.html` already contains them inside `#root` so a client that never executes the bundle still sees the library, sharing, and page-delivery copy. A unit test fails when the HTML first render drops a phrase, and `check:seo` fails when the production build does.
 
-### `check:tools` does not run inside `frontend_dev`
+### `check:tools` and `check:csp` do not run inside `frontend_dev`
 
-Run it from the host: `npm run check:tools --prefix frontend`.
+Run them from the host:
 
-The `frontend_dev` container mounts `./frontend` and exactly one file out of `scripts/` — the route generator. Mounting the whole directory would put `scripts/.env.deploy`, which can hold production FTP/SSH credentials, inside a container that runs `npm install` on every start. `check:tools` needs `scripts/comic-conversion/`, so in the container it stops with `Missing source file`, and `src/lib/conversion-tools.test.js` fails with it because it shells out to the same check.
+```bash
+npm run check:tools --prefix frontend
+npm run check:csp --prefix frontend
+```
 
-So `docker compose exec frontend_dev npm test` reports one failure that CI does not. It is the mount, not the repository. Run the frontend suite from the host when you need a clean result.
+The `frontend_dev` container mounts `./frontend` and exactly one file out of `scripts/` — the route generator. Mounting the whole directory would put `scripts/.env.deploy`, which can hold production FTP/SSH credentials, inside a container that runs `npm install` on every start. `check:tools` needs `scripts/comic-conversion/`, and `check:csp` needs `scripts/generate-csp.mjs`, so in the container they stop with a missing source file. `frontend/src/lib/conversion-tools.test.js` fails with `check:tools` because it shells out to the same check.
+
+So `docker compose exec frontend_dev npm test` reports a failure that CI does not. It is the mount, not the repository. Run the frontend suite from the host when you need a clean result.
 
 ### Dependency audit
 
@@ -73,12 +78,14 @@ Production dependencies only — a development-only advisory does not block a re
 
 ```bash
 cd backend
-composer analyse      # PHPStan
-composer cs:check     # PHP-CS-Fixer, dry run
 composer validate --strict
 composer audit --locked --no-dev
 php bin/console lint:container --env=test
+php bin/console lint:twig templates   # all Twig; currently mail
 php bin/console doctrine:schema:validate --env=test
+composer analyse      # PHPStan
+composer cs:check     # PHP-CS-Fixer, dry run
+php bin/phpunit
 ```
 
 PHPStan uses a baseline for pre-existing findings so new code cannot silently increase static-analysis debt. Reduce the baseline opportunistically when touching existing code.
@@ -89,4 +96,4 @@ The baseline is a record of accepted debt, not a list of harmless noise: entries
 
 `.github/workflows/build-frontend.yml` ("Validate Application") runs every command on this page — both halves — on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**` and `ci/**`, and on pushes to `main` and `develop`. It validates and does not deploy.
 
-The pre-push list in `CLAUDE.md` is the fast subset. This page is the full set, and it is the one CI actually gates on.
+The pre-push list in `AGENTS.md` is the same set. This page explains the gates; CI is what enforces them.

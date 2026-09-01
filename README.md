@@ -277,7 +277,7 @@ The container mounts only `scripts/generate-nginx-routes.mjs`, never the whole
 production credentials. `check:tools` needs `scripts/comic-conversion/`, and
 `check:csp` needs `scripts/generate-csp.mjs`, so both must run on the host.
 Inside the container `check:tools` reports a missing source file — and
-`src/lib/conversion-tools.test.js`, which shells out to the same check, fails
+`frontend/src/lib/conversion-tools.test.js`, which shells out to the same check, fails
 there for the same reason — while `check:csp` reports its generator missing.
 All three pass on the host and in CI, where the whole repository is present.
 
@@ -300,6 +300,7 @@ docker compose exec php composer cs:check
 docker compose exec php composer validate --strict
 docker compose exec php composer audit --locked --no-dev
 docker compose exec php php bin/console lint:container --env=test
+docker compose exec php php bin/console lint:twig templates
 docker compose exec php php bin/console doctrine:schema:validate --env=test
 ```
 
