@@ -143,10 +143,13 @@ entries, PDF objects, XML, filenames — is attacker-controlled.
 - Frontend: React 19 / Vite / Tailwind / Radix. Node >= 22.12.
 - Per-feature documentation lives in `docs/`; `DEV_README.md` indexes every page.
   A behaviour change updates its page in the same PR.
-- Branch from `main`; never commit to it directly. `develop` is the integration
-  branch — work wanting manual testing on a real deployment lands there first
-  and reaches `main` as one merge.
-  Always keep the documentation up to date with the latest modifications.
+- `develop` is the source of truth for active development. Branch from it and
+  target it with normal pull requests; never commit to it directly. `main` is
+  the production source of truth and only receives deliberate release or
+  production-hotfix pull requests. The two branches are expected to differ as
+  ongoing tasks move through development and production. A release reaches
+  `main` from `develop` as one merge. Always keep the documentation up to date
+  with the latest modifications.
 
 ## Branch hygiene — prevent divergence
 
@@ -160,13 +163,16 @@ left checked out:
 ```bash
 git fetch --prune origin
 git status --short --branch
-git switch -c <type>/<short-task-name> origin/main
+git switch -c <type>/<short-task-name> origin/develop
 ```
 
 Use a new, task-specific branch name; do not reuse another agent's branch or a
-branch from an earlier task. If work depends on commits that exist only on
-`develop`, create the task branch from `origin/develop` and target `develop`
-with its pull request. Never commit on `develop` itself.
+branch from an earlier task. Choose the base and pull-request target from the
+task's destination: ongoing feature, fix, and documentation work uses
+`origin/develop`; an urgent fix for the currently deployed production state
+uses `origin/main`; a release promotes `develop` to `main`. Bring a production
+hotfix back into `develop` through its own pull request so the development
+source of truth retains the fix.
 
 Before every commit, verify the branch and review the exact staged content:
 
@@ -199,7 +205,10 @@ commits, preserve them on a clearly named backup branch when they may contain
 work, and restore the protected branch to its fetched `origin/*` ref only after
 the unexpected content is understood. Compare each protected branch with its
 own upstream; the pull-request workflow can legitimately make `main` and
-`develop` non-linear relative to each other.
+`develop` non-linear relative to each other. Do not merge `main` into `develop`
+merely to make their histories look aligned: `develop` tracks development and
+`main` tracks production, so their difference reflects the tasks currently in
+flight.
 
 ## Always commit
 
