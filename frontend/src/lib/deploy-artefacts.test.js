@@ -53,10 +53,86 @@ describe("the Nginx request logs", () => {
 
 describe("the frontend development service", () => {
   const compose = read("docker-compose.yml");
+  const frontendDockerfile = read("docker/frontend_dev/Dockerfile");
 
-  it("uses the supported Node image directly as its single development stack", () => {
-    expect(compose).toContain("image: node:${NODE_VERSION:-22}-alpine");
+  /**
+   * The service builds from a Dockerfile rather than using the image directly,
+   * but only to create a user matching the host's UID — the base image is still
+   * the supported Node version, and there is still exactly one development
+   * stack. A second one (`docker/node`, `Dockerfile.dev`, `nginx.dev.conf`)
+   * drifts from what production builds and is what this guards against.
+   */
+  it("builds its single development stack on the supported Node image", () => {
+    expect(frontendDockerfile).toContain("FROM node:${NODE_VERSION}-alpine");
+    expect(compose).toContain("NODE_VERSION=${NODE_VERSION:-22}");
     expect(compose).not.toMatch(/docker\/node|Dockerfile\.dev|nginx\.dev\.conf/);
+  });
+
+  /**
+   * `/app` is a bind mount of the source tree, so `npm install` rewrites the
+   * tracked lockfile whenever the container's npm differs from the one that
+   * wrote it — a diff that appears on every stack start with nothing tying it
+   * to Docker, on the file CI installs from.
+   */
+  it("installs with npm ci so it cannot rewrite the tracked lockfile", () => {
+    expect(compose).toMatch(/command:.*npm ci\b/);
+    expect(compose).not.toMatch(/command:.*npm install\b/);
+  });
+});
+
+/**
+ * Two defects here produced test failures that pointed nowhere near their
+ * cause, so each one keeps a test. See docs/local-docker-environment.md.
+ */
+describe("the local Docker environment", () => {
+  const compose = read("docker-compose.yml");
+  const gitignore = read(".gitignore");
+
+  // Bounded at the next service key. Slicing to the end of the file instead
+  // would let one service's setting satisfy an assertion about another's.
+  const serviceBlock = (name) => {
+    const start = compose.indexOf(`\n  ${name}:\n`);
+    expect(start, `no ${name} service`).toBeGreaterThan(-1);
+    const next = compose.slice(start + 1).search(/\n {2}[a-z_]+:\n/);
+    return next === -1 ? compose.slice(start) : compose.slice(start, start + 1 + next);
+  };
+
+  /**
+   * Compose keys containers by project name. While `.env` was tracked, every
+   * git worktree inherited COMPOSE_PROJECT_NAME=cbz_reader and resolved to the
+   * same containers as the main repo — and a container keeps the bind mounts it
+   * was created with, so a checkout ran its tests against whichever checkout
+   * had started the stack first.
+   */
+  it("keeps .env untracked so each checkout gets its own Compose project", () => {
+    expect(gitignore).toMatch(/^\/\.env$/m);
+    expect(() => read(".env.example")).not.toThrow();
+  });
+
+  /**
+   * Container names are global to the Docker daemon, so a literal name makes
+   * two checkouts fight over one container instead of getting one each.
+   */
+  it("never pins a container_name", () => {
+    expect(compose).not.toMatch(/container_name:/);
+  });
+
+  /**
+   * Both services create files in the bind-mounted source tree. As root — or as
+   * www-data, which does not exist on the host either — that output could not
+   * be edited or deleted without sudo, and broke the next composer install or
+   * cache clear.
+   */
+  it.each(["php", "frontend_dev"])("runs %s as the host user", (service) => {
+    expect(serviceBlock(service)).toMatch(/user: "\$\{HOST_UID:-1000\}:\$\{HOST_GID:-1000\}"/);
+  });
+
+  /**
+   * Nginx serves uploads and public assets and has no reason to write into the
+   * checkout; anything it did write would arrive owned by the nginx user.
+   */
+  it("mounts the backend read-only into nginx", () => {
+    expect(serviceBlock("nginx")).toContain("./backend:/var/www/html:ro");
   });
 });
 
