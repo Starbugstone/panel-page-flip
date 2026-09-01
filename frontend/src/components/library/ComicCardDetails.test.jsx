@@ -10,4 +10,14 @@ describe("ComicCardDetails", () => {
     expect(title).toHaveClass("whitespace-normal", "break-words");
     expect(title).not.toHaveClass("truncate");
   });
+
+  it("shows the previous title while an automatic rename is being previewed", () => {
+    render(<ComicCardDetails comic={{
+      title: "DragonBall 01",
+      autoRenameOriginalTitle: "DragonBall 1",
+      author: "Toriyama",
+    }} />);
+
+    expect(screen.getByText("Was DragonBall 1")).toBeInTheDocument();
+  });
 });

@@ -12,6 +12,9 @@ export function ComicCardDetails({ comic, locationName }) {
   return (
     <CardContent className="p-4">
       <h3 className="break-words whitespace-normal font-bold">{comic.title}</h3>
+      {comic.autoRenameOriginalTitle && (
+        <p className="break-words text-xs text-muted-foreground">Was {comic.autoRenameOriginalTitle}</p>
+      )}
       <p className="truncate text-sm text-muted-foreground">{comic.author}</p>
       {locationName && (
         <p className="mt-1 flex items-center gap-1 truncate text-xs text-muted-foreground">
