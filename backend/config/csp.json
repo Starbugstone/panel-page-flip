@@ -47,8 +47,5 @@
     "https:",
     "http:",
     "https://challenges.cloudflare.com"
-  ],
-  "developmentAdditions": {
-    "connect-src": ["ws:", "http://localhost:*"]
-  }
+  ]
 }

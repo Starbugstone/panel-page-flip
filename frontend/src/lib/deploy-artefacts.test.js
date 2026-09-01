@@ -41,16 +41,22 @@ describe("the Apache front controller rules", () => {
 });
 
 describe("the Nginx request logs", () => {
-  it.each([
-    "docker/nginx_frontend/nginx.conf",
-    "docker/nginx_frontend/nginx.dev.conf",
-  ])("%s never records OAuth codes or other query values", (path) => {
-    const source = read(path);
+  it("never records OAuth codes or other query values", () => {
+    const source = read("docker/nginx_frontend/nginx.conf");
     const format = source.match(/log_format ppf_without_query[\s\S]*?;/)?.[0] ?? "";
 
     expect(format).toContain("$ppf_request_path");
     expect(format).not.toMatch(/\$request(?:_uri)?\b/);
     expect(source).toMatch(/access_log\s+\/var\/log\/nginx\/project_access\.log\s+ppf_without_query;/);
+  });
+});
+
+describe("the frontend development service", () => {
+  const compose = read("docker-compose.yml");
+
+  it("uses the supported Node image directly as its single development stack", () => {
+    expect(compose).toContain("image: node:${NODE_VERSION:-22}-alpine");
+    expect(compose).not.toMatch(/docker\/node|Dockerfile\.dev|nginx\.dev\.conf/);
   });
 });
 

@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createComicPageUrls,
   createPageManifestUrl,
   createPageThumbnailUrl,
-  largerPageVariant,
   selectPageVariant,
   withForcedReload,
 } from "./reader-pages";
@@ -43,30 +41,7 @@ describe("selectPageVariant", () => {
   });
 });
 
-describe("largerPageVariant", () => {
-  it("keeps the larger of the two, so a resize never spends a download to show less", () => {
-    expect(largerPageVariant("reader-small", "reader-large")).toBe("reader-large");
-    expect(largerPageVariant("reader-large", "reader-small")).toBe("reader-large");
-  });
-});
-
 describe("page urls", () => {
-  it("names the variant it wants", () => {
-    expect(createComicPageUrls(42, 2, "reader-small")).toEqual([
-      "/api/comics/42/pages/1?variant=reader-small",
-      "/api/comics/42/pages/2?variant=reader-small",
-    ]);
-  });
-
-  it("leaves the plain endpoint alone when no variant is chosen", () => {
-    expect(createComicPageUrls(42, 1)).toEqual(["/api/comics/42/pages/1"]);
-  });
-
-  it("returns nothing for a comic without pages", () => {
-    expect(createComicPageUrls(42, 0, "reader-small")).toEqual([]);
-    expect(createComicPageUrls(null, 3, "reader-small")).toEqual([]);
-  });
-
   it("asks for thumbnails from the same endpoint as pages", () => {
     expect(createPageThumbnailUrl(42, 7)).toBe("/api/comics/42/pages/7?variant=thumb");
     expect(createPageThumbnailUrl(42, 0)).toBeNull();

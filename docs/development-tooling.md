@@ -24,7 +24,7 @@ Four things in this repository are generated, committed, and never rebuilt on th
 npm run check:routes   # nginx SPA route manifest vs frontend/index.html
 npm run check:tools    # conversion-tool zips and their published checksums
 npm run check:seo      # sitemap, robots.txt, canonicals, crawlable landing copy
-npm run check:csp      # strict Content-Security-Policy across nginx targets
+npm run check:csp      # strict Content-Security-Policy in nginx
 ```
 
 `check:seo` reads `APP_URL` and inspects a build, so run `npm run build` with the same `APP_URL` first. It also requires the built `index.html` to contain the public landing copy from `src/lib/landing-copy.js`, because production serves that file to crawlers that never run the React tree. `check:tools` is what stops an edit to a script under `scripts/comic-conversion/` shipping a download that no longer matches the checksum displayed beside it.
@@ -34,15 +34,18 @@ npm run check:csp      # strict Content-Security-Policy across nginx targets
 `backend/config/csp.json` contains the shared policy inputs. Symfony reads it to
 build Apache responses with a cryptographic per-response nonce.
 `scripts/generate-csp.mjs` emits the equivalent `$request_id` nonce policy into
-the two nginx targets:
+the production nginx header include:
 
 | File | Form |
 | --- | --- |
 | `docker/nginx_frontend/security-headers.conf` | nginx `add_header`, production |
-| `docker/nginx_frontend/nginx.dev.conf` | nginx, plus what the Vite dev server needs |
 
 Run `node scripts/generate-csp.mjs` after editing the manifest, and
 `npm run check:csp --prefix frontend` to verify — CI runs the check.
+
+Local development is served directly by the Node 22 Vite container declared in
+`docker-compose.yml`. There is no second Node/nginx development image to keep in
+sync with that service.
 
 Apache `.htaccess` must not add CSP: a second static policy would intersect with
 the dynamic Symfony header and reject its nonce. The nonce and
