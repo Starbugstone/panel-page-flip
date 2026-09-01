@@ -58,6 +58,13 @@ vi.mock("@/components/library/LibraryFolderBar", () => ({ LibraryFolderBar: () =
 vi.mock("@/components/library/ComicTitleRenameBar", () => ({ ComicTitleRenameBar: () => null }));
 
 describe("Dashboard", () => {
+  it("leaves the document's main landmark to the application shell", () => {
+    render(<Dashboard />);
+
+    expect(screen.queryByRole("main")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Library results" })).toBeInTheDocument();
+  });
+
   it("composes the empty library and opens its mobile navigation sheet", async () => {
     const user = userEvent.setup();
     render(<Dashboard />);

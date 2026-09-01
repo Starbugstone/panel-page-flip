@@ -173,7 +173,7 @@ export default function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
         <DesktopLibrarySidebar>{sidebar}</DesktopLibrarySidebar>
-        <main className="min-w-0 space-y-5">
+        <section className="min-w-0 space-y-5" aria-label="Library results">
           <FolderWorkspaceHeader
             isFolderView={isFolderView}
             folders={folders}
@@ -214,7 +214,7 @@ export default function Dashboard() {
               onShareComics: setSharingComicIds,
             }}
           />
-        </main>
+        </section>
       </div>
 
       <LibraryDialogs

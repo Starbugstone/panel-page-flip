@@ -26,6 +26,8 @@ vi.mock("@/components/CookieNotice.jsx", () => ({ CookieNotice: () => null }));
 vi.mock("@/components/Footer.jsx", () => ({ Footer: () => <footer>Application footer</footer> }));
 vi.mock("@/components/SessionMonitor.jsx", () => ({ default: () => null }));
 vi.mock("./pages/Login.jsx", () => ({ default: () => <div>Login route</div> }));
+vi.mock("./pages/Dashboard.jsx", () => ({ default: () => <div>Dashboard route</div> }));
+vi.mock("./pages/AdminDashboard.jsx", () => ({ default: () => <div>Admin route</div> }));
 
 describe("application shell", () => {
   beforeEach(() => {
@@ -49,5 +51,26 @@ describe("application shell", () => {
 
     expect(await screen.findByText("Login route")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/login");
+    expect(window.location.search).toBe("?redirect=%2Fdashboard");
+  });
+
+  it("returns a signed-out administrator to the exact admin view they requested", async () => {
+    window.history.pushState({}, "", "/admin?tab=sharing-codes");
+    render(<App />);
+
+    expect(await screen.findByText("Login route")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/login");
+    expect(window.location.search).toBe("?redirect=%2Fadmin%3Ftab%3Dsharing-codes");
+  });
+
+  it("completes the stored redirect after authentication changes the route guard", async () => {
+    auth.isAuthenticated = true;
+    auth.isAdmin = true;
+    window.history.pushState({}, "", "/login?redirect=%2Fadmin%3Ftab%3Dsharing-codes");
+    render(<App />);
+
+    expect(await screen.findByText("Admin route")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/admin");
+    expect(window.location.search).toBe("?tab=sharing-codes");
   });
 });

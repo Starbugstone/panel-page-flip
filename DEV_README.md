@@ -97,7 +97,6 @@ lives in [`docs/`](docs/):
 - **ImportComicsCommand**: Imports comics from a directory (`app:import-comics`)
 - **CleanupComicsCommand**: Cleans up orphaned comic files and cover images (`app:cleanup-comics`)
 - **SetupUploadDirectoriesCommand**: Sets up necessary directories for uploads (`app:setup-upload-directories`)
-- **GenerateSampleDataCommand**: Generates sample data for testing (`app:generate-sample-data`)
 - **TestApiEndpointsCommand**: Tests API endpoints for registration and login (`app:test-api-endpoints`)
 - **DropboxSyncCommand**: Syncs comics from Dropbox for all connected users (`app:dropbox-sync`)
 - **CleanupLogsCommand**: Deletes daily log files past their retention period (`app:cleanup-logs`)
@@ -1441,6 +1440,12 @@ internet whatever it calls its environment. If a login appears to hang locally,
 clear the bucket with
 `docker compose exec php php bin/console cache:pool:clear cache.rate_limiter`.
 
+Protected frontend routes retain the complete local path, query string and
+fragment when they send a signed-out visitor to `/login`, then return there
+after authentication. Redirect values are restricted to same-origin paths;
+absolute, protocol-relative, backslash and control-character forms fall back to
+`/dashboard`.
+
 **Check Logs**: Monitor Symfony logs for detailed error information:
 ```bash
 tail -f var/log/dev.log
@@ -1780,9 +1785,6 @@ You can test the current implementation using the following commands:
 ```sh
 # Test API endpoints (registration and login)
 docker compose exec php bin/console app:test-api-endpoints
-
-# Generate sample data for testing
-docker compose exec php bin/console app:generate-sample-data --force
 
 # Import comics from a directory
 docker compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com

@@ -27,6 +27,8 @@ PDF is a first-class source alongside CBZ, and like CBZ it needs nothing install
 
 A scanned or exported comic PDF is a container holding one full-page image per page — the same thing a CBZ is, with a different wrapper. Those pages are read natively, in pure PHP: the source provider returns the page's own embedded image without rasterising it, exactly as the CBZ provider returns an entry from the archive. No subprocess, no renderer, and no intermediate re-encode. This is what lets PDF work on shared hosting, where `proc_open` is usually disabled and no package can be installed.
 
+Native parsing is capped at 64 MiB per document and also bounds container values, names, and strings before allocating them. Larger PDFs take the Poppler path when it is available; a host without Poppler rejects them cleanly at upload instead of trying to hold a source larger than the PHP worker's memory limit.
+
 What reaches the browser is then whatever **Page delivery** below produces from those bytes, normally WebP — reading a page natively is about not needing a renderer, not about the response being the embedded file.
 
 Poppler extends that to the documents the native reader cannot serve — pages built from vector art or text, which have no embedded image to hand over. Where Poppler is present those pages are rendered lazily, one requested page at a time, to a maximum 2400-pixel reader image. Where it is absent such a document is refused at upload with a clear message, rather than importing and then failing at page three.
@@ -87,7 +89,7 @@ CBR, CB7, CBT, Poppler and qpdf are **optional**. Their absence is reported, nev
 
 Rendering has a 30-second timeout and uses a random, mode-0700 temporary directory that is removed after every attempt. At most three renders run concurrently per application lock store; beyond that a request waits up to 20 seconds for a free slot before reporting the renderer as busy, so a reader that fetches the current page and prefetches the next one is never refused for it.
 
-Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed data, and 64 MiB per page. Only JPG, PNG, GIF, and WebP entries with safe, non-traversing names and matching image content become readable pages. Page names are natural-sorted and never returned by the API.
+Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed data, 64 MiB per page, and a 100:1 maximum expansion ratio between the source archive and its reported contents. External-tool listings stop at 16 MiB, and page paths stop at 1,024 bytes or 16 segments. Only JPG, PNG, GIF, and WebP entries with safe, non-traversing names and matching image content become readable pages. Page names are natural-sorted and never returned by the API.
 
 Direct uploads, chunked uploads, Dropbox import, and `app:import-comics` all use the same enabled-format and provider validation pipeline. A configured format whose runtime later disappears is omitted from uploader configuration and rejected until the runtime is restored or the format is disabled.
 
@@ -97,3 +99,5 @@ strings, and a destination must be a positive owned-folder identifier. Bad
 form data is a 400 response and never reaches storage or format inspection.
 
 Upload size and per-user storage quota continue to apply to the original canonical source. Generated pages, including rendered PDF ones, are rebuildable server cache and count towards nobody's quota.
+
+A chunked upload ID identifies one active staging area and cannot be initialized a second time while that upload exists. Chunk indices must be canonical unsigned decimal strings; malformed values are rejected instead of being coerced to chunk zero.

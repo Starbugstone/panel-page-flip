@@ -136,7 +136,7 @@ export default function ComicReader() {
   const { book, view, actions } = useReaderViewModel({
     comic, comicId, pageCount, currentPage, currentPageRef, layout, pageGeometry,
     imageCache, loadedVariants, variantFor, retryPage, fallbackImages: turns.fallbackImages,
-    settings, profile, transform, isZoomed, isFullscreen, isChromeHidden, showThumbnails,
+    settings, profile, transform, isZoomed, isFullscreen, isChromeHidden, isSettingsOpen, showThumbnails,
     swipeOffset, isSwiping, preferredZoomLevel, hasContextOverride,
     preferencesState: { isLoaded, isSaving, hasSyncError },
     pointer, settingsActions, turns, goToLogicalPage, toggleChrome, forceReload,

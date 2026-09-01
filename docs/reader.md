@@ -6,7 +6,8 @@ cannot be loaded, the reader stays usable with safe defaults.
 
 Open **Reader settings** from the sliders button at the top-right of a page.
 Changes apply immediately and save in the background. **Reset defaults** returns
-every reader option to its default value.
+every reader option to its default value. The panel has its own labelled close
+button as well as the standard `Escape` and outside-click dismissal.
 
 ## Page sizing
 
@@ -133,7 +134,8 @@ contexts, as are portrait and landscape on the same device.
 The reader will suggest a fit that suits the screen — fit width on a phone in
 portrait, best fit on a tablet — as a small prompt above the controls. It is a
 suggestion: accepting it records a page size for that context, and dismissing it
-means nothing changes. Rotating a device never rewrites a choice on its own.
+means nothing changes. The prompt gets out of the way while reader settings are
+open. Rotating a device never rewrites a choice on its own.
 
 Contexts are recognised from what the browser reports about the viewport and the
 pointer, never from the user-agent string, so a narrow desktop window gets a

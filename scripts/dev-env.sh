@@ -3,8 +3,9 @@
 # that belong to this checkout and no other.
 #
 # Run it once per checkout, before the first `docker compose` command. It is
-# idempotent and never overwrites a value you have already set — re-running it
-# after a pull only fills in keys that .env.example has gained.
+# idempotent: checkout-derived values are refreshed, while configuration you
+# chose yourself is preserved. Re-running it after a pull also fills in keys
+# that .env.example has gained.
 #
 # Why this exists: .env used to be tracked, so every git worktree inherited
 # COMPOSE_PROJECT_NAME=cbz_reader and ports 8080/8081/3001/1025/8025. Compose

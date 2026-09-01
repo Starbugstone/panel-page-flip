@@ -43,14 +43,14 @@ function NoticeDetails({ form, errors, change, setForm, referenceCopy }) {
           </CardHeader>
           <CardContent className="space-y-5">
             <Field label="Report type" error={errors.category} required>
-              <select id="category" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.category} onChange={change("category")}>
+              <select id="category" name="category" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.category} onChange={change("category")}>
                 <option value="">Select a category</option>
                 <option value="copyright_ip">Copyright / intellectual-property infringement</option>
                 <option value="other_illegal">Other illegal content</option>
               </select>
             </Field>
             <Field label="How can we identify it?" error={errors.referenceType} required hint="Choose a reference you can realistically know. Internal database IDs are never required.">
-              <select id="referenceType" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.referenceType} onChange={change("referenceType")}>
+              <select id="referenceType" name="referenceType" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.referenceType} onChange={change("referenceType")}>
                 <option value="invitation_url">Panel Page Flip invitation link</option>
                 <option value="sharing_code">C- / G- content sharing code</option>
                 <option value="user_code">U- public user code</option>
@@ -61,29 +61,30 @@ function NoticeDetails({ form, errors, change, setForm, referenceCopy }) {
               </select>
             </Field>
             <Field label={referenceCopy.label} error={errors.reportedReference} required hint={referenceCopy.hint}>
-              <Textarea id="reportedReference" value={form.reportedReference} onChange={change("reportedReference")} maxLength={2000} rows={3} placeholder={referenceCopy.placeholder} />
+              <Textarea id="reportedReference" name="reportedReference" value={form.reportedReference} onChange={change("reportedReference")} maxLength={2000} rows={3} placeholder={referenceCopy.placeholder} />
             </Field>
             <Field label={`Content title${form.referenceType === "comic_reference" ? "" : " (optional)"}`} error={errors.reportedContentTitle} required={form.referenceType === "comic_reference"}>
-              <Input id="reportedContentTitle" value={form.reportedContentTitle} onChange={change("reportedContentTitle")} maxLength={255} placeholder="Title, issue, edition, or collection" />
+              <Input id="reportedContentTitle" name="reportedContentTitle" value={form.reportedContentTitle} onChange={change("reportedContentTitle")} maxLength={255} placeholder="Title, issue, edition, or collection" />
             </Field>
             <Field label="Reported account (optional)" error={errors.reportedAccountReference} hint="A username, display name, or email only if you genuinely know it.">
-              <Input id="reportedAccountReference" value={form.reportedAccountReference} onChange={change("reportedAccountReference")} maxLength={320} />
+              <Input id="reportedAccountReference" name="reportedAccountReference" value={form.reportedAccountReference} onChange={change("reportedAccountReference")} maxLength={320} />
             </Field>
             <Field label="Where you encountered it (optional)" error={errors.sourceContext} hint="Describe where or how you encountered the material. Do not include passwords or private credentials.">
-              <Textarea id="sourceContext" value={form.sourceContext} onChange={change("sourceContext")} maxLength={2000} rows={3} />
+              <Textarea id="sourceContext" name="sourceContext" value={form.sourceContext} onChange={change("sourceContext")} maxLength={2000} rows={3} />
             </Field>
             <Field label="Explain the report" error={errors.explanation} required hint="Explain what you believe is illegal, the right involved, your authority to report it, and supporting context.">
-              <Textarea id="explanation" value={form.explanation} onChange={change("explanation")} maxLength={10000} rows={8} />
+              <Textarea id="explanation" name="explanation" value={form.explanation} onChange={change("explanation")} maxLength={10000} rows={8} />
             </Field>
 
             <div className="hidden" aria-hidden="true">
               <Label htmlFor="website">Website</Label>
-              <Input id="website" tabIndex={-1} autoComplete="off" value={form.website} onChange={change("website")} />
+              <Input id="website" name="website" tabIndex={-1} autoComplete="off" value={form.website} onChange={change("website")} />
             </div>
 
             <div className="flex items-start gap-3">
               <Checkbox
                 id="goodFaithAcknowledged"
+                name="goodFaithAcknowledged"
                 checked={form.goodFaithAcknowledged}
                 onCheckedChange={(checked) => setForm((current) => ({ ...current, goodFaithAcknowledged: checked === true }))}
               />
@@ -181,16 +182,16 @@ export default function ReportContent() {
           <CardHeader><CardTitle>Reporter details</CardTitle></CardHeader>
           <CardContent className="grid gap-5 sm:grid-cols-2">
             <Field label="Name or organization" error={errors.reporterName} required>
-              <Input id="reporterName" value={form.reporterName} onChange={change("reporterName")} maxLength={200} />
+              <Input id="reporterName" name="reporterName" autoComplete="name" value={form.reporterName} onChange={change("reporterName")} maxLength={200} />
             </Field>
             <Field label="Email" error={errors.reporterEmail} required>
-              <Input id="reporterEmail" type="email" value={form.reporterEmail} onChange={change("reporterEmail")} maxLength={320} />
+              <Input id="reporterEmail" name="reporterEmail" type="email" autoComplete="email" value={form.reporterEmail} onChange={change("reporterEmail")} maxLength={320} />
             </Field>
             <Field label="Company / rights holder">
-              <Input id="reporterOrganization" value={form.reporterOrganization} onChange={change("reporterOrganization")} maxLength={200} />
+              <Input id="reporterOrganization" name="reporterOrganization" autoComplete="organization" value={form.reporterOrganization} onChange={change("reporterOrganization")} maxLength={200} />
             </Field>
             <Field label="Role or authority">
-              <Input id="reporterRole" value={form.reporterRole} onChange={change("reporterRole")} maxLength={200} placeholder="Rights holder or authorized representative" />
+              <Input id="reporterRole" name="reporterRole" autoComplete="organization-title" value={form.reporterRole} onChange={change("reporterRole")} maxLength={200} placeholder="Rights holder or authorized representative" />
             </Field>
           </CardContent>
         </Card>

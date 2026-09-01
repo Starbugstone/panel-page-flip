@@ -80,7 +80,7 @@ export function ReaderView({ book, view, refs, actions, suggestions, nextComic, 
         />
       )}
 
-      <ReaderSuggestions suggestions={suggestions} contextLabel={contextLabel} />
+      {!view.isSettingsOpen && <ReaderSuggestions suggestions={suggestions} contextLabel={contextLabel} />}
 
       <ReaderPageControls
         controlsRef={refs.controls}

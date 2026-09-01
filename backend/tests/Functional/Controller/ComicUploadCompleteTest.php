@@ -26,6 +26,16 @@ final class ComicUploadCompleteTest extends AbstractApiTestCase
         self::assertSame('Missing fileId parameter', $payload['message']);
     }
 
+    public function testCompleteRejectsAContainerFileId(): void
+    {
+        $this->createAndLoginUser();
+
+        $payload = $this->postJson('/api/comics/upload/complete', ['fileId' => ['not-a-scalar']]);
+
+        self::assertResponseStatusCodeSame(400);
+        self::assertSame('Invalid fileId.', $payload['message']);
+    }
+
     public function testCompleteForAnUnknownUploadIsRejected(): void
     {
         $this->createAndLoginUser();

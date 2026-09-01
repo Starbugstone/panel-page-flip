@@ -36,6 +36,26 @@ describe("Login — registration copy", () => {
     expect(screen.queryByText(/Comic Reader/i)).not.toBeInTheDocument();
   });
 
+  it("identifies login and registration fields to password managers", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Login />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByLabelText("Email")).toHaveAttribute("autocomplete", "username");
+    expect(screen.getByLabelText("Password")).toHaveAttribute("autocomplete", "current-password");
+
+    await user.click(screen.getByRole("tab", { name: "Sign up" }));
+    await waitFor(() => expect(screen.getByLabelText("Username")).toHaveValue("SilverOtter4821"));
+
+    expect(screen.getByLabelText("Name")).toHaveAttribute("autocomplete", "name");
+    expect(screen.getByLabelText("Username")).toHaveAttribute("autocomplete", "username");
+    expect(screen.getByLabelText("Email")).toHaveAttribute("autocomplete", "email");
+    expect(screen.getByLabelText("Password")).toHaveAttribute("autocomplete", "new-password");
+  });
+
   it("places password-policy feedback with the password field", async () => {
     const user = userEvent.setup();
     openSignup();

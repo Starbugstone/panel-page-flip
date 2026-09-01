@@ -77,6 +77,18 @@ describe("ReportContent", () => {
     expect(screen.queryByLabelText(/linked .* id/i)).not.toBeInTheDocument();
   });
 
+  it("gives report fields stable form names and useful autofill metadata", () => {
+    render(<MemoryRouter><ReportContent /></MemoryRouter>);
+
+    expect(screen.getByLabelText(/name or organization/i)).toHaveAttribute("name", "reporterName");
+    expect(screen.getByLabelText(/name or organization/i)).toHaveAttribute("autocomplete", "name");
+    expect(screen.getByLabelText(/^email/i)).toHaveAttribute("name", "reporterEmail");
+    expect(screen.getByLabelText(/^email/i)).toHaveAttribute("autocomplete", "email");
+    expect(screen.getByLabelText(/company \/ rights holder/i)).toHaveAttribute("autocomplete", "organization");
+    expect(screen.getByLabelText(/role or authority/i)).toHaveAttribute("autocomplete", "organization-title");
+    expect(screen.getByLabelText("Website")).toHaveAttribute("name", "website");
+  });
+
   it("shows field validation returned by the server", async () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockRejectedValue({ data: { errors: { reporterEmail: "Provide a valid email address." } } });

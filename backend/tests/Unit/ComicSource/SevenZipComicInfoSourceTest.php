@@ -41,6 +41,15 @@ final class SevenZipComicInfoSourceTest extends TestCase
         self::assertNull((new SevenZipPageProvider())->readComicInfoXml($archive, ComicSourceType::CB7));
     }
 
+    public function testStopsReadingComicInfoAtTheMetadataLimit(): void
+    {
+        $archive = $this->archive(ComicSourceType::CB7, '7z', [
+            'ComicInfo.xml' => str_repeat('a', 3_000_000),
+        ]);
+
+        self::assertNull((new SevenZipPageProvider())->readComicInfoXml($archive, ComicSourceType::CB7));
+    }
+
     public function archiveProvider(): iterable
     {
         yield 'CB7' => [ComicSourceType::CB7, '7z'];

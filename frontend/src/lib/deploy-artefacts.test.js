@@ -109,6 +109,19 @@ describe("the local Docker environment", () => {
     expect(() => read(".env.example")).not.toThrow();
   });
 
+  it("documents every variable Docker Compose reads", () => {
+    const example = read(".env.example");
+    const documented = new Set(
+      [...example.matchAll(/^([A-Z][A-Z0-9_]*)=/gm)].map((match) => match[1])
+    );
+    const referenced = new Set(
+      [...compose.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)].map((match) => match[1])
+    );
+
+    expect([...referenced].filter((name) => !documented.has(name))).toEqual([]);
+    expect(documented).toContain("COMPOSE_PROJECT_NAME");
+  });
+
   /**
    * Container names are global to the Docker daemon, so a literal name makes
    * two checkouts fight over one container instead of getting one each.

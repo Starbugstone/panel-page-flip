@@ -1237,6 +1237,19 @@ describe("ComicReader", () => {
       expect(screen.getByRole("group", { name: /page thumbnails/i })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /use two pages/i })).not.toBeInTheDocument();
     });
+
+    it("gets the fit suggestion out of the way while settings are open", async () => {
+      const user = userEvent.setup();
+      useScreen({ width: 390, height: 844 });
+      renderReader();
+      await page(1);
+      await screen.findByRole("button", { name: /use it here/i });
+
+      await user.click(screen.getByRole("button", { name: "Reader settings" }));
+
+      expect(screen.getByRole("dialog", { name: "Reader settings" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /use it here/i })).not.toBeInTheDocument();
+    });
   });
 
   describe("fullscreen layout", () => {

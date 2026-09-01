@@ -21,6 +21,7 @@ final class PdfDocument
     private const MAX_OBJECTS = 500_000;
     private const MAX_PAGES = 20_000;
     private const MAX_TREE_DEPTH = 64;
+    private const MAX_DOCUMENT_BYTES = 67_108_864;
     /** ~600 megapixels: far past any comic page, well short of exhausting memory. */
     private const MAX_PIXELS = 600_000_000;
 
@@ -63,8 +64,13 @@ final class PdfDocument
 
     public static function open(string $path): self
     {
-        $buffer = @file_get_contents($path);
+        // Read one byte past the ceiling rather than trusting a prior stat:
+        // this stays bounded even if the source is replaced between the size
+        // check and the read. Larger documents use the provider's Poppler
+        // fallback, which streams them without holding the source in PHP.
+        $buffer = @file_get_contents($path, false, null, 0, self::MAX_DOCUMENT_BYTES + 1);
         if ($buffer === false || !str_starts_with($buffer, '%PDF-')) throw new PdfException('Not a PDF.');
+        if (strlen($buffer) > self::MAX_DOCUMENT_BYTES) throw new PdfException('PDF is too large for the native reader.');
 
         $document = new self($buffer);
         $document->loadCrossReferences();

@@ -19,8 +19,13 @@ final class PdfParser
 {
     /** Guards against a hostile file nesting containers until we run out of stack. */
     private const MAX_DEPTH = 32;
+    /** Bounds PHP arrays built from one object before their zvals exhaust memory. */
+    private const MAX_VALUES = 200_000;
+    private const MAX_STRING_BYTES = 2_097_152;
+    private const MAX_NAME_BYTES = 1_024;
 
     private int $position = 0;
+    private int $valuesParsed = 0;
 
     public function __construct(private readonly string $buffer)
     {
@@ -52,6 +57,7 @@ final class PdfParser
     public function parseValue(int $depth = 0): mixed
     {
         if ($depth > self::MAX_DEPTH) throw new PdfException('PDF structure is nested too deeply.');
+        if (++$this->valuesParsed > self::MAX_VALUES) throw new PdfException('PDF object contains too many values.');
 
         $this->skipWhitespace();
         if ($this->position >= strlen($this->buffer)) throw new PdfException('Unexpected end of PDF data.');
@@ -159,11 +165,13 @@ final class PdfParser
 
             // #-escapes, e.g. /A#20B for "A B".
             if ($char === '#' && preg_match('/^[0-9A-Fa-f]{2}/', substr($this->buffer, $this->position + 1, 2), $hex) === 1) {
+                if (strlen($name) >= self::MAX_NAME_BYTES) throw new PdfException('PDF name is too large.');
                 $name .= chr((int) hexdec($hex[0]));
                 $this->position += 3;
                 continue;
             }
 
+            if (strlen($name) >= self::MAX_NAME_BYTES) throw new PdfException('PDF name is too large.');
             $name .= $char;
             ++$this->position;
         }
@@ -185,6 +193,7 @@ final class PdfParser
                     ? $this->buffer[$this->position]
                     : '';
                 ++$this->position;
+                if (strlen($value) >= self::MAX_STRING_BYTES) throw new PdfException('PDF string is too large.');
                 $value .= match ($next) {
                     'n' => "\n", 'r' => "\r", 't' => "\t", 'b' => "\x08", 'f' => "\x0C",
                     default => $next,
@@ -195,6 +204,7 @@ final class PdfParser
             if ($char === '(') ++$nesting;
             if ($char === ')' && --$nesting === 0) return $value;
 
+            if (strlen($value) >= self::MAX_STRING_BYTES) throw new PdfException('PDF string is too large.');
             $value .= $char;
         }
 
@@ -206,6 +216,7 @@ final class PdfParser
         ++$this->position;
         $end = strpos($this->buffer, '>', $this->position);
         if ($end === false) throw new PdfException('Unterminated PDF hex string.');
+        if ($end - $this->position > self::MAX_STRING_BYTES * 2) throw new PdfException('PDF hex string is too large.');
 
         $hex = preg_replace('/[^0-9A-Fa-f]/', '', substr($this->buffer, $this->position, $end - $this->position)) ?? '';
         $this->position = $end + 1;

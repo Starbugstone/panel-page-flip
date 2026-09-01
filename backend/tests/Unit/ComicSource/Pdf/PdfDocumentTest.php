@@ -132,6 +132,21 @@ final class PdfDocumentTest extends TestCase
         PdfDocument::open($this->path);
     }
 
+    public function testRefusesAnOversizedDocumentBeforeReadingItIntoMemory(): void
+    {
+        $this->path = tempnam(sys_get_temp_dir(), 'comic-pdfdoc-');
+        $handle = fopen($this->path, 'c+b');
+        self::assertIsResource($handle);
+        self::assertSame(9, fwrite($handle, "%PDF-1.4\n"));
+        self::assertTrue(ftruncate($handle, 67_108_865));
+        fclose($handle);
+
+        $this->expectException(PdfException::class);
+        $this->expectExceptionMessage('too large for the native reader');
+
+        PdfDocument::open($this->path);
+    }
+
     /**
      * A page tree pointing back at itself must terminate rather than recurse
      * until the process dies.

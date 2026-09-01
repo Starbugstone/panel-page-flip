@@ -11,8 +11,9 @@ scripts/dev-env.sh
 docker compose up -d --build
 ```
 
-`dev-env.sh` writes `.env`. It is idempotent, never overwrites a value you have
-already changed, and is safe to re-run after a pull that adds a key.
+`dev-env.sh` writes `.env`. It is idempotent: it refreshes the checkout-derived
+project, port, UID/GID and `APP_URL` values, preserves the other values you have
+changed, and fills in keys added to `.env.example` after a pull.
 
 `.env` is **not tracked**. It carries three things that must differ between
 checkouts on the same machine:
