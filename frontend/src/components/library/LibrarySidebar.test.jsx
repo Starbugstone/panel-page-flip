@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { LibrarySidebar } from "./LibrarySidebar";
+import { DesktopLibrarySidebar, LibrarySidebar } from "./LibrarySidebar";
 
 vi.mock("@/hooks/use-storage-usage", () => ({
   useStorageUsage: () => ({ usage: null }),
@@ -61,5 +61,19 @@ describe("LibrarySidebar folder creation", () => {
     await user.click(screen.getByRole("button", { name: "Add" }));
 
     expect(screen.getByLabelText("Folder name")).toHaveValue("Duplicates");
+  });
+});
+
+describe("the desktop library navigation panel", () => {
+  it("stays below the header and scrolls within the viewport", () => {
+    render(<DesktopLibrarySidebar>Navigation</DesktopLibrarySidebar>);
+
+    expect(screen.getByText("Navigation")).toHaveClass(
+      "lg:sticky",
+      "lg:top-20",
+      "lg:max-h-[calc(100dvh-6rem)]",
+      "lg:self-start",
+      "lg:overflow-y-auto",
+    );
   });
 });

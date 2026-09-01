@@ -130,6 +130,12 @@ answer.
 
 ## Frontend
 
+On desktop, the application header stays pinned above the library while its
+contents scroll. The navigation panel beside the collection is pinned just
+below that header and is bounded by the remaining viewport height; a folder
+tree taller than the screen scrolls inside the panel. Compact layouts continue
+to use the left-hand drawer instead.
+
 - `components/library/LibrarySidebar.jsx` — the tree beside the collection
 - `components/library/LibraryFolderTree.jsx` — the tree itself
 - `components/library/LibraryFolderCard.jsx` — a folder shown among comics

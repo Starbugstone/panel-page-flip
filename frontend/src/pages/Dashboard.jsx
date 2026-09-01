@@ -4,7 +4,7 @@ import { SearchBar } from "@/components/SearchBar.jsx";
 import { LibraryDialogs } from "@/components/library/LibraryDialogs";
 import { LibraryFolderBar } from "@/components/library/LibraryFolderBar";
 import { LibraryResults } from "@/components/library/LibraryResults";
-import { LibrarySidebar } from "@/components/library/LibrarySidebar";
+import { DesktopLibrarySidebar, LibrarySidebar } from "@/components/library/LibrarySidebar";
 import { LibraryToolbar } from "@/components/library/LibraryToolbar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useComicLibrary } from "@/hooks/use-comic-library.jsx";
@@ -113,7 +113,7 @@ export default function Dashboard() {
       </Sheet>
 
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <div className="hidden rounded-lg border bg-card p-3 lg:block">{sidebar}</div>
+        <DesktopLibrarySidebar>{sidebar}</DesktopLibrarySidebar>
         <main className="min-w-0 space-y-5">
           {isFolderView && (
             <LibraryFolderBar

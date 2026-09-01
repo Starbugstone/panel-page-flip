@@ -12,6 +12,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
   const location = useLocation();
   const inBulkUpload = location.pathname === "/upload/bulk" || location.pathname.startsWith("/upload/bulk/");
   const isReaderPage = location.pathname.includes("/read/");
+  const isLibraryPage = location.pathname === "/dashboard";
   const [isFullscreen, setIsFullscreen] = useState(false);
   const { summary } = useSharing();
   const pendingInvitations = summary.pendingInvitations;
@@ -54,7 +55,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
   }
 
   return (
-    <header className="border-b">
+    <header className={`border-b ${isLibraryPage ? `bg-background lg:sticky lg:top-0 ${PAGE_LAYER_CLASSES.header}` : ""}`}>
       <div className="container flex h-16 items-center justify-between px-4 md:px-6">
         <Link to="/" aria-label="Panel Page Flip" className="flex min-h-10 min-w-10 items-center gap-2">
           <BookOpen className="h-6 w-6 text-comic-purple" />

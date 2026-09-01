@@ -15,6 +15,14 @@ const QUICK_VIEWS = [
   { value: "dropbox", label: "Dropbox", icon: Cloud },
 ];
 
+export function DesktopLibrarySidebar({ children }) {
+  return (
+    <div className="hidden rounded-lg border bg-card p-3 lg:sticky lg:top-20 lg:block lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto">
+      {children}
+    </div>
+  );
+}
+
 export function LibrarySidebar({ folders, activeFolderId, activeView, onFolderSelect, onViewSelect, onCreateFolder }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
