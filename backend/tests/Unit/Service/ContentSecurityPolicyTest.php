@@ -56,6 +56,8 @@ final class ContentSecurityPolicyTest extends TestCase
 
         self::assertStringContainsString("script-src 'self'", $policy->header());
         self::assertStringNotContainsString('unsafe-eval', $policy->header());
+        self::assertStringContainsString("script-src 'self' https://challenges.cloudflare.com", $policy->header());
+        self::assertStringContainsString('frame-src \'self\' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://fundingchoicesmessages.google.com https://challenges.cloudflare.com', $policy->header());
     }
 
     public function testAnalyticsAloneReceivesTheNoncePolicyNeededForTheCmpAndTag(): void

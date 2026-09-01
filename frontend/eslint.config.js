@@ -31,6 +31,7 @@ export default [
       "src/components/ui/**/*.{js,jsx}",
       "src/components/ThemeProvider.jsx",
       "src/components/ads/AdSenseProvider.jsx",
+      "src/components/config/PublicConfigProvider.jsx",
       "src/hooks/**/*.{js,jsx}",
     ],
     rules: { "react-refresh/only-export-components": "off" },

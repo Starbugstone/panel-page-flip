@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
+import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
 import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
 import { adSafeRouteSentence } from "@/lib/advertising";
 
-const LAST_UPDATED = "31 August 2026";
+const LAST_UPDATED = "1 September 2026";
 
 /**
  * The operator's contact details, from the one public-config request the
@@ -15,7 +16,7 @@ const LAST_UPDATED = "31 August 2026";
  * for two halves of the same answer.
  */
 function useLegalConfig() {
-  return useAdSense().legal;
+  return usePublicConfig().legal;
 }
 
 /**
@@ -26,17 +27,19 @@ function useLegalConfig() {
  * do. A privacy policy that lists a processor nobody uses is as wrong as one
  * that omits a processor they do.
  */
-function useGoogleServicesInUse() {
+function useOptionalServicesInUse() {
   const { analytics, isLoading, isActive } = useAdSense();
+  const { turnstile, isLoading: publicConfigLoading } = usePublicConfig();
 
   // Null, not false, until the answer arrives. These pages carry absolute
   // claims in both directions — "we do not use advertising networks" is a
   // statement of fact on an indexable page — and defaulting to the negative one
   // for the length of a round trip publishes the wrong fact on every load of an
   // installation that does show advertising. Unknown renders neither claim.
-  return isLoading ? null : {
+  return isLoading || publicConfigLoading ? null : {
     advertising: isActive,
     analytics: Boolean(analytics?.enabled && analytics.measurementId),
+    turnstile: Boolean(turnstile?.enabled && turnstile.siteKey),
   };
 }
 
@@ -92,6 +95,7 @@ function LegalLayout({ title, children }) {
 function PrivacyRecipients({ services }) {
   const advertising = services?.advertising;
   const analytics = services?.analytics;
+  const turnstile = services?.turnstile;
   return (
     <>
       <h2>Who receives data</h2>
@@ -108,6 +112,14 @@ function PrivacyRecipients({ services }) {
               ? " We use Google Analytics for optional audience measurement, as described below. We do not use advertising networks."
               : " We do not use advertising networks or third-party analytics."}
       </p>
+      {turnstile && (
+        <p>
+          Cloudflare receives the network and browser data needed to run its
+          Turnstile anti-abuse challenge, only when the public content-report
+          form is opened. The site operator does not send the report contents
+          or reporter email address to Cloudflare.
+        </p>
+      )}
       <p>
         <strong>Metadata providers.</strong> When you explicitly search for a comic’s
         details, the provider you choose receives the identifying fields of that
@@ -208,8 +220,9 @@ function PrivacyRecipients({ services }) {
 export function PrivacyPolicy() {
   const { operator, privacyEmail } = useLegalConfig();
 
-  const services = useGoogleServicesInUse();
+  const services = useOptionalServicesInUse();
   const analytics = services?.analytics;
+  const turnstile = services?.turnstile;
 
   return (
     <LegalLayout title="Privacy Policy">
@@ -234,6 +247,7 @@ export function PrivacyPolicy() {
         <li>Metadata-provider credentials, when you add your own: an encrypted API token, write-only after saving and removable at any time.</li>
         <li>Security and operations data: session identifiers, IP-based rate-limit entries, access logs, and administrator audit records.</li>
         <li>Content reports: reporter contact details, the supplied allegation and references, review notes, linked internal records, and action history.</li>
+        {turnstile && <li>Anti-abuse challenge data processed by Cloudflare Turnstile when you open the public content-report form.</li>}
       </ul>
 
       <h2>Why we process it</h2>
@@ -287,7 +301,7 @@ export function PrivacyPolicy() {
 
 export function TermsOfService() {
   const { operator, privacyEmail, legalEmail } = useLegalConfig();
-  const services = useGoogleServicesInUse();
+  const services = useOptionalServicesInUse();
   const advertising = services?.advertising;
 
   return (
@@ -394,10 +408,11 @@ export function TermsOfService() {
 }
 
 export function CookieNoticePage() {
-  const services = useGoogleServicesInUse();
+  const services = useOptionalServicesInUse();
   const advertising = services?.advertising;
   const analytics = services?.analytics;
   const googleServices = Boolean(advertising || analytics);
+  const turnstile = services?.turnstile;
   const optionalStorageSummary = advertising && analytics
     ? "Google advertising and optional Google Analytics use"
     : advertising
@@ -418,6 +433,13 @@ export function CookieNoticePage() {
         <li><strong>XSRF-TOKEN:</strong> protects authenticated actions against cross-site request forgery.</li>
         <li><strong>comic-reader-theme:</strong> remembers light or dark appearance for up to 365 days.</li>
         <li><strong>Local browser storage:</strong> remembers the theme during migration and whether you dismissed the cookie notice.</li>
+        {turnstile && (
+          <li>
+            <strong>Turnstile anti-abuse storage:</strong> Cloudflare may use
+            strictly necessary browser storage while verifying the public
+            content-report form.
+          </li>
+        )}
         {googleServices && (
           <li>
             <strong>Consent choices:</strong> the Google-certified consent platform stores the

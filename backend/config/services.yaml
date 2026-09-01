@@ -103,6 +103,14 @@ parameters:
     env(GOOGLE_ANALYTICS_MEASUREMENT_ID): ''
     google_analytics_enabled: '%env(bool:GOOGLE_ANALYTICS_ENABLED)%'
     google_analytics_measurement_id: '%env(GOOGLE_ANALYTICS_MEASUREMENT_ID)%'
+    # Optional managed challenge for the unauthenticated legal-report form.
+    # Enabling it without both keys is a deployment error, not a silent opt-out.
+    env(TURNSTILE_ENABLED): 'false'
+    env(TURNSTILE_SITE_KEY): ''
+    env(TURNSTILE_SECRET_KEY): ''
+    turnstile_enabled: '%env(bool:TURNSTILE_ENABLED)%'
+    turnstile_site_key: '%env(TURNSTILE_SITE_KEY)%'
+    turnstile_secret_key: '%env(TURNSTILE_SECRET_KEY)%'
     # Daily log files live under these, one folder per stream. Security and
     # audit files are grouped into YYYY/MM/ because a year of them at one file
     # per day is several hundred entries in a single listing.
@@ -226,6 +234,11 @@ services:
     App\Controller\ContentReportController:
         arguments:
             $contentReportLimiter: '@limiter.content_report'
+            $contentReportBurstLimiter: '@limiter.content_report_burst'
+
+    App\Service\ContentReportNotifier:
+        arguments:
+            $contentReportAcknowledgementLimiter: '@limiter.content_report_acknowledgement'
             
     # Test mail command with mailer configuration
     App\Command\TestMailCommand:

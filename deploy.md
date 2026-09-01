@@ -163,6 +163,7 @@ This file is **gitignored**. Fill in:
 | Post-deploy     | `POST_DEPLOY_TOKEN`                                                                                      | Run `openssl rand -hex 32`. **Same value** is baked into `backend/.env.local.php` as `DEPLOY_TOKEN` and used as the `X-Deploy-Token` header. |
 | Symfony secrets | `PROD_APP_SECRET`, `PROD_APP_DATA_KEY`, `PROD_DATABASE_URL`, `PROD_CORS_ALLOW_ORIGIN`, `PROD_MAILER_*` | These are baked into `release/backend/.env.prod.local`, then consolidated into `backend/.env.local.php`. `PUBLIC_URL` is the single public origin for both the build and backend. Preserve `PROD_APP_DATA_KEY` permanently or encrypted Dropbox credentials become unreadable. |
 | Dropbox (opt)   | `PROD_DROPBOX_*`                                                                                         | Skip if you don't import from Dropbox. |
+| Turnstile (opt) | `PROD_TURNSTILE_ENABLED`, `PROD_TURNSTILE_SITE_KEY`, `PROD_TURNSTILE_SECRET_KEY`                      | Managed widget for the `PUBLIC_URL` hostname. The build rejects enabled configuration with a missing key and never prints the secret. |
 
 Generate strong tokens:
 

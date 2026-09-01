@@ -7,7 +7,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
+import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
+import { TurnstileWidget } from "@/components/security/TurnstileWidget.jsx";
 import { api } from "@/lib/api";
 
 const EMPTY = {
@@ -103,10 +104,12 @@ export default function ReportContent() {
   const [errors, setErrors] = useState({});
   const [result, setResult] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const referenceCopy = REFERENCE_COPY[form.referenceType];
   // From the one public-config request the application makes on startup, rather
   // than a second anonymous round trip for one address.
-  const { legal } = useAdSense();
+  const { legal, turnstile, isLoading: publicConfigLoading } = usePublicConfig();
   const legalEmail = legal.legalEmail;
 
   useEffect(() => {
@@ -123,12 +126,19 @@ export default function ReportContent() {
     setErrors({});
     setSubmitting(true);
     try {
-      const response = await api.post("/api/content-reports", form, { notifyUnauthorized: false });
+      const payload = turnstile.enabled
+        ? { ...form, turnstileToken }
+        : form;
+      const response = await api.post("/api/content-reports", payload, { notifyUnauthorized: false });
       setResult(response);
       setForm(EMPTY);
     } catch (error) {
       setErrors(error?.data?.errors || { form: error?.message || "The report could not be submitted." });
     } finally {
+      if (turnstile.enabled) {
+        setTurnstileToken(null);
+        setTurnstileResetKey((current) => current + 1);
+      }
       setSubmitting(false);
     }
   };
@@ -142,9 +152,13 @@ export default function ReportContent() {
             <CardDescription>{result.message}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p>Your reference is <strong>{result.reference}</strong>.</p>
-            <p>A detailed receipt has been sent to your email address. Capability-like invitation tokens and sharing codes are masked in that copy.</p>
-            <p>Keep this reference if you contact the site operator. No specific response time is promised.</p>
+            {result.reference && (
+              <>
+                <p>Your reference is <strong>{result.reference}</strong>.</p>
+                <p>A detailed receipt has been sent to your email address. Capability-like invitation tokens and sharing codes are masked in that copy.</p>
+                <p>Keep this reference if you contact the site operator. No specific response time is promised.</p>
+              </>
+            )}
             <Button variant="outline" onClick={() => setResult(null)}>Submit another report</Button>
           </CardContent>
         </Card>
@@ -183,7 +197,37 @@ export default function ReportContent() {
 
         <NoticeDetails form={form} errors={errors} change={change} setForm={setForm} referenceCopy={referenceCopy} />
 
-        <Button type="submit" disabled={submitting}>{submitting ? "Submitting…" : "Submit report"}</Button>
+        {turnstile.enabled && (
+          <div className="space-y-2">
+            <TurnstileWidget
+              siteKey={turnstile.siteKey}
+              onToken={(token) => {
+                setTurnstileToken(token);
+                if (token) {
+                  setErrors((current) => {
+                    if (!("turnstile" in current)) return current;
+                    const remaining = { ...current };
+                    delete remaining.turnstile;
+                    return remaining;
+                  });
+                }
+              }}
+              onError={() => setErrors((current) => ({
+                ...current,
+                turnstile: "Complete the anti-bot check and try again.",
+              }))}
+              resetKey={turnstileResetKey}
+            />
+            {errors.turnstile && <p role="alert" className="text-sm text-destructive">{errors.turnstile}</p>}
+          </div>
+        )}
+
+        <Button
+          type="submit"
+          disabled={submitting || publicConfigLoading || (turnstile.enabled && !turnstileToken)}
+        >
+          {submitting ? "Submitting…" : "Submit report"}
+        </Button>
         <p className="text-sm text-muted-foreground">The legal operator may contact you if more identifying information is needed.</p>
       </form>
 

@@ -13,6 +13,7 @@ const { adSense } = vi.hoisted(() => ({
     analytics: { enabled: false, measurementId: null },
     consent: { enabled: false, client: null },
     legal: { operator: "Test operator", privacyEmail: null, legalEmail: null },
+    turnstile: { enabled: false, siteKey: null },
     isLoading: false,
   },
 }));
@@ -22,6 +23,13 @@ vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), log: vi.fn() } }));
 vi.mock("@/lib/privacy-choices", () => ({ reopenPrivacyChoices: vi.fn(() => Promise.resolve(true)) }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
   useAdSense: () => ({ config: adSense.config, analytics: adSense.analytics, consent: adSense.consent, legal: adSense.legal, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
+}));
+vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({
+  usePublicConfig: () => ({
+    legal: adSense.legal,
+    turnstile: adSense.turnstile,
+    isLoading: adSense.isLoading,
+  }),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";
@@ -41,6 +49,7 @@ beforeEach(() => {
   adSense.analytics = { enabled: false, measurementId: null };
   adSense.consent = { enabled: false, client: null };
   adSense.isLoading = false;
+  adSense.turnstile = { enabled: false, siteKey: null };
 });
 
 /**
@@ -86,6 +95,15 @@ describe("the privacy policy", () => {
     expect(screen.getByText(/Google Signals and advertising-personalisation signals are disabled/i)).toBeInTheDocument();
     expect(screen.getByText(/two-month retention period/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /^advertising$/i })).not.toBeInTheDocument();
+  });
+
+  it("names Cloudflare only when Turnstile is enabled at runtime", async () => {
+    adSense.turnstile = { enabled: true, siteKey: "public-site-key" };
+
+    renderPage(<PrivacyPolicy />);
+
+    expect(await screen.findByText(/Cloudflare receives the network and browser data/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not send the report contents or reporter email address to Cloudflare/i)).toBeInTheDocument();
   });
 
   /**

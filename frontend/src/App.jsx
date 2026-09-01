@@ -10,6 +10,7 @@ import { AdminNoticeBanner } from "@/components/AdminNoticeBanner.jsx";
 import { Header } from "@/components/Header.jsx";
 import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { AdSenseProvider } from "@/components/ads/AdSenseProvider.jsx";
+import { PublicConfigProvider } from "@/components/config/PublicConfigProvider.jsx";
 import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
 import { Footer } from "@/components/Footer.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
@@ -149,11 +150,13 @@ const App = () => {
                         decides where advertising may run at all; outside the
                         routed pages because Google's site code is loaded once
                         for the whole application, never per page. */}
-                    <AdSenseProvider>
-                      <GoogleAnalyticsProvider>
-                        <AppRoutes />
-                      </GoogleAnalyticsProvider>
-                    </AdSenseProvider>
+                    <PublicConfigProvider>
+                      <AdSenseProvider>
+                        <GoogleAnalyticsProvider>
+                          <AppRoutes />
+                        </GoogleAnalyticsProvider>
+                      </AdSenseProvider>
+                    </PublicConfigProvider>
                   </BrowserRouter>
                 </TooltipProvider>
               </SharingProvider>

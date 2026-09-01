@@ -20,6 +20,14 @@ framework:
             policy: sliding_window
             limit: 5
             interval: '1 hour'
+        content_report_burst:
+            policy: sliding_window
+            limit: 2
+            interval: '1 minute'
+        content_report_acknowledgement:
+            policy: sliding_window
+            limit: 5
+            interval: '1 hour'
         comic_search:
             policy: sliding_window
             limit: 10
@@ -128,8 +136,6 @@ when@test:
             forgot_password:
                 limit: 1000
             verification_resend:
-                limit: 1000
-            content_report:
                 limit: 1000
             comic_search:
                 limit: 1000
