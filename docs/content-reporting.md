@@ -44,10 +44,11 @@ security boundary. Tokens are request metadata and are never persisted or
 logged. A honeypot hit returns fake success before Siteverify, persistence or
 mail.
 
-Production compiled-env releases use the equivalent `PROD_TURNSTILE_*` values
-in `scripts/.env.deploy`. Server-local releases continue to read the unprefixed
-names from the host's ignored `backend/.env.local`. The release preflight rejects
-an enabled compiled configuration with a missing key without printing its value.
+Production compiled-env releases use the same `TURNSTILE_*` names in
+`scripts/.env.deploy`; server-local releases read them from the host's ignored
+`backend/.env.local`. Only the file location changes. The release preflight
+rejects an enabled compiled configuration with a missing key without printing
+its value.
 
 Acknowledgement mail has a separate five-per-hour allowance keyed by a stable
 hash of the normalized reporter address. Exhausting it suppresses only the

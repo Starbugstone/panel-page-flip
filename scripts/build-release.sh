@@ -285,16 +285,16 @@ if [ "$DO_BACKEND" = "1" ]; then
     # would have accepted, and abort the release over surrounding whitespace.
     PROD_ADSENSE_CLIENT="$(printf '%s' "${PROD_ADSENSE_CLIENT:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID="$(printf '%s' "${PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:lower:]' '[:upper:]')"
-    PROD_TURNSTILE_SITE_KEY="$(printf '%s' "${PROD_TURNSTILE_SITE_KEY:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    PROD_TURNSTILE_SECRET_KEY="$(printf '%s' "${PROD_TURNSTILE_SECRET_KEY:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    TURNSTILE_SITE_KEY="$(printf '%s' "${TURNSTILE_SITE_KEY:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    TURNSTILE_SECRET_KEY="$(printf '%s' "${TURNSTILE_SECRET_KEY:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     if [ "$DEPLOY_CONFIG_MODE" = "server-local" ]; then
         PROD_ADSENSE_ENABLED=false
         PROD_ADSENSE_CLIENT=
         PROD_GOOGLE_ANALYTICS_ENABLED=false
         PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID=
-        PROD_TURNSTILE_ENABLED=false
-        PROD_TURNSTILE_SITE_KEY=
-        PROD_TURNSTILE_SECRET_KEY=
+        TURNSTILE_ENABLED=false
+        TURNSTILE_SITE_KEY=
+        TURNSTILE_SECRET_KEY=
     fi
     if [ "${PROD_GOOGLE_ANALYTICS_ENABLED:-false}" = "true" ]; then
         if [[ ! "$PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID" =~ ^G-[A-Z0-9]{5,20}$ ]]; then
@@ -311,9 +311,9 @@ if [ "$DO_BACKEND" = "1" ]; then
             *) fail "PROD_ADSENSE_CLIENT must be ca-pub- followed by 16 digits when PROD_ADSENSE_ENABLED is true." ;;
         esac
     fi
-    if [ "${PROD_TURNSTILE_ENABLED:-false}" = "true" ] \
-        && { [ -z "$PROD_TURNSTILE_SITE_KEY" ] || [ -z "$PROD_TURNSTILE_SECRET_KEY" ]; }; then
-        fail "PROD_TURNSTILE_SITE_KEY and PROD_TURNSTILE_SECRET_KEY are required when PROD_TURNSTILE_ENABLED is true."
+    if [ "${TURNSTILE_ENABLED:-false}" = "true" ] \
+        && { [ -z "$TURNSTILE_SITE_KEY" ] || [ -z "$TURNSTILE_SECRET_KEY" ]; }; then
+        fail "TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are required when TURNSTILE_ENABLED is true."
     fi
 
     write_dotenv APP_ENV prod
@@ -359,9 +359,9 @@ if [ "$DO_BACKEND" = "1" ]; then
     write_dotenv ADSENSE_CLIENT "$PROD_ADSENSE_CLIENT"
     write_dotenv GOOGLE_ANALYTICS_ENABLED "${PROD_GOOGLE_ANALYTICS_ENABLED:-false}"
     write_dotenv GOOGLE_ANALYTICS_MEASUREMENT_ID "$PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID"
-    write_dotenv TURNSTILE_ENABLED "${PROD_TURNSTILE_ENABLED:-false}"
-    write_dotenv TURNSTILE_SITE_KEY "$PROD_TURNSTILE_SITE_KEY"
-    write_dotenv TURNSTILE_SECRET_KEY "$PROD_TURNSTILE_SECRET_KEY"
+    write_dotenv TURNSTILE_ENABLED "${TURNSTILE_ENABLED:-false}"
+    write_dotenv TURNSTILE_SITE_KEY "$TURNSTILE_SITE_KEY"
+    write_dotenv TURNSTILE_SECRET_KEY "$TURNSTILE_SECRET_KEY"
     write_dotenv DEPLOY_TOKEN "$POST_DEPLOY_TOKEN"
     chmod 600 "$PROD_ENV_FILE"
 

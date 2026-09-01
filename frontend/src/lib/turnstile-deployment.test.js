@@ -5,17 +5,17 @@ import { describe, expect, it } from "vitest";
 const repositoryFile = (path) => readFileSync(resolve(import.meta.dirname, "../../..", path), "utf8");
 
 describe("Turnstile deployment artefacts", () => {
-  it("documents every compiled release input and bakes all three backend values", () => {
+  it("uses the canonical backend names for every compiled release input", () => {
     const example = repositoryFile("scripts/.env.deploy.example");
     const build = repositoryFile("scripts/build-release.sh");
 
-    for (const name of ["PROD_TURNSTILE_ENABLED", "PROD_TURNSTILE_SITE_KEY", "PROD_TURNSTILE_SECRET_KEY"]) {
-      expect(example).toContain(`${name}=`);
-    }
     for (const name of ["TURNSTILE_ENABLED", "TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"]) {
+      expect(example).toContain(`${name}=`);
       expect(build).toContain(`write_dotenv ${name}`);
     }
-    expect(build).toContain("are required when PROD_TURNSTILE_ENABLED is true");
+    expect(example).not.toContain("PROD_TURNSTILE_");
+    expect(build).not.toContain("PROD_TURNSTILE_");
+    expect(build).toContain("are required when TURNSTILE_ENABLED is true");
   });
 
   it("keeps the private secret out of every frontend source file", () => {
