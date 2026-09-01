@@ -21,6 +21,134 @@ const BLANK_NEW_USER = { name: "", email: "", password: "", roles: [ROLE_USER] }
 
 const nameOf = (user) => user.name || user.email;
 
+function editFormFor(user) {
+  return {
+    name: user.name || "",
+    email: user.email || "",
+    password: "",
+    roles: Array.isArray(user.roles) ? [...user.roles] : [],
+  };
+}
+
+function userBulkActions({ showOnlyUnverified, selected, notSelf, bulk, setWarningTargets, setConfirmAction }) {
+  const selfExcluded = "your own account is never included";
+  const actions = [{
+    key: "warn",
+    label: "Warn selected",
+    icon: AlertTriangle,
+    eligible: notSelf,
+    ineligibleReason: selfExcluded,
+    onClick: () => setWarningTargets(notSelf),
+  }];
+
+  if (showOnlyUnverified) {
+    actions.push(
+      {
+        key: "verify",
+        label: "Verify selected",
+        icon: BadgeCheck,
+        eligible: selected,
+        onClick: () => bulk.run(
+          selected,
+          (user) => api.post(`/api/users/${user.id}/verify`, {}),
+          { noun: "account", verbPast: "verified", labelOf: nameOf }
+        ),
+      },
+      {
+        key: "resend",
+        label: "Resend verification",
+        icon: Mail,
+        eligible: selected,
+        onClick: () => bulk.run(
+          selected,
+          (user) => api.post("/api/email-verification/resend", { email: user.email }),
+          { noun: "email", verbPast: "sent", labelOf: nameOf }
+        ),
+      }
+    );
+  }
+
+  actions.push({
+    key: "delete",
+    label: "Delete selected",
+    icon: Trash,
+    variant: "destructive",
+    eligible: notSelf,
+    ineligibleReason: selfExcluded,
+    onClick: () => setConfirmAction({
+      title: `Delete ${pluralize(notSelf.length, "user")}?`,
+      description: `Delete ${summariseLabels(notSelf, nameOf)}. Accounts that own comics cannot be deleted until their comics are explicitly removed, and those will be reported and skipped. This cannot be undone.`,
+      onConfirm: () => bulk.run(
+        notSelf,
+        (user) => api.delete(`/api/users/${user.id}`),
+        { noun: "user", verbPast: "deleted", labelOf: nameOf }
+      ),
+    }),
+  });
+
+  return actions;
+}
+
+function AdminUsersContent({
+  users,
+  showOnlyUnverified,
+  selection,
+  bulkActions,
+  bulk,
+  pagination,
+  isLoading,
+  setPage,
+  setLimit,
+  openEditor,
+  setWarningTargets,
+  confirmDelete,
+  actions,
+  tableControls,
+  payload,
+}) {
+  if (isLoading && users.length === 0) {
+    return (
+      <div className="flex justify-center p-8">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-t-2 border-primary" />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <AdminBulkActionsBar
+        selectedCount={selection.selectedCount}
+        totalCount={users.length}
+        noun={showOnlyUnverified ? "pending user" : "user"}
+        actions={bulkActions}
+        progress={bulk.progress}
+        onClear={selection.clear}
+      />
+      <AdminUsersTable
+        users={users}
+        selection={selection}
+        pagination={pagination}
+        isLoading={isLoading}
+        emptyMessage={showOnlyUnverified ? "No pending verifications found" : "No users found matching your search"}
+        label={showOnlyUnverified ? "pending users" : "users"}
+        onPageChange={setPage}
+        onLimitChange={setLimit}
+        rowActions={{
+          onEdit: openEditor,
+          onWarn: (user) => setWarningTargets([user]),
+          onDelete: confirmDelete,
+          onVerify: (user) => actions.verifyUser(user.id),
+          onResendVerification: actions.resendVerification,
+        }}
+        tableControls={tableControls}
+        comicCountMax={payload?.comicCountMax ?? 0}
+        storageMaxBytes={payload?.storageMaxBytes ?? 0}
+        showContentColumns={!showOnlyUnverified}
+      />
+    </>
+  );
+}
+
 /**
  * Every account on the installation, or only the ones still unverified.
  *
@@ -60,68 +188,18 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
   // The server refuses both of these against your own account, and being told
   // so once per row is worse than not offering it.
   const notSelf = selection.selectedRows.filter((user) => user.id !== currentUser?.id);
-  const selfExcluded = "your own account is never included";
-
-  const bulkActions = [
-    {
-      key: "warn",
-      label: "Warn selected",
-      icon: AlertTriangle,
-      eligible: notSelf,
-      ineligibleReason: selfExcluded,
-      onClick: () => setWarningTargets(notSelf),
-    },
-    ...(showOnlyUnverified ? [
-      {
-        key: "verify",
-        label: "Verify selected",
-        icon: BadgeCheck,
-        eligible: selection.selectedRows,
-        onClick: () => bulk.run(
-          selection.selectedRows,
-          (user) => api.post(`/api/users/${user.id}/verify`, {}),
-          { noun: "account", verbPast: "verified", labelOf: nameOf }
-        ),
-      },
-      {
-        key: "resend",
-        label: "Resend verification",
-        icon: Mail,
-        eligible: selection.selectedRows,
-        onClick: () => bulk.run(
-          selection.selectedRows,
-          (user) => api.post("/api/email-verification/resend", { email: user.email }),
-          { noun: "email", verbPast: "sent", labelOf: nameOf }
-        ),
-      },
-    ] : []),
-    {
-      key: "delete",
-      label: "Delete selected",
-      icon: Trash,
-      variant: "destructive",
-      eligible: notSelf,
-      ineligibleReason: selfExcluded,
-      onClick: () => setConfirmAction({
-        title: `Delete ${pluralize(notSelf.length, "user")}?`,
-        description: `Delete ${summariseLabels(notSelf, nameOf)}. Accounts that own comics cannot be deleted until their comics are explicitly removed, and those will be reported and skipped. This cannot be undone.`,
-        onConfirm: () => bulk.run(
-          notSelf,
-          (user) => api.delete(`/api/users/${user.id}`),
-          { noun: "user", verbPast: "deleted", labelOf: nameOf }
-        ),
-      }),
-    },
-  ];
+  const bulkActions = userBulkActions({
+    showOnlyUnverified,
+    selected: selection.selectedRows,
+    notSelf,
+    bulk,
+    setWarningTargets,
+    setConfirmAction,
+  });
 
   const openEditor = (user) => {
     // Password stays blank: it is set here, never read back.
-    setEditForm({
-      name: user.name || "",
-      email: user.email || "",
-      password: "",
-      roles: Array.isArray(user.roles) ? [...user.roles] : [],
-    });
+    setEditForm(editFormFor(user));
     setEditingUser(user);
   };
 
@@ -144,46 +222,25 @@ export function AdminUsersList({ showOnlyUnverified = false }) {
         onAddUser={showOnlyUnverified ? null : () => setNewUser(BLANK_NEW_USER)}
       />
 
-      {/* The spinner replaces the table only on the first load. Turning a page
-          keeps the table and its pager on screen, disabled, rather than
-          collapsing the layout and moving the button under the cursor. */}
-      {isLoading && users.length === 0 ? (
-        <div className="flex justify-center p-8">
-          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-t-2 border-primary" />
-        </div>
-      ) : (
-        <>
-          <AdminBulkActionsBar
-            selectedCount={selection.selectedCount}
-            totalCount={users.length}
-            noun={showOnlyUnverified ? "pending user" : "user"}
-            actions={bulkActions}
-            progress={bulk.progress}
-            onClear={selection.clear}
-          />
-          <AdminUsersTable
-            users={users}
-            selection={selection}
-            pagination={pagination}
-            isLoading={isLoading}
-            emptyMessage={showOnlyUnverified ? "No pending verifications found" : "No users found matching your search"}
-            label={showOnlyUnverified ? "pending users" : "users"}
-            onPageChange={setPage}
-            onLimitChange={setLimit}
-            rowActions={{
-              onEdit: openEditor,
-              onWarn: (user) => setWarningTargets([user]),
-              onDelete: confirmDelete,
-              onVerify: (user) => actions.verifyUser(user.id),
-              onResendVerification: actions.resendVerification,
-            }}
-            tableControls={tableControls}
-            comicCountMax={payload?.comicCountMax ?? 0}
-            storageMaxBytes={payload?.storageMaxBytes ?? 0}
-            showContentColumns={!showOnlyUnverified}
-          />
-        </>
-      )}
+      {/* Turning a page keeps the table and its pager on screen; only the first
+          load uses a spinner, so controls do not jump under the cursor. */}
+      <AdminUsersContent
+        users={users}
+        showOnlyUnverified={showOnlyUnverified}
+        selection={selection}
+        bulkActions={bulkActions}
+        bulk={bulk}
+        pagination={pagination}
+        isLoading={isLoading}
+        setPage={setPage}
+        setLimit={setLimit}
+        openEditor={openEditor}
+        setWarningTargets={setWarningTargets}
+        confirmDelete={confirmDelete}
+        actions={actions}
+        tableControls={tableControls}
+        payload={payload}
+      />
 
       <AdminUserEditDialog
         open={Boolean(editingUser)}

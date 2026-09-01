@@ -43,6 +43,106 @@ const STATUSES = [
   ["revoked", "Revoked"],
 ];
 
+function ShareComicCell({ comic }) {
+  return (
+    <div className="flex flex-col">
+      <span className="flex items-center gap-2 font-medium">
+        {comic?.title || "Comic removed"}
+        {comic?.explicitContent && (
+          <Badge variant="destructive" className="gap-1">
+            <ShieldAlert className="h-3 w-3" aria-hidden="true" /> 18+
+          </Badge>
+        )}
+      </span>
+      {(comic?.sharingRestricted || comic?.quarantined) && (
+        <span className="text-xs text-amber-600">
+          {comic.quarantined ? "Quarantined" : "Sharing restricted"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ShareOwnerCell({ owner }) {
+  return (
+    <div className="flex flex-col">
+      <span>{owner?.name || "Unknown"}</span>
+      <span className="text-xs text-muted-foreground">{owner?.email}</span>
+    </div>
+  );
+}
+
+function ShareRecipientCell({ recipient, recipientEmail }) {
+  return (
+    <div className="flex flex-col">
+      {/* The account where there is one, and the address it was sent to
+          otherwise — a pre-account share is identifiable only by that address. */}
+      <span>{recipient?.name || recipientEmail}</span>
+      {recipient?.username && (
+        <span className="text-xs text-muted-foreground">@{recipient.username}</span>
+      )}
+    </div>
+  );
+}
+
+function ShareRowActions({ share, onWarn, onRevoke }) {
+  const comicTitle = share.comic?.title || "this comic";
+
+  return (
+    <div className="flex justify-end gap-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        title="Warn the sharer about this comic"
+        aria-label={`Warn the sharer of ${comicTitle}`}
+        onClick={() => onWarn(share)}
+      >
+        <AlertTriangle className="h-4 w-4" />
+      </Button>
+      {share.canRevoke && (
+        <Button
+          variant="ghost"
+          size="sm"
+          title="Revoke this share"
+          aria-label={`Revoke the share of ${comicTitle}`}
+          onClick={() => onRevoke(share)}
+        >
+          <XCircle className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function AdminShareRow({ share, selection, onWarn, onRevoke }) {
+  const selected = selection.isChecked(share);
+  const comicTitle = share.comic?.title || "this comic";
+
+  return (
+    <TableRow data-state={selected ? "selected" : undefined}>
+      <TableCell>
+        <SelectionCheckbox
+          checked={selected}
+          onToggle={(checked, options) => selection.toggle(share.id, checked, options)}
+          label={`Select the share of ${comicTitle}`}
+        />
+      </TableCell>
+      <TableCell><ShareComicCell comic={share.comic} /></TableCell>
+      <TableCell><ShareOwnerCell owner={share.owner} /></TableCell>
+      <TableCell><ShareRecipientCell recipient={share.recipient} recipientEmail={share.recipientEmail} /></TableCell>
+      <TableCell>
+        <Badge variant={share.status === "accepted" ? "default" : "outline"}>
+          {SHARE_STATUS_LABELS[share.status] || share.status}
+        </Badge>
+      </TableCell>
+      <TableCell>{formatDate(share.createdAt)}</TableCell>
+      <TableCell className="text-right">
+        <ShareRowActions share={share} onWarn={onWarn} onRevoke={onRevoke} />
+      </TableCell>
+    </TableRow>
+  );
+}
+
 /**
  * Who has been given access to what, and the two things support can do about it.
  *
@@ -215,79 +315,13 @@ export function AdminSharesList() {
               </TableHeader>
               <TableBody>
                 {shares.length > 0 ? shares.map((share) => (
-                  <TableRow key={share.id} data-state={selection.isChecked(share) ? "selected" : undefined}>
-                    <TableCell>
-                      <SelectionCheckbox
-                        checked={selection.isChecked(share)}
-                        onToggle={(checked, options) => selection.toggle(share.id, checked, options)}
-                        label={`Select the share of ${share.comic?.title || "this comic"}`}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="flex items-center gap-2 font-medium">
-                          {share.comic?.title || "Comic removed"}
-                          {share.comic?.explicitContent && (
-                            <Badge variant="destructive" className="gap-1">
-                              <ShieldAlert className="h-3 w-3" aria-hidden="true" /> 18+
-                            </Badge>
-                          )}
-                        </span>
-                        {(share.comic?.sharingRestricted || share.comic?.quarantined) && (
-                          <span className="text-xs text-amber-600">
-                            {share.comic.quarantined ? "Quarantined" : "Sharing restricted"}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span>{share.owner?.name || "Unknown"}</span>
-                        <span className="text-xs text-muted-foreground">{share.owner?.email}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        {/* The account where there is one, and the address it was
-                            sent to otherwise — a share to somebody with no account
-                            yet is only identifiable by that address. */}
-                        <span>{share.recipient?.name || share.recipientEmail}</span>
-                        {share.recipient?.username && (
-                          <span className="text-xs text-muted-foreground">@{share.recipient.username}</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={share.status === "accepted" ? "default" : "outline"}>
-                        {SHARE_STATUS_LABELS[share.status] || share.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{formatDate(share.createdAt)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          title="Warn the sharer about this comic"
-                          aria-label={`Warn the sharer of ${share.comic?.title || "this comic"}`}
-                          onClick={() => setWarningTargets([share])}
-                        >
-                          <AlertTriangle className="h-4 w-4" />
-                        </Button>
-                        {share.canRevoke && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Revoke this share"
-                            aria-label={`Revoke the share of ${share.comic?.title || "this comic"}`}
-                            onClick={() => setShareToRevoke(share)}
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  <AdminShareRow
+                    key={share.id}
+                    share={share}
+                    selection={selection}
+                    onWarn={(target) => setWarningTargets([target])}
+                    onRevoke={setShareToRevoke}
+                  />
                 )) : (
                   <TableRow>
                     <TableCell colSpan={7} className="py-8 text-center">No shares found.</TableCell>
