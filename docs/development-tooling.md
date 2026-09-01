@@ -9,12 +9,22 @@ cd frontend
 npm ci
 npm run lint
 npm run test
+npm run test:coverage
+npm run check:dead-code
 npm run build
 ```
 
 Do not commit a Bun lockfile unless package-manager policy deliberately changes.
 
 `npm run lint` runs with `--max-warnings=0`. A warning fails the build, so there is no such thing as a lint warning that can be left for later.
+
+`test:coverage` instruments every production JavaScript and JSX source file,
+including files a test never imports. The checked-in thresholds ratchet the
+current statement, branch, function and line totals; lowering one requires an
+explicitly reviewed policy change. `check:dead-code` uses Knip to reject
+unreachable source files, unused dependencies, unlisted imports and duplicate
+exports. Test-only access to an internal helper is not treated as a dead
+production file.
 
 ### Checks over committed artefacts
 
@@ -89,7 +99,12 @@ php bin/console doctrine:schema:validate --env=test
 composer analyse      # PHPStan
 composer cs:check     # PHP-CS-Fixer, dry run
 php bin/phpunit
+composer test:coverage
 ```
+
+`composer test:coverage` runs the complete suite with PCOV and rejects line or
+method coverage below the checked-in ratchet. PCOV is installed in the PHP image
+but disabled for ordinary CLI and FPM requests; only this command enables it.
 
 PHPStan uses a baseline for pre-existing findings so new code cannot silently increase static-analysis debt. Reduce the baseline opportunistically when touching existing code.
 

@@ -127,6 +127,19 @@ export default defineConfig(({ mode }) => {
     //
     // Standing a DOM up for the helper tests would cost seconds per file to
     // give them something none of them touch.
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{js,jsx}"],
+      exclude: ["src/**/*.test.{js,jsx}", "src/test/**"],
+      reporter: ["text", "json-summary"],
+      reportsDirectory: ".coverage",
+      thresholds: {
+        statements: 73,
+        branches: 70,
+        functions: 71,
+        lines: 75,
+      },
+    },
     projects: [
       {
         extends: true,

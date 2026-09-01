@@ -88,7 +88,11 @@
             "@auto-scripts"
         ],
         "analyse": "phpstan analyse --no-progress",
-        "cs:check": "php-cs-fixer fix --dry-run --diff --using-cache=no"
+        "cs:check": "php-cs-fixer fix --dry-run --diff --using-cache=no",
+        "test:coverage": [
+            "@php -d pcov.enabled=1 bin/phpunit --coverage-clover=.phpunit.cache/coverage.xml",
+            "@php bin/check-coverage --report=.phpunit.cache/coverage.xml --min-lines=84 --min-methods=74"
+        ]
     },
     "conflict": {
         "symfony/symfony": "*"

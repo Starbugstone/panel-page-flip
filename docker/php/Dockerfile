@@ -43,6 +43,13 @@ RUN docker-php-ext-configure intl \
         opcache \
         xsl
 
+# Coverage is disabled for normal requests and enabled explicitly by the test
+# command. Keeping the driver in the image makes CI and local measurements use
+# the same instrumentation instead of silently skipping the gate.
+RUN pecl install pcov-1.0.12 \
+    && docker-php-ext-enable pcov \
+    && echo "pcov.enabled=0" > /usr/local/etc/php/conf.d/zz-pcov.ini
+
 # Create log directory for PHP
 RUN mkdir -p /var/log/php && chmod 777 /var/log/php
 

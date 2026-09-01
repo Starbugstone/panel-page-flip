@@ -53,16 +53,18 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
-        run: npm run test
+      - name: Test with coverage thresholds
+        run: npm run test:coverage
+
+      - name: Reject unreachable files and unused dependencies
+        run: npm run check:dead-code
 
       - name: Validate shared frontend route manifest
         run: npm run check:routes
 
-      # The policy is emitted into three files in two syntaxes. Left to hand
-      # editing, a missed origin blocks advertising only on the target nobody
-      # tested — and blocks it silently.
-      - name: Validate Content-Security-Policy across deployment targets
+      # The policy is generated from the backend manifest. Left to hand editing,
+      # a missed origin blocks advertising silently.
+      - name: Validate Content-Security-Policy
         run: npm run check:csp
 
       # The tool zips and their checksums are committed, so nothing rebuilds
@@ -138,8 +140,8 @@ jobs:
           docker compose exec -T php composer analyse
           docker compose exec -T php composer cs:check
 
-      - name: Run backend tests
-        run: docker compose exec -T php php bin/phpunit
+      - name: Run backend tests with coverage thresholds
+        run: docker compose exec -T php composer test:coverage
 
       - name: Show container logs on failure
         if: failure()
