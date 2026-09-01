@@ -22,7 +22,7 @@ export const CONVERSION_TOOLS = [
     label: "Linux and macOS (bash)",
     href: "/tools/convert-cbr-to-cbz-linux.zip",
     fileName: "convert-cbr-to-cbz-linux.zip",
-    sha256: "decb28d1e15ea865eca069553fdbbb4480fadfadc5c1cf0dfea44714576a2842",
-    sizeBytes: 10610,
+    sha256: "04546cb65bef56e9e7b593db7c1c9d24d94cb39c3c5ad9323ca25cd7da92f0f1",
+    sizeBytes: 10689,
   },
 ];
