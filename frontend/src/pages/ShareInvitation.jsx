@@ -18,6 +18,253 @@ import {
   shareDisplayTitle,
 } from "@/lib/sharing";
 
+async function fetchInvitation(token) {
+  const data = await api.get(`/api/shares/invitations/${token}`, {
+    // A signed-out visitor is expected here. The preview is public, so a 401
+    // must not trigger the application's global signed-out handling.
+    notifyUnauthorized: false,
+  });
+  return data.invitation;
+}
+
+function InvitationLoading() {
+  return (
+    <div className="flex flex-col items-center gap-3 text-center">
+      <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      <p className="text-muted-foreground">Loading invitation…</p>
+    </div>
+  );
+}
+
+function InvitationFailure({ error, onDashboard }) {
+  return (
+    <Alert variant="destructive" className="max-w-md">
+      <AlertCircle className="h-5 w-5" />
+      <AlertTitle>This invitation cannot be used</AlertTitle>
+      <AlertDescription className="flex flex-col items-start gap-3">
+        {error}
+        <Button variant="outline" size="sm" onClick={onDashboard}>Go to my collection</Button>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function AcceptedInvitation({ accepted, onRead, onDashboard }) {
+  const { share, count } = accepted;
+
+  return (
+    <Card className="w-full max-w-md">
+      <CardContent className="space-y-4 p-6 text-center">
+        <BookOpen className="mx-auto h-10 w-10 text-comic-purple" />
+        <h1 className="font-comic text-2xl">
+          {count > 1 ? `${count} comics are in your collection` : `“${share.comicTitle}” is in your collection`}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {count > 1 ? "They stay" : "It stays"} owned by {share.ownerName}.
+          Your reading position is your own, and {count > 1 ? "a comic may" : "the comic may"}
+          become unavailable if they stop sharing it.
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+          {count === 1 && (
+            <Button onClick={() => onRead(share.comicId)}>
+              <BookOpen className="mr-2 h-4 w-4" />
+              Start reading
+            </Button>
+          )}
+          <Button variant="outline" onClick={onDashboard}>Go to my collection</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExplicitContentWarning() {
+  return (
+    <Alert>
+      <ShieldAlert className="h-5 w-5" />
+      <AlertTitle>{EXPLICIT_GATE_TITLE}</AlertTitle>
+      <AlertDescription>{EXPLICIT_GATE_BODY}</AlertDescription>
+    </Alert>
+  );
+}
+
+function InvitationPreview({ invitation, gated }) {
+  const isFolderBatch = invitation.isFolderBatch;
+  const title = isFolderBatch
+    ? invitation.folderName || "Shared folder"
+    : shareDisplayTitle(invitation);
+
+  return (
+    <div className="flex gap-4">
+      {/* A neutral placeholder, never the real cover behind a blur: the cover
+          bytes do not leave the server before age confirmation. */}
+      {invitation.coverImagePath ? (
+        <img
+          src={invitation.coverImagePath}
+          alt={`Cover of ${invitation.comicTitle}`}
+          className="h-40 w-28 flex-none rounded object-cover"
+        />
+      ) : (
+        <div className="flex h-40 w-28 flex-none items-center justify-center rounded bg-muted">
+          {gated
+            ? <ShieldAlert className="h-8 w-8 text-muted-foreground" />
+            : <BookOpen className="h-8 w-8 text-muted-foreground" />}
+        </div>
+      )}
+      <div className="min-w-0 space-y-1">
+        <h1 className="font-comic text-2xl">{title}</h1>
+        {invitation.comicAuthor && <p className="text-sm text-muted-foreground">{invitation.comicAuthor}</p>}
+        {invitation.pageCount != null && <p className="text-sm text-muted-foreground">{invitation.pageCount} pages</p>}
+        <p className="pt-2 text-sm">
+          <span className="font-medium">{invitation.ownerName}</span> wants to share {isFolderBatch
+            ? `${invitation.comicCount} comics from this folder`
+            : "this comic"} with you.
+        </p>
+        {invitation.expiresAt && (
+          <p className="text-sm text-muted-foreground">
+            This invitation expires on {new Date(invitation.expiresAt).toLocaleDateString()}.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SignedOutInvitation({ invitation, gated, onLogin }) {
+  return (
+    <Card className="w-full max-w-lg">
+      <CardContent className="space-y-4 p-6">
+        <InvitationPreview invitation={invitation} gated={gated} />
+        {/* Holding the link is not an age declaration; no identity has been
+            established yet, so nothing about the explicit comic is revealed. */}
+        {gated && <ExplicitContentWarning />}
+        <p className="rounded bg-muted p-3 text-sm text-muted-foreground">
+          This comic remains owned by {invitation.ownerName}. It may become unavailable if the
+          owner removes it or stops sharing it.
+        </p>
+        <p className="text-sm">Sign in to the account this invitation was sent to in order to answer it.</p>
+        <Button onClick={onLogin}>Log in to continue</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function WrongAccountInvitation({ invitation, gated, onDashboard }) {
+  return (
+    <Card className="w-full max-w-lg">
+      <CardContent className="space-y-4 p-6">
+        <InvitationPreview invitation={invitation} gated={gated} />
+        <Alert variant="destructive">
+          <AlertCircle className="h-5 w-5" />
+          <AlertTitle>This invitation is for a different account</AlertTitle>
+          <AlertDescription>It belongs to another account. Sign in with that account to accept it.</AlertDescription>
+        </Alert>
+        <Button variant="outline" onClick={onDashboard}>Go to my collection</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function GatedInvitation({ invitation, isAnswering, onConfirmAdult, onDecline }) {
+  return (
+    <Card className="w-full max-w-lg">
+      <CardContent className="space-y-4 p-6">
+        <InvitationPreview invitation={invitation} gated />
+        <ExplicitContentWarning />
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button disabled={isAnswering} onClick={onConfirmAdult}>
+            {isAnswering && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {EXPLICIT_GATE_CONFIRM_LABEL}
+          </Button>
+          <Button variant="outline" disabled={isAnswering} onClick={onDecline}>Decline</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AnswerableInvitation({ invitation, isAnswering, onAccept, onDecline }) {
+  const isFolderBatch = invitation.isFolderBatch;
+
+  return (
+    <Card className="w-full max-w-lg">
+      <CardContent className="space-y-4 p-6">
+        <InvitationPreview invitation={invitation} gated={false} />
+        <p className="rounded bg-muted p-3 text-sm text-muted-foreground">
+          {isFolderBatch ? "These comics remain" : "This comic remains"} owned by {invitation.ownerName}.
+          Nothing is copied to your account: you are being given permission to read {isFolderBatch
+            ? "them, and any may"
+            : "it, and it may"} become unavailable if they remove it or stop sharing it.
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button disabled={isAnswering} onClick={onAccept}>
+            {isAnswering && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isFolderBatch ? `Add all ${invitation.comicCount} to my collection` : "Add to my collection"}
+          </Button>
+          <Button variant="outline" disabled={isAnswering} onClick={onDecline}>
+            {isFolderBatch ? "Decline all" : "Decline"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InvitationBody({
+  authLoading,
+  authenticated,
+  isLoading,
+  error,
+  accepted,
+  invitation,
+  isAnswering,
+  onDashboard,
+  onRead,
+  onLogin,
+  onConfirmAdult,
+  onAccept,
+  onDecline,
+}) {
+  if (authLoading || isLoading) return <InvitationLoading />;
+  if (error) return <InvitationFailure error={error} onDashboard={onDashboard} />;
+  if (accepted) return <AcceptedInvitation accepted={accepted} onRead={onRead} onDashboard={onDashboard} />;
+  if (!invitation) return null;
+
+  const gated = requiresAdultConfirmation(invitation);
+  if (!authenticated) return <SignedOutInvitation invitation={invitation} gated={gated} onLogin={onLogin} />;
+  if (!invitation.isForCurrentUser) {
+    return <WrongAccountInvitation invitation={invitation} gated={gated} onDashboard={onDashboard} />;
+  }
+  if (gated) {
+    return (
+      <GatedInvitation
+        invitation={invitation}
+        isAnswering={isAnswering}
+        onConfirmAdult={onConfirmAdult}
+        onDecline={onDecline}
+      />
+    );
+  }
+
+  return (
+    <AnswerableInvitation
+      invitation={invitation}
+      isAnswering={isAnswering}
+      onAccept={onAccept}
+      onDecline={onDecline}
+    />
+  );
+}
+
+function acceptedInvitation(data) {
+  return { share: data.share, count: Number(data.acceptedCount) || 1 };
+}
+
+function acceptedDescription(accepted) {
+  if (accepted.count > 1) return `${accepted.count} comics are now in your collection.`;
+  return `${accepted.share?.comicTitle || "The comic"} is now in your collection.`;
+}
+
 /**
  * The page an invitation link opens.
  *
@@ -47,13 +294,7 @@ export default function ShareInvitation() {
     setIsFetching(true);
     setLoadError(null);
     try {
-      const data = await api.get(`/api/shares/invitations/${token}`, {
-        // A signed-out visitor is expected here — the preview is public so an
-        // invited person can see what they are being offered before creating an
-        // account — so a 401 must not tip the app into its logged-out handling.
-        notifyUnauthorized: false,
-      });
-      setInvitation(data.invitation);
+      setInvitation(await fetchInvitation(token));
     } catch (err) {
       logger.error("Failed to load invitation:", err);
       setLoadError(err.message || "This invitation could not be loaded.");
@@ -69,8 +310,8 @@ export default function ShareInvitation() {
     if (!token) return undefined;
 
     let ignore = false;
-    api.get(`/api/shares/invitations/${token}`, { notifyUnauthorized: false })
-      .then((data) => { if (!ignore) setInvitation(data.invitation); })
+    fetchInvitation(token)
+      .then((loadedInvitation) => { if (!ignore) setInvitation(loadedInvitation); })
       .catch((err) => {
         if (ignore) return;
         logger.error("Failed to load invitation:", err);
@@ -122,12 +363,11 @@ export default function ShareInvitation() {
       }
 
       await loadLibrary();
-      setAccepted({ share: data.share, count: Number(data.acceptedCount) || 1 });
+      const acceptedResult = acceptedInvitation(data);
+      setAccepted(acceptedResult);
       toast({
         title: "Added to your collection",
-        description: (Number(data.acceptedCount) || 1) > 1
-          ? `${data.acceptedCount} comics are now in your collection.`
-          : `${data.share?.comicTitle || "The comic"} is now in your collection.`,
+        description: acceptedDescription(acceptedResult),
       });
     } catch (err) {
       setLoadError(err.message || "The invitation could not be answered.");
@@ -136,217 +376,23 @@ export default function ShareInvitation() {
     }
   };
 
-  const renderBody = () => {
-    if (auth.loading || isLoading) {
-      return (
-        <div className="flex flex-col items-center gap-3 text-center">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-muted-foreground">Loading invitation…</p>
-        </div>
-      );
-    }
-
-    if (error) {
-      return (
-        <Alert variant="destructive" className="max-w-md">
-          <AlertCircle className="h-5 w-5" />
-          <AlertTitle>This invitation cannot be used</AlertTitle>
-          <AlertDescription className="flex flex-col items-start gap-3">
-            {error}
-            <Button variant="outline" size="sm" onClick={() => navigate("/dashboard")}>
-              Go to my collection
-            </Button>
-          </AlertDescription>
-        </Alert>
-      );
-    }
-
-    if (accepted) {
-      const acceptedShare = accepted.share;
-      return (
-        <Card className="w-full max-w-md">
-          <CardContent className="space-y-4 p-6 text-center">
-            <BookOpen className="mx-auto h-10 w-10 text-comic-purple" />
-            <h1 className="font-comic text-2xl">
-              {accepted.count > 1
-                ? `${accepted.count} comics are in your collection`
-                : `“${acceptedShare.comicTitle}” is in your collection`}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {accepted.count > 1 ? "They stay" : "It stays"} owned by {acceptedShare.ownerName}.
-              Your reading position is your own, and {accepted.count > 1 ? "a comic may" : "the comic may"}
-              become unavailable if they stop sharing it.
-            </p>
-            <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-              {accepted.count === 1 && (
-                <Button onClick={() => navigate(`/read/${acceptedShare.comicId}`)}>
-                  <BookOpen className="mr-2 h-4 w-4" />
-                  Start reading
-                </Button>
-              )}
-              <Button variant="outline" onClick={() => navigate("/dashboard")}>
-                Go to my collection
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    if (!invitation) return null;
-
-    const gated = requiresAdultConfirmation(invitation);
-    const isFolderBatch = invitation.isFolderBatch;
-    const invitationTitle = isFolderBatch
-      ? (invitation.folderName || "Shared folder")
-      : shareDisplayTitle(invitation);
-
-    const explicitWarning = (
-      <Alert>
-        <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>{EXPLICIT_GATE_TITLE}</AlertTitle>
-        <AlertDescription>{EXPLICIT_GATE_BODY}</AlertDescription>
-      </Alert>
-    );
-
-    const preview = (
-      <div className="flex gap-4">
-        {/* A neutral placeholder, never the real cover behind a blur: blurring
-            still sends the cover, and the point of the gate is that those bytes
-            do not leave the server until somebody has confirmed. The backend
-            withholds the URL entirely, so there is nothing here to blur. */}
-        {invitation.coverImagePath ? (
-          <img
-            src={invitation.coverImagePath}
-            alt={`Cover of ${invitation.comicTitle}`}
-            className="h-40 w-28 flex-none rounded object-cover"
-          />
-        ) : (
-          <div className="flex h-40 w-28 flex-none items-center justify-center rounded bg-muted">
-            {gated
-              ? <ShieldAlert className="h-8 w-8 text-muted-foreground" />
-              : <BookOpen className="h-8 w-8 text-muted-foreground" />}
-          </div>
-        )}
-        <div className="min-w-0 space-y-1">
-          <h1 className="font-comic text-2xl">{invitationTitle}</h1>
-          {invitation.comicAuthor && (
-            <p className="text-sm text-muted-foreground">{invitation.comicAuthor}</p>
-          )}
-          {invitation.pageCount != null && (
-            <p className="text-sm text-muted-foreground">{invitation.pageCount} pages</p>
-          )}
-          <p className="pt-2 text-sm">
-            <span className="font-medium">{invitation.ownerName}</span> wants to share {isFolderBatch
-              ? `${invitation.comicCount} comics from this folder`
-              : "this comic"} with you.
-          </p>
-          {invitation.expiresAt && (
-            <p className="text-sm text-muted-foreground">
-              This invitation expires on {new Date(invitation.expiresAt).toLocaleDateString()}.
-            </p>
-          )}
-        </div>
-      </div>
-    );
-
-    if (!auth.isAuthenticated) {
-      return (
-        <Card className="w-full max-w-lg">
-          <CardContent className="space-y-4 p-6">
-            {preview}
-            {/* Holding the link is not an age declaration — nobody has said who
-                they are yet — so a signed-out visitor is told what the
-                invitation is and nothing about the comic. */}
-            {gated && explicitWarning}
-            <p className="rounded bg-muted p-3 text-sm text-muted-foreground">
-              This comic remains owned by {invitation.ownerName}. It may become unavailable if the
-              owner removes it or stops sharing it.
-            </p>
-            {/* The address is withheld from anyone the server cannot identify
-                as the recipient, so a forwarded link does not disclose who was
-                invited. Signed out, that is always the case. */}
-            <p className="text-sm">
-              Sign in to the account this invitation was sent to in order to answer it.
-            </p>
-            <Button onClick={() => navigate(`/login?redirect=/share/invitation/${token}`)}>
-              Log in to continue
-            </Button>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    if (!invitation.isForCurrentUser) {
-      return (
-        <Card className="w-full max-w-lg">
-          <CardContent className="space-y-4 p-6">
-            {preview}
-            <Alert variant="destructive">
-              <AlertCircle className="h-5 w-5" />
-              <AlertTitle>This invitation is for a different account</AlertTitle>
-              <AlertDescription>
-                It belongs to another account. Sign in with that account to accept it.
-              </AlertDescription>
-            </Alert>
-            <Button variant="outline" onClick={() => navigate("/dashboard")}>
-              Go to my collection
-            </Button>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    // The recipient, signed in, on an explicit comic they have not confirmed
-    // for. Accepting is not offered at all here: it is the age declaration that
-    // has to come first, and the backend refuses an accept without it anyway.
-    if (gated) {
-      return (
-        <Card className="w-full max-w-lg">
-          <CardContent className="space-y-4 p-6">
-            {preview}
-            {explicitWarning}
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button disabled={isAnswering} onClick={confirmAdult}>
-                {isAnswering && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {EXPLICIT_GATE_CONFIRM_LABEL}
-              </Button>
-              <Button variant="outline" disabled={isAnswering} onClick={() => answer("decline")}>
-                Decline
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    return (
-      <Card className="w-full max-w-lg">
-        <CardContent className="space-y-4 p-6">
-          {preview}
-          <p className="rounded bg-muted p-3 text-sm text-muted-foreground">
-            {isFolderBatch ? "These comics remain" : "This comic remains"} owned by {invitation.ownerName}.
-            Nothing is copied to your account: you are being given permission to read {isFolderBatch
-              ? "them, and any may"
-              : "it, and it may"} become unavailable if they remove it or stop sharing it.
-          </p>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button disabled={isAnswering} onClick={() => answer("accept")}>
-              {isAnswering && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isFolderBatch ? `Add all ${invitation.comicCount} to my collection` : "Add to my collection"}
-            </Button>
-            <Button variant="outline" disabled={isAnswering} onClick={() => answer("decline")}>
-              {isFolderBatch ? "Decline all" : "Decline"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
-
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center bg-background p-4">
-      {renderBody()}
+      <InvitationBody
+        authLoading={auth.loading}
+        authenticated={auth.isAuthenticated}
+        isLoading={isLoading}
+        error={error}
+        accepted={accepted}
+        invitation={invitation}
+        isAnswering={isAnswering}
+        onDashboard={() => navigate("/dashboard")}
+        onRead={(comicId) => navigate(`/read/${comicId}`)}
+        onLogin={() => navigate(`/login?redirect=/share/invitation/${token}`)}
+        onConfirmAdult={confirmAdult}
+        onAccept={() => answer("accept")}
+        onDecline={() => answer("decline")}
+      />
     </div>
   );
 }
