@@ -120,7 +120,12 @@ services:
       # the host's platform and is also in use by the host test runs.
       - /app/node_modules
     working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --force"
+    # `npm ci`, not `npm install`: /app is a bind mount of the source tree, so
+    # `npm install` rewrites the tracked package-lock.json whenever the
+    # container's npm differs from the one that wrote it. That lands as an
+    # unexplained lockfile diff in `git status` every time the stack starts, and
+    # it is the file CI installs from. This matches the nginx builder and CI.
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --force"
     ports:
       - "${FRONTEND_DEV_PORT:-3001}:3000"
     networks:
