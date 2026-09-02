@@ -75,12 +75,13 @@ export function ReaderView({ book, view, refs, actions, suggestions, nextComic, 
           comicId={book.comicId}
           pageCount={book.pageCount}
           currentPage={book.currentPage}
+          viewportContext={contextLabel}
           geometry={book.pageGeometry}
           onSelect={actions.goToReaderPage}
         />
       )}
 
-      <ReaderSuggestions suggestions={suggestions} contextLabel={contextLabel} />
+      {!view.isSettingsOpen && <ReaderSuggestions suggestions={suggestions} contextLabel={contextLabel} />}
 
       <ReaderPageControls
         controlsRef={refs.controls}

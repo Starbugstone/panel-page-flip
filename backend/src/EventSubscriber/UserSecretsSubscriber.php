@@ -27,7 +27,9 @@ final class UserSecretsSubscriber
 
     public function __construct(private readonly AppDataEncryptionService $encryption)
     {
-        $this->logicalSnapshots = new \WeakMap(); // @phpstan-ignore assign.propertyType (WeakMap TValue is invariant)
+        /** @var \WeakMap<User, array{access: ?string, refresh: ?string}> $snapshots */
+        $snapshots = new \WeakMap();
+        $this->logicalSnapshots = $snapshots;
     }
 
     public function postLoad(PostLoadEventArgs $args): void

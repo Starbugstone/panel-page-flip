@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { TagBadge, HIDDEN_TAG_EXPLANATION } from "@/components/TagBadge";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminList } from "@/hooks/use-admin-list";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { AdminPagination } from "@/components/AdminPagination";
 import { AdminBulkActionsBar } from "@/components/admin/AdminBulkActionsBar";
 import { SelectAllCheckbox, SelectionCheckbox } from "@/components/SelectionCheckbox";
@@ -18,6 +19,8 @@ import { pluralize, summariseLabels } from "@/lib/bulk-actions";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { formatDate } from "@/lib/format";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { adminFilterSuggestions } from "@/lib/admin-table-filters";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,6 +31,97 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+function AdminTagsHeader({ embedded, searchInput, onSearch, onAdd }) {
+  return (
+    <>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-xl font-bold">{embedded ? "Tags created by this user" : "Tags Management"}</h2>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
+          <div className="relative w-full sm:w-auto">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search tags..."
+              className="w-full pl-8 sm:w-[250px]"
+              value={searchInput}
+              onChange={(event) => onSearch(event.target.value)}
+            />
+          </div>
+          {!embedded && (
+            <Button className="w-full sm:w-auto" onClick={onAdd}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Tag
+            </Button>
+          )}
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {embedded
+          ? "Personal tags belong to this user alone. Global tags have no creator and are managed from the Tags tab."
+          : "Tags added here are global and available to every user. The hide option can be changed independently for any global tag."}
+      </p>
+    </>
+  );
+}
+
+function TagVisibilityControl({ id, checked, onCheckedChange }) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+      <div className="space-y-1">
+        <Label htmlFor={id}>Hide comics from the default library</Label>
+        <p className="text-xs text-muted-foreground">{HIDDEN_TAG_EXPLANATION}</p>
+      </div>
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  );
+}
+
+function AdminTagFormDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  name,
+  onNameChange,
+  showVisibility,
+  hideFromLibrary,
+  onHideFromLibraryChange,
+  visibilityId,
+  onCancel,
+  onSubmit,
+  submitLabel,
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <Input
+            placeholder="Tag name"
+            value={name}
+            onChange={(event) => onNameChange(event.target.value)}
+            autoFocus
+          />
+          {showVisibility && (
+            <TagVisibilityControl
+              id={visibilityId}
+              checked={hideFromLibrary}
+              onCheckedChange={onHideFromLibraryChange}
+            />
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button onClick={onSubmit}>{submitLabel}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /**
  * @param {object} props
@@ -45,14 +139,16 @@ export function AdminTagsList({ creatorId, embedded = false }) {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [hideFromLibrary, setHideFromLibrary] = useState(false);
+  const tableControls = useAdminTableControls({ defaultSort: "name", defaultDirection: "ASC" });
 
   const filters = useMemo(
-    () => ({ all: "true", adminContext: "true", ...(creatorId ? { creatorId } : {}) }),
-    [creatorId]
+    () => ({ all: "true", adminContext: "true", ...(creatorId ? { creatorId } : {}), ...tableControls.query }),
+    [creatorId, tableControls.query]
   );
 
   const {
     items: tags,
+    payload,
     listKey,
     pagination,
     isLoading,
@@ -149,34 +245,35 @@ export function AdminTagsList({ creatorId, embedded = false }) {
     }
   };
 
+  const resetTagDraft = () => {
+    setNewTagName("");
+    setHideFromLibrary(false);
+  };
+
+  const closeAddDialog = () => {
+    setIsAddDialogOpen(false);
+    resetTagDraft();
+  };
+
+  const closeEditDialog = () => {
+    setIsEditDialogOpen(false);
+    setCurrentTag(null);
+    resetTagDraft();
+  };
+
+  const changeEditDialogOpen = (isOpen) => {
+    setIsEditDialogOpen(isOpen);
+    if (!isOpen) closeEditDialog();
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-xl font-bold">{embedded ? "Tags created by this user" : "Tags Management"}</h2>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
-          <div className="relative w-full sm:w-auto">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search tags..."
-              className="w-full pl-8 sm:w-[250px]"
-              value={searchInput}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          {!embedded && (
-            <Button className="w-full sm:w-auto" onClick={() => setIsAddDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Tag
-            </Button>
-          )}
-        </div>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        {embedded
-          ? "Personal tags belong to this user alone. Global tags have no creator and are managed from the Tags tab."
-          : "Tags added here are global and available to every user. The hide option can be changed independently for any global tag."}
-      </p>
+      <AdminTagsHeader
+        embedded={embedded}
+        searchInput={searchInput}
+        onSearch={setSearch}
+        onAdd={() => setIsAddDialogOpen(true)}
+      />
 
       {/* Spinner only on the first load; turning a page keeps the table and its
           pager on screen, disabled, rather than collapsing the layout. */}
@@ -205,12 +302,12 @@ export function AdminTagsList({ creatorId, embedded = false }) {
                       label="Select all tags"
                     />
                   </TableHead>
-                  <TableHead>Tag Name</TableHead>
-                  <TableHead>Scope</TableHead>
-                  <TableHead>Default library</TableHead>
-                  <TableHead>Comics Using</TableHead>
-                  <TableHead>Created By</TableHead>
-                  <TableHead>Created Date</TableHead>
+                  <TableHead><AdminColumnHeader label="Tag name" sortField="name" filterField="filterName" filterSuggestions={adminFilterSuggestions(tags, (tag) => tag.name)} filterValue={tableControls.columnFilters.filterName} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Scope" sortField="isGlobal" filterField="filterScope" filterType="select" filterOptions={["Global", "Personal"]} filterValue={tableControls.columnFilters.filterScope} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Default library" sortField="hideFromLibrary" filterField="filterVisibility" filterType="select" filterOptions={["Visible", "Hidden"]} filterValue={tableControls.columnFilters.filterVisibility} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Comics using" sortField="comicCount" filterField="filterComicCount" filterType="range" filterMax={payload?.comicCountMax ?? 0} filterValue={tableControls.columnFilters.filterComicCount} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Created by" sortField="creator" filterField="filterCreator" filterSuggestions={["System", ...adminFilterSuggestions(tags, (tag) => [tag.creator?.name, tag.creator?.email])]} filterValue={tableControls.columnFilters.filterCreator} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Created date" sortField="createdAt" filterField="filterCreatedAt" filterType="date" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -278,76 +375,39 @@ export function AdminTagsList({ creatorId, embedded = false }) {
         </>
       )}
 
-      {/* Add Tag Dialog */}
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Tag</DialogTitle>
-            <DialogDescription>Create a global tag that can be used by every account.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <Input
-              placeholder="Tag name"
-              value={newTagName}
-              onChange={(e) => setNewTagName(e.target.value)}
-              autoFocus
-            />
-            <div className="flex items-start justify-between gap-4 rounded-md border p-3">
-              <div className="space-y-1">
-                <Label htmlFor="add-hide-from-library">Hide comics from the default library</Label>
-                <p className="text-xs text-muted-foreground">{HIDDEN_TAG_EXPLANATION}</p>
-              </div>
-              <Switch id="add-hide-from-library" checked={hideFromLibrary} onCheckedChange={setHideFromLibrary} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setIsAddDialogOpen(false); setNewTagName(""); setHideFromLibrary(false); }}>Cancel</Button>
-            <Button onClick={handleAddTag}>Add Tag</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AdminTagFormDialog
+        open={isAddDialogOpen}
+        onOpenChange={setIsAddDialogOpen}
+        title="Add New Tag"
+        description="Create a global tag that can be used by every account."
+        name={newTagName}
+        onNameChange={setNewTagName}
+        showVisibility
+        hideFromLibrary={hideFromLibrary}
+        onHideFromLibraryChange={setHideFromLibrary}
+        visibilityId="add-hide-from-library"
+        onCancel={closeAddDialog}
+        onSubmit={handleAddTag}
+        submitLabel="Add Tag"
+      />
 
-      {/* Edit Tag Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => {
-        setIsEditDialogOpen(isOpen);
-        if (!isOpen) {
-          setCurrentTag(null);
-          setNewTagName("");
-          setHideFromLibrary(false);
-        }
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Tag</DialogTitle>
-            <DialogDescription>
-              {currentTag?.isGlobal
-                ? "Change this tag's name and default library visibility."
-                : "Change this tag's name."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <Input
-              placeholder="Tag name"
-              value={newTagName}
-              onChange={(e) => setNewTagName(e.target.value)}
-              autoFocus
-            />
-            {currentTag?.isGlobal && (
-              <div className="flex items-start justify-between gap-4 rounded-md border p-3">
-                <div className="space-y-1">
-                  <Label htmlFor="edit-hide-from-library">Hide comics from the default library</Label>
-                  <p className="text-xs text-muted-foreground">{HIDDEN_TAG_EXPLANATION}</p>
-                </div>
-                <Switch id="edit-hide-from-library" checked={hideFromLibrary} onCheckedChange={setHideFromLibrary} />
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setIsEditDialogOpen(false); setCurrentTag(null); setNewTagName(""); setHideFromLibrary(false); }}>Cancel</Button>
-            <Button onClick={handleEditTag}>Update Tag</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AdminTagFormDialog
+        open={isEditDialogOpen}
+        onOpenChange={changeEditDialogOpen}
+        title="Edit Tag"
+        description={currentTag?.isGlobal
+          ? "Change this tag's name and default library visibility."
+          : "Change this tag's name."}
+        name={newTagName}
+        onNameChange={setNewTagName}
+        showVisibility={currentTag?.isGlobal === true}
+        hideFromLibrary={hideFromLibrary}
+        onHideFromLibraryChange={setHideFromLibrary}
+        visibilityId="edit-hide-from-library"
+        onCancel={closeEditDialog}
+        onSubmit={handleEditTag}
+        submitLabel="Update Tag"
+      />
 
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
         <AlertDialogContent>

@@ -143,6 +143,9 @@ LOCAL_DIR="${LOCAL_DIR%/}"
 REMOTE_DIR="${REMOTE_DIR%/}"
 
 log "Protocol:   $FTP_PROTOCOL"
+# Loaded from the operator-owned deployment file above; ShellCheck cannot
+# follow that dynamic source but the required-variable loop has validated it.
+# shellcheck disable=SC2153
 log "Host:       $FTP_HOST:$FTP_PORT"
 log "User:       $FTP_USER"
 log "Local:      $LOCAL_DIR"

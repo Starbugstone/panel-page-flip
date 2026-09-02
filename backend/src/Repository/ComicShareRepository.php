@@ -5,6 +5,7 @@ namespace App\Repository;
 use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\User;
+use App\Service\Pagination\ColumnFilter;
 use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
@@ -12,11 +13,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<ComicShare>
- *
- * @method ComicShare|null find($id, $lockMode = null, $lockVersion = null)
- * @method ComicShare|null findOneBy(array $criteria, array $orderBy = null)
- * @method ComicShare[]    findAll()
- * @method ComicShare[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class ComicShareRepository extends ServiceEntityRepository
 {
@@ -25,6 +21,8 @@ class ComicShareRepository extends ServiceEntityRepository
         'createdAt' => 's.createdAt',
         'status' => 's.status',
         'comicTitle' => 'c.title',
+        'owner' => 'ownerSort',
+        'recipient' => 'recipientSort',
     ];
 
     /**
@@ -39,6 +37,14 @@ class ComicShareRepository extends ServiceEntityRepository
         ComicShare::STATUS_ACCEPTED,
         ComicShare::STATUS_DECLINED,
         ComicShare::STATUS_REVOKED,
+    ];
+
+    /** The Status column's values, as its cells spell them. */
+    public const ADMIN_STATUS_LABELS = [
+        ComicShare::STATUS_PENDING => 'Pending',
+        ComicShare::STATUS_ACCEPTED => 'Accepted',
+        ComicShare::STATUS_DECLINED => 'Declined',
+        ComicShare::STATUS_REVOKED => 'Revoked',
     ];
 
     public function __construct(ManagerRegistry $registry)
@@ -579,7 +585,9 @@ class ComicShareRepository extends ServiceEntityRepository
      * behind it, and those are exactly the ones the sharing-codes table cannot
      * see. Somebody acting on a report needs the relationship itself.
      *
-     * @param array{status?: string|null, comicId?: int|null, ownerId?: int|null, explicitOnly?: bool} $filters
+     * @param array{status?: string|null, comicId?: int|null, ownerId?: int|null, explicitOnly?: bool,
+     *               comic?: string|null, owner?: string|null, recipient?: string|null,
+     *               columnStatus?: string|null, createdAt?: string|null, timezone?: string|null} $filters
      *
      * @return PaginatedResult<ComicShare>
      */
@@ -618,11 +626,46 @@ class ComicShareRepository extends ServiceEntityRepository
                 'LOWER(o.email) LIKE :search',
                 'LOWER(r.name) LIKE :search',
                 'LOWER(r.email) LIKE :search',
-                'LOWER(s.recipientEmail) LIKE :search',
+                "LOWER(CONCAT('@', r.username)) LIKE :search",
+                'LOWER(s.recipientEmailNormalized) LIKE :search',
             ))->setParameter('search', $pattern);
         }
 
+        if ($pattern = ColumnFilter::pattern($filters['comic'] ?? null)) {
+            $qb->andWhere('LOWER(c.title) LIKE :filterComic')->setParameter('filterComic', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['owner'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(o.name) LIKE :filterOwner',
+                'LOWER(o.email) LIKE :filterOwner',
+            ))->setParameter('filterOwner', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['recipient'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(r.name) LIKE :filterRecipient',
+                'LOWER(r.email) LIKE :filterRecipient',
+                "LOWER(CONCAT('@', r.username)) LIKE :filterRecipient",
+                'LOWER(s.recipientEmailNormalized) LIKE :filterRecipient',
+            ))->setParameter('filterRecipient', $pattern);
+        }
+
+        $columnStatuses = ColumnFilter::matchLabels($qb, $filters['columnStatus'] ?? null, self::ADMIN_STATUS_LABELS);
+        if ($columnStatuses !== null) {
+            $qb->andWhere('s.status IN (:columnStatuses)')->setParameter('columnStatuses', $columnStatuses);
+        }
+
+        ColumnFilter::applyDay($qb, 's.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null, $filters['timezone'] ?? null);
+
         $total = (int) (clone $qb)->select('COUNT(s.id)')->getQuery()->getSingleScalarResult();
+
+        if ($request->sortField === 'owner') {
+            $qb->addSelect('COALESCE(o.name, o.email) AS HIDDEN ownerSort');
+        }
+        if ($request->sortField === 'recipient') {
+            $qb->addSelect('COALESCE(r.name, s.recipientEmailNormalized) AS HIDDEN recipientSort');
+        }
 
         $shares = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)

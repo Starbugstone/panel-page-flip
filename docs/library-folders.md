@@ -103,6 +103,36 @@ time the upload completes — a long bulk upload makes this ordinary rather than
 exotic — the comic lands at the root instead. A destination that stopped
 existing is not a reason to fail an upload that otherwise succeeded.
 
+## Padding numbered comic titles
+
+**Auto rename comics** is available in every folder, including the library
+root. It previews the zeroes needed to make ordinary alphabetical sorting match
+numeric order: a folder ending in `DragonBall 11` previews `DragonBall 1` as
+`DragonBall 01`, while volumes 10 and 11 stay unchanged. The preview re-sorts
+the cards or rows immediately and shows each affected title's previous value.
+
+The matcher groups numeric positions by the text around them. It treats common
+separators and sequence labels such as `#`, `Vol.`, `issue`, `chapter` and
+`part` as equivalent, while preserving each title's spelling and punctuation.
+A numeric position must vary across at least two editable comics before it can
+be a sequence. Fixed suffixes such as a publication year therefore stay fixed,
+decimal numbers are left alone, and a one-off number in an unrelated title is
+not enough to trigger a rename. Existing wider padding is preserved: the tool
+only adds zeroes, never removes them.
+
+Nothing is written until **Accept rename** is pressed. **Undo preview** discards
+the proposal locally. After acceptance, **Undo rename** remains in the sticky
+folder bar until the viewer leaves that folder and restores all original titles
+in one request. Both acceptance and persisted undo compare the titles with the
+preview they came from; a concurrent edit rejects the whole operation rather
+than overwriting one title or applying a partial rename. Shared comics are
+visible in their recipient's folder but are never staged because only the owner
+may edit their titles.
+
+This changes comic title metadata, not archive filenames or filesystem paths.
+One operation may change at most 5,000 titles, keeping the request bounded while
+still covering libraries far beyond the ordinary 200-comic bulk-edit ceiling.
+
 ## API
 
 All routes require an authenticated session and act only on the caller's own
@@ -115,6 +145,7 @@ tree.
 | `/api/library/folders/{id}` | `PATCH` | Rename and/or reparent |
 | `/api/library/folders/{id}` | `DELETE` | Delete, with the confirmation above |
 | `/api/library/folders/move-comics` | `POST` | Place up to 500 comics in a folder, or `null` for the root |
+| `/api/comics/titles` | `PATCH` | Atomically accept or undo up to 5,000 stale-checked comic title changes |
 | `/api/shares/folders/{id}/comics` | `GET` | What sharing this folder would offer: the ids, the subfolder count, and how many were left out |
 
 A folder id that does not belong to the caller is reported as not found rather
@@ -130,21 +161,37 @@ answer.
 
 ## Frontend
 
+On desktop, the application header stays pinned above the library while its
+contents scroll. The navigation panel beside the collection is pinned just
+below that header and is bounded by the remaining viewport height; a folder
+tree taller than the screen scrolls inside the panel. Compact layouts continue
+to use the left-hand drawer instead.
+
 - `components/library/LibrarySidebar.jsx` — the tree beside the collection
 - `components/library/LibraryFolderTree.jsx` — the tree itself
 - `components/library/LibraryFolderCard.jsx` — a folder shown among comics
 - `components/library/LibraryBreadcrumbs.jsx` — where you are
 - `components/library/LibraryFolderBar.jsx` — where you are and what can be done to it, including **Share folder**
+- `components/library/ComicTitleRenameBar.jsx` — the sticky preview, acceptance and one-folder-session undo controls
 - `components/library/CreateFolderDialog.jsx` — create a root folder or a subfolder in the current location
 - `components/library/MoveToFolderDialog.jsx` — the move, including the bulk one
 - `components/library/FolderDestinationSelect.jsx` — the upload destination
 - `hooks/use-library-folders.jsx` — loading and mutating the tree
 - `hooks/use-library-folder-actions.js` — acting on the folder currently open,
   including reading what sharing it would offer before the dialog opens
+- `hooks/use-folder-comic-title-renamer.js` — stages, accepts and restores a
+  folder's zero-padding plan
+- `lib/comic-title-renaming.js` — conservative sequence detection and preview
+  projection, independent of rendering
 - `lib/last-read-jump.js` — the folder bar's "Last read" button, grid view
   only: scrolls to and briefly highlights the comic in the current view with
   the newest `readingProgress.lastReadAt`, so a long folder reopens where
   reading stopped
+- `hooks/use-jump-to-comic.js` — the same scroll, for the comic named by
+  `?jump=` in the URL, retried until the list holding it has arrived
+- `components/BackToLibraryLink.jsx` — the reader's way out, aimed at the
+  folder holding the comic and at the comic itself. See
+  [Leaving the reader](reader.md#leaving-the-reader)
 
 ## Related
 

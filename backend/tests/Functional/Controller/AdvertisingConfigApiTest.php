@@ -6,6 +6,7 @@ namespace App\Tests\Functional\Controller;
 
 use App\Service\AdvertisingConfiguration;
 use App\Service\GoogleAnalyticsConfiguration;
+use App\Service\TurnstileConfiguration;
 use App\Tests\Functional\AbstractApiTestCase;
 use Psr\Log\NullLogger;
 
@@ -27,6 +28,7 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
         self::assertArrayHasKey('adsense', $payload);
         self::assertArrayHasKey('analytics', $payload);
         self::assertArrayHasKey('googleConsent', $payload);
+        self::assertArrayHasKey('turnstile', $payload);
     }
 
     public function testAnalyticsAndConsentAreOffByDefault(): void
@@ -56,10 +58,29 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
     {
         $payload = $this->getJson('/api/public-config');
 
-        self::assertSame(['adsense', 'analytics', 'googleConsent', 'operator', 'privacyEmail', 'legalEmail'], array_keys($payload));
+        self::assertSame(['adsense', 'analytics', 'googleConsent', 'turnstile', 'operator', 'privacyEmail', 'legalEmail'], array_keys($payload));
         self::assertSame(['enabled', 'client'], array_keys($payload['adsense']));
         self::assertSame(['enabled', 'measurementId'], array_keys($payload['analytics']));
         self::assertSame(['enabled', 'client'], array_keys($payload['googleConsent']));
+        self::assertSame(['enabled', 'siteKey'], array_keys($payload['turnstile']));
+        self::assertSame(['enabled' => false, 'siteKey' => null], $payload['turnstile']);
+        self::assertStringNotContainsString('secret', strtolower(json_encode($payload, JSON_THROW_ON_ERROR)));
+    }
+
+    public function testEnabledTurnstilePublishesOnlyItsSiteKey(): void
+    {
+        static::getContainer()->set(
+            TurnstileConfiguration::class,
+            new TurnstileConfiguration(true, 'public-site-key', 'private-secret-key', 'https://panel.example')
+        );
+
+        $payload = $this->getJson('/api/public-config');
+
+        self::assertSame(
+            ['enabled' => true, 'siteKey' => 'public-site-key'],
+            $payload['turnstile']
+        );
+        self::assertStringNotContainsString('private-secret-key', json_encode($payload, JSON_THROW_ON_ERROR));
     }
 
     public function testAnalyticsCanUseTheCertifiedCmpWithoutEnablingAdvertising(): void

@@ -10,6 +10,7 @@ const actions = () => ({
   onMove: vi.fn(),
   onRename: vi.fn(),
   onDelete: vi.fn(),
+  onAutoRename: vi.fn(),
 });
 
 describe("LibraryFolderBar", () => {
@@ -44,6 +45,22 @@ describe("LibraryFolderBar", () => {
     render(<LibraryFolderBar folders={[]} activeFolderId={null} {...actions()} />);
 
     expect(screen.queryByRole("button", { name: "Share folder" })).not.toBeInTheDocument();
+  });
+
+  it("offers automatic comic-title padding at both real and root folders", async () => {
+    const user = userEvent.setup();
+    const folderActions = actions();
+    const rootActions = actions();
+
+    const { rerender } = render(
+      <LibraryFolderBar folders={[{ id: 7, name: "DragonBall", parentId: null }]} activeFolderId={7} {...folderActions} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Auto rename comics" }));
+    expect(folderActions.onAutoRename).toHaveBeenCalledOnce();
+
+    rerender(<LibraryFolderBar folders={[]} activeFolderId={null} {...rootActions} />);
+    await user.click(screen.getByRole("button", { name: "Auto rename comics" }));
+    expect(rootActions.onAutoRename).toHaveBeenCalledOnce();
   });
 
   it("offers the jump to the last-read comic when given one", async () => {

@@ -3,6 +3,7 @@
 namespace App\Repository;
 
 use App\Entity\AdminAuditLog;
+use App\Service\Pagination\ColumnFilter;
 use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
@@ -10,11 +11,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<AdminAuditLog>
- *
- * @method AdminAuditLog|null find($id, $lockMode = null, $lockVersion = null)
- * @method AdminAuditLog|null findOneBy(array $criteria, array $orderBy = null)
- * @method AdminAuditLog[]    findAll()
- * @method AdminAuditLog[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class AdminAuditLogRepository extends ServiceEntityRepository
 {
@@ -23,6 +19,8 @@ class AdminAuditLogRepository extends ServiceEntityRepository
         'createdAt' => 'l.createdAt',
         'action' => 'l.action',
         'targetType' => 'l.targetType',
+        'admin' => 'adminSort',
+        'details' => 'l.payload',
     ];
 
     public function __construct(ManagerRegistry $registry)
@@ -36,12 +34,15 @@ class AdminAuditLogRepository extends ServiceEntityRepository
      * The log used to be capped at the newest 100 rows with no way to reach
      * anything older; paging it is the only way to audit anything but today.
      *
+     * @param array{createdAt?: string|null, admin?: string|null, action?: string|null,
+     *               target?: string|null, details?: string|null, timezone?: string|null} $filters
      * @return PaginatedResult<AdminAuditLog>
      */
     public function findAdminPage(
         PaginationRequest $request,
         ?string $action = null,
         ?string $targetType = null,
+        array $filters = [],
     ): PaginatedResult {
         $qb = $this->createQueryBuilder('l')->leftJoin('l.adminUser', 'admin');
 
@@ -71,9 +72,40 @@ class AdminAuditLogRepository extends ServiceEntityRepository
             $qb->andWhere($conditions)->setParameter('search', $pattern);
         }
 
+        ColumnFilter::applyDay($qb, 'l.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null, $filters['timezone'] ?? null);
+
+        if ($pattern = ColumnFilter::pattern($filters['admin'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(admin.name) LIKE :filterAdmin',
+                'LOWER(admin.email) LIKE :filterAdmin',
+            ))->setParameter('filterAdmin', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['action'] ?? null)) {
+            $qb->andWhere('LOWER(l.action) LIKE :filterAction')->setParameter('filterAction', $pattern);
+        }
+
+        $target = ColumnFilter::text($filters['target'] ?? null);
+        if ($target !== '') {
+            if (ctype_digit($target)) {
+                $qb->andWhere('l.targetId = :filterTargetId')->setParameter('filterTargetId', (int) $target);
+            } else {
+                $qb->andWhere('LOWER(l.targetType) LIKE :filterTarget')
+                    ->setParameter('filterTarget', ColumnFilter::pattern($target));
+            }
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['details'] ?? null)) {
+            $qb->andWhere('LOWER(l.payload) LIKE :filterDetails')->setParameter('filterDetails', $pattern);
+        }
+
         $total = (int) (clone $qb)->select('COUNT(l.id)')
             ->getQuery()
             ->getSingleScalarResult();
+
+        if ($request->sortField === 'admin') {
+            $qb->addSelect('COALESCE(admin.name, admin.email) AS HIDDEN adminSort');
+        }
 
         $logs = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)

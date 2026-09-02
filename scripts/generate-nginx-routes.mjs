@@ -65,6 +65,9 @@ const noindexAlternation = [exactAlternation(noindex), ...patterns.map(stripAnch
 
 const canonicalSource = `<link rel="canonical" href="${appUrl}/" />`;
 const openGraphSource = `<meta property="og:url" content="${appUrl}/" />`;
+// A location with any sub_filter stops inheriting the server-level nonce
+// filter, so canonical rewrites must repeat it or CSP blocks the SPA entry.
+const nonceSubFilter = `sub_filter '<script ' '<script nonce="$request_id" ';`;
 const indexHtml = readFileSync(indexHtmlPath, "utf8").replaceAll("__APP_URL__", appUrl);
 for (const source of [canonicalSource, openGraphSource]) {
   if (!indexHtml.includes(source)) {
@@ -77,6 +80,7 @@ for (const source of [canonicalSource, openGraphSource]) {
 
 const indexableLocations = indexable.filter((path) => path !== "/").map((path) => `location = ${path} {
     sub_filter_once off;
+    ${nonceSubFilter}
     sub_filter '${canonicalSource}' '<link rel="canonical" href="${appUrl}${path}" />';
     sub_filter '${openGraphSource}' '<meta property="og:url" content="${appUrl}${path}" />';
     try_files /index.html =404;

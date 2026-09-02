@@ -56,6 +56,9 @@
             ".php-cs-fixer.dist.php"
         ]
     },
+    "knpuniversity/oauth2-client-bundle": {
+        "version": "v2.20.2"
+    },
     "nelmio/cors-bundle": {
         "version": "2.5",
         "recipe": {

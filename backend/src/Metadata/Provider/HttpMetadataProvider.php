@@ -213,6 +213,35 @@ abstract class HttpMetadataProvider implements MetadataProviderInterface
     }
 
     /**
+     * Bound and map the provider's result rows. Each provider owns the JSON
+     * shape; the defensive list traversal and result ceiling live here once.
+     *
+     * @param callable(array<string, mixed>): ?ProviderCandidate $map
+     * @return list<ProviderCandidate>
+     */
+    protected function mapCandidateRows(mixed $results, callable $map): array
+    {
+        if (!is_array($results)) {
+            return [];
+        }
+
+        $candidates = [];
+        foreach (array_slice($results, 0, self::MAX_RESULTS) as $result) {
+            if (!is_array($result)) {
+                continue;
+            }
+
+            /** @var array<string, mixed> $result */
+            $candidate = $map($result);
+            if ($candidate !== null) {
+                $candidates[] = $candidate;
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
      * Names out of a list of `{ name: ... }` objects, which is how every
      * provider here reports characters, teams and the rest.
      *

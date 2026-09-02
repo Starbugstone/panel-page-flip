@@ -162,24 +162,29 @@ ssh_call() {
     : "${SSH_USER:?SSH_USER not set in .env.deploy}"
     local target="${SSH_USER}@${SSH_HOST}"
     local remote_path="${SSH_REMOTE_PATH:-${FTP_REMOTE_ROOT}/backend}"
+    local remote_command
 
     case "$action" in
         health)
-            ssh "$target" "cd ${remote_path} && php -r 'echo PHP_VERSION;' && echo"
+            remote_command="cd ${remote_path} && php -r 'echo PHP_VERSION;' && echo"
             ;;
         migrate)
-            ssh "$target" "cd ${remote_path} && php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration --env=prod"
+            remote_command="cd ${remote_path} && php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration --env=prod"
             ;;
         upgrade-data)
-            ssh "$target" "cd ${remote_path} && php bin/console app:migrate-dropbox-tokens --env=prod && php bin/console app:backfill-comic-file-size --env=prod"
+            remote_command="cd ${remote_path} && php bin/console app:migrate-dropbox-tokens --env=prod && php bin/console app:backfill-comic-file-size --env=prod"
             ;;
         cache-clear)
-            ssh "$target" "cd ${remote_path} && php bin/console cache:clear --env=prod && php bin/console cache:warmup --env=prod"
+            remote_command="cd ${remote_path} && php bin/console cache:clear --env=prod && php bin/console cache:warmup --env=prod"
             ;;
         *)
             fail "Unknown action: $action"
             ;;
     esac
+
+    # Values are expanded locally into SSH's single remote command argument.
+    # shellcheck disable=SC2029
+    ssh "$target" "$remote_command"
 }
 
 # =============================================================================

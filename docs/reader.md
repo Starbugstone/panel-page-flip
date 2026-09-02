@@ -6,7 +6,8 @@ cannot be loaded, the reader stays usable with safe defaults.
 
 Open **Reader settings** from the sliders button at the top-right of a page.
 Changes apply immediately and save in the background. **Reset defaults** returns
-every reader option to its default value.
+every reader option to its default value. The panel has its own labelled close
+button as well as the standard `Escape` and outside-click dismissal.
 
 ## Page sizing
 
@@ -133,7 +134,8 @@ contexts, as are portrait and landscape on the same device.
 The reader will suggest a fit that suits the screen — fit width on a phone in
 portrait, best fit on a tablet — as a small prompt above the controls. It is a
 suggestion: accepting it records a page size for that context, and dismissing it
-means nothing changes. Rotating a device never rewrites a choice on its own.
+means nothing changes. The prompt gets out of the way while reader settings are
+open. Rotating a device never rewrites a choice on its own.
 
 Contexts are recognised from what the browser reports about the viewport and the
 pointer, never from the user-agent string, so a narrow desktop window gets a
@@ -164,7 +166,10 @@ that space back to the page.
 The grid button at the top-right opens a strip of page thumbnails along the
 bottom of the reader. Selecting one turns to that page; the current page is
 marked, and the strip scrolls to keep it in view as you read. Thumbnails are
-tab-reachable and activate with Enter or Space.
+tab-reachable and activate with Enter or Space. The strip reserves the measured
+height of the fixed page controls below its buttons, including on narrow
+screens, so visible thumbnails cannot sit behind the bar or lose pointer input
+to it.
 
 Thumbnails load around wherever you are rather than all at once, so opening the
 navigator on a long book does not fetch hundreds of images.
@@ -201,6 +206,19 @@ behind them.
   orientation you are reading on. See [Page size on this screen](#page-size-on-this-screen).
 - **Keep screen awake** requests the browser's screen wake lock while the reader
   is open. Unsupported or denied wake locks do not interrupt reading.
+
+## Leaving the reader
+
+**Back to Library** returns to the comic, not to the top of the library: the
+folder holding it opens, and its card is scrolled into view and briefly
+highlighted — the same landing the folder bar's **Last read** button gives. A
+comic filed nowhere returns to the whole library, where its card is found the
+same way.
+
+The folder comes from the library list the header already holds, so a reader
+opened without one behind it — a bookmark, a fresh tab, a shared link — returns
+to the plain library instead. The URL carries the request as `?jump=<comic id>`
+alongside the folder, and any navigation within the library drops it.
 
 ## Keyboard controls
 

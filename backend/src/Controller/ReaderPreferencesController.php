@@ -33,10 +33,6 @@ final class ReaderPreferencesController extends AbstractController
         EntityManagerInterface $entityManager,
     ): JsonResponse {
         $payload = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($payload)) {
-            return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
-        }
-
         if (array_keys($payload) !== ['preferences']) {
             return $this->json(
                 ['message' => 'The request must contain only preferences.'],

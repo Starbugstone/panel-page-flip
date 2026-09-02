@@ -33,6 +33,19 @@ final class UserContentStatsTest extends AbstractApiTestCase
         self::assertSame(0, $stats['unmeasuredComicCount']);
     }
 
+    public function testAnAccountWithOnlyTagsStillHasCompleteZeroComicStats(): void
+    {
+        $user = UserFactory::createOne();
+        TagFactory::createOne(['creator' => $user]);
+
+        self::assertSame([
+            'comicCount' => 0,
+            'storageUsedBytes' => 0,
+            'unmeasuredComicCount' => 0,
+            'tagCount' => 1,
+        ], $this->statsFor($user));
+    }
+
     public function testStorageIsTheExactSumOfTheOwnedComicSizes(): void
     {
         $user = UserFactory::createOne();

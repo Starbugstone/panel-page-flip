@@ -1,10 +1,82 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { formatBytes, formatDateTime } from "@/lib/format";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
+import { filterAndSortAdminRows } from "@/lib/admin-client-table";
+import { adminFilterSuggestions, matchesAdminDateRange } from "@/lib/admin-table-filters";
+
+const EMPTY_SIGNUPS = [];
+
+function OverviewStats({ stats }) {
+  const cards = [
+    ["Total users", stats?.totalUsers ?? 0],
+    ["Verified users", stats?.verifiedUsers ?? 0],
+    ["Total comics", stats?.totalComics ?? 0],
+    ["Storage used", formatBytes(stats?.storageUsed)],
+  ];
+
+  return (
+    <div className="grid gap-4 md:grid-cols-4">
+      {cards.map(([label, value]) => (
+        <Card key={label}>
+          <CardHeader><CardTitle>{label}</CardTitle></CardHeader>
+          <CardContent className="text-3xl font-bold">{value}</CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function RecentSignupsTable({ signups, rows, controls }) {
+  return (
+    <Card>
+      <CardHeader><CardTitle>Recent Sign-ups</CardTitle></CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader><TableRow>
+            <TableHead><AdminColumnHeader label="User" sortField="user" filterField="user" filterSuggestions={adminFilterSuggestions(signups, (user) => [user.name, user.email])} filterValue={controls.columnFilters.user} {...controls.headerProps} /></TableHead>
+            <TableHead><AdminColumnHeader label="Verified" sortField="verified" filterField="verified" filterType="select" filterOptions={["Yes", "No"]} filterValue={controls.columnFilters.verified} {...controls.headerProps} /></TableHead>
+            <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="createdAt" filterType="date" filterValue={controls.columnFilters.createdAt} {...controls.headerProps} /></TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
+            {rows.map((user) => (
+              <TableRow key={user.id}>
+                <TableCell>{user.name || user.email}<div className="text-sm text-muted-foreground">{user.email}</div></TableCell>
+                <TableCell>{user.isEmailVerified ? "Yes" : "No"}</TableCell>
+                <TableCell>{formatDateTime(user.createdAt)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CleanupCard({ cleanup, isCleaning, onRun }) {
+  return (
+    <Card>
+      <CardHeader><CardTitle>Orphan File Cleanup</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => onRun(false)} disabled={isCleaning}>Dry run</Button>
+          <Button onClick={() => onRun(true)} disabled={isCleaning || !cleanup}>Quarantine files</Button>
+        </div>
+        {cleanup && (
+          <div className="text-sm text-muted-foreground">
+            Found {cleanup.totals?.orphanedComics || 0} orphan comics and {cleanup.totals?.orphanedCovers || 0} orphan covers.
+            {cleanup.quarantined && ` Quarantined ${cleanup.quarantined.orphanedComics} comics and ${cleanup.quarantined.orphanedCovers} covers.`}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export function AdminOverview() {
   const { toast } = useToast();
@@ -12,6 +84,16 @@ export function AdminOverview() {
   const [cleanup, setCleanup] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCleaning, setIsCleaning] = useState(false);
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
+  const signups = stats?.recentSignups || EMPTY_SIGNUPS;
+  const recentSignups = useMemo(() => filterAndSortAdminRows(signups, tableControls, {
+    user: { value: (user) => `${user.name || ""} ${user.email}` },
+    verified: { value: (user) => user.isEmailVerified ? "Yes" : "No" },
+    createdAt: {
+      value: (user) => user.createdAt,
+      filter: (value, query) => matchesAdminDateRange(value, query),
+    },
+  }), [signups, tableControls]);
 
   useEffect(() => {
     api.get("/api/admin/stats")
@@ -39,46 +121,9 @@ export function AdminOverview() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card><CardHeader><CardTitle>Total users</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{stats?.totalUsers ?? 0}</CardContent></Card>
-        <Card><CardHeader><CardTitle>Verified users</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{stats?.verifiedUsers ?? 0}</CardContent></Card>
-        <Card><CardHeader><CardTitle>Total comics</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{stats?.totalComics ?? 0}</CardContent></Card>
-        <Card><CardHeader><CardTitle>Storage used</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{formatBytes(stats?.storageUsed)}</CardContent></Card>
-      </div>
-
-      <Card>
-        <CardHeader><CardTitle>Recent Sign-ups</CardTitle></CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader><TableRow><TableHead>User</TableHead><TableHead>Verified</TableHead><TableHead>Created</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {(stats?.recentSignups || []).map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell>{user.name || user.email}<div className="text-sm text-muted-foreground">{user.email}</div></TableCell>
-                  <TableCell>{user.isEmailVerified ? "Yes" : "No"}</TableCell>
-                  <TableCell>{formatDateTime(user.createdAt)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Orphan File Cleanup</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => runCleanup(false)} disabled={isCleaning}>Dry run</Button>
-            <Button onClick={() => runCleanup(true)} disabled={isCleaning || !cleanup}>Quarantine files</Button>
-          </div>
-          {cleanup && (
-            <div className="text-sm text-muted-foreground">
-              Found {cleanup.totals?.orphanedComics || 0} orphan comics and {cleanup.totals?.orphanedCovers || 0} orphan covers.
-              {cleanup.quarantined && ` Quarantined ${cleanup.quarantined.orphanedComics} comics and ${cleanup.quarantined.orphanedCovers} covers.`}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <OverviewStats stats={stats} />
+      <RecentSignupsTable signups={signups} rows={recentSignups} controls={tableControls} />
+      <CleanupCard cleanup={cleanup} isCleaning={isCleaning} onRun={runCleanup} />
     </div>
   );
 }

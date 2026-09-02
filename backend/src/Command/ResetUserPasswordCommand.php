@@ -3,7 +3,6 @@
 namespace App\Command;
 
 use App\Entity\User;
-use App\Service\PasswordValidator;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -11,7 +10,6 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 
 #[AsCommand(
     name: 'app:reset-user-password',
@@ -20,9 +18,8 @@ use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 class ResetUserPasswordCommand extends Command
 {
     public function __construct(
-        private EntityManagerInterface $entityManager,
-        private UserPasswordHasherInterface $passwordHasher,
-        private readonly PasswordValidator $passwordValidator,
+        private readonly EntityManagerInterface $entityManager,
+        private readonly CommandPasswordUpdater $passwordUpdater,
     ) {
         parent::__construct();
     }
@@ -43,16 +40,14 @@ class ResetUserPasswordCommand extends Command
         $user = $this->entityManager->getRepository(User::class)->findOneBy(['email' => $email]);
         if (!$user) {
             $io->error(sprintf('User with email "%s" not found', $email));
+
             return Command::FAILURE;
         }
 
-        $passwordErrors = $this->passwordValidator->validate($password);
-        if ($passwordErrors !== []) {
-            $io->error(array_merge(['Password does not meet policy requirements:'], $passwordErrors));
+        if (!$this->passwordUpdater->update($user, $password, $io)) {
             return Command::FAILURE;
         }
 
-        $user->setPassword($this->passwordHasher->hashPassword($user, $password));
         $user->setIsEmailVerified(true);
         $this->entityManager->flush();
 

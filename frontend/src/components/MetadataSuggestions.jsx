@@ -8,6 +8,10 @@ import { useMetadataSuggestions } from "@/hooks/use-metadata-suggestions";
 import { listClassification, partitionTagSuggestions } from "@/lib/metadata-suggestions";
 import { ChevronRight } from "lucide-react";
 
+function hasMetadataSuggestions(panel, unusedTags) {
+  return panel.suggestions.length > 0 || unusedTags.length > 0 || panel.candidates !== null;
+}
+
 /**
  * Proposals about a comic, and a way to take them one at a time.
  *
@@ -32,7 +36,7 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
 
   const { unused, libraryTags, genreTags } = partitionTagSuggestions(panel.tagSuggestions, currentTags);
   const structuredClassification = listClassification(panel.classification);
-  const hasAnything = panel.suggestions.length > 0 || unused.length > 0 || panel.candidates !== null;
+  const hasAnything = hasMetadataSuggestions(panel, unused);
 
   if (!comicId) return null;
 

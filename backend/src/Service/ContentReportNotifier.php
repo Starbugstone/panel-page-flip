@@ -9,6 +9,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Twig\Environment;
 
 final class ContentReportNotifier
@@ -21,11 +22,25 @@ final class ContentReportNotifier
         #[Autowire('%mailer_from_address%')] private readonly string $fromAddress,
         #[Autowire('%mailer_from_name%')] private readonly string $fromName,
         #[Autowire('%legal_email%')] private readonly string $legalEmail,
+        private readonly RateLimiterFactory $contentReportAcknowledgementLimiter,
+        private readonly SecurityAuditLogger $auditLogger,
     ) {
     }
 
     public function acknowledge(ContentReport $report): bool
     {
+        $key = hash('sha256', mb_strtolower(trim($report->getReporterEmail())));
+        if (!$this->contentReportAcknowledgementLimiter->create($key)->consume()->isAccepted()) {
+            $this->auditLogger->security(SecurityAuditLogger::CONTENT_REPORT_ACKNOWLEDGEMENT_RATE_LIMITED, [
+                'target_type' => 'content_report',
+                'target_id' => $report->getId(),
+                'report_id' => $report->getId(),
+                'limiter' => 'content_report_acknowledgement',
+            ]);
+
+            return false;
+        }
+
         return $this->send(fn () => (new Email())
             ->from(new Address($this->fromAddress, $this->fromName))
             ->to($report->getReporterEmail())

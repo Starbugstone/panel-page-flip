@@ -14,14 +14,23 @@ function initialStructured(comic) {
   };
 }
 
+function initialFields(comic) {
+  return {
+    title: comic?.title || "",
+    author: comic?.author || "",
+    publisher: comic?.publisher || "",
+    description: comic?.description || "",
+  };
+}
+
 /** Owns the draft and persistence workflow; the dialog only composes fields. */
 export function useComicEditForm(comic, onSave, onClose) {
-  const [fields, setFields] = useState({ title: comic?.title || "", author: comic?.author || "", publisher: comic?.publisher || "", description: comic?.description || "" });
+  const [fields, setFields] = useState(() => initialFields(comic));
   const [structured, setStructured] = useState(() => initialStructured(comic));
-  const [tags, setTags] = useState(comic?.tags || []);
-  const [explicitContent, setExplicitContent] = useState(comic?.explicitContent === true);
-  const [creators, setCreators] = useState(comic?.creators ?? null);
-  const [metadataOrigin, setMetadataOrigin] = useState(comic?.metadataOrigin ?? null);
+  const [tags, setTags] = useState(() => comic?.tags || []);
+  const [explicitContent, setExplicitContent] = useState(() => comic?.explicitContent === true);
+  const [creators, setCreators] = useState(() => comic?.creators ?? null);
+  const [metadataOrigin, setMetadataOrigin] = useState(() => comic?.metadataOrigin ?? null);
   const [newTag, setNewTag] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();

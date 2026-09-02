@@ -28,12 +28,13 @@ class UnverifiedEmailException extends CustomUserMessageAccountStatusException
         return $this->email;
     }
 
-    /** @return array{0: string} */
+    /** @return array{0: string, 1: array<array-key, mixed>} */
     public function __serialize(): array
     {
         return [$this->email, parent::__serialize()];
     }
 
+    /** @param array{0: string, 1: array<array-key, mixed>} $data */
     public function __unserialize(array $data): void
     {
         [$this->email, $parentData] = $data;

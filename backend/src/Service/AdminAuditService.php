@@ -12,6 +12,7 @@ class AdminAuditService
     {
     }
 
+    /** @param array<array-key, mixed>|null $payload */
     public function log(User $adminUser, string $action, string $targetType, ?int $targetId = null, ?array $payload = null): void
     {
         $entry = (new AdminAuditLog())

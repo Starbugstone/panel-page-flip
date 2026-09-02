@@ -27,6 +27,32 @@ beforeEach(() => {
 });
 
 describe("reader settings persistence status", () => {
+  it("offers an explicit close control for the long settings panel", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(
+      <ReaderSettings
+        settings={DEFAULT_READER_PREFERENCES.settings}
+        isLoaded
+        isSaving={false}
+        hasSyncError={false}
+        contextLabel="this desktop in landscape"
+        hasOverride={false}
+        onChange={vi.fn()}
+        onOverrideChange={vi.fn()}
+        onOpenChange={onOpenChange}
+        onReset={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Reader settings" }));
+    expect(screen.getByRole("dialog", { name: "Reader settings" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close reader settings" }));
+
+    expect(screen.queryByText("Preferences sync across devices")).not.toBeInTheDocument();
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
   it("keeps consent withdrawal reachable without putting a footer over the reader", async () => {
     googleServices.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
     googleServices.consent = { enabled: true, client: "ca-pub-1234567890123456" };

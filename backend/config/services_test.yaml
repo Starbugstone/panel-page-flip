@@ -31,6 +31,18 @@ services:
         alias: limiter.identifier_lookup
         public: true
 
+    test.limiter.content_report:
+        alias: limiter.content_report
+        public: true
+
+    test.limiter.content_report_burst:
+        alias: limiter.content_report_burst
+        public: true
+
+    test.limiter.content_report_acknowledgement:
+        alias: limiter.content_report_acknowledgement
+        public: true
+
     # Alert thresholds and cooldowns must not outlive the run that set them. The
     # real pool is filesystem-backed and survives the database, so a cooldown
     # claimed by one run would suppress the alert the next run asserts on — the
@@ -70,6 +82,8 @@ services:
         resource: '../tests/'
         exclude:
             - '../tests/bootstrap.php'
+
+    App\OAuth\OAuthProviderClientInterface: '@App\Tests\Support\FakeOAuthProviderClient'
 
     # Sharing's notification guarantees are about what happens when a send
     # fails, and the cases worth proving go through a real HTTP request. A

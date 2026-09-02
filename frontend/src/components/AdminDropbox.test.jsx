@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,6 +37,21 @@ describe("AdminDropbox", () => {
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/admin/dropbox-users/7/sync", {}));
     expect(toast).toHaveBeenCalledWith({ title: "Dropbox import completed" });
     expect(screen.queryByText(/Dropbox sync/i)).not.toBeInTheDocument();
+  });
+
+  it("filters imported comics with one minimum-and-maximum slider", async () => {
+    const user = userEvent.setup();
+    render(<AdminDropbox />);
+
+    await screen.findByText("reader@example.com");
+    await user.click(screen.getByRole("button", { name: "Imported comics sort and filter" }));
+
+    expect(screen.getByText("0 to 2")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Maximum imported comics"), { target: { value: "1" } });
+    await user.click(screen.getByRole("button", { name: "Apply range" }));
+
+    expect(screen.queryByText("reader@example.com")).not.toBeInTheDocument();
+    expect(screen.getByText("No connected Dropbox users")).toBeInTheDocument();
   });
 });
 
@@ -106,4 +121,3 @@ describe("AdminDropbox in bulk", () => {
     }));
   });
 });
-

@@ -17,6 +17,83 @@ function asGiBInput(bytes) {
   return String(Number(gib.toFixed(4)));
 }
 
+function parseQuota(useDefault, quotaGiB) {
+  if (useDefault) return { bytes: null, valid: true };
+  if (quotaGiB.trim() === "") return { bytes: null, valid: false };
+
+  const gib = Number(quotaGiB);
+  if (!Number.isFinite(gib) || gib < 0) return { bytes: null, valid: false };
+
+  const bytes = Math.round(gib * GIB);
+  return {
+    bytes,
+    valid: Number.isSafeInteger(bytes)
+      && bytes <= MAX_SAFE_BYTES
+      && (gib === 0 || bytes > 0),
+  };
+}
+
+function QuotaInput({ useDefault, defaultBytes, quotaGiB, valid, onUseDefault, onQuotaChange }) {
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="admin-storage-use-default"
+          checked={useDefault}
+          onCheckedChange={(checked) => onUseDefault(checked === true)}
+        />
+        <Label htmlFor="admin-storage-use-default" className="font-normal">
+          Use server default ({defaultBytes === 0 ? "Unlimited" : formatBytes(defaultBytes)})
+        </Label>
+      </div>
+
+      {!useDefault && (
+        <div className="grid max-w-xs gap-2">
+          <Label htmlFor="admin-storage-quota-gib">Custom quota (GiB)</Label>
+          <Input
+            id="admin-storage-quota-gib"
+            type="number"
+            min="0"
+            step="0.01"
+            value={quotaGiB}
+            onChange={(event) => onQuotaChange(event.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">Enter 0 for unlimited storage.</p>
+          {!valid && (
+            <p className="text-sm text-destructive">Enter a non-negative quota within the supported range.</p>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function QuotaWarnings({ isUnlimited, isBelowUsage }) {
+  return (
+    <>
+      {isUnlimited && (
+        <div role="alert" className="flex max-w-xl gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+          <p>
+            Unlimited removes the application-level storage safeguard for this account.
+            Available disk space becomes the only remaining limit.
+          </p>
+        </div>
+      )}
+
+      {isBelowUsage && (
+        <div role="alert" className="flex max-w-xl gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+          <p>
+            This account already uses more than the proposed quota. Existing comics remain,
+            but new uploads and imports will be blocked.
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
 /**
  * The administrator's storage policy control for one account.
  *
@@ -31,22 +108,7 @@ export function AdminStorageQuotaForm({ user, onUpdated }) {
   const [quotaGiB, setQuotaGiB] = useState(asGiBInput(override ?? defaultBytes));
   const [isSaving, setIsSaving] = useState(false);
 
-  const parsed = useMemo(() => {
-    if (useDefault) return { bytes: null, valid: true };
-
-    if (quotaGiB.trim() === "") return { bytes: null, valid: false };
-
-    const gib = Number(quotaGiB);
-    if (!Number.isFinite(gib) || gib < 0) return { bytes: null, valid: false };
-
-    const bytes = Math.round(gib * GIB);
-    return {
-      bytes,
-      valid: Number.isSafeInteger(bytes)
-        && bytes <= MAX_SAFE_BYTES
-        && (gib === 0 || bytes > 0),
-    };
-  }, [quotaGiB, useDefault]);
+  const parsed = useMemo(() => parseQuota(useDefault, quotaGiB), [quotaGiB, useDefault]);
 
   const effectiveBytes = useDefault ? defaultBytes : parsed.bytes;
   const isUnlimited = parsed.valid && effectiveBytes === 0;
@@ -82,54 +144,15 @@ export function AdminStorageQuotaForm({ user, onUpdated }) {
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="admin-storage-use-default"
-          checked={useDefault}
-          onCheckedChange={(checked) => setUseDefault(checked === true)}
-        />
-        <Label htmlFor="admin-storage-use-default" className="font-normal">
-          Use server default ({defaultBytes === 0 ? "Unlimited" : formatBytes(defaultBytes)})
-        </Label>
-      </div>
-
-      {!useDefault && (
-        <div className="grid max-w-xs gap-2">
-          <Label htmlFor="admin-storage-quota-gib">Custom quota (GiB)</Label>
-          <Input
-            id="admin-storage-quota-gib"
-            type="number"
-            min="0"
-            step="0.01"
-            value={quotaGiB}
-            onChange={(event) => setQuotaGiB(event.target.value)}
-          />
-          <p className="text-xs text-muted-foreground">Enter 0 for unlimited storage.</p>
-          {!parsed.valid && (
-            <p className="text-sm text-destructive">Enter a non-negative quota within the supported range.</p>
-          )}
-        </div>
-      )}
-
-      {isUnlimited && (
-        <div role="alert" className="flex max-w-xl gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
-          <p>
-            Unlimited removes the application-level storage safeguard for this account.
-            Available disk space becomes the only remaining limit.
-          </p>
-        </div>
-      )}
-
-      {isBelowUsage && (
-        <div role="alert" className="flex max-w-xl gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
-          <p>
-            This account already uses more than the proposed quota. Existing comics remain,
-            but new uploads and imports will be blocked.
-          </p>
-        </div>
-      )}
+      <QuotaInput
+        useDefault={useDefault}
+        defaultBytes={defaultBytes}
+        quotaGiB={quotaGiB}
+        valid={parsed.valid}
+        onUseDefault={setUseDefault}
+        onQuotaChange={setQuotaGiB}
+      />
+      <QuotaWarnings isUnlimited={isUnlimited} isBelowUsage={isBelowUsage} />
 
       <Button onClick={save} disabled={isSaving || !isDirty || !parsed.valid}>
         {isSaving ? "Saving quota…" : "Save storage quota"}

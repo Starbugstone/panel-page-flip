@@ -17,10 +17,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AdminPagination } from "@/components/AdminPagination";
 import { useAdminList } from "@/hooks/use-admin-list";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { formatDate } from "@/lib/format";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { AdminDateRangePopover } from "@/components/admin/AdminDateRangePicker";
+import { adminFilterSuggestions } from "@/lib/admin-table-filters";
 
 /** The statuses the backend filters on, in the order an operator wants them. */
 const STATUSES = [
@@ -56,18 +60,16 @@ export function AdminSharingCodesList() {
   const { toast } = useToast();
   const [status, setStatus] = useState("");
   const [ownerId, setOwnerId] = useState("");
-  const [createdFrom, setCreatedFrom] = useState("");
-  const [createdTo, setCreatedTo] = useState("");
   const [codeToRevoke, setCodeToRevoke] = useState(null);
   const [isCleanupOpen, setIsCleanupOpen] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
 
   const filters = useMemo(() => ({
     ...(status ? { status } : {}),
     ...(ownerId.trim() ? { ownerId: ownerId.trim() } : {}),
-    ...(createdFrom ? { createdFrom } : {}),
-    ...(createdTo ? { createdTo } : {}),
-  }), [status, ownerId, createdFrom, createdTo]);
+    ...tableControls.query,
+  }), [status, ownerId, tableControls.query]);
 
   const {
     items: codes,
@@ -173,40 +175,29 @@ export function AdminSharingCodesList() {
             placeholder="Any"
           />
         </div>
-        <div className="grid gap-1">
-          <Label htmlFor="admin-codes-from" className="text-xs">Created from</Label>
-          <Input
-            id="admin-codes-from"
-            type="date"
-            value={createdFrom}
-            onChange={(event) => { setCreatedFrom(event.target.value); setPage(1); }}
-            className="w-40"
-          />
-        </div>
-        <div className="grid gap-1">
-          <Label htmlFor="admin-codes-to" className="text-xs">Created to</Label>
-          <Input
-            id="admin-codes-to"
-            type="date"
-            value={createdTo}
-            onChange={(event) => { setCreatedTo(event.target.value); setPage(1); }}
-            className="w-40"
-          />
-        </div>
+        <AdminDateRangePopover
+          label="Created"
+          value={tableControls.columnFilters.filterCreatedAt || ""}
+          onChange={(value) => tableControls.setColumnFilter("filterCreatedAt", value)}
+          className="w-full sm:w-auto"
+        />
       </div>
 
       <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Owner</TableHead>
-              <TableHead>Comics</TableHead>
-              <TableHead>Uses</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Expires</TableHead>
-              <TableHead>Deleted after</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead><AdminColumnHeader label="ID" sortField="id" filterField="filterId" filterPlaceholder="Exact ID…" filterValue={tableControls.columnFilters.filterId} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Owner" sortField="owner" filterField="filterOwner" filterSuggestions={adminFilterSuggestions(codes, (code) => [code.ownerName, code.ownerEmail])} filterValue={tableControls.columnFilters.filterOwner} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Comics" sortField="comicCount" filterField="filterComics" filterPlaceholder="Title or exact count…" filterSuggestions={adminFilterSuggestions(codes, (code) => code.comics?.map((comic) => comic.title) || [])} filterValue={tableControls.columnFilters.filterComics} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Uses" sortField="timesUsed" filterField="filterUses" filterType="range" filterMax={payload?.usesMax ?? 0} filterValue={tableControls.columnFilters.filterUses} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="filterCreatedAt" filterType="date" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
+              {/* Deletion is a fixed span after expiry, so Expires already
+                  sorts this column's order; a second control for it would
+                  light two headings up as the active sort at once. */}
+              <TableHead><AdminColumnHeader label="Expires" sortField="expiresAt" filterField="filterExpiresAt" filterType="date" filterValue={tableControls.columnFilters.filterExpiresAt} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Deleted after" filterField="filterDeletedAfter" filterType="date" filterValue={tableControls.columnFilters.filterDeletedAfter} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Status" sortField="status" filterField="filterStatus" filterType="select" filterOptions={["Active", "Expired", "Used up", "Withdrawn", "Comics removed"]} filterValue={tableControls.columnFilters.filterStatus} {...tableControls.headerProps} /></TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>

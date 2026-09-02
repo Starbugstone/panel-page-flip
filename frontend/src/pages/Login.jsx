@@ -12,6 +12,7 @@ import { validatePassword } from "@/lib/password-policy";
 import { stripUsernamePrefix, validateUsername } from "@/lib/sharing";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { resolveLocalRedirect } from "@/lib/local-redirect";
 
 export default function Login() {
   // Login form state
@@ -30,18 +31,46 @@ export default function Login() {
   const [isSuggestingUsername, setIsSuggestingUsername] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
+  const [socialProviders, setSocialProviders] = useState({});
   
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const defaultTab = searchParams.get("signup") ? "signup" : "login";
   const requestedRedirect = searchParams.get("redirect");
-  const redirectPath = requestedRedirect?.startsWith("/") && !requestedRedirect.startsWith("//")
-    ? requestedRedirect
-    : "/dashboard";
+  const oauthError = searchParams.get("oauth_error");
+  const redirectPath = resolveLocalRedirect(requestedRedirect);
   const { toast } = useToast();
   const { login, register } = useAuth();
   const registerPasswordErrors = validatePassword(registerPassword);
   const registerUsernameError = registerUsername === "" ? null : validateUsername(registerUsername);
+
+  useEffect(() => {
+    let active = true;
+    api.get("/api/auth/providers", { notifyUnauthorized: false })
+      .then((data) => { if (active) setSocialProviders(data || {}); })
+      .catch((error) => logger.warn("Could not load social sign-in providers:", error.message));
+
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!oauthError) return;
+
+    const messages = {
+      account_exists: "An account already exists with this email. Sign in with your existing method, then connect Google from Settings.",
+      verification_required: "Verify the email on this account before signing in.",
+      expired: "This social sign-in attempt expired. Please try again.",
+      invalid_state: "Social sign-in could not be verified. Please try again.",
+      cancelled: "Social sign-in was cancelled or not completed.",
+      unavailable: "That social sign-in provider is not available on this installation.",
+      failed: "Social sign-in could not be completed. Please try again.",
+    };
+    toast({
+      title: "Social sign-in unsuccessful",
+      description: messages[oauthError] || "Social sign-in could not be completed. Please try again.",
+      variant: "destructive",
+    });
+  }, [oauthError, toast]);
 
   const fetchSuggestion = useCallback(
     () => api.get("/api/users/username-suggestion")
@@ -78,6 +107,10 @@ export default function Login() {
     const username = await fetchSuggestion();
     if (username) setRegisterUsername(username);
     setIsSuggestingUsername(false);
+  };
+
+  const socialLogin = (provider) => {
+    window.location.assign(`/api/auth/oauth/${provider}/start?redirect=${encodeURIComponent(redirectPath)}`);
   };
 
   const handleLoginSubmit = async (event) => {
@@ -163,6 +196,19 @@ export default function Login() {
             <p className="mt-2 text-muted-foreground">Access your comic collection</p>
           </div>
 
+          {socialProviders.google && (
+            <div className="space-y-4">
+              <Button type="button" variant="outline" className="w-full" onClick={() => socialLogin("google")}>
+                Continue with Google
+              </Button>
+              <div className="flex items-center gap-3" aria-label="or">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            </div>
+          )}
+
           <Tabs defaultValue={defaultTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="login">Login</TabsTrigger>
@@ -174,7 +220,9 @@ export default function Login() {
                   <Label htmlFor="login-email">Email</Label>
                   <Input 
                     id="login-email" 
+                    name="email"
                     type="email" 
+                    autoComplete="username"
                     placeholder="your@email.com" 
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
@@ -190,7 +238,9 @@ export default function Login() {
                   </div>
                   <Input 
                     id="login-password" 
+                    name="password"
                     type="password" 
+                    autoComplete="current-password"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     required
@@ -211,7 +261,9 @@ export default function Login() {
                   <Label htmlFor="signup-name">Name</Label>
                   <Input 
                     id="signup-name" 
+                    name="name"
                     type="text" 
+                    autoComplete="name"
                     placeholder="Your Name" 
                     value={registerName}
                     onChange={(e) => setRegisterName(e.target.value)}
@@ -223,7 +275,9 @@ export default function Login() {
                   <div className="flex gap-2">
                     <Input
                       id="signup-username"
+                      name="username"
                       type="text"
+                      autoComplete="username"
                       placeholder="SilverOtter4821"
                       value={registerUsername}
                       onChange={(e) => setRegisterUsername(stripUsernamePrefix(e.target.value))}
@@ -249,7 +303,9 @@ export default function Login() {
                   <Label htmlFor="signup-email">Email</Label>
                   <Input 
                     id="signup-email" 
+                    name="email"
                     type="email" 
+                    autoComplete="email"
                     placeholder="your@email.com" 
                     value={registerEmail}
                     onChange={(e) => setRegisterEmail(e.target.value)}
@@ -260,7 +316,9 @@ export default function Login() {
                   <Label htmlFor="signup-password">Password</Label>
                   <Input 
                     id="signup-password" 
+                    name="password"
                     type="password" 
+                    autoComplete="new-password"
                     value={registerPassword}
                     onChange={(e) => setRegisterPassword(e.target.value)}
                     minLength={12}

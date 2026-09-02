@@ -1,0 +1,37 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use App\Tests\Support\CloverCoverage;
+
+require dirname(__DIR__).'/vendor/autoload.php';
+
+$options = getopt('', ['report:', 'min-lines:', 'min-methods:']);
+$report = $options['report'] ?? null;
+$minimumLines = filter_var($options['min-lines'] ?? null, FILTER_VALIDATE_FLOAT);
+$minimumMethods = filter_var($options['min-methods'] ?? null, FILTER_VALIDATE_FLOAT);
+
+if (!is_string($report) || false === $minimumLines || false === $minimumMethods) {
+    fwrite(STDERR, "Usage: check-coverage --report=FILE --min-lines=PERCENT --min-methods=PERCENT\n");
+    exit(2);
+}
+
+try {
+    $coverage = CloverCoverage::fromFile($report);
+} catch (InvalidArgumentException $error) {
+    fwrite(STDERR, $error->getMessage()."\n");
+    exit(2);
+}
+
+$failures = $coverage->failures($minimumLines, $minimumMethods);
+printf(
+    "Backend coverage: %.2f%% lines, %.2f%% methods.\n",
+    $coverage->linePercentage(),
+    $coverage->methodPercentage(),
+);
+
+if ([] !== $failures) {
+    fwrite(STDERR, implode("\n", $failures)."\n");
+    exit(1);
+}

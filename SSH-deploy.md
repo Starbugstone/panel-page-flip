@@ -231,6 +231,9 @@ APP_DATA_KEY=$(openssl rand -base64 32)                # generate once; preserve
 DATABASE_URL="mysql://comics_user:STRONG_PASS@127.0.0.1:3306/cbz_reader?serverVersion=8.0.32&charset=utf8mb4" # use SELECT VERSION() for the exact value
 CORS_ALLOW_ORIGIN=^https://comics\.yourdomain\.com$
 APP_URL=https://comics.yourdomain.com
+TURNSTILE_ENABLED=false                              # set true after creating a Managed widget for this hostname
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=                                # backend-only; never expose or commit it
 MAILER_DSN=smtp://smtp_user:smtp_pass@smtp.yourdomain.com:587
 MAILER_TRANSPORT=smtp
 MAILER_FROM_ADDRESS=noreply@yourdomain.com

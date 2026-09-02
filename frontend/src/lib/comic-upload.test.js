@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PARALLEL_FILES, formatFileSize, generateTitleFromFilename, isComicFile, resolveParallelFiles } from "./comic-upload";
+import {
+  DEFAULT_COMIC_FORMATS,
+  DEFAULT_CONCURRENT_CHUNKS,
+  DEFAULT_PARALLEL_FILES,
+  configuredComicFormats,
+  configuredConcurrentChunks,
+  formatFileSize,
+  generateTitleFromFilename,
+  isComicFile,
+  resolveParallelFiles,
+} from "./comic-upload";
 
 describe("comic upload helpers", () => {
   it.each([
@@ -58,4 +68,18 @@ describe("resolving how many comics upload at once", () => {
       expect(resolveParallelFiles(configured)).toBe(DEFAULT_PARALLEL_FILES);
     }
   );
+});
+
+describe("shared upload configuration", () => {
+  it("uses server upload limits and formats", () => {
+    const config = { upload: { maxConcurrentUploads: 7, comicFormats: ["cbz", "pdf"] } };
+
+    expect(configuredConcurrentChunks(config)).toBe(7);
+    expect(configuredComicFormats(config)).toEqual(["cbz", "pdf"]);
+  });
+
+  it("uses the client fallbacks when the server omits values", () => {
+    expect(configuredConcurrentChunks({ upload: {} })).toBe(DEFAULT_CONCURRENT_CHUNKS);
+    expect(configuredComicFormats({ upload: {} })).toBe(DEFAULT_COMIC_FORMATS);
+  });
 });

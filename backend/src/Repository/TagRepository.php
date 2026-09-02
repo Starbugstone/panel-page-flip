@@ -4,6 +4,7 @@ namespace App\Repository;
 
 use App\Entity\Tag;
 use App\Entity\User;
+use App\Service\Pagination\ColumnFilter;
 use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
@@ -11,11 +12,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<Tag>
- *
- * @method Tag|null find($id, $lockMode = null, $lockVersion = null)
- * @method Tag|null findOneBy(array $criteria, array $orderBy = null)
- * @method Tag[]    findAll()
- * @method Tag[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class TagRepository extends ServiceEntityRepository
 {
@@ -23,8 +19,17 @@ class TagRepository extends ServiceEntityRepository
     public const ADMIN_SORT_FIELDS = [
         'name' => 't.name',
         'createdAt' => 't.createdAt',
-        'isGlobal' => 't.isGlobal',
+        'isGlobal' => 'scopeSort',
+        'hideFromLibrary' => 'visibilitySort',
+        'comicCount' => 'SIZE(t.comics)',
+        'creator' => 'creatorSort',
     ];
+
+    /** The Scope column's two values, as its cells spell them. */
+    private const SCOPE_LABELS = ['global' => 'Global', 'personal' => 'Personal'];
+
+    /** Likewise for the Default library column. */
+    private const VISIBILITY_LABELS = ['visible' => 'Visible', 'hidden' => 'Hidden'];
 
     /** Upper bound on an autocomplete response; nobody scrolls past this. */
     public const SEARCH_LIMIT = 50;
@@ -40,9 +45,12 @@ class TagRepository extends ServiceEntityRepository
      *
      * @param int|null $creatorId Restrict to one user's personal tags. Global
      *                            tags have no creator and are excluded by it.
+     * @param array{name?: string|null, scope?: string|null, visibility?: string|null,
+     *               comicCount?: string|null, creator?: string|null, createdAt?: string|null,
+     *               timezone?: string|null} $filters
      * @return PaginatedResult<Tag>
      */
-    public function findAdminPage(PaginationRequest $request, ?int $creatorId = null): PaginatedResult
+    public function findAdminPage(PaginationRequest $request, ?int $creatorId = null, array $filters = []): PaginatedResult
     {
         $qb = $this->createQueryBuilder('t')->leftJoin('t.creator', 'creator');
 
@@ -58,9 +66,64 @@ class TagRepository extends ServiceEntityRepository
             ))->setParameter('search', $pattern);
         }
 
+        if ($pattern = ColumnFilter::pattern($filters['name'] ?? null)) {
+            $qb->andWhere('LOWER(t.name) LIKE :filterName')->setParameter('filterName', $pattern);
+        }
+
+        $scopes = ColumnFilter::matchLabels($qb, $filters['scope'] ?? null, self::SCOPE_LABELS);
+        if ($scopes !== null) {
+            $conditions = array_map(
+                static fn (string $scope): string => $scope === 'global' ? 't.isGlobal = true' : 't.isGlobal = false',
+                $scopes,
+            );
+            $qb->andWhere($qb->expr()->orX(...$conditions));
+        }
+
+        $visibilities = ColumnFilter::matchLabels($qb, $filters['visibility'] ?? null, self::VISIBILITY_LABELS);
+        if ($visibilities !== null) {
+            $conditions = array_map(
+                static fn (string $visibility): string => $visibility === 'hidden'
+                    ? 't.hideFromLibrary = true'
+                    : 't.hideFromLibrary = false',
+                $visibilities,
+            );
+            $qb->andWhere($qb->expr()->orX(...$conditions));
+        }
+
+        if (($comicCount = ColumnFilter::integerRange($filters['comicCount'] ?? null)) !== null) {
+            $qb->andWhere('SIZE(t.comics) >= :filterComicCountMin')
+                ->andWhere('SIZE(t.comics) <= :filterComicCountMax')
+                ->setParameter('filterComicCountMin', $comicCount[0])
+                ->setParameter('filterComicCountMax', $comicCount[1]);
+        }
+
+        $creator = ColumnFilter::text($filters['creator'] ?? null);
+        if ($creator !== '') {
+            $conditions = $qb->expr()->orX(
+                'LOWER(creator.name) LIKE :filterCreator',
+                'LOWER(creator.email) LIKE :filterCreator',
+            );
+            if (str_contains('system', mb_strtolower($creator))) {
+                $conditions->add('t.creator IS NULL');
+            }
+            $qb->andWhere($conditions)->setParameter('filterCreator', ColumnFilter::pattern($creator));
+        }
+
+        ColumnFilter::applyDay($qb, 't.createdAt', 'filterCreatedAt', $filters['createdAt'] ?? null, $filters['timezone'] ?? null);
+
         $total = (int) (clone $qb)->select('COUNT(t.id)')
             ->getQuery()
             ->getSingleScalarResult();
+
+        if ($request->sortField === 'isGlobal') {
+            $qb->addSelect('CASE WHEN t.isGlobal = true THEN 0 ELSE 1 END AS HIDDEN scopeSort');
+        }
+        if ($request->sortField === 'hideFromLibrary') {
+            $qb->addSelect('CASE WHEN t.hideFromLibrary = true THEN 0 ELSE 1 END AS HIDDEN visibilitySort');
+        }
+        if ($request->sortField === 'creator') {
+            $qb->addSelect("COALESCE(creator.name, creator.email, 'System') AS HIDDEN creatorSort");
+        }
 
         $tags = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)
@@ -71,6 +134,20 @@ class TagRepository extends ServiceEntityRepository
             ->getResult();
 
         return PaginatedResult::fromRequest($tags, $total, $request);
+    }
+
+    public function getMaximumComicCount(?int $creatorId = null): int
+    {
+        $qb = $this->createQueryBuilder('t')
+            ->select('SIZE(t.comics) AS comicCount')
+            ->orderBy('comicCount', 'DESC')
+            ->setMaxResults(1);
+        if ($creatorId !== null) {
+            $qb->where('t.creator = :creatorId')->setParameter('creatorId', $creatorId);
+        }
+        $result = $qb->getQuery()->getOneOrNullResult();
+
+        return (int) ($result['comicCount'] ?? 0);
     }
 
     /**
@@ -88,7 +165,10 @@ class TagRepository extends ServiceEntityRepository
             return [];
         }
 
-        $counts = array_fill_keys(array_map(static fn (Tag $tag): int => $tag->getId(), $tags), 0);
+        $counts = array_fill_keys(array_map(
+            static fn (Tag $tag): int => $tag->getId() ?? throw new \LogicException('Persisted tag has no identifier.'),
+            $tags
+        ), 0);
 
         $rows = $this->getEntityManager()->createQueryBuilder()
             ->select('t.id AS tagId', 'COUNT(c.id) AS total')

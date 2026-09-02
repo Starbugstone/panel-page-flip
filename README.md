@@ -23,6 +23,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
 - Optional Google AdSense, off unless an operator turns it on, confined by an allowlist to pages that render no uploaded comic content, with consent and the bulk-upload Offerwall owned by Google's supported account-side products — see [advertising, consent, and AdSense Offerwall](docs/advertising.md)
 - Optional Google Analytics 4, off unless an operator turns it on, blocked behind Google Privacy & Messaging basic consent mode and restricted to sanitized application-owned route categories — see [privacy-first Google Analytics](docs/analytics.md)
+- Optional Google social sign-in with safe account linking, passwordless onboarding, and provider-neutral identity storage — see [social sign-in setup and security model](docs/social-sign-in.md)
 
 ## Technology
 
@@ -50,12 +51,18 @@ Node.js 22 and PHP/Composer are only required when running tooling outside Docke
 ```bash
 git clone https://github.com/Starbugstone/panel-page-flip.git
 cd panel-page-flip
+scripts/dev-env.sh
 docker compose up -d --build
 docker compose exec php composer install
 docker compose exec php php bin/console doctrine:database:create --if-not-exists
 docker compose exec php php bin/console doctrine:migrations:migrate --no-interaction
 docker compose exec php php bin/console app:setup-upload-directories
 ```
+
+`scripts/dev-env.sh` writes the untracked `.env` this checkout uses: its Compose
+project name, its published ports, and the UID the containers run as so files
+they create belong to you. Run it once per clone or worktree — see
+[docs/local-docker-environment.md](docs/local-docker-environment.md).
 
 Create an administrator for the first login:
 
@@ -93,11 +100,17 @@ Use `backend/.env.local` for machine-specific values and secrets:
 ```dotenv
 APP_SECRET=replace-with-a-random-value
 APP_DATA_KEY=replace-with-a-persistent-random-value
-DATABASE_URL="mysql://cbz_user:cbz_password@database:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4"
 MAILER_DSN=smtp://mailpit:1025
 ```
 
-Only when running Symfony directly outside Docker, override `APP_URL` in `backend/.env.local`; Docker development reads it from the root `.env`.
+Docker database credentials belong in the root `.env`; Compose passes the same
+raw `MYSQL_*` values to MySQL and Symfony. When running Symfony directly in the
+development environment, set `DATABASE_HOST`, `DATABASE_PORT`,
+`MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, and
+`DATABASE_SERVER_VERSION` in `backend/.env.local`. Production uses
+`DATABASE_URL`; percent-encode URI-reserved characters in its credential and
+database-name components. Only when running Symfony directly outside Docker,
+override `APP_URL` there too; Docker development reads it from the root `.env`.
 
 Generate suitable local secrets with `openssl rand -hex 32` for `APP_SECRET` and `openssl rand -base64 32` for `APP_DATA_KEY`.
 
@@ -112,10 +125,15 @@ Important configuration variables:
 - `CORS_ALLOW_ORIGIN` — allowed browser origins
 - `MAILER_DSN`, `MAILER_FROM_ADDRESS`, `MAILER_FROM_NAME` — email delivery
 - `PRIVACY_OPERATOR`, `PRIVACY_EMAIL` — public data-controller name and privacy contact
+- `TURNSTILE_ENABLED`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` — optional
+  Cloudflare Turnstile protection for the public content-report form. Create a
+  Managed widget restricted to the `APP_URL` hostname. The secret stays on the
+  backend; see [`docs/content-reporting.md`](docs/content-reporting.md).
 - `MAX_CONCURRENT_UPLOADS` — concurrent upload HTTP requests shared across a batch; keep below the PHP-FPM worker count (the Docker default is 4 requests for 5 workers)
 - `MAX_PARALLEL_FILE_UPLOADS` — how many comics a bulk upload sends at once (2 when omitted). Those files share the budget above, so this decides how many comics move together, not how much load reaches PHP-FPM
 - `UPLOAD_USER_QUOTA_BYTES` — default canonical comic storage per account in bytes (10 GiB when omitted); administrators can override it per user, and `0` deliberately means unlimited
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REDIRECT_URI` — optional Dropbox OAuth settings
+- `OAUTH_GOOGLE_CLIENT_ID`, `OAUTH_GOOGLE_CLIENT_SECRET` — optional Google social sign-in; both empty disables it. Register the exact `APP_URL` callback described in [`docs/social-sign-in.md`](docs/social-sign-in.md)
 - `DROPBOX_APP_FOLDER`, `DROPBOX_SYNC_LIMIT`, `DROPBOX_RATE_LIMIT` — optional Dropbox import settings
 - `ADSENSE_ENABLED`, `ADSENSE_CLIENT` — optional Google AdSense, off by default.
   Advertising runs only when both are set and the client is a publisher id in
@@ -238,18 +256,23 @@ in [SSH-deploy.md §7](SSH-deploy.md#7-background-jobs-cron--systemd-timers).
 
 ### Frontend
 
-Run inside the existing Node 22 development container:
+Run the complete frontend checks from the repository root with Node.js 22.12 or
+newer. The host is required because committed-artifact checks read files outside
+`frontend/` that are deliberately not mounted into the development container.
 
 ```bash
-docker compose exec frontend_dev npm test
-docker compose exec frontend_dev npm run lint
-docker compose exec frontend_dev npm run build
-docker compose exec frontend_dev npm run audit:production
-docker compose exec frontend_dev npm run check:routes
-docker compose exec frontend_dev npm run check:seo
+npm run audit:production --prefix frontend
+npm run lint --prefix frontend
+npm test --prefix frontend
+npm run test:coverage --prefix frontend
+npm run check:dead-code --prefix frontend
+npm run check:duplication --prefix frontend
+npm run check:routes --prefix frontend
+npm run check:csp --prefix frontend
+npm run check:tools --prefix frontend
+APP_URL=https://comics.starbugstone.com npm run build --prefix frontend
+APP_URL=https://comics.starbugstone.com npm run check:seo --prefix frontend
 ```
-
-Alternatively, run `npm ci` and the same scripts from `frontend/` with a local Node.js 22 installation.
 
 `lint` runs with `--max-warnings=0`, so a warning fails it. The `check:` scripts
 guard artefacts that are committed rather than rebuilt on the way to production
@@ -258,20 +281,12 @@ the generated sitemap, robots and canonical metadata, and the crawlable
 landing copy inside the built `index.html`. `check:seo` reads
 `APP_URL`, so run it after a build made with the same value CI uses.
 
-**`check:tools` and `check:csp` must be run from the host, not from
-`frontend_dev`:**
-
-```bash
-npm run check:tools --prefix frontend
-npm run check:csp --prefix frontend
-```
-
 The container mounts only `scripts/generate-nginx-routes.mjs`, never the whole
 `scripts/` directory, because that directory can hold `scripts/.env.deploy` with
 production credentials. `check:tools` needs `scripts/comic-conversion/`, and
 `check:csp` needs `scripts/generate-csp.mjs`, so both must run on the host.
 Inside the container `check:tools` reports a missing source file — and
-`src/lib/conversion-tools.test.js`, which shells out to the same check, fails
+`frontend/src/lib/conversion-tools.test.js`, which shells out to the same check, fails
 there for the same reason — while `check:csp` reports its generator missing.
 All three pass on the host and in CI, where the whole repository is present.
 
@@ -294,6 +309,7 @@ docker compose exec php composer cs:check
 docker compose exec php composer validate --strict
 docker compose exec php composer audit --locked --no-dev
 docker compose exec php php bin/console lint:container --env=test
+docker compose exec php php bin/console lint:twig templates
 docker compose exec php php bin/console doctrine:schema:validate --env=test
 ```
 
@@ -319,10 +335,14 @@ under [Production deployment](#production-deployment).
 Dropbox support is optional and operates as a one-way import from Dropbox into the user's server-side library.
 
 1. Create a scoped Dropbox app, preferably with **App folder** access.
-2. Enable `files.content.read`, `files.content.write`, and `account_info.read`.
+2. Enable `files.content.read` and `files.metadata.read`.
 3. Add the exact callback URL used by the application, for example `http://localhost:8080/api/dropbox/callback`.
 4. Configure the `DROPBOX_*` variables in `backend/.env.local`.
 5. Connect the account from the Dropbox page in the application.
+
+Leaving either Dropbox credential empty keeps the integration disabled. The
+Dropbox page remains available as an explanation, but does not offer a connect
+button that cannot work.
 
 Users can import individual files from the interface. Folder names become tags, and previously imported files are detected to avoid duplicates.
 
@@ -373,6 +393,13 @@ set the feature values in the host's
 `backend/.env.local`; they do not need to be duplicated in
 `scripts/.env.deploy`. See [`docs/advertising.md`](docs/advertising.md) and
 [`docs/analytics.md`](docs/analytics.md).
+
+Google social sign-in also requires account-side setup. Configure each
+installation's exact callback URI. The default server-local mode keeps its
+client credentials in the host's ignored `backend/.env.local`; compiled releases
+take the `PROD_OAUTH_GOOGLE_CLIENT_ID` and `PROD_OAUTH_GOOGLE_CLIENT_SECRET`
+pair from `scripts/.env.deploy`. See
+[`docs/social-sign-in.md`](docs/social-sign-in.md).
 
 ## Project layout
 

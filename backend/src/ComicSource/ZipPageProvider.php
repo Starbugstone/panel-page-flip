@@ -38,8 +38,7 @@ final class ZipPageProvider implements ComicPageProviderInterface, ComicInfoSour
             $key = $this->sourceKey($sourcePath);
             $pages = $this->indexes[$key] ??= $this->cachedPageIndex($sourcePath, $zip);
             if ($page < 1 || !isset($pages[$page - 1])) throw new \OutOfRangeException('Page not found.');
-            $content = $zip->getFromName($pages[$page - 1]);
-            if ($content === false) throw new \RuntimeException('Failed to read page.');
+            $content = $this->readPageContent($zip, $pages[$page - 1]);
 
             return PageResult::fromImageContent($content);
         } finally {
@@ -93,17 +92,17 @@ final class ZipPageProvider implements ComicPageProviderInterface, ComicInfoSour
     /** @return list<string> */
     private function cachedPageIndex(string $sourcePath, ZipArchive $zip): array
     {
-        if ($this->pageIndexCache === null) return $this->buildPageIndex($zip);
+        if ($this->pageIndexCache === null) return $this->buildPageIndex($sourcePath, $zip);
 
         $cacheKey = 'comic_source.zip.'.hash('xxh128', $this->sourceKey($sourcePath));
-        return $this->pageIndexCache->get($cacheKey, function (ItemInterface $item) use ($zip): array {
+        return $this->pageIndexCache->get($cacheKey, function (ItemInterface $item) use ($sourcePath, $zip): array {
             $item->expiresAfter(86_400);
-            return $this->buildPageIndex($zip);
+            return $this->buildPageIndex($sourcePath, $zip);
         });
     }
 
     /** @return list<string> */
-    private function buildPageIndex(ZipArchive $zip): array
+    private function buildPageIndex(string $sourcePath, ZipArchive $zip): array
     {
         if ($zip->numFiles > ComicSourceLimits::MAX_ENTRIES) throw new \RuntimeException('Archive has too many entries.');
         $pages = []; $total = 0;
@@ -115,6 +114,9 @@ final class ZipPageProvider implements ComicPageProviderInterface, ComicInfoSour
             if (self::isSafeImage($name) && $entrySize > ComicSourceLimits::MAX_PAGE_BYTES) throw new \RuntimeException('Archive contains an oversized page.');
             if (self::isSafeImage($name)) $pages[] = $name;
         }
+        if (ComicSourceLimits::hasUnsafeExpansionRatio($total, (int) @filesize($sourcePath))) {
+            throw new \RuntimeException('Archive has an unsafe compression ratio.');
+        }
         usort($pages, 'strnatcasecmp');
         if ($pages === []) throw new \RuntimeException('Archive contains no supported pages.');
         return $pages;
@@ -123,6 +125,32 @@ final class ZipPageProvider implements ComicPageProviderInterface, ComicInfoSour
     private function sourceKey(string $sourcePath): string
     {
         return $sourcePath.'|'.(@filemtime($sourcePath) ?: 0).'|'.(@filesize($sourcePath) ?: 0);
+    }
+
+    private function readPageContent(ZipArchive $zip, string $entry): string
+    {
+        $stream = $zip->getStreamName($entry);
+        if ($stream === false) throw new \RuntimeException('Failed to read page.');
+
+        $content = '';
+        try {
+            while (!feof($stream)) {
+                $chunk = @fread($stream, 8192);
+                if ($chunk === false) throw new \RuntimeException('Failed to read page.');
+                if (ComicSourceLimits::wouldExceedByteLimit(
+                    strlen($content),
+                    strlen($chunk),
+                    ComicSourceLimits::MAX_PAGE_BYTES,
+                )) {
+                    throw new \RuntimeException('Failed to read page within the safety limit.');
+                }
+                $content .= $chunk;
+            }
+        } finally {
+            fclose($stream);
+        }
+
+        return $content;
     }
 
     /** Only at the archive root: a nested ComicInfo.xml describes something else. */
@@ -136,7 +164,10 @@ final class ZipPageProvider implements ComicPageProviderInterface, ComicInfoSour
     public static function isSafeImage(string $name): bool
     {
         $normal = str_replace('\\', '/', $name);
-        if ($normal === '' || str_starts_with($normal, '/') || str_starts_with($normal, '//')
+        if ($normal === ''
+            || strlen($normal) > ComicSourceLimits::MAX_ENTRY_PATH_BYTES
+            || substr_count($normal, '/') >= ComicSourceLimits::MAX_ENTRY_DEPTH
+            || str_starts_with($normal, '/') || str_starts_with($normal, '//')
             || preg_match('/^[a-z]:\//i', $normal) || str_contains($normal, "\0")
             || preg_match('#(^|/)\.\.(/|$)#', $normal)
             || str_starts_with($normal, '__MACOSX/') || str_starts_with(basename($normal), '.')) return false;

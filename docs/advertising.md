@@ -197,10 +197,10 @@ second policy there would overwrite the nonce header and block every script.
 
 Advertising-off Symfony responses keep the tighter `script-src 'self'` policy.
 The nginx headers cannot: they are baked into the image and the container never
-sees `ADSENSE_ENABLED`, so both nginx targets carry the advertising shape
-unconditionally and use the per-request `$request_id` in the header and in the
-`sub_filter` that nonces the script tags. Those targets are the local Docker
-stack; the released deployments are Apache/Symfony.
+sees `ADSENSE_ENABLED`, so the nginx target carries the advertising shape
+unconditionally and uses the per-request `$request_id` in the header and in the
+`sub_filter` that nonces the script tags. That target is the local Docker stack;
+the released deployments are Apache/Symfony.
 
 After changing `backend/config/csp.json`, run:
 

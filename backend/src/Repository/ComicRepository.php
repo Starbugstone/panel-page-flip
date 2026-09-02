@@ -4,19 +4,15 @@ namespace App\Repository;
 
 use App\Entity\Comic;
 use App\Entity\Tag;
-use App\Service\Pagination\PaginatedResult;
+use App\Service\Pagination\ColumnFilter;
 use App\Service\Pagination\LikePattern;
+use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<Comic>
- *
- * @method Comic|null find($id, $lockMode = null, $lockVersion = null)
- * @method Comic|null findOneBy(array $criteria, array $orderBy = null)
- * @method Comic[]    findAll()
- * @method Comic[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class ComicRepository extends ServiceEntityRepository
 {
@@ -47,6 +43,8 @@ class ComicRepository extends ServiceEntityRepository
         'uploadedAt' => 'c.uploadedAt',
         'pageCount' => 'c.pageCount',
         'fileSize' => 'c.fileSize',
+        'owner' => 'ownerSort',
+        'tags' => 'SIZE(c.tags)',
     ];
 
     public function __construct(ManagerRegistry $registry)
@@ -58,9 +56,11 @@ class ComicRepository extends ServiceEntityRepository
      * One page of the admin comic list, across every owner unless one is named.
      *
      * @param int|null $ownerId Restrict to a single owner's library.
+     * @param array{titleAuthor?: string|null, owner?: string|null, uploadedAt?: string|null,
+     *               pageCount?: string|null, tags?: string|null, timezone?: string|null} $filters
      * @return PaginatedResult<Comic>
      */
-    public function findAdminPage(PaginationRequest $request, ?int $ownerId = null): PaginatedResult
+    public function findAdminPage(PaginationRequest $request, ?int $ownerId = null, array $filters = []): PaginatedResult
     {
         $qb = $this->createQueryBuilder('c')->leftJoin('c.owner', 'o');
 
@@ -91,9 +91,47 @@ class ComicRepository extends ServiceEntityRepository
             ))->setParameter('search', $pattern);
         }
 
+        if ($pattern = ColumnFilter::pattern($filters['titleAuthor'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(c.title) LIKE :filterTitleAuthor',
+                'LOWER(c.author) LIKE :filterTitleAuthor',
+            ))->setParameter('filterTitleAuthor', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['owner'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(o.name) LIKE :filterOwner',
+                'LOWER(o.email) LIKE :filterOwner',
+            ))->setParameter('filterOwner', $pattern);
+        }
+
+        ColumnFilter::applyDay($qb, 'c.uploadedAt', 'filterUploadedAt', $filters['uploadedAt'] ?? null, $filters['timezone'] ?? null);
+
+        if (($pageCount = ColumnFilter::integerRange($filters['pageCount'] ?? null)) !== null) {
+            $qb->andWhere('c.pageCount >= :filterPageCountMin')
+                ->andWhere('c.pageCount <= :filterPageCountMax')
+                ->setParameter('filterPageCountMin', $pageCount[0])
+                ->setParameter('filterPageCountMax', $pageCount[1]);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['tags'] ?? null)) {
+            $filterTagSubquery = $this->getEntityManager()->createQueryBuilder()
+                ->select('1')
+                ->from(Tag::class, 'filterTag')
+                ->join('filterTag.comics', 'filterTaggedComic')
+                ->where('filterTaggedComic = c')
+                ->andWhere('LOWER(filterTag.name) LIKE :filterTags')
+                ->getDQL();
+            $qb->andWhere($qb->expr()->exists($filterTagSubquery))->setParameter('filterTags', $pattern);
+        }
+
         $total = (int) (clone $qb)->select('COUNT(c.id)')
             ->getQuery()
             ->getSingleScalarResult();
+
+        if ($request->sortField === 'owner') {
+            $qb->addSelect('COALESCE(o.name, o.email) AS HIDDEN ownerSort');
+        }
 
         $comics = $qb
             ->orderBy(self::ADMIN_SORT_FIELDS[$request->sortField], $request->direction)
@@ -249,5 +287,43 @@ class ComicRepository extends ServiceEntityRepository
             ->select(self::STORAGE_BYTES)
             ->getQuery()
             ->getSingleScalarResult();
+    }
+
+    /** Highest measured canonical-source usage belonging to one account. */
+    public function getMaximumStorageBytesForOwner(): int
+    {
+        $result = $this->createQueryBuilder('c')
+            ->select(self::STORAGE_BYTES . ' AS storageUsedBytes')
+            ->groupBy('c.owner')
+            ->orderBy('storageUsedBytes', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        return (int) ($result['storageUsedBytes'] ?? 0);
+    }
+
+    public function getMaximumPageCount(?int $ownerId = null): int
+    {
+        $qb = $this->createQueryBuilder('c')->select('MAX(c.pageCount)');
+        if ($ownerId !== null) {
+            $qb->where('c.owner = :ownerId')->setParameter('ownerId', $ownerId);
+        }
+
+        return (int) $qb->getQuery()->getSingleScalarResult();
+    }
+
+    /** Highest comic count belonging to one account. */
+    public function getMaximumComicCountForOwner(): int
+    {
+        $result = $this->createQueryBuilder('c')
+            ->select('COUNT(c.id) AS comicCount')
+            ->groupBy('c.owner')
+            ->orderBy('comicCount', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        return (int) ($result['comicCount'] ?? 0);
     }
 }

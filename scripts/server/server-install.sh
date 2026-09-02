@@ -103,6 +103,21 @@ DATABASE_URL="mysql://USER:PASSWORD@127.0.0.1:3306/cbz_reader?serverVersion=8.0.
 CORS_ALLOW_ORIGIN=^https://comics\.yourdomain\.com$
 APP_URL=https://comics.yourdomain.com
 
+PRIVACY_OPERATOR="Panel Page Flip site operator"
+PRIVACY_EMAIL=privacy@yourdomain.com
+LEGAL_EMAIL=legal@yourdomain.com
+CONTENT_REPORT_RETENTION_DAYS=730
+
+# Optional Managed Turnstile widget for the APP_URL hostname.
+TURNSTILE_ENABLED=false
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
+
+# Optional Google social sign-in. Register APP_URL +
+# /api/auth/oauth/google/callback and set both values to enable it.
+OAUTH_GOOGLE_CLIENT_ID=
+OAUTH_GOOGLE_CLIENT_SECRET=
+
 MAILER_DSN=smtp://user:pass@smtp.yourdomain.com:587
 MAILER_TRANSPORT=smtp
 MAILER_FROM_ADDRESS=noreply@yourdomain.com
@@ -144,11 +159,12 @@ fi
 # First build
 # =============================================================================
 log "Running first build via server-deploy.sh"
-APP_DIR="$APP_DIR" \
-WEB_USER="$WEB_USER" \
-WEB_GROUP="$WEB_GROUP" \
-BACKUP_COMMAND=true \
-"$APP_DIR/scripts/server/server-deploy.sh"
+env \
+    APP_DIR="$APP_DIR" \
+    WEB_USER="$WEB_USER" \
+    WEB_GROUP="$WEB_GROUP" \
+    BACKUP_COMMAND=true \
+    "$APP_DIR/scripts/server/server-deploy.sh"
 
 # =============================================================================
 # Next steps
@@ -178,10 +194,11 @@ Next steps (do them once):
 
 5. REQUIRED: schedule the retention jobs — crontab -e as the deploy user.
    Nothing runs these on its own. The retention periods in .env.local are
-   policy only; without these three the instance keeps everything for ever.
+   policy only; without these four the instance keeps everything for ever.
 
    0  3 * * * cd $APP_DIR/backend && php bin/console app:cleanup-personal-data --env=prod >>/var/log/comics-cleanup.log 2>&1
    5  3 * * * cd $APP_DIR/backend && php bin/console app:cleanup-expired-shares --env=prod >>/var/log/comics-cleanup.log 2>&1
+   10 3 * * * cd $APP_DIR/backend && php bin/console app:cleanup-content-reports --env=prod >>/var/log/comics-cleanup.log 2>&1
    15 3 * * * cd $APP_DIR/backend && php bin/console app:cleanup-logs --env=prod >>/var/log/comics-cleanup.log 2>&1
 
    See SSH-deploy.md section 7 for what each one removes and how to check the

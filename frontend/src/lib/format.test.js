@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatByteCount, formatBytes, formatDate, formatDateTime, formatFileSize, matchesQuery } from "./format";
+import { formatByteCount, formatBytes, formatDate, formatDateTime, formatFileSize } from "./format";
 
 describe("formatDateTime", () => {
   it("returns the fallback when there is nothing to format", () => {
@@ -64,13 +64,5 @@ describe("formatByteCount", () => {
   it("groups the exact figure so it can be read", () => {
     expect(formatByteCount(10737418240)).toBe("10,737,418,240");
     expect(formatByteCount(0)).toBe("0");
-  });
-});
-
-describe("matchesQuery", () => {
-  it("is a case-insensitive substring check that ignores non-strings", () => {
-    expect(matchesQuery("Batman", "bat")).toBe(true);
-    expect(matchesQuery("Batman", "spider")).toBe(false);
-    expect(matchesQuery(null, "bat")).toBe(false);
   });
 });

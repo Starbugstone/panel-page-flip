@@ -23,7 +23,9 @@ const openSignup = () => render(
 describe("Login — registration copy", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(api.get).mockResolvedValue({ username: "SilverOtter4821" });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve(
+      url === "/api/auth/providers" ? {} : { username: "SilverOtter4821" }
+    ));
   });
 
   it("uses Panel Page Flip branding throughout the page", async () => {
@@ -32,6 +34,26 @@ describe("Login — registration copy", () => {
     expect(await screen.findByText("Welcome to Panel Page Flip")).toBeInTheDocument();
     expect(screen.getByText(/Panel Page Flip is your personal multi-format comic library/i)).toBeInTheDocument();
     expect(screen.queryByText(/Comic Reader/i)).not.toBeInTheDocument();
+  });
+
+  it("identifies login and registration fields to password managers", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Login />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByLabelText("Email")).toHaveAttribute("autocomplete", "username");
+    expect(screen.getByLabelText("Password")).toHaveAttribute("autocomplete", "current-password");
+
+    await user.click(screen.getByRole("tab", { name: "Sign up" }));
+    await waitFor(() => expect(screen.getByLabelText("Username")).toHaveValue("SilverOtter4821"));
+
+    expect(screen.getByLabelText("Name")).toHaveAttribute("autocomplete", "name");
+    expect(screen.getByLabelText("Username")).toHaveAttribute("autocomplete", "username");
+    expect(screen.getByLabelText("Email")).toHaveAttribute("autocomplete", "email");
+    expect(screen.getByLabelText("Password")).toHaveAttribute("autocomplete", "new-password");
   });
 
   it("places password-policy feedback with the password field", async () => {
@@ -71,7 +93,9 @@ describe("Login — the username field", () => {
   });
 
   it("offers a generated username so the field is never an empty box", async () => {
-    vi.mocked(api.get).mockResolvedValue({ username: "SilverOtter4821" });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve(
+      url === "/api/auth/providers" ? {} : { username: "SilverOtter4821" }
+    ));
 
     openSignup();
 
@@ -80,7 +104,9 @@ describe("Login — the username field", () => {
   });
 
   it("describes every way a comic can be shared", async () => {
-    vi.mocked(api.get).mockResolvedValue({ username: "SilverOtter4821" });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve(
+      url === "/api/auth/providers" ? {} : { username: "SilverOtter4821" }
+    ));
 
     openSignup();
 
@@ -92,9 +118,10 @@ describe("Login — the username field", () => {
 
   it("replaces the suggestion on request", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.get)
-      .mockResolvedValueOnce({ username: "SilverOtter4821" })
-      .mockResolvedValueOnce({ username: "QuietFalcon7314" });
+    const suggestions = ["SilverOtter4821", "QuietFalcon7314"];
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve(
+      url === "/api/auth/providers" ? {} : { username: suggestions.shift() }
+    ));
 
     openSignup();
     await waitFor(() => expect(screen.getByLabelText("Username")).toHaveValue("SilverOtter4821"));
@@ -127,5 +154,37 @@ describe("Login — the username field", () => {
 
     await waitFor(() => expect(api.get).toHaveBeenCalled());
     expect(field).toHaveValue("MyOwnHandle");
+  });
+});
+
+describe("Login — social providers", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("shows Google only when the installation reports it configured", async () => {
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve(
+      url === "/api/auth/providers"
+        ? { google: true }
+        : { username: "SilverOtter4821" }
+    ));
+
+    openSignup();
+
+    expect(await screen.findByRole("button", { name: "Continue with Google" })).toBeInTheDocument();
+  });
+
+  it("keeps social buttons hidden when providers are disabled", async () => {
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve(
+      url === "/api/auth/providers"
+        ? { google: false }
+        : { username: "SilverOtter4821" }
+    ));
+
+    openSignup();
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(
+      "/api/auth/providers",
+      { notifyUnauthorized: false },
+    ));
+
+    expect(screen.queryByRole("button", { name: "Continue with Google" })).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Keep the two nginx policies aligned with the CSP manifest.
+ * Keep nginx's policy aligned with the CSP manifest.
  *
  * Apache HTML is served by Symfony, which creates a cryptographic nonce and
  * the header together in FrontendController. nginx serves static HTML, so its
@@ -18,31 +18,34 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const checkOnly = process.argv.includes("--check");
 const manifest = JSON.parse(readFileSync(resolve(repoRoot, "backend/config/csp.json"), "utf8"));
+const turnstileLoader = readFileSync(resolve(repoRoot, "frontend/src/lib/turnstile-loader.js"), "utf8");
+
+if (!turnstileLoader.includes(`TURNSTILE_SCRIPT_ORIGIN = "${manifest.turnstileScriptOrigin}"`)) {
+  throw new Error("The Turnstile loader origin has drifted from backend/config/csp.json.");
+}
+if (!manifest.directives["frame-src"].includes(manifest.turnstileScriptOrigin)
+  || !manifest.scriptSrcWithoutAdvertising.includes(manifest.turnstileScriptOrigin)
+  || !manifest.scriptSrcWithAdvertising.includes(manifest.turnstileScriptOrigin)) {
+  throw new Error("The Turnstile origin must be present in every applicable script-src and frame-src policy.");
+}
 
 const policy = (directives) => Object.entries(directives)
   .map(([directive, values]) => `${directive} ${values.join(" ")}`)
   .join("; ");
 
-const withAdditions = (base, additions) => Object.fromEntries(
-  Object.entries(base).map(([directive, values]) => [
-    directive,
-    additions[directive] ? [...values, ...additions[directive]] : values,
-  ]),
-);
-
-const advertisingPolicy = (nonce, development = false) => {
+const advertisingPolicy = (nonce) => {
   const base = {
     ...manifest.directives,
     "script-src": manifest.scriptSrcWithAdvertising.map((value) => value.replace("{nonce}", nonce)),
   };
 
-  return policy(development ? withAdditions(base, manifest.developmentAdditions) : base);
+  return policy(base);
 };
 
-const rewrite = (relativePath, development) => {
+const rewrite = (relativePath) => {
   const path = resolve(repoRoot, relativePath);
   const before = readFileSync(path, "utf8");
-  const replacement = `add_header Content-Security-Policy "${advertisingPolicy("$request_id", development)}" always;`;
+  const replacement = `add_header Content-Security-Policy "${advertisingPolicy("$request_id")}" always;`;
   const after = before.replace(/add_header Content-Security-Policy "[^"]*" always;/, replacement);
   if (after === before && !before.includes(replacement)) {
     throw new Error(`No Content-Security-Policy line found in ${relativePath}.`);
@@ -53,8 +56,7 @@ const rewrite = (relativePath, development) => {
 };
 
 const stale = [
-  rewrite("docker/nginx_frontend/security-headers.conf", false),
-  rewrite("docker/nginx_frontend/nginx.dev.conf", true),
+  rewrite("docker/nginx_frontend/security-headers.conf"),
 ].filter(Boolean);
 
 if (checkOnly && stale.length > 0) {
@@ -63,7 +65,7 @@ if (checkOnly && stale.length > 0) {
 }
 
 console.log(checkOnly
-  ? "Strict Content-Security-Policy is up to date across both nginx targets."
+  ? "Strict Content-Security-Policy is up to date in nginx."
   : stale.length === 0
-    ? "Strict Content-Security-Policy already matched both nginx targets."
+    ? "Strict Content-Security-Policy already matched nginx."
     : `Strict Content-Security-Policy written to:\n  ${stale.join("\n  ")}`);

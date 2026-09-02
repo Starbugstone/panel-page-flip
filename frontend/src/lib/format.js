@@ -87,13 +87,3 @@ export function formatBytes(bytes) {
 export function formatByteCount(bytes) {
   return new Intl.NumberFormat("en-US").format(Number(bytes) || 0);
 }
-
-/**
- * Case-insensitive "does this field contain the query" check that tolerates
- * null/undefined fields, which most comic metadata columns are.
- * @param {unknown} value
- * @param {string} query Already lowercased.
- */
-export function matchesQuery(value, query) {
-  return typeof value === "string" && value.toLowerCase().includes(query);
-}

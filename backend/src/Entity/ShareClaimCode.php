@@ -122,6 +122,7 @@ class ShareClaimCode
      * redeemable on its own — so there is no second piece of state to keep in
      * step with a deletion, and nothing a stale code can hand out.
      */
+    /** @var Collection<int, Comic> */
     #[ORM\ManyToMany(targetEntity: Comic::class)]
     #[ORM\JoinTable(name: 'share_claim_code_comic')]
     #[ORM\JoinColumn(onDelete: 'CASCADE')]

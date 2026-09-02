@@ -34,6 +34,7 @@ class ComicService
     ) {
     }
 
+    /** @param array<int, mixed> $tags */
     public function uploadComic(
         UploadedFile $file,
         User $user,

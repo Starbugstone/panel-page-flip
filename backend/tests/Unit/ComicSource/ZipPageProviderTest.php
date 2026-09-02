@@ -39,6 +39,30 @@ final class ZipPageProviderTest extends TestCase
         $provider->readPage($this->archivePath, ComicSourceType::CBZ, 1);
     }
 
+    public function testRejectsAnArchiveWithAnUnsafeExpansionRatio(): void
+    {
+        $this->archivePath = tempnam(sys_get_temp_dir(), 'comic-zip-');
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($this->archivePath, \ZipArchive::OVERWRITE) === true);
+        $zip->addFromString('page.jpg', str_repeat("\0", 1_048_576));
+        $zip->close();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('unsafe compression ratio');
+
+        (new ZipPageProvider())->pageIndex($this->archivePath);
+    }
+
+    public function testIgnoresImageNamesWithUnboundedPaths(): void
+    {
+        $atDepthLimit = implode('/', array_fill(0, 15, 'folder')).'/page.jpg';
+        $pastDepthLimit = 'folder/'.$atDepthLimit;
+
+        self::assertTrue(ZipPageProvider::isSafeImage($atDepthLimit));
+        self::assertFalse(ZipPageProvider::isSafeImage($pastDepthLimit));
+        self::assertFalse(ZipPageProvider::isSafeImage(str_repeat('a', 1_021).'.jpg'));
+    }
+
     private function jpeg(string $marker): string
     {
         return "\xFF\xD8\xFF\xE0".$marker;

@@ -9,8 +9,6 @@ import {
   SHARE_STATUS,
   SHARING_CODE_COPY,
   SHARING_PAGE_RESPONSIBILITY_REMINDER,
-  buildInvitationRequest,
-  canSendInvitation,
   describeNotification,
   formatShareCode,
   isValidShareCode,
@@ -250,51 +248,6 @@ describe("the sender responsibility acknowledgement", () => {
     expect(SHARING_PAGE_RESPONSIBILITY_REMINDER)
       .toContain("You are responsible for the content you share");
     expect(SHARING_PAGE_RESPONSIBILITY_REMINDER).toContain("marking explicit material correctly");
-  });
-});
-
-describe("canSendInvitation", () => {
-  it("needs both a valid address and the acknowledgement", () => {
-    expect(canSendInvitation({ email: "jane@example.com", responsibilityAccepted: true })).toBe(true);
-  });
-
-  it("refuses a valid address without the acknowledgement", () => {
-    // The whole point of the tick box: a well-formed address is not consent.
-    expect(canSendInvitation({ email: "jane@example.com", responsibilityAccepted: false })).toBe(false);
-    expect(canSendInvitation({ email: "jane@example.com" })).toBe(false);
-  });
-
-  it("refuses an acknowledgement without a valid address", () => {
-    expect(canSendInvitation({ email: "jane@", responsibilityAccepted: true })).toBe(false);
-    expect(canSendInvitation({ email: "", responsibilityAccepted: true })).toBe(false);
-  });
-
-  it("treats anything other than a literal true as unacknowledged", () => {
-    expect(canSendInvitation({ email: "jane@example.com", responsibilityAccepted: "true" })).toBe(false);
-    expect(canSendInvitation({ email: "jane@example.com", responsibilityAccepted: 1 })).toBe(false);
-  });
-});
-
-describe("buildInvitationRequest", () => {
-  it("sends the trimmed address and the acknowledgement", () => {
-    expect(buildInvitationRequest({ email: "  jane@example.com ", responsibilityAccepted: true }))
-      .toEqual({ email: "jane@example.com", senderResponsibilityAccepted: true });
-  });
-
-  it("never claims an acknowledgement that was not given", () => {
-    expect(buildInvitationRequest({ email: "jane@example.com" }).senderResponsibilityAccepted)
-      .toBe(false);
-    expect(
-      buildInvitationRequest({ email: "jane@example.com", responsibilityAccepted: "yes" })
-        .senderResponsibilityAccepted
-    ).toBe(false);
-  });
-
-  it("carries no timestamp of its own", () => {
-    // Both acknowledgement timestamps are the server's. A client that sent one
-    // would be writing its own audit trail.
-    expect(Object.keys(buildInvitationRequest({ email: "jane@example.com", responsibilityAccepted: true })))
-      .toEqual(["email", "senderResponsibilityAccepted"]);
   });
 });
 

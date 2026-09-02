@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Entity\User;
+use App\Http\ConstraintViolationErrors;
 use App\Repository\UserMetadataCredentialRepository;
 use App\Repository\UserRepository;
 use App\Service\AccountDeletionService;
@@ -15,6 +16,8 @@ use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
 use App\Service\SharingCodeService;
 use App\Service\StorageQuotaService;
+use App\Service\UserUpdateRejected;
+use App\Service\UserUpdateService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -44,15 +47,27 @@ class UserController extends AbstractController
 
         /** @var UserRepository $userRepository */
         $userRepository = $entityManager->getRepository(User::class);
-        $page = $userRepository->findAdminPage($pagination, $verified);
+        $page = $userRepository->findAdminPage($pagination, $verified, [
+            'identity' => $request->query->get('filterIdentity'),
+            'role' => $request->query->get('filterRole'),
+            'verified' => $request->query->get('filterVerified'),
+            'createdAt' => $request->query->get('filterCreatedAt'),
+            'lastLoginAt' => $request->query->get('filterLastLoginAt'),
+            'comicCount' => $request->query->get('filterComicCount'),
+            'storage' => $request->query->get('filterStorage'),
+            'timezone' => $request->query->get('filterTimezone'),
+        ]);
         $stats = $userRepository->getOwnedContentStats(
-            array_map(static fn (User $u): int => $u->getId(), $page->items)
+            array_values(array_map(static fn (User $u): int => $u->getId() ?? throw new \LogicException('Persisted user has no identifier.'), $page->items))
         );
 
         // One query for the whole page rather than one per row: the personal
         // credential is not an association on User, precisely so that loading a
         // user never drags it along.
-        $withCredential = $credentialRepository->findUserIdsWithCredential(array_map(static fn (User $u): int => $u->getId(), $page->items));
+        $withCredential = $credentialRepository->findUserIdsWithCredential(array_values(array_map(
+            static fn (User $u): int => $u->getId() ?? throw new \LogicException('Persisted user has no identifier.'),
+            $page->items
+        )));
 
         $usersArray = array_map(
             fn (User $u): array => $this->serializeUser(
@@ -68,6 +83,8 @@ class UserController extends AbstractController
         return $this->json([
             'items' => $usersArray,
             'users' => $usersArray,
+            'comicCountMax' => $userRepository->getMaximumOwnedComicCount(),
+            'storageMaxBytes' => $userRepository->getMaximumOwnedStorageBytes(),
             'pagination' => $page->toArray(),
         ]);
     }
@@ -84,7 +101,7 @@ class UserController extends AbstractController
             'email' => $user->getEmail(),
             'name' => $user->getName(),
             'roles' => $user->getRoles(),
-            'createdAt' => $user->getCreatedAt()?->format('c'),
+            'createdAt' => $user->getCreatedAt()->format('c'),
             'lastLoginAt' => $user->getLastLoginAt()?->format('c'),
             'isEmailVerified' => $user->isEmailVerified(),
             'comicCount' => $stats['comicCount'] ?? $user->getComics()->count(),
@@ -123,11 +140,12 @@ class UserController extends AbstractController
         // The same grouped query the list uses, for a page of one. Counting the
         // user's collections here instead would give this endpoint a second
         // definition of comic count and no storage figure at all.
-        $stats = $userRepository->getOwnedContentStats([$targetUser->getId()]);
+        $targetUserId = $targetUser->getId() ?? throw new \LogicException('Persisted user has no identifier.');
+        $stats = $userRepository->getOwnedContentStats([$targetUserId]);
 
         $userData = $this->serializeUser(
             $targetUser,
-            $stats[$targetUser->getId()] ?? null,
+            $stats[$targetUserId] ?? null,
             $credentialRepository->findForUser($targetUser) !== null,
             $storageQuota
         );
@@ -135,8 +153,7 @@ class UserController extends AbstractController
         // The admin user page needs enough to explain why an account can or
         // cannot be deleted, and whether Dropbox is still attached.
         if ($this->isGranted('ROLE_ADMIN')) {
-            $userData['dropboxConnected'] = $targetUser->getDropboxAccessToken() !== null
-                && $targetUser->getDropboxAccessToken() !== '';
+            $userData['dropboxConnected'] = $targetUser->hasDropboxConnection();
             $userData['dropboxLastSyncedAt'] = $targetUser->getDropboxLastSyncedAt()?->format('c');
         }
 
@@ -192,10 +209,13 @@ class UserController extends AbstractController
 
         // Set roles, ensuring ROLE_USER is always present
         $roles = $data['roles'] ?? ['ROLE_USER'];
-        if (!in_array('ROLE_USER', $roles)) {
+        if (!is_array($roles) || !array_is_list($roles) || array_filter($roles, static fn (mixed $role): bool => !is_string($role)) !== []) {
+            return $this->json(['message' => 'Roles must be an array of role names.'], Response::HTTP_BAD_REQUEST);
+        }
+        if (!in_array('ROLE_USER', $roles, true)) {
             $roles[] = 'ROLE_USER';
         }
-        $user->setRoles(array_unique($roles)); // Ensure roles are unique
+        $user->setRoles(array_values(array_unique($roles)));
         $user->setCreatedAt(new \DateTimeImmutable()); // Set creation date
         $user->setIsEmailVerified(true);
 
@@ -203,7 +223,7 @@ class UserController extends AbstractController
         if (count($violations) > 0) {
             return $this->json([
                 'message' => 'Validation failed',
-                'errors' => $this->validationErrors($violations),
+                'errors' => ConstraintViolationErrors::from($violations),
             ], Response::HTTP_BAD_REQUEST);
         }
 
@@ -259,171 +279,22 @@ class UserController extends AbstractController
         int $id,
         Request $request,
         EntityManagerInterface $entityManager,
-        UserPasswordHasherInterface $passwordHasher,
-        ValidatorInterface $validator,
-        PasswordValidator $passwordValidator,
-        AdminAuditService $auditService,
-        SecurityAuditLogger $securityLogger
+        UserUpdateService $updater,
     ): JsonResponse {
         $user = $this->requireUser();
-
-        // Check if user is an admin or the requested user
         if (!$user->isAdmin() && $user->getId() !== $id) {
             return $this->json(['message' => 'Access denied'], Response::HTTP_FORBIDDEN);
         }
 
-        // Get user by id
         $targetUser = $entityManager->getRepository(User::class)->find($id);
-        if (!$targetUser) {
+        if (!$targetUser instanceof User) {
             return $this->json(['message' => 'User not found'], Response::HTTP_NOT_FOUND);
         }
 
-        // Get data from request
-        $data = \App\Http\JsonRequestDecoder::decode($request);
-
-        $beforeRoles = $targetUser->getRoles();
-
-        // Update user properties
-        if (isset($data['name'])) {
-            $targetUser->setName($data['name']);
-        }
-
-        // Only admins can update roles
-        if (isset($data['roles']) && $user->isAdmin()) {
-            // Ensure ROLE_USER is always present
-            $roles = $data['roles'];
-            if (!in_array('ROLE_USER', $roles)) {
-                $roles[] = 'ROLE_USER';
-            }
-
-            if ($targetUser->getId() === $user->getId() && !in_array('ROLE_ADMIN', $roles, true)) {
-                return $this->json(['message' => 'You cannot remove your own admin role'], Response::HTTP_FORBIDDEN);
-            }
-
-            if ($targetUser->isAdmin() && !in_array('ROLE_ADMIN', $roles, true)) {
-                $remainingAdmins = $entityManager->getRepository(User::class)->countAdminsExcluding($targetUser);
-                if ($remainingAdmins === 0) {
-                    // Once is somebody discovering the rule. Repeatedly is worth
-                    // an administrator's attention: the last admin account is
-                    // the one an attacker would most like to be rid of.
-                    $securityLogger->suspicious(
-                        SecurityAuditLogger::LAST_ADMIN_PROTECTED,
-                        'user:' . $user->getId(),
-                        [
-                            'actor_user_id' => $user->getId(),
-                            'target_user_id' => $targetUser->getId(),
-                            'target_type' => 'user',
-                        ],
-                        3
-                    );
-
-                    return $this->json(['message' => 'There must be at least one admin'], Response::HTTP_CONFLICT);
-                }
-            }
-
-            $targetUser->setRoles($roles);
-        }
-
-        // An administrator's switch, never the user's own: withdrawing external
-        // metadata access from yourself is not a thing anybody needs, and
-        // allowing it here would let a user grant it back.
-        if (array_key_exists('metadataApiEnabled', $data) && $user->isAdmin()) {
-            if (!is_bool($data['metadataApiEnabled'])) {
-                $message = 'External metadata API access must be true or false.';
-
-                return $this->json([
-                    'message' => $message,
-                    'errors' => ['metadataApiEnabled' => [$message]],
-                ], Response::HTTP_BAD_REQUEST);
-            }
-
-            if ($targetUser->isMetadataApiEnabled() !== $data['metadataApiEnabled']) {
-                $targetUser->setMetadataApiEnabled($data['metadataApiEnabled']);
-                $auditService->log(
-                    $user,
-                    $data['metadataApiEnabled'] ? 'user_metadata_api_enabled' : 'user_metadata_api_disabled',
-                    'user',
-                    $targetUser->getId(),
-                    ['target_user_id' => $targetUser->getId()]
-                );
-            }
-        }
-
-        // Update password if provided
-        $passwordChanged = false;
-        if (isset($data['password']) && !empty($data['password'])) {
-            $passwordErrors = $passwordValidator->validate((string) $data['password']);
-            if ($passwordErrors !== []) {
-                return $this->json(['message' => 'Password does not meet policy requirements.', 'errors' => ['password' => $passwordErrors]], Response::HTTP_BAD_REQUEST);
-            }
-
-            $targetUser->setPassword($passwordHasher->hashPassword($targetUser, $data['password']));
-            $passwordChanged = true;
-        }
-
-        // Validate user
-        $violations = $validator->validate($targetUser);
-        if (count($violations) > 0) {
-            return $this->json([
-                'message' => 'Validation failed',
-                'errors' => $this->validationErrors($violations),
-            ], Response::HTTP_BAD_REQUEST);
-        }
-
-        $afterRoles = $targetUser->getRoles();
-
-        if ($user instanceof User && $user->isAdmin()) {
-            if ($beforeRoles !== $afterRoles || $user->getId() !== $targetUser->getId()) {
-                $auditService->log($user, 'user_update', 'user', $targetUser->getId(), [
-                    'email' => $targetUser->getEmail(),
-                    'rolesBefore' => $beforeRoles,
-                    'rolesAfter' => $afterRoles,
-                ]);
-            }
-        }
-
-        // Save changes
-        $entityManager->flush();
-
-        // After the flush, so nothing is announced that a validation failure or
-        // a database error could still have undone.
-        if ($passwordChanged) {
-            // The value and the hash are both absent by construction: neither is
-            // ever put in the context, and the processor would remove them if
-            // some later edit did.
-            $securityLogger->audit(SecurityAuditLogger::USER_PASSWORD_CHANGED, [
-                'actor_user_id' => $user->getId(),
-                'target_user_id' => $targetUser->getId(),
-                'target_type' => 'user',
-                'changed_by_admin' => $user->getId() !== $targetUser->getId(),
-            ]);
-        }
-
-        if ($beforeRoles !== $afterRoles) {
-            $securityLogger->audit(SecurityAuditLogger::USER_ROLES_CHANGED, [
-                'actor_user_id' => $user->getId(),
-                'target_user_id' => $targetUser->getId(),
-                'target_type' => 'user',
-                'roles_before' => $beforeRoles,
-                'roles_after' => $afterRoles,
-            ]);
-
-            $wasAdmin = in_array('ROLE_ADMIN', $beforeRoles, true);
-            $isAdmin = in_array('ROLE_ADMIN', $afterRoles, true);
-
-            // Both directions, and both immediately. A grant is somebody gaining
-            // the run of the instance; a removal may be an attacker locking the
-            // real administrators out of their own site.
-            if ($wasAdmin !== $isAdmin) {
-                $securityLogger->critical(SecurityAuditLogger::ADMIN_ROLE_CHANGED, [
-                    'actor_user_id' => $user->getId(),
-                    'target_user_id' => $targetUser->getId(),
-                    'target_type' => 'user',
-                    'change' => $isAdmin ? 'granted' : 'removed',
-                    'roles_before' => $beforeRoles,
-                    'roles_after' => $afterRoles,
-                ], SecurityAuditLogger::RESULT_SUCCESS, 'user:' . $targetUser->getId());
-            }
+        try {
+            $updater->update($user, $targetUser, \App\Http\JsonRequestDecoder::decode($request));
+        } catch (UserUpdateRejected $exception) {
+            return $this->json($exception->payload(), $exception->statusCode());
         }
 
         return $this->json([
@@ -434,7 +305,7 @@ class UserController extends AbstractController
                 'name' => $targetUser->getName(),
                 'roles' => $targetUser->getRoles(),
                 'isEmailVerified' => $targetUser->isEmailVerified(),
-            ]
+            ],
         ]);
     }
 
@@ -657,18 +528,4 @@ class UserController extends AbstractController
         ]);
     }
 
-    /**
-     * @param iterable<\Symfony\Component\Validator\ConstraintViolationInterface> $violations
-     * @return array<string, list<string>>
-     */
-    private function validationErrors(iterable $violations): array
-    {
-        $errors = [];
-        foreach ($violations as $violation) {
-            $field = $violation->getPropertyPath() ?: 'form';
-            $errors[$field][] = $violation->getMessage();
-        }
-
-        return $errors;
-    }
 }

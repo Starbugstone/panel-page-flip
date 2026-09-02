@@ -56,7 +56,7 @@ export function DropboxOrganizationGuide() {
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950">
             <h3 className="mb-2 font-semibold text-blue-900 dark:text-blue-100">Quick Summary</h3>
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              Create folders in your <code className="rounded bg-blue-100 px-1 py-0.5 dark:bg-blue-900">{APP_FOLDER}</code> directory.
+              Create folders inside your <code className="rounded bg-blue-100 px-1 py-0.5 dark:bg-blue-900">{APP_FOLDER}</code>.
               Each folder becomes a tag automatically! Supports nested folders and smart naming conversion.
             </p>
           </div>

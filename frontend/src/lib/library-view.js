@@ -3,7 +3,7 @@ import { getComicProgressState } from "@/lib/comic-progress";
 /** The views the sidebar offers. Anything else in the URL falls back to "all". */
 export const LIBRARY_VIEWS = new Set(["all", "mine", "shared", "reading", "unread", "dropbox"]);
 
-const FOLDER_ID_PATTERN = /^\d+$/;
+const NUMERIC_ID = /^\d+$/;
 
 /**
  * What the URL is asking for, and whether the folder it names still exists.
@@ -12,29 +12,60 @@ const FOLDER_ID_PATTERN = /^\d+$/;
  * and both must be recognised before any request is built: asking the API for
  * one is a guaranteed 400 or 404. Waiting for `foldersLoading` matters, because
  * an id is not missing merely because the tree has not arrived yet.
+ *
+ * `jump` names a comic to scroll to once the list arrives. Unlike the folder it
+ * needs no validation beyond its shape: a comic that is not in the list is a
+ * jump that does not happen, not a request that fails.
  */
 export function resolveLibraryLocation(searchParams, folders, foldersLoading) {
-  const rawFolder = searchParams.get("folder");
-  const isFolderView = rawFolder !== null;
-  const wellFormed = rawFolder !== null && (rawFolder === "root" || FOLDER_ID_PATTERN.test(rawFolder));
-  const activeFolderId = rawFolder && rawFolder !== "root" && FOLDER_ID_PATTERN.test(rawFolder)
-    ? Number(rawFolder)
-    : null;
-
-  const requestedView = searchParams.get("view") || "all";
-  const activeView = LIBRARY_VIEWS.has(requestedView) ? requestedView : "all";
-
-  const missingFolder = !foldersLoading
-    && activeFolderId != null
-    && !folders.some((folder) => Number(folder.id) === activeFolderId);
+  const folder = resolveFolder(searchParams.get("folder"), folders, foldersLoading);
+  const activeView = resolveLibraryView(searchParams.get("view"));
 
   return {
-    isFolderView,
-    activeFolderId,
+    isFolderView: folder.requested,
+    activeFolderId: folder.id,
     activeView,
+    jumpComicId: numericParameter(searchParams.get("jump")),
     ownership: activeView === "mine" || activeView === "shared" ? activeView : "all",
-    invalidFolder: (isFolderView && !wellFormed) || missingFolder,
+    invalidFolder: folder.invalid,
   };
+}
+
+function resolveFolder(rawFolder, folders, loading) {
+  const requested = rawFolder !== null;
+  const root = rawFolder === "root";
+  const numeric = typeof rawFolder === "string" && NUMERIC_ID.test(rawFolder);
+  const id = numeric ? Number(rawFolder) : null;
+  const missing = !loading && id !== null && !folders.some((folder) => Number(folder.id) === id);
+
+  return { requested, id, invalid: (requested && !root && !numeric) || missing };
+}
+
+function numericParameter(value) {
+  return value !== null && NUMERIC_ID.test(value) ? Number(value) : null;
+}
+
+function resolveLibraryView(value) {
+  return value && LIBRARY_VIEWS.has(value) ? value : "all";
+}
+
+/**
+ * The library page showing `comic`: the folder holding it, and a request to
+ * scroll its card into view. This is where the reader's way out points, so a
+ * comic filed three folders deep is not left to be found again from the root.
+ *
+ * An unfiled comic keeps the plain library rather than being sent to the root
+ * folder view, which would hide everything that *is* filed — the jump finds the
+ * card either way. Without a comic at all, the plain library is all there is.
+ */
+export function libraryPathToComic(comic) {
+  if (!comic) return "/dashboard";
+
+  const query = new URLSearchParams();
+  if (comic.libraryFolderId != null) query.set("folder", String(comic.libraryFolderId));
+  query.set("jump", String(comic.id));
+
+  return `/dashboard?${query}`;
 }
 
 /** The library request for a location, with no filter of its own. */

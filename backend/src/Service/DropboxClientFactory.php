@@ -13,8 +13,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 class DropboxClientFactory
 {
     public function __construct(
-        private readonly string $dropboxAppKey,
-        private readonly string $dropboxAppSecret,
+        private readonly DropboxConfiguration $configuration,
         private readonly HttpClientInterface $httpClient,
         private readonly EntityManagerInterface $entityManager,
         private readonly LoggerInterface $logger,
@@ -34,6 +33,10 @@ class DropboxClientFactory
      */
     public function createForUser(User $user): DropboxClient
     {
+        if (!$this->configuration->isConfigured()) {
+            throw new \RuntimeException(DropboxConfiguration::UNAVAILABLE_MESSAGE);
+        }
+
         if (!$user->getDropboxAccessToken() && !$user->getDropboxRefreshToken()) {
             throw new \RuntimeException('Dropbox is not connected.');
         }
@@ -61,8 +64,8 @@ class DropboxClientFactory
                 'body' => [
                     'grant_type' => 'refresh_token',
                     'refresh_token' => $user->getDropboxRefreshToken(),
-                    'client_id' => $this->dropboxAppKey,
-                    'client_secret' => $this->dropboxAppSecret,
+                    'client_id' => $this->configuration->appKey(),
+                    'client_secret' => $this->configuration->appSecret(),
                 ],
             ]);
 

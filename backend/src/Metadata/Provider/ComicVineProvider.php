@@ -135,7 +135,7 @@ final class ComicVineProvider extends HttpMetadataProvider
             return $error;
         }
 
-        $candidate = $this->detailedCandidate($payload['results'] ?? []);
+        $candidate = $this->candidate($payload['results'] ?? [], true);
         if ($candidate === null) {
             return $this->unavailable(ProviderStatus::Failed, 'Comic Vine no longer has that record.', $access);
         }
@@ -168,38 +168,10 @@ final class ComicVineProvider extends HttpMetadataProvider
     /** @return list<ProviderCandidate> */
     private function candidates(mixed $results): array
     {
-        if (!is_array($results)) {
-            return [];
-        }
-
-        $candidates = [];
-
-        foreach (array_slice($results, 0, self::MAX_RESULTS) as $result) {
-            if (!is_array($result) || !isset($result['id'])) {
-                continue;
-            }
-
-            $series = is_array($result['volume'] ?? null) ? (string) ($result['volume']['name'] ?? '') : '';
-            if ($series === '') {
-                continue;
-            }
-
-            $candidates[] = new ProviderCandidate(
-                provider: $this->key(),
-                externalId: (string) $result['id'],
-                series: $series,
-                issueNumber: isset($result['issue_number']) ? (string) $result['issue_number'] : null,
-                title: isset($result['name']) && is_string($result['name']) ? $result['name'] : null,
-                summary: isset($result['deck']) && is_string($result['deck']) ? $result['deck'] : null,
-                publishedAt: $this->date($result['cover_date'] ?? null),
-                coverUrl: isset($result['image']['original_url']) ? (string) $result['image']['original_url'] : null,
-            );
-        }
-
-        return $candidates;
+        return $this->mapCandidateRows($results, fn (array $result): ?ProviderCandidate => $this->candidate($result));
     }
 
-    private function detailedCandidate(mixed $result): ?ProviderCandidate
+    private function candidate(mixed $result, bool $detailed = false): ?ProviderCandidate
     {
         if (!is_array($result) || !isset($result['id'])) {
             return null;
@@ -210,26 +182,38 @@ final class ComicVineProvider extends HttpMetadataProvider
             return null;
         }
 
+        $publisher = null;
+        $summary = isset($result['deck']) && is_string($result['deck']) ? $result['deck'] : null;
+        $creators = [];
+        $classification = null;
+
+        if ($detailed) {
+            $publisher = is_array($result['volume']['publisher'] ?? null)
+                ? (string) ($result['volume']['publisher']['name'] ?? '') ?: null
+                : null;
+            $summary = $this->summary($result);
+            $creators = $this->credits($result['person_credits'] ?? []);
+            $classification = new Classification(
+                characters: Classification::clean($this->names($result['character_credits'] ?? [])),
+                teams: Classification::clean($this->names($result['team_credits'] ?? [])),
+                locations: Classification::clean($this->names($result['location_credits'] ?? [])),
+                storyArcs: Classification::clean($this->names($result['story_arc_credits'] ?? [])),
+            );
+        }
+
         return new ProviderCandidate(
             provider: $this->key(),
             externalId: (string) $result['id'],
             series: $series,
             issueNumber: isset($result['issue_number']) ? (string) $result['issue_number'] : null,
             title: isset($result['name']) && is_string($result['name']) ? $result['name'] : null,
-            publisher: is_array($result['volume']['publisher'] ?? null)
-                ? (string) ($result['volume']['publisher']['name'] ?? '') ?: null
-                : null,
-            summary: $this->summary($result),
+            publisher: $publisher,
+            summary: $summary,
             publishedAt: $this->date($result['cover_date'] ?? null),
-            creators: $this->credits($result['person_credits'] ?? []),
+            creators: $creators,
             coverUrl: isset($result['image']['original_url']) ? (string) $result['image']['original_url'] : null,
-            classification: new Classification(
-                characters: Classification::clean($this->names($result['character_credits'] ?? [])),
-                teams: Classification::clean($this->names($result['team_credits'] ?? [])),
-                locations: Classification::clean($this->names($result['location_credits'] ?? [])),
-                storyArcs: Classification::clean($this->names($result['story_arc_credits'] ?? [])),
-            ),
-            isDetailed: true,
+            classification: $classification,
+            isDetailed: $detailed,
         );
     }
 

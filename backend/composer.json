@@ -15,6 +15,8 @@
         "doctrine/doctrine-bundle": "^2.14",
         "doctrine/doctrine-migrations-bundle": "^3.4",
         "doctrine/orm": "^3.3",
+        "knpuniversity/oauth2-client-bundle": "^2.20",
+        "league/oauth2-google": "^5.0",
         "nelmio/cors-bundle": "^2.5",
         "spatie/dropbox-api": "^1.23",
         "symfony/console": "6.4.*",
@@ -23,6 +25,7 @@
         "symfony/expression-language": "6.4.*",
         "symfony/flex": "^2",
         "symfony/framework-bundle": "6.4.*",
+        "symfony/http-client": "6.4.*",
         "symfony/intl": "6.4.*",
         "symfony/lock": "^6.4",
         "symfony/mailer": "6.4.*",
@@ -44,8 +47,7 @@
         "symfony/web-link": "6.4.*",
         "symfony/yaml": "6.4.*",
         "twig/extra-bundle": "^2.12|^3.0",
-        "twig/twig": "^2.12|^3.0",
-        "symfony/http-client": "6.4.*"
+        "twig/twig": "^2.12|^3.0"
     },
     "config": {
         "allow-plugins": {
@@ -86,7 +88,11 @@
             "@auto-scripts"
         ],
         "analyse": "phpstan analyse --no-progress",
-        "cs:check": "php-cs-fixer fix --dry-run --diff --using-cache=no"
+        "cs:check": "php-cs-fixer fix --dry-run --diff --using-cache=no",
+        "test:coverage": [
+            "@php -d pcov.enabled=1 bin/phpunit --coverage-clover=.phpunit.cache/coverage.xml",
+            "@php bin/check-coverage --report=.phpunit.cache/coverage.xml --min-lines=85 --min-methods=75"
+        ]
     },
     "conflict": {
         "symfony/symfony": "*"
@@ -102,6 +108,8 @@
         "dg/bypass-finals": "^1.11",
         "friendsofphp/php-cs-fixer": "^3.80",
         "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-doctrine": "^2.0",
+        "phpstan/phpstan-symfony": "^2.0",
         "phpunit/phpunit": "^9.5",
         "symfony/browser-kit": "6.4.*",
         "symfony/css-selector": "6.4.*",

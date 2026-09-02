@@ -36,6 +36,22 @@ final class SevenZipPageProviderTest extends TestCase
         yield 'CBT' => [ComicSourceType::CBT, 'tar'];
     }
 
+    public function testRejectsAnArchiveWithAnUnsafeExpansionRatio(): void
+    {
+        if ((new ExecutableFinder())->find('7z') === null) self::markTestSkipped('7z is not installed.');
+        $this->directory = sys_get_temp_dir().'/comic-7z-test-'.bin2hex(random_bytes(6));
+        self::assertTrue(mkdir($this->directory, 0700));
+        file_put_contents($this->directory.'/page.jpg', str_repeat("\0", 1_048_576));
+        $archive = $this->directory.'/comic.cb7';
+
+        (new Process(['7z', 'a', '-t7z', $archive, 'page.jpg'], $this->directory))->mustRun();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('unsafe compression ratio');
+
+        (new SevenZipPageProvider())->inspect($archive, ComicSourceType::CB7);
+    }
+
     private function jpeg(string $marker): string
     {
         return "\xFF\xD8\xFF\xE0".$marker;

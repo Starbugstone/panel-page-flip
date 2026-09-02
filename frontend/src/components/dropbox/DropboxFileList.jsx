@@ -8,15 +8,15 @@ function DropboxFileRow({ file, isImporting, onImport }) {
   const inSubfolder = file.path && file.path !== `/${file.name}`;
 
   return (
-    <div className="flex items-center justify-between rounded-lg border p-3">
-      <div className="flex-1">
+    <article className="flex flex-col items-stretch gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2">
-          <p className="font-medium">{file.name}</p>
+          <p className="break-all font-medium">{file.name}</p>
           <Badge variant={file.synced ? "default" : "secondary"}>
             {file.synced ? "Imported" : "Available"}
           </Badge>
         </div>
-        {inSubfolder && <p className="mb-1 text-xs text-muted-foreground">📁 {file.path}</p>}
+        {inSubfolder && <p className="mb-1 break-all text-xs text-muted-foreground">📁 {file.path}</p>}
         <p className="text-sm text-muted-foreground">
           {file.size} • Modified: {new Date(file.modified).toLocaleDateString()}
         </p>
@@ -32,27 +32,32 @@ function DropboxFileRow({ file, isImporting, onImport }) {
           variant="outline"
           onClick={onImport}
           disabled={isImporting}
-          className="ml-3 border-blue-600 text-blue-600 hover:bg-blue-50"
+          className="w-full border-blue-600 text-blue-600 hover:bg-blue-50 sm:ml-3 sm:w-auto"
         >
           {isImporting
             ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Importing...</>
             : <><Download className="mr-1 h-3 w-3" />Import</>}
         </Button>
       )}
-    </div>
+    </article>
   );
 }
 
 /** Every comic the app folder holds, imported or not. */
-export function DropboxFileList({ files, importingPaths, onImport }) {
+export function DropboxFileList({ files, refreshingFiles, importingPaths, onImport }) {
   return (
     <div>
       <h3 className="mb-3 text-lg font-semibold">Dropbox Comics</h3>
       <p className="mb-4 text-sm text-muted-foreground">
-        Comics found in your <code className="rounded bg-muted px-1 py-0.5">{APP_FOLDER}</code> folder
+        Comics found in your <code className="rounded bg-muted px-1 py-0.5">{APP_FOLDER}</code>
       </p>
 
-      {files.length > 0 ? (
+      {refreshingFiles && files.length === 0 ? (
+        <div role="status" className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Loading Dropbox files...</span>
+        </div>
+      ) : files.length > 0 ? (
         <div className="grid gap-2">
           {files.map((file) => (
             <DropboxFileRow
@@ -68,7 +73,7 @@ export function DropboxFileList({ files, importingPaths, onImport }) {
           <Cloud className="mx-auto mb-4 h-12 w-12 opacity-50" />
           <p>No comics found in your Dropbox folder</p>
           <p className="text-sm">
-            Add an enabled comic format to the <code>{APP_FOLDER}</code> folder in your Dropbox
+            Add an enabled comic format to your <code>{APP_FOLDER}</code>
           </p>
         </div>
       )}

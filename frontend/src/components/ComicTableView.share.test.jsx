@@ -62,6 +62,12 @@ const select = async (user, title) => {
  * dialog's own list is a step that can only go wrong.
  */
 describe("ComicTableView sharing", () => {
+  it("shows the previous title while a rename is being previewed", () => {
+    renderTable([comic({ title: "Batman #01", autoRenameOriginalTitle: "Batman #1" })]);
+
+    expect(screen.getByText("Was Batman #1")).toBeInTheDocument();
+  });
+
   it("hands the existing selection straight to the share workflow", async () => {
     const user = userEvent.setup();
     const { onShareSelected } = renderTable([

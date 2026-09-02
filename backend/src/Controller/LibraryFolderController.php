@@ -53,13 +53,14 @@ class LibraryFolderController extends AbstractController
     public function moveComics(Request $request): JsonResponse
     {
         $data = $this->payload($request);
-        if (!is_array($data['comicIds'] ?? null)) {
-            return $this->json(['message' => 'comicIds must be an array.'], Response::HTTP_BAD_REQUEST);
+        $comicIds = $data['comicIds'] ?? null;
+        if (!is_array($comicIds) || !array_is_list($comicIds) || array_filter($comicIds, static fn (mixed $id): bool => !is_int($id)) !== []) {
+            return $this->json(['message' => 'comicIds must be an array of integer identifiers.'], Response::HTTP_BAD_REQUEST);
         }
 
         try {
             $folderId = $this->nullableId($data, 'folderId');
-            $comics = $this->folders->moveComics($this->user(), $data['comicIds'], $folderId);
+            $comics = $this->folders->moveComics($this->user(), $comicIds, $folderId);
 
             return $this->json([
                 'movedComicIds' => array_map(static fn ($comic): int => (int) $comic->getId(), $comics),

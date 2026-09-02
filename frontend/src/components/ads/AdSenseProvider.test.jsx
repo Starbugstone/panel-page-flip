@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdSenseProvider, useAdSense } from "@/components/ads/AdSenseProvider.jsx";
+import { PublicConfigProvider } from "@/components/config/PublicConfigProvider.jsx";
 import { api } from "@/lib/api";
 import { keepRouteAdFree, loadAdSenseScript } from "@/lib/adsense-loader";
 
@@ -25,11 +26,13 @@ function Probe() {
 
 const renderAt = (pathname) => render(
   <MemoryRouter initialEntries={[pathname]}>
-    <AdSenseProvider>
-      <Routes>
-        <Route path="*" element={<Probe />} />
-      </Routes>
-    </AdSenseProvider>
+    <PublicConfigProvider>
+      <AdSenseProvider>
+        <Routes>
+          <Route path="*" element={<Probe />} />
+        </Routes>
+      </AdSenseProvider>
+    </PublicConfigProvider>
   </MemoryRouter>
 );
 

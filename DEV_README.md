@@ -25,10 +25,13 @@ lives in [`docs/`](docs/):
 | [content-reporting.md](docs/content-reporting.md) | Illegal-content notices and restrictions |
 | [administrator-notices.md](docs/administrator-notices.md) | Warning one account about their activity |
 | [admin-bulk-actions.md](docs/admin-bulk-actions.md) | Tick-box selection and bulk actions across the admin tables |
+| [admin-table-controls.md](docs/admin-table-controls.md) | Per-column sorting and filtering across the admin tables |
 | [advertising.md](docs/advertising.md) | Optional AdSense, consent, AdSense Offerwall, strict CSP |
 | [analytics.md](docs/analytics.md) | Optional privacy-first GA4, basic consent mode, route minimisation |
+| [social-sign-in.md](docs/social-sign-in.md) | Optional Google OAuth, account linking, passwordless accounts |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
+| [local-docker-environment.md](docs/local-docker-environment.md) | Per-checkout Compose project, ports, container UID, worktree teardown |
 
 ## Current Implementation Status
 
@@ -39,13 +42,14 @@ lives in [`docs/`](docs/):
 - **Registration**: Implemented in `RegistrationController.php`
 - **Password Reset**: Implemented in `ResetPasswordController.php` with email notifications
 - **Password Policy**: Registration, admin API changes and operator console commands all use `PasswordValidator`
+- **User Updates**: `UserUpdateService` validates profile, role, metadata-access, and password changes before touching the managed account, then persists and records admin/security audits in the correct order. `UserController` only authorizes, loads, and presents the result.
 - **Auth Email Branding**: Verification, reset and password-change mail uses the configured `MAILER_FROM_NAME`
 - **User Entity**: Defined in `User.php` with proper properties and relationships
 - **Security**: Access control rules defined to secure API endpoints
 
 #### ✅ Comic Management System
 - **Comic Entity**: Defined in `Comic.php` with properties for title, file path, cover image, etc.
-- **Comic Controller**: Implemented in `ComicController.php` with endpoints for CRUD operations. Includes refined permission checks for operations like comic deletion (owner/admin only).
+- **Comic Controllers**: `ComicController.php` owns listing and single-entry CRUD, `ComicBulkController.php` owns all-or-nothing multi-comic mutations, and `ComicProgressController.php` owns per-reader progress. Upload, metadata, page delivery, and cover routes retain their own focused controllers under the same `/api/comics` prefix.
 - **File Storage**: Comics are stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
 - **Cover Images**: Stored under `backend/public/uploads/comics/{user_id}/covers/{comic_id}/{cover_image}` and served only through `GET /api/comics/cover/{userId}/{comicId}/{filename}`
 - **Chunked Upload**: Implemented chunked file upload system to handle large comic files (1MB chunks)
@@ -55,7 +59,7 @@ lives in [`docs/`](docs/):
 
 #### ✅ Reading Progress Tracking
 - **ComicReadingProgress Entity**: Defined in `ComicReadingProgress.php` to track user reading progress
-- **API Endpoints**: Available for saving and retrieving reading progress
+- **API Endpoints**: `ComicProgressController.php` saves and resets per-user reading progress, including revision ordering for concurrent reader saves
 
 #### ✅ Tag System
 - **Tag Entity**: Defined in `Tag.php` for categorizing comics
@@ -74,7 +78,7 @@ lives in [`docs/`](docs/):
 - **Explicit Promotion**: `ExplicitContentPromoter.php` marks selected comics 18+ from inside the share flow, in the same unit of work as the share. It only ever promotes — an unticked box is the absence of a claim, not a claim that the comic is fine. It returns its audit records rather than writing them, so the service owning the transaction emits them only once the commit has made them true
 - **Lookup Flood Guard**: `IdentifierLookupGuard.php` charges every attempt to turn an identifier into a person *before* the repository is asked, so an exhausted caller cannot still resolve the identifiers that happen to be real. See [Why this is not a user directory](#why-this-is-not-a-user-directory)
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
-- **Email Notifications**: Shares commit first; `ShareInvitationNotification` is then queued carrying share ids and nothing else, and `ShareInvitationNotificationHandler` reloads the relationships and mints the links as it writes the mail. A bulk share sends one grouped email, so twenty comics are not twenty messages. See [Notification is a notice, not a condition](#notification-is-a-notice-not-a-condition)
+- **Email Notifications**: Shares commit first; `ShareInvitationNotification` is then queued carrying share ids and nothing else, and `ShareInvitationNotificationHandler` reloads the relationships and mints the links. `ComicShareInvitationMailer` alone renders and transports the single, grouped, and folder notices, while `ComicShareService` remains responsible for token and relationship state. A bulk share sends one grouped email, so twenty comics are not twenty messages. See [Notification is a notice, not a condition](#notification-is-a-notice-not-a-condition)
 - **Cleanup Command**: `CleanupExpiredSharesCommand` deletes pending invitations that expired unanswered, content codes that have been dead for over a month, and shares revoked more than a month ago (`ComicShare::RETENTION_AFTER_REVOCATION`, measured from `revokedAt` on the same clock as dead codes). The work itself is in `ExpiredShareCleanupService`, because an administrator can run the same sweep from the admin page and a deletion rule that exists twice will eventually disagree with itself
 - **Admin Sharing Codes**: `AdminShareCodeController.php` under `/api/admin/sharing-codes` — a paginated, filterable view of every issued content code, forced revocation, and a manual run of the retention sweep. It can never show a code, take back a redeemed comic, or delete a live record
 
@@ -93,7 +97,6 @@ lives in [`docs/`](docs/):
 - **ImportComicsCommand**: Imports comics from a directory (`app:import-comics`)
 - **CleanupComicsCommand**: Cleans up orphaned comic files and cover images (`app:cleanup-comics`)
 - **SetupUploadDirectoriesCommand**: Sets up necessary directories for uploads (`app:setup-upload-directories`)
-- **GenerateSampleDataCommand**: Generates sample data for testing (`app:generate-sample-data`)
 - **TestApiEndpointsCommand**: Tests API endpoints for registration and login (`app:test-api-endpoints`)
 - **DropboxSyncCommand**: Syncs comics from Dropbox for all connected users (`app:dropbox-sync`)
 - **CleanupLogsCommand**: Deletes daily log files past their retention period (`app:cleanup-logs`)
@@ -130,6 +133,8 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Authentication Pages**: Login and registration implemented in `Login.jsx`
 - **Password Reset**: Forgot password and reset password pages implemented in `ForgotPassword.jsx` and `ResetPassword.jsx`
 - **Dashboard**: Comic library view implemented in `Dashboard.jsx`
+- **Library Request Ownership**: `useLibrarySearch` reloads only when the active library location changes; completion of an unrelated folder-tree request cannot duplicate the main collection request. `TagProvider` owns one account-scoped cache and one in-flight request per tag context, so dashboard controls share the prefetch instead of issuing the same request twice and a previous account's tags are never exposed during an account change.
+- **Settings Boundaries**: `UserSettings.jsx` only composes the page. Personal-tag CRUD, conversion-tool downloads, OAuth callback notices, and privacy/account deletion each live in their own focused component or hook with direct behavior tests.
 
 #### ✅ Comic Reader
 - **Reading Interface**: Core reading functionality implemented in `ComicReader.jsx`
@@ -163,7 +168,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 
 #### ✅ Dropbox Integration
 - **Dropbox Import Page**: Complete UI in `DropboxSyncPage.jsx` for managing Dropbox connection and individual imports
-- **Connection Status**: Real-time detection of Dropbox connection status with proper OAuth scopes
+- **Connection Status**: Fast local connection state with an explicit retry state when the status request fails
 - **File Management**: Display of Dropbox files with accurate import status indicators
 - **Individual Import**: UI for importing specific comics with individual import buttons and loading states
 - **Smart Status Detection**: Accurately shows which files have been imported to prevent duplicates
@@ -1128,7 +1133,9 @@ from users' Dropbox accounts to the server.
 
 #### Environment Variables
 
-The Dropbox integration is fully configurable via environment variables in `backend/.env`:
+The Dropbox integration is fully configurable via environment variables. Keep
+real credentials in the ignored `backend/.env.local`; the committed
+`backend/.env` contains safe development defaults:
 
 ```env
 # =============================================================================
@@ -1154,11 +1161,12 @@ DROPBOX_SYNC_LIMIT=10
 DROPBOX_RATE_LIMIT=60
 ```
 
-The production deployment templates and scripts default `DROPBOX_APP_FOLDER` to
-`/`. The committed local-development `backend/.env` currently uses
-`/Apps/StarbugStoneComics`, which Dropbox treats as a literal path and therefore
-only suits a Full Dropbox app; override it with `/` when developing against an
-App folder app.
+All shipped environments default `DROPBOX_APP_FOLDER` to `/`. With App folder
+access, Dropbox maps that API root to the app-specific folder it created; the
+visible `/Apps/<app-name>` path must not be repeated in the API configuration.
+Leaving either credential empty disables the optional integration. The status
+API publishes that outcome, the interface explains it without offering a dead
+OAuth action, and the connect endpoint also fails closed with HTTP 503.
 
 #### Services Configuration
 
@@ -1171,10 +1179,13 @@ parameters:
     dropbox_rate_limit: '%env(int:DROPBOX_RATE_LIMIT)%'
 
 services:
+    App\Service\DropboxConfiguration:
+        arguments:
+            $appKey: '%env(DROPBOX_APP_KEY)%'
+            $appSecret: '%env(DROPBOX_APP_SECRET)%'
+
     App\Controller\DropboxController:
         arguments:
-            $dropboxAppKey: '%env(DROPBOX_APP_KEY)%'
-            $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
             $dropboxRedirectUri: '%env(DROPBOX_REDIRECT_URI)%'
             $dropboxSyncLimit: '%dropbox_sync_limit%'
 
@@ -1187,8 +1198,7 @@ services:
 
 **Required Permissions:**
 - `files.content.read` - Required for downloading CBZ files
-- `files.content.write` - Requested by the current OAuth controller
-- `account_info.read` - Required for connection status and account display
+- `files.metadata.read` - Required for listing the import folder and its subfolders
 
 **App Configuration:**
 - **Access Type**: "App folder" (recommended) or "Full Dropbox"
@@ -1239,7 +1249,7 @@ uploads/comics/
 
 - `GET /api/dropbox/connect` - Initiate OAuth flow
 - `GET /api/dropbox/callback` - Handle OAuth callback
-- `GET /api/dropbox/status` - Check connection status and user info
+- `GET /api/dropbox/status` - Return configured and locally stored connection state without waiting on Dropbox
 - `POST /api/dropbox/disconnect` - Remove Dropbox connection
 - `GET /api/dropbox/files` - List enabled comic source files in Dropbox with import status
 - `POST /api/dropbox/import` - Import one listed file
@@ -1248,6 +1258,12 @@ uploads/comics/
 ### Background Sync Command
 
 The `app:dropbox-sync` command provides automated syncing capabilities with configurable defaults:
+
+Both access-token and refresh-token-only connections are selected. The refresh
+token is the durable credential, and the client mints a replacement access
+token when a scheduled import needs one. `dropboxLastSyncedAt` advances only
+after a run finishes with no connection or file errors, so a failed attempt is
+never presented as the latest successful import.
 
 ```bash
 # Basic usage (uses DROPBOX_SYNC_LIMIT from .env, default: 10 files per user)
@@ -1303,8 +1319,8 @@ Can be scheduled to run automatically with various strategies:
 ### Frontend Integration
 
 - **Dropbox Import Page**: Complete management interface at `/dropbox-sync`
-- **Connection Status**: Real-time status detection and user info display
-- **File Listing**: Shows Dropbox files with import status indicators
+- **Connection Status**: Local status renders immediately; a failed status request gets a retry action and is never misreported as an unconfigured server
+- **File Listing**: Loads independently with its own progress state, responsive actions, and import status indicators
 - **Manual Import**: One-click import with progress feedback
 - **Dashboard Integration**: Dedicated "Dropbox" tab for imported comics
 - **Navigation**: Header includes a link to the Dropbox Import page
@@ -1379,13 +1395,13 @@ MyComics/
 
 **1. Permission Denied Error**
 ```
-Your app (ID: XXXXXXX) is not permitted to access this endpoint because it does not have the required scope 'account_info.read'
+Your app (ID: XXXXXXX) is not permitted to access this endpoint because it does not have the required scope 'files.metadata.read'
 ```
 **Solution**: Enable required scopes in Dropbox App Console:
 - Go to https://www.dropbox.com/developers/apps
 - Select your app → Permissions tab
 - Enable the scopes requested by `DropboxController`: `files.content.read`,
-  `files.content.write`, `account_info.read`
+  `files.metadata.read`
 
 **2. Redirect URI Mismatch**
 ```
@@ -1435,6 +1451,12 @@ setting rather than a reading of `APP_ENV`: a staging host is reachable from the
 internet whatever it calls its environment. If a login appears to hang locally,
 clear the bucket with
 `docker compose exec php php bin/console cache:pool:clear cache.rate_limiter`.
+
+Protected frontend routes retain the complete local path, query string and
+fragment when they send a signed-out visitor to `/login`, then return there
+after authentication. Redirect values are restricted to same-origin paths;
+absolute, protocol-relative, backslash and control-character forms fall back to
+`/dashboard`.
 
 **Check Logs**: Monitor Symfony logs for detailed error information:
 ```bash
@@ -1776,9 +1798,6 @@ You can test the current implementation using the following commands:
 # Test API endpoints (registration and login)
 docker compose exec php bin/console app:test-api-endpoints
 
-# Generate sample data for testing
-docker compose exec php bin/console app:generate-sample-data --force
-
 # Import comics from a directory
 docker compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com
 
@@ -1870,26 +1889,32 @@ no debug panel.
 
 ### Setup
 1. Clone the repository
-2. Start the Docker containers:
+2. Write this checkout's `.env` — Compose project name, ports, and the UID the
+   containers run as. Once per clone or worktree; see
+   [docs/local-docker-environment.md](docs/local-docker-environment.md):
+   ```sh
+   scripts/dev-env.sh
+   ```
+3. Start the Docker containers:
    ```sh
    docker compose up -d --build
    ```
-3. Install backend dependencies and create the schema:
+4. Install backend dependencies and create the schema:
    ```sh
    docker compose exec php composer install
    docker compose exec php php bin/console doctrine:database:create --if-not-exists
    docker compose exec php php bin/console doctrine:migrations:migrate --no-interaction
    ```
-4. Set up the upload directories:
+5. Set up the upload directories:
    ```sh
    docker compose exec php bin/console app:setup-upload-directories
    ```
-5. Create test users:
+6. Create test users:
    ```sh
    docker compose exec php bin/console app:create-admin-user testadmin@example.com AdminPass123!
    docker compose exec php bin/console app:create-user testuser1@example.com UserPass123!
    ```
-6. Import comics (optional):
+7. Import comics (optional):
    ```sh
    docker compose exec php bin/console app:import-comics /path/to/comics testuser1@example.com
    ```
@@ -1906,7 +1931,7 @@ The frontend React application is now served directly by a dedicated Vite develo
 **Key Details:**
 *   **Access URL:** To view and interact with the live-reloading frontend, open your browser to **`http://localhost:3001`**.
 *   **Live Reload / HMR:** When you make changes to files within the `./frontend/src` directory on your host machine, the Vite server inside the `frontend_dev` container will automatically detect these changes, rebuild the necessary parts of the application, and push updates to your browser, often without a full page refresh.
-*   **Automatic Dependency Installation:** The `frontend_dev` service automatically runs `npm install` when it starts, ensuring all frontend dependencies are up-to-date based on `package.json` and `package-lock.json`. You generally do not need to run `npm install` manually in the `frontend` directory unless you are specifically managing dependencies before restarting the Docker services.
+*   **Deterministic Dependency Installation:** The `frontend_dev` service automatically runs `npm ci` when it starts, installing exactly what `package-lock.json` records without rewriting the tracked lockfile. Run `npm install` on the host only when intentionally changing dependencies and their lockfile.
 *   **Role of `nginx` service (Port 8080):** The original `nginx` service (accessible at `http://localhost:8080` or your `${NGINX_PORT}`) continues to be responsible for:
     *   Proxying API requests (e.g., `/api/...`) to the backend PHP service. The Vite dev server on port 3001 is configured to route its API calls to this Nginx service.
     *   Serving a static build of the frontend if you were to build it for production (e.g., via `npm run build` results). For development, port 3001 is primary.
@@ -1943,7 +1968,7 @@ These are decisions that keep being rediscovered, not a backlog.
    No endpoint reimplements ownership; see
    [docs/comic-access.md](docs/comic-access.md).
 
-5. **Every change ships with tests.** See `CLAUDE.md` — this is a hard rule, and
+5. **Every change ships with tests.** See `AGENTS.md` — this is a hard rule, and
    the suites under [Automated Test Suites](#automated-test-suites) plus the CI
    gates in [README.md](README.md#continuous-integration) are what enforce it.
 
@@ -1977,33 +2002,38 @@ The frontend development server may not detect file changes properly when runnin
 - No file change detection messages in the frontend_dev container logs
 
 **Solutions:**
-Update the `frontend_dev` service in `docker-compose.yml` with the following configuration:
+`frontend_dev` already carries the settings this needs — `CHOKIDAR_USEPOLLING`
+and `WATCHPACK_POLLING` for polling-based detection, `--host 0.0.0.0 --force`
+on the Vite command, and an anonymous volume over `/app/node_modules` so the
+container's dependency tree is not masked by the host's. If changes still go
+unnoticed, confirm the container is mounting *this* checkout rather than
+another one's:
 
-```yaml
-frontend_dev:
-  image: node:${NODE_VERSION:-18}-alpine
-  container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
-  volumes:
-    - ./frontend:/app
-    - /app/node_modules
-  working_dir: /app
-  command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --force"
-  ports:
-    - "3001:3000"
-  networks:
-    - app_network
-  depends_on:
-    - nginx
-  environment:
-    - NODE_ENV=development
-    - CHOKIDAR_USEPOLLING=true
-    - WATCHPACK_POLLING=true
+```sh
+docker inspect "$(docker compose ps -q frontend_dev)" --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}'
 ```
 
-Key changes:
-- Added volume mount for `/app/node_modules` to prevent it from being overwritten
-- Enabled file polling with `CHOKIDAR_USEPOLLING` and `WATCHPACK_POLLING` environment variables
-- Added `--host 0.0.0.0` and `--force` flags to the Vite dev command
+See [docs/local-docker-environment.md](docs/local-docker-environment.md).
+
+### Permission errors on generated files
+
+**Symptoms:**
+- `composer install`, `cache:clear` or `git clean` fails with "Permission denied"
+- Files under `backend/var/`, `backend/vendor/` or `frontend/coverage/` are owned by `root` or by uid 33
+- A test fails on code that does not match your working tree
+
+**Solutions:**
+Containers run as your host UID/GID, so this should not recur. To repair a
+checkout that predates that change, and to confirm each checkout owns its own
+stack:
+
+```sh
+scripts/dev-env.sh          # per-checkout project name, ports, UID
+scripts/fix-ownership.sh    # reclaim root-owned files, no sudo needed
+```
+
+Both are documented in
+[docs/local-docker-environment.md](docs/local-docker-environment.md).
 
 ## Production Deployment
 
@@ -2067,11 +2097,14 @@ Never deploy only `frontend/dist`.
 
 ### Branching
 
-- Branch from `main`. Never commit to `main` directly.
-- `develop` is the integration branch: work that wants manual testing on a real
-  deployment lands there first and reaches `main` as one merge. CI validates
-  pull requests into it, and pushes to it, for exactly that reason.
-- `main` reflects the production state.
+- Branch ongoing feature, fix, and documentation work from fetched
+  `origin/develop`, and target `develop` with its pull request. Never commit to
+  either protected branch directly.
+- `develop` is the integration source of truth: work that wants manual testing
+  on a real deployment lands there first and reaches `main` as one deliberate
+  release merge.
+- `main` reflects the production state; urgent production hotfixes branch from
+  it and are brought back into `develop` through a separate pull request.
 
 ### Scheduled maintenance
 

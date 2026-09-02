@@ -56,6 +56,8 @@ final class ContentSecurityPolicyTest extends TestCase
 
         self::assertStringContainsString("script-src 'self'", $policy->header());
         self::assertStringNotContainsString('unsafe-eval', $policy->header());
+        self::assertStringContainsString("script-src 'self' https://challenges.cloudflare.com", $policy->header());
+        self::assertStringContainsString('frame-src \'self\' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://fundingchoicesmessages.google.com https://challenges.cloudflare.com', $policy->header());
     }
 
     public function testAnalyticsAloneReceivesTheNoncePolicyNeededForTheCmpAndTag(): void
@@ -70,5 +72,28 @@ final class ContentSecurityPolicyTest extends TestCase
         self::assertStringContainsString("script-src 'nonce-analytics-nonce'", $header);
         self::assertStringContainsString('https://*.google-analytics.com', $header);
         self::assertStringContainsString('https://www.googletagmanager.com', $header);
+    }
+
+    public function testMalformedManifestIsRejectedAtTheBoundary(): void
+    {
+        $manifest = tempnam(sys_get_temp_dir(), 'csp-');
+        self::assertIsString($manifest);
+        file_put_contents($manifest, json_encode([
+            'directives' => ['default-src' => "'self'"],
+            'scriptSrcWithoutAdvertising' => ["'self'"],
+            'scriptSrcWithAdvertising' => ["'nonce-{nonce}'"],
+        ], JSON_THROW_ON_ERROR));
+        $policy = new ContentSecurityPolicy(
+            new AdvertisingConfiguration(false, '', new NullLogger()),
+            $manifest
+        );
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('CSP manifest');
+            $policy->header();
+        } finally {
+            unlink($manifest);
+        }
     }
 }

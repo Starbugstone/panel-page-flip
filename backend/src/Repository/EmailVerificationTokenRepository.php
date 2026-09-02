@@ -10,11 +10,6 @@ use Doctrine\Persistence\ManagerRegistry;
 
 /**
  * @extends ServiceEntityRepository<EmailVerificationToken>
- *
- * @method EmailVerificationToken|null find($id, $lockMode = null, $lockVersion = null)
- * @method EmailVerificationToken|null findOneBy(array $criteria, array $orderBy = null)
- * @method EmailVerificationToken[]    findAll()
- * @method EmailVerificationToken[]    findBy(array $criteria, array $orderBy = null, $limit = null, $offset = null)
  */
 class EmailVerificationTokenRepository extends ServiceEntityRepository
 {

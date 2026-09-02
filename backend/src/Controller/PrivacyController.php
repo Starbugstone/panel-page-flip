@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Entity\User;
+use App\OAuth\OAuthSessionState;
 use App\Service\AccountDeletionService;
 use App\Service\PersonalDataExporter;
 use App\Service\SecurityAuditLogger;
@@ -38,13 +39,10 @@ final class PrivacyController extends AbstractController
         UserPasswordHasherInterface $passwordHasher,
         AccountDeletionService $accountDeletion,
         SecurityAuditLogger $securityLogger,
+        OAuthSessionState $oauthSession,
     ): JsonResponse {
         $user = $this->authenticatedUser();
         $data = \App\Http\JsonRequestDecoder::decode($request);
-        if (!is_array($data)) {
-            return $this->json(['message' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
-        }
-
         if (($data['confirmation'] ?? null) !== 'DELETE') {
             return $this->json(
                 ['message' => 'Enter DELETE to confirm permanent account deletion.'],
@@ -60,9 +58,16 @@ final class PrivacyController extends AbstractController
             'target_type' => 'user',
         ]);
 
-        $password = (string) ($data['currentPassword'] ?? '');
-        if ($password === '' || !$passwordHasher->isPasswordValid($user, $password)) {
-            return $this->json(['message' => 'The current password is incorrect.'], Response::HTTP_FORBIDDEN);
+        if ($user->hasPassword()) {
+            $password = (string) ($data['currentPassword'] ?? '');
+            if ($password === '' || !$passwordHasher->isPasswordValid($user, $password)) {
+                return $this->json(['message' => 'The current password is incorrect.'], Response::HTTP_FORBIDDEN);
+            }
+        } elseif (!$oauthSession->consumeRecentReauthentication($request->getSession(), (int) $user->getId())) {
+            return $this->json([
+                'message' => 'Reauthenticate with a connected provider before deleting this account.',
+                'requiresProviderReauthentication' => true,
+            ], Response::HTTP_FORBIDDEN);
         }
 
         try {

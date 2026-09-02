@@ -7,7 +7,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
+import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
+import { TurnstileWidget } from "@/components/security/TurnstileWidget.jsx";
 import { api } from "@/lib/api";
 
 const EMPTY = {
@@ -42,14 +43,14 @@ function NoticeDetails({ form, errors, change, setForm, referenceCopy }) {
           </CardHeader>
           <CardContent className="space-y-5">
             <Field label="Report type" error={errors.category} required>
-              <select id="category" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.category} onChange={change("category")}>
+              <select id="category" name="category" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.category} onChange={change("category")}>
                 <option value="">Select a category</option>
                 <option value="copyright_ip">Copyright / intellectual-property infringement</option>
                 <option value="other_illegal">Other illegal content</option>
               </select>
             </Field>
             <Field label="How can we identify it?" error={errors.referenceType} required hint="Choose a reference you can realistically know. Internal database IDs are never required.">
-              <select id="referenceType" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.referenceType} onChange={change("referenceType")}>
+              <select id="referenceType" name="referenceType" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={form.referenceType} onChange={change("referenceType")}>
                 <option value="invitation_url">Panel Page Flip invitation link</option>
                 <option value="sharing_code">C- / G- content sharing code</option>
                 <option value="user_code">U- public user code</option>
@@ -60,29 +61,30 @@ function NoticeDetails({ form, errors, change, setForm, referenceCopy }) {
               </select>
             </Field>
             <Field label={referenceCopy.label} error={errors.reportedReference} required hint={referenceCopy.hint}>
-              <Textarea id="reportedReference" value={form.reportedReference} onChange={change("reportedReference")} maxLength={2000} rows={3} placeholder={referenceCopy.placeholder} />
+              <Textarea id="reportedReference" name="reportedReference" value={form.reportedReference} onChange={change("reportedReference")} maxLength={2000} rows={3} placeholder={referenceCopy.placeholder} />
             </Field>
             <Field label={`Content title${form.referenceType === "comic_reference" ? "" : " (optional)"}`} error={errors.reportedContentTitle} required={form.referenceType === "comic_reference"}>
-              <Input id="reportedContentTitle" value={form.reportedContentTitle} onChange={change("reportedContentTitle")} maxLength={255} placeholder="Title, issue, edition, or collection" />
+              <Input id="reportedContentTitle" name="reportedContentTitle" value={form.reportedContentTitle} onChange={change("reportedContentTitle")} maxLength={255} placeholder="Title, issue, edition, or collection" />
             </Field>
             <Field label="Reported account (optional)" error={errors.reportedAccountReference} hint="A username, display name, or email only if you genuinely know it.">
-              <Input id="reportedAccountReference" value={form.reportedAccountReference} onChange={change("reportedAccountReference")} maxLength={320} />
+              <Input id="reportedAccountReference" name="reportedAccountReference" value={form.reportedAccountReference} onChange={change("reportedAccountReference")} maxLength={320} />
             </Field>
             <Field label="Where you encountered it (optional)" error={errors.sourceContext} hint="Describe where or how you encountered the material. Do not include passwords or private credentials.">
-              <Textarea id="sourceContext" value={form.sourceContext} onChange={change("sourceContext")} maxLength={2000} rows={3} />
+              <Textarea id="sourceContext" name="sourceContext" value={form.sourceContext} onChange={change("sourceContext")} maxLength={2000} rows={3} />
             </Field>
             <Field label="Explain the report" error={errors.explanation} required hint="Explain what you believe is illegal, the right involved, your authority to report it, and supporting context.">
-              <Textarea id="explanation" value={form.explanation} onChange={change("explanation")} maxLength={10000} rows={8} />
+              <Textarea id="explanation" name="explanation" value={form.explanation} onChange={change("explanation")} maxLength={10000} rows={8} />
             </Field>
 
             <div className="hidden" aria-hidden="true">
               <Label htmlFor="website">Website</Label>
-              <Input id="website" tabIndex={-1} autoComplete="off" value={form.website} onChange={change("website")} />
+              <Input id="website" name="website" tabIndex={-1} autoComplete="off" value={form.website} onChange={change("website")} />
             </div>
 
             <div className="flex items-start gap-3">
               <Checkbox
                 id="goodFaithAcknowledged"
+                name="goodFaithAcknowledged"
                 checked={form.goodFaithAcknowledged}
                 onCheckedChange={(checked) => setForm((current) => ({ ...current, goodFaithAcknowledged: checked === true }))}
               />
@@ -103,10 +105,12 @@ export default function ReportContent() {
   const [errors, setErrors] = useState({});
   const [result, setResult] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const referenceCopy = REFERENCE_COPY[form.referenceType];
   // From the one public-config request the application makes on startup, rather
   // than a second anonymous round trip for one address.
-  const { legal } = useAdSense();
+  const { legal, turnstile, isLoading: publicConfigLoading } = usePublicConfig();
   const legalEmail = legal.legalEmail;
 
   useEffect(() => {
@@ -123,12 +127,19 @@ export default function ReportContent() {
     setErrors({});
     setSubmitting(true);
     try {
-      const response = await api.post("/api/content-reports", form, { notifyUnauthorized: false });
+      const payload = turnstile.enabled
+        ? { ...form, turnstileToken }
+        : form;
+      const response = await api.post("/api/content-reports", payload, { notifyUnauthorized: false });
       setResult(response);
       setForm(EMPTY);
     } catch (error) {
       setErrors(error?.data?.errors || { form: error?.message || "The report could not be submitted." });
     } finally {
+      if (turnstile.enabled) {
+        setTurnstileToken(null);
+        setTurnstileResetKey((current) => current + 1);
+      }
       setSubmitting(false);
     }
   };
@@ -142,9 +153,13 @@ export default function ReportContent() {
             <CardDescription>{result.message}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p>Your reference is <strong>{result.reference}</strong>.</p>
-            <p>A detailed receipt has been sent to your email address. Capability-like invitation tokens and sharing codes are masked in that copy.</p>
-            <p>Keep this reference if you contact the site operator. No specific response time is promised.</p>
+            {result.reference && (
+              <>
+                <p>Your reference is <strong>{result.reference}</strong>.</p>
+                <p>A detailed receipt has been sent to your email address. Capability-like invitation tokens and sharing codes are masked in that copy.</p>
+                <p>Keep this reference if you contact the site operator. No specific response time is promised.</p>
+              </>
+            )}
             <Button variant="outline" onClick={() => setResult(null)}>Submit another report</Button>
           </CardContent>
         </Card>
@@ -167,23 +182,53 @@ export default function ReportContent() {
           <CardHeader><CardTitle>Reporter details</CardTitle></CardHeader>
           <CardContent className="grid gap-5 sm:grid-cols-2">
             <Field label="Name or organization" error={errors.reporterName} required>
-              <Input id="reporterName" value={form.reporterName} onChange={change("reporterName")} maxLength={200} />
+              <Input id="reporterName" name="reporterName" autoComplete="name" value={form.reporterName} onChange={change("reporterName")} maxLength={200} />
             </Field>
             <Field label="Email" error={errors.reporterEmail} required>
-              <Input id="reporterEmail" type="email" value={form.reporterEmail} onChange={change("reporterEmail")} maxLength={320} />
+              <Input id="reporterEmail" name="reporterEmail" type="email" autoComplete="email" value={form.reporterEmail} onChange={change("reporterEmail")} maxLength={320} />
             </Field>
             <Field label="Company / rights holder">
-              <Input id="reporterOrganization" value={form.reporterOrganization} onChange={change("reporterOrganization")} maxLength={200} />
+              <Input id="reporterOrganization" name="reporterOrganization" autoComplete="organization" value={form.reporterOrganization} onChange={change("reporterOrganization")} maxLength={200} />
             </Field>
             <Field label="Role or authority">
-              <Input id="reporterRole" value={form.reporterRole} onChange={change("reporterRole")} maxLength={200} placeholder="Rights holder or authorized representative" />
+              <Input id="reporterRole" name="reporterRole" autoComplete="organization-title" value={form.reporterRole} onChange={change("reporterRole")} maxLength={200} placeholder="Rights holder or authorized representative" />
             </Field>
           </CardContent>
         </Card>
 
         <NoticeDetails form={form} errors={errors} change={change} setForm={setForm} referenceCopy={referenceCopy} />
 
-        <Button type="submit" disabled={submitting}>{submitting ? "Submitting…" : "Submit report"}</Button>
+        {turnstile.enabled && (
+          <div className="space-y-2">
+            <TurnstileWidget
+              siteKey={turnstile.siteKey}
+              onToken={(token) => {
+                setTurnstileToken(token);
+                if (token) {
+                  setErrors((current) => {
+                    if (!("turnstile" in current)) return current;
+                    const remaining = { ...current };
+                    delete remaining.turnstile;
+                    return remaining;
+                  });
+                }
+              }}
+              onError={() => setErrors((current) => ({
+                ...current,
+                turnstile: "Complete the anti-bot check and try again.",
+              }))}
+              resetKey={turnstileResetKey}
+            />
+            {errors.turnstile && <p role="alert" className="text-sm text-destructive">{errors.turnstile}</p>}
+          </div>
+        )}
+
+        <Button
+          type="submit"
+          disabled={submitting || publicConfigLoading || (turnstile.enabled && !turnstileToken)}
+        >
+          {submitting ? "Submitting…" : "Submit report"}
+        </Button>
         <p className="text-sm text-muted-foreground">The legal operator may contact you if more identifying information is needed.</p>
       </form>
 

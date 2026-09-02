@@ -39,7 +39,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(length: 180, unique: true)]
     #[Assert\NotBlank]
     #[Assert\Email]
-    private ?string $email = null;
+    private string $email = '';
     
     #[ORM\Column(length: 255, nullable: true)]
     private ?string $name = null;
@@ -106,16 +106,16 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     
 
     /**
-     * @var string The hashed password
+     * @var string|null The hashed password, or null for a social-only account
      */
-    #[ORM\Column]
+    #[ORM\Column(nullable: true)]
     private ?string $password = null;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
-    private ?\DateTimeImmutable $createdAt = null;
+    private \DateTimeImmutable $createdAt;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
-    private ?\DateTimeImmutable $updatedAt = null;
+    private \DateTimeImmutable $updatedAt;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $lastLoginAt = null;
@@ -178,6 +178,10 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\OneToMany(targetEntity: EmailVerificationToken::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
     private Collection $emailVerificationTokens;
 
+    /** @var Collection<int, UserOAuthIdentity> */
+    #[ORM\OneToMany(targetEntity: UserOAuthIdentity::class, mappedBy: 'user', cascade: ['persist', 'remove'], orphanRemoval: true)]
+    private Collection $oauthIdentities;
+
     public function getDropboxAccessToken(): ?string
     {
         return $this->dropboxAccessToken;
@@ -231,6 +235,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         $this->createdTags = new ArrayCollection();
         $this->resetPasswordTokens = new ArrayCollection();
         $this->emailVerificationTokens = new ArrayCollection();
+        $this->oauthIdentities = new ArrayCollection();
         $this->isEmailVerified = false;
 
         $this->createdAt = new \DateTimeImmutable();
@@ -250,7 +255,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->id;
     }
 
-    public function getEmail(): ?string
+    public function getEmail(): string
     {
         return $this->email;
     }
@@ -357,7 +362,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         // guarantee every user at least has ROLE_USER
         $roles[] = 'ROLE_USER';
 
-        return array_unique($roles);
+        return array_values(array_unique($roles));
     }
 
     /**
@@ -398,15 +403,20 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     /**
      * @see PasswordAuthenticatedUserInterface
      */
-    public function getPassword(): string
+    public function getPassword(): ?string
     {
         return $this->password;
     }
 
-    public function setPassword(string $password): static
+    public function setPassword(?string $password): static
     {
         $this->password = $password;
         return $this;
+    }
+
+    public function hasPassword(): bool
+    {
+        return ($this->password ?? '') !== '';
     }
 
     /**
@@ -429,7 +439,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
-    public function getCreatedAt(): ?\DateTimeImmutable
+    public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
     }
@@ -440,7 +450,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
-    public function getUpdatedAt(): ?\DateTimeImmutable
+    public function getUpdatedAt(): \DateTimeImmutable
     {
         return $this->updatedAt;
     }
@@ -517,6 +527,28 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function getCreatedTags(): Collection
     {
         return $this->createdTags;
+    }
+
+    /** @return Collection<int, UserOAuthIdentity> */
+    public function getOAuthIdentities(): Collection
+    {
+        return $this->oauthIdentities;
+    }
+
+    public function addOAuthIdentity(UserOAuthIdentity $identity): static
+    {
+        if (!$this->oauthIdentities->contains($identity)) {
+            $this->oauthIdentities->add($identity);
+        }
+
+        return $this;
+    }
+
+    public function removeOAuthIdentity(UserOAuthIdentity $identity): static
+    {
+        $this->oauthIdentities->removeElement($identity);
+
+        return $this;
     }
     
 }

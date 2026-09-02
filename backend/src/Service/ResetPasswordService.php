@@ -111,6 +111,16 @@ class ResetPasswordService
         }
 
         $user = $resetToken->getUser();
+        if ($user === null) {
+            $this->auditLogger->suspicious(
+                SecurityAuditLogger::AUTHENTICATION_FAILED,
+                'reset:' . $this->auditLogger->clientIp(),
+                ['reason' => 'orphaned_reset_token'],
+                $this->auditLogger->failedLoginThreshold()
+            );
+
+            return false;
+        }
         
         // Hash the new password
         $hashedPassword = $this->passwordHasher->hashPassword($user, $newPassword);

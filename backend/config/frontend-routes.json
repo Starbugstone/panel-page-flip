@@ -8,6 +8,7 @@
   ],
   "noindex": [
     "/login",
+    "/complete-social-signup",
     "/forgot-password",
     "/email-verification",
     "/dashboard",

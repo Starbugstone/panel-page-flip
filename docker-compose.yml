@@ -1,3 +1,12 @@
+# Every service here is scoped to one checkout. COMPOSE_PROJECT_NAME, the
+# published ports and HOST_UID/HOST_GID all come from .env, which is untracked
+# and written per checkout by scripts/dev-env.sh — run that before the first
+# `docker compose` command in a new clone or worktree.
+#
+# Nothing sets container_name. Container names are global to the Docker daemon,
+# so a literal name makes two checkouts fight over one container instead of
+# getting one each; Compose derives unique names from the project instead.
+
 networks:
   app_network:
     driver: bridge
@@ -9,7 +18,11 @@ services:
       context: ./docker/php
       args:
         - PHP_VERSION=${PHP_VERSION:-8.2}
-    container_name: cbz_reader_php
+        - HOST_UID=${HOST_UID:-1000}
+        - HOST_GID=${HOST_GID:-1000}
+    # Runs as the host developer, so vendor/, var/ and public/uploads/ in the
+    # bind mount below stay editable and deletable from the host.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       - ./backend:/var/www/html
       # Symfony's cache is kept off the bind-mounted source tree. Rebuilding the
@@ -19,7 +32,7 @@ services:
       # Kernel::initializeContainer() rather than as anything to do with the
       # test. A container-local volume gives it ordinary filesystem semantics.
       - php_cache:/var/www/html/var/cache
-      - ./docker/php/setup.sh:/usr/local/bin/setup.sh
+      - ./docker/php/setup.sh:/usr/local/bin/setup.sh:ro
     depends_on:
       - database
     environment:
@@ -30,7 +43,9 @@ services:
       - APP_URL=${APP_URL:-http://localhost:8080}
       # Reachable from inside the PHP container (APP_URL is the public/host URL).
       - APP_INTERNAL_URL=http://nginx
-    entrypoint: ["sh", "-c", "chmod +x /usr/local/bin/setup.sh && /usr/local/bin/setup.sh && php-fpm"]
+    # setup.sh is mounted read-only, so it is invoked through sh rather than
+    # made executable in place.
+    entrypoint: ["sh", "-c", "sh /usr/local/bin/setup.sh && php-fpm"]
     networks:
       - app_network
 
@@ -43,11 +58,12 @@ services:
         - NODE_VERSION=${NODE_VERSION:-22}
         - NGINX_VERSION=${NGINX_VERSION:-1.25}
         - APP_URL=${APP_URL:-http://localhost:8080}
-    container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_nginx
     ports:
       - "${NGINX_PORT:-8080}:80"
     volumes:
-      - ./backend:/var/www/html
+      # Read-only: nginx serves uploads and public assets and has no reason to
+      # write into the checkout. Anything it did write would be nginx-owned.
+      - ./backend:/var/www/html:ro
     depends_on:
       - php
     networks:
@@ -56,7 +72,6 @@ services:
   # Database service
   database:
     image: mysql:8.0
-    container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_db
     environment:
       - MYSQL_DATABASE=${MYSQL_DATABASE:-cbz_reader}
       - MYSQL_USER=${MYSQL_USER:-cbz_user}
@@ -69,7 +84,6 @@ services:
 
   adminer:
     image: adminer
-    container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_adminer
     restart: always
     ports:
       - "${ADMINER_PORT:-8081}:8080"
@@ -81,7 +95,6 @@ services:
   # Mailpit for testing emails
   mailpit:
     image: axllent/mailpit:latest
-    container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_mailpit
     ports:
       - "${MAILPIT_SMTP_PORT:-1025}:1025" # SMTP server
       - "${MAILPIT_UI_PORT:-8025}:8025"   # Web UI
@@ -90,19 +103,31 @@ services:
 
   # Frontend Development Service
   frontend_dev:
-    image: node:${NODE_VERSION:-22}-alpine
-    container_name: ${COMPOSE_PROJECT_NAME:-cbz_reader}_frontend_dev
+    build:
+      context: ./docker/frontend_dev
+      args:
+        - NODE_VERSION=${NODE_VERSION:-22}
+        - HOST_UID=${HOST_UID:-1000}
+        - HOST_GID=${HOST_GID:-1000}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       - ./frontend:/app
       # Only the route generator, not all of scripts/: that directory can hold
       # .env.deploy with production FTP/SSH secrets.
       - ./scripts/generate-nginx-routes.mjs:/scripts/generate-nginx-routes.mjs:ro
       - ./backend/config/frontend-routes.json:/backend/config/frontend-routes.json:ro
+      # Keeps the container's node_modules off the host's, which is built for
+      # the host's platform and is also in use by the host test runs.
       - /app/node_modules
     working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --force"
+    # `npm ci`, not `npm install`: /app is a bind mount of the source tree, so
+    # `npm install` rewrites the tracked package-lock.json whenever the
+    # container's npm differs from the one that wrote it. That lands as an
+    # unexplained lockfile diff in `git status` every time the stack starts, and
+    # it is the file CI installs from. This matches the nginx builder and CI.
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --force"
     ports:
-      - "3001:3000"
+      - "${FRONTEND_DEV_PORT:-3001}:3000"
     networks:
       - app_network
     depends_on:

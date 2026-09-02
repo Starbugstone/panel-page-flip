@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DownloadCloud, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,6 +20,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { pluralize, summariseLabels } from "@/lib/bulk-actions";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
+import { filterAndSortAdminRows } from "@/lib/admin-client-table";
+import { adminFilterSuggestions, matchesAdminDateRange, matchesAdminIntegerRange } from "@/lib/admin-table-filters";
 
 const nameOf = (user) => user.name || user.email;
 
@@ -32,6 +36,18 @@ export function AdminDropbox() {
   // Bumped on every load, so a selection made against one list of accounts is
   // not carried over to the list that replaces it.
   const [generation, setGeneration] = useState(0);
+  const tableControls = useAdminTableControls({ defaultSort: "user", defaultDirection: "ASC" });
+  const visibleUsers = useMemo(() => filterAndSortAdminRows(users, tableControls, {
+    user: { value: (user) => `${nameOf(user)} ${user.email}` },
+    lastSyncedAt: {
+      value: (user) => user.lastSyncedAt,
+      filter: (value, query) => matchesAdminDateRange(value, query),
+    },
+    dropboxComicCount: {
+      value: (user) => user.dropboxComicCount,
+      filter: (value, query) => matchesAdminIntegerRange(value, query),
+    },
+  }), [tableControls, users]);
 
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
@@ -63,9 +79,10 @@ export function AdminDropbox() {
     return () => { ignore = true; };
   }, [toast]);
 
-  const selection = useRowSelection({ rows: users, resetKey: generation });
+  const selection = useRowSelection({ rows: visibleUsers, resetKey: `${generation}|${JSON.stringify(tableControls.query)}` });
   const bulk = useAdminBulkAction({ reload: loadUsers });
   const selected = selection.selectedRows;
+  const importedComicMax = Math.max(0, ...users.map((user) => Number(user.dropboxComicCount) || 0));
 
   const bulkActions = [
     {
@@ -111,7 +128,7 @@ export function AdminDropbox() {
       <h2 className="text-xl font-bold">Dropbox Imports</h2>
       <AdminBulkActionsBar
         selectedCount={selection.selectedCount}
-        totalCount={users.length}
+        totalCount={visibleUsers.length}
         noun="account"
         actions={bulkActions}
         progress={bulk.progress}
@@ -128,14 +145,14 @@ export function AdminDropbox() {
                   label="Select all accounts"
                 />
               </TableHead>
-              <TableHead>User</TableHead>
-              <TableHead>Last import</TableHead>
-              <TableHead>Imported comics</TableHead>
+              <TableHead><AdminColumnHeader label="User" sortField="user" filterField="user" filterSuggestions={adminFilterSuggestions(users, (user) => [user.name, user.email])} filterValue={tableControls.columnFilters.user} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Last import" sortField="lastSyncedAt" filterField="lastSyncedAt" filterType="date" emptyDateLabel="Never" filterValue={tableControls.columnFilters.lastSyncedAt} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Imported comics" sortField="dropboxComicCount" filterField="dropboxComicCount" filterType="range" filterMax={importedComicMax} filterValue={tableControls.columnFilters.dropboxComicCount} {...tableControls.headerProps} /></TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {users.length > 0 ? users.map((user) => (
+            {visibleUsers.length > 0 ? visibleUsers.map((user) => (
               <TableRow key={user.id} data-state={selection.isChecked(user) ? "selected" : undefined}>
                 <TableCell>
                   <SelectionCheckbox

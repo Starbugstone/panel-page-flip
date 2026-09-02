@@ -1,4 +1,5 @@
-import { RotateCcw, Settings2 } from "lucide-react";
+import { useState } from "react";
+import { RotateCcw, Settings2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -30,8 +31,14 @@ export function ReaderSettings({
   onOpenChange,
   onReset,
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const changeOpenState = (open) => {
+    setIsOpen(open);
+    onOpenChange?.(open);
+  };
+
   return (
-    <Popover onOpenChange={onOpenChange}>
+    <Popover open={isOpen} onOpenChange={changeOpenState}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -43,10 +50,26 @@ export function ReaderSettings({
           <Settings2 className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="max-h-[var(--radix-popover-content-available-height)] w-[min(22rem,calc(100vw-2rem))] space-y-4 overflow-y-auto">
-        <div>
-          <h2 className="font-semibold">Reader settings</h2>
-          <p className="mt-1 text-xs text-muted-foreground">Preferences sync across devices</p>
+      <PopoverContent
+        align="end"
+        aria-labelledby="reader-settings-title"
+        className="max-h-[var(--radix-popover-content-available-height)] w-[min(22rem,calc(100vw-2rem))] space-y-4 overflow-y-auto"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 id="reader-settings-title" className="font-semibold">Reader settings</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Preferences sync across devices</p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="-mr-2 -mt-2 shrink-0"
+            aria-label="Close reader settings"
+            onClick={() => changeOpenState(false)}
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
