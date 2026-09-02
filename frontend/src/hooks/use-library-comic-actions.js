@@ -25,13 +25,7 @@ export function useLibraryComicActions({ refreshCurrent, updateComicProgress, re
   };
 
   const resetReadingProgressForComics = async (comicIds) => {
-    const outcome = await runBulkAction(
-      comicIds,
-      async (comicId) => {
-        await api.post(`/api/comics/${comicId}/reading-progress/reset`, {});
-        updateComicProgress(comicId, null);
-      }
-    );
+    const outcome = await runBulkAction(comicIds, resetReadingProgress);
 
     toast(describeBulkOutcome(outcome, { noun: "comic", verbPast: "reset" }));
     if (outcome.failed.length > 0) {

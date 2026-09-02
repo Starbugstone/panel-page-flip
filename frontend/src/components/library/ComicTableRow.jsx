@@ -25,6 +25,18 @@ function ComicTags({ tags, hiddenTagNames, className }) {
   );
 }
 
+function ComicProgressSummary({ progress, pageCount, className }) {
+  return (
+    <div className={cn("space-y-2", className)}>
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <Badge variant="outline" className={progress.badgeClass}>{progress.label}</Badge>
+        <span>{progress.currentPage} / {pageCount || 0}</span>
+      </div>
+      <Progress value={progress.percent} className={cn("h-2", progress.progressClass)} />
+    </div>
+  );
+}
+
 function ComicMobileDetails({ comic, folderName, progress, tags }) {
   return (
     <>
@@ -38,11 +50,7 @@ function ComicMobileDetails({ comic, folderName, progress, tags }) {
         hiddenTagNames={comic.hiddenTagNames}
         className="mt-2 flex max-w-full flex-wrap gap-1 xl:hidden"
       />
-      <div className="mt-2 flex items-center justify-between gap-2 text-xs sm:hidden">
-        <Badge variant="outline" className={cn("sm:hidden", progress.badgeClass)}>{progress.label}</Badge>
-        <span>{progress.currentPage} / {comic.pageCount || 0}</span>
-      </div>
-      <Progress value={progress.percent} className={cn("mt-2 h-2 sm:hidden", progress.progressClass)} />
+      <ComicProgressSummary progress={progress} pageCount={comic.pageCount} className="mt-2 sm:hidden" />
     </>
   );
 }
@@ -87,13 +95,7 @@ export function ComicTableRow({ comic, checked, folderNames, onToggle, onEdit })
         {folderName}
       </TableCell>
       <TableCell className="hidden w-48 sm:table-cell xl:w-64">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <Badge variant="outline" className={progress.badgeClass}>{progress.label}</Badge>
-            <span>{progress.currentPage} / {comic.pageCount || 0}</span>
-          </div>
-          <Progress value={progress.percent} className={cn("h-2", progress.progressClass)} />
-        </div>
+        <ComicProgressSummary progress={progress} pageCount={comic.pageCount} />
       </TableCell>
       <TableCell className="hidden xl:table-cell">{formatDate(comic.uploadedAt)}</TableCell>
       <TableCell className="w-20 px-1 text-right sm:w-auto sm:px-4">

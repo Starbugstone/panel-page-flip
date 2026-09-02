@@ -8,14 +8,16 @@ import { ComicTableRow } from "@/components/library/ComicTableRow";
 import { MoveToFolderDialog } from "@/components/library/MoveToFolderDialog";
 import { useComicSelection } from "@/hooks/use-comic-selection";
 
+// Narrow screens keep the title and the actions; everything else folds into
+// the title cell, which ComicTableRow renders for them.
 const COLUMNS = [
-  ["Comic", undefined],
-  ["Author", "hidden md:table-cell"],
-  ["Tags", "hidden xl:table-cell"],
-  ["Location", "hidden xl:table-cell"],
-  ["Progress", "hidden w-48 sm:table-cell xl:w-64"],
-  ["Uploaded", "hidden xl:table-cell"],
-  ["Actions", "w-20 px-2 text-right sm:w-auto sm:px-4"],
+  { label: "Comic" },
+  { label: "Author", className: "hidden md:table-cell" },
+  { label: "Tags", className: "hidden xl:table-cell" },
+  { label: "Location", className: "hidden xl:table-cell" },
+  { label: "Progress", className: "hidden w-48 sm:table-cell xl:w-64" },
+  { label: "Uploaded", className: "hidden xl:table-cell" },
+  { label: "Actions", className: "w-20 px-1 text-right sm:w-auto sm:px-4" },
 ];
 
 /**
@@ -76,13 +78,8 @@ export function ComicTableView({
                   label="Select all comics"
                 />
               </TableHead>
-              {COLUMNS.map(([column, className]) => (
-                <TableHead
-                  key={column}
-                  className={className}
-                >
-                  {column}
-                </TableHead>
+              {COLUMNS.map(({ label, className }) => (
+                <TableHead key={label} className={className}>{label}</TableHead>
               ))}
             </TableRow>
           </TableHeader>

@@ -110,7 +110,7 @@ final class DropboxConnectionStateTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
         self::assertTrue($payload['configured']);
         self::assertTrue($payload['connected']);
-        self::assertNull($payload['user']);
+        self::assertArrayNotHasKey('user', $payload);
     }
 
     public function testStatusReportsAnUnconfiguredIntegrationWithoutCallingDropbox(): void
@@ -125,6 +125,29 @@ final class DropboxConnectionStateTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
         self::assertFalse($payload['configured']);
         self::assertFalse($payload['connected']);
-        self::assertNull($payload['user']);
+        self::assertArrayNotHasKey('user', $payload);
+    }
+
+    /**
+     * Withdrawing the server's credentials leaves stored tokens that open
+     * nothing. The endpoints must say so, rather than letting the client
+     * factory raise and reporting its refusal as a server fault.
+     *
+     * @dataProvider dropboxEndpointProvider
+     */
+    public function testAConnectedAccountIsToldTheIntegrationIsUnconfigured(
+        string $method,
+        string $url,
+        array $payload
+    ): void {
+        $user = $this->createAndLoginUser();
+        $user->setDropboxAccessToken('stored-access-token');
+        self::getContainer()->get('doctrine')->getManager()->flush();
+        static::getContainer()->set(DropboxConfiguration::class, new DropboxConfiguration('', ''));
+
+        $body = $method === 'GET' ? $this->getJson($url) : $this->postJson($url, $payload);
+
+        self::assertResponseStatusCodeSame(503);
+        self::assertSame(DropboxConfiguration::UNAVAILABLE_MESSAGE, $body['error']);
     }
 }
