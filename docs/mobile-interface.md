@@ -31,7 +31,8 @@ revealed again as the viewport grows, rather than forcing a desktop-width table
 onto the screen.
 
 Upload queues turn each file into a stacked row on phones, and long filenames
-wrap. Sharing cards move their action group below the cover and description.
+wrap. Sharing cards keep their cover or folder icon beside the description and
+move the complete action group below that pair.
 Sharing identity, redeem-code, pagination, and personal-tag controls stack or
 expand to the available width. These layouts return to their compact horizontal
 form at the existing tablet and desktop breakpoints.
