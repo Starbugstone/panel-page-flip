@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -18,9 +18,9 @@ const settleEffects = async () => {
   });
 };
 
-const renderSearchBar = () => render(
+const renderSearchBar = (onSearch = vi.fn()) => render(
   <TagProvider>
-    <SearchBar onSearch={() => {}} />
+    <SearchBar onSearch={onSearch} />
   </TagProvider>,
 );
 
@@ -98,5 +98,63 @@ describe("SearchBar tag loading", () => {
       "sm:absolute",
     );
     expect(screen.getByText(longTagName)).toHaveClass("truncate");
+  });
+
+  it("dismisses the tag picker with Escape and restores focus to its trigger", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "get").mockResolvedValue({ tags: [] });
+
+    renderSearchBar();
+    const tagButton = await screen.findByRole("button", { name: "Tags" });
+    await user.click(tagButton);
+    expect(screen.getByRole("dialog", { name: "Tag filters" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "Tag filters" })).not.toBeInTheDocument();
+    expect(tagButton).toHaveFocus();
+  });
+
+  it("dismisses the tag picker when focus moves to an outside pointer target", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "get").mockResolvedValue({ tags: [] });
+
+    renderSearchBar();
+    await user.click(await screen.findByRole("button", { name: "Tags" }));
+    await user.click(screen.getByRole("searchbox", { name: "Search comics" }));
+
+    expect(screen.queryByRole("dialog", { name: "Tag filters" })).not.toBeInTheDocument();
+  });
+
+  it("gives every icon-only search and tag-filter control an accessible name", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "get").mockResolvedValue({
+      tags: [{ id: 1, name: "Manga", isGlobal: false }],
+    });
+
+    renderSearchBar();
+    const search = screen.getByRole("searchbox", { name: "Search comics" });
+    await user.type(search, "dragon");
+    expect(screen.getByRole("button", { name: "Clear search and tag filters" })).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Tags" }));
+    expect(screen.getByRole("textbox", { name: "Search tags" })).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Filter by Manga" }));
+    expect(screen.getByRole("button", { name: "Remove Manga filter" })).toBeInTheDocument();
+  });
+
+  it("retries a failed tag request without submitting the search form", async () => {
+    const user = userEvent.setup();
+    const onSearch = vi.fn();
+    vi.spyOn(logger, "error").mockImplementation(() => {});
+    vi.spyOn(api, "get").mockRejectedValue(Object.assign(new Error("tags unavailable"), { status: 404 }));
+
+    renderSearchBar(onSearch);
+    const tagButton = screen.getByRole("button", { name: "Tags" });
+    await waitFor(() => expect(tagButton).toBeEnabled());
+    await user.click(tagButton);
+    await user.click(await screen.findByRole("button", { name: "Retry" }));
+
+    expect(onSearch).not.toHaveBeenCalled();
   });
 });

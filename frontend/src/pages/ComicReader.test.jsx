@@ -60,10 +60,16 @@ function ReaderRoute() {
   );
 }
 
+function LibraryRoute() {
+  const location = useLocation();
+  return <span data-testid="library-location">{`${location.pathname}${location.search}`}</span>;
+}
+
 const renderReader = (initialEntry = "/read/42") => render(
   <MemoryRouter initialEntries={[initialEntry]}>
     <Routes>
       <Route path="/read/:comicId" element={<ReaderRoute />} />
+      <Route path="/dashboard" element={<LibraryRoute />} />
     </Routes>
   </MemoryRouter>
 );
@@ -1389,6 +1395,19 @@ describe("ComicReader", () => {
       renderReader();
 
       expect(await screen.findByText(/not found|could not|problem/i)).toBeInTheDocument();
+    });
+
+    it("returns to the library view that opened the failed reader", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.get).mockRejectedValue(Object.assign(new Error("nope"), { status: 404 }));
+
+      renderReader({
+        pathname: "/read/42",
+        state: { libraryReturnTo: "/dashboard?view=reading" },
+      });
+      await user.click(await screen.findByRole("button", { name: "Return to Library" }));
+
+      expect(screen.getByTestId("library-location")).toHaveTextContent("/dashboard?view=reading");
     });
   });
 });

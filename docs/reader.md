@@ -219,7 +219,8 @@ Opening the reader from a quick view such as **Currently reading**, **Not
 started**, or **Shared with me** remembers that view. **Back to Library**
 restores it and returns to the comic there instead of changing to **All
 comics**. Moving to the next comic inside the reader keeps the same return
-location.
+location. If the comic cannot be loaded, the error page's **Return to Library**
+action uses that remembered location too.
 
 The quick view or folder is remembered in browser navigation state. If a reader
 is opened without that state — a bookmark, a fresh tab, a shared link — the
