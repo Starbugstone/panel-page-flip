@@ -166,7 +166,10 @@ that space back to the page.
 The grid button at the top-right opens a strip of page thumbnails along the
 bottom of the reader. Selecting one turns to that page; the current page is
 marked, and the strip scrolls to keep it in view as you read. Thumbnails are
-tab-reachable and activate with Enter or Space.
+tab-reachable and activate with Enter or Space. The strip reserves the measured
+height of the fixed page controls below its buttons, including on narrow
+screens, so visible thumbnails cannot sit behind the bar or lose pointer input
+to it.
 
 Thumbnails load around wherever you are rather than all at once, so opening the
 navigator on a long book does not fetch hundreds of images.

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -48,6 +49,31 @@ describe("the Nginx request logs", () => {
     expect(format).toContain("$ppf_request_path");
     expect(format).not.toMatch(/\$request(?:_uri)?\b/);
     expect(source).toMatch(/access_log\s+\/var\/log\/nginx\/project_access\.log\s+ppf_without_query;/);
+  });
+});
+
+describe("the generated Nginx SPA routes", () => {
+  const routes = JSON.parse(read("backend/config/frontend-routes.json"));
+  const generated = execFileSync(
+    process.execPath,
+    [
+      resolve(repositoryRoot, "scripts/generate-nginx-routes.mjs"),
+      "--index-html",
+      resolve(repositoryRoot, "frontend/index.html"),
+    ],
+    {
+      encoding: "utf8",
+      env: { ...process.env, APP_URL: "https://comics.starbugstone.com" },
+    },
+  );
+
+  it("injects the CSP nonce in every indexable route that overrides sub_filter", () => {
+    const nonceFilter = `sub_filter '<script ' '<script nonce="$request_id" ';`;
+
+    for (const { path } of routes.indexable.filter((route) => route.path !== "/")) {
+      const block = generated.match(new RegExp(`location = ${path} \\{[\\s\\S]*?\\n\\}`))?.[0] ?? "";
+      expect(block, path).toContain(nonceFilter);
+    }
   });
 });
 
@@ -161,6 +187,50 @@ describe("the local Docker environment", () => {
    */
   it("mounts the backend read-only into nginx", () => {
     expect(serviceBlock("nginx")).toContain("./backend:/var/www/html:ro");
+  });
+
+  it("passes the checkout's MySQL credentials to Symfony", () => {
+    const php = serviceBlock("php");
+
+    expect(php).toContain("MYSQL_USER=${MYSQL_USER:-cbz_user}");
+    expect(php).toContain("MYSQL_PASSWORD=${MYSQL_PASSWORD:-cbz_password}");
+    expect(php).toContain("MYSQL_DATABASE=${MYSQL_DATABASE:-cbz_reader}");
+  });
+
+  it("keeps fresh-install backend defaults safe and aligned with the operator template", () => {
+    const defaults = read("backend/.env");
+    const developmentDefaults = read("backend/.env.dev");
+
+    expect(defaults).toMatch(/^MYSQL_USER=cbz_user$/m);
+    expect(defaults).toMatch(/^MYSQL_PASSWORD=cbz_password$/m);
+    expect(defaults).toMatch(/^MYSQL_DATABASE=cbz_reader$/m);
+    expect(developmentDefaults).not.toMatch(/^DATABASE_URL=/m);
+    expect(defaults).toMatch(/^MAX_PARALLEL_FILE_UPLOADS=2$/m);
+    expect(defaults).toMatch(/^DROPBOX_APP_KEY=$/m);
+    expect(defaults).toMatch(/^DROPBOX_APP_SECRET=$/m);
+    expect(defaults).toMatch(/^DROPBOX_REDIRECT_URI=\$\{APP_URL\}\/api\/dropbox\/callback$/m);
+    expect(defaults).toMatch(/^DROPBOX_APP_FOLDER=\/$/m);
+  });
+
+  it("does not put raw local MySQL credentials into a connection URL", () => {
+    const doctrine = read("backend/config/packages/doctrine.yaml");
+    const setup = read("docker/php/setup.sh");
+
+    expect(doctrine).toContain("user: '%env(MYSQL_USER)%'");
+    expect(doctrine).toContain("password: '%env(MYSQL_PASSWORD)%'");
+    expect(doctrine).toContain("dbname: '%env(MYSQL_DATABASE)%'");
+    expect(doctrine).toMatch(/when@prod:[\s\S]*url: '%env\(resolve:DATABASE_URL\)%'/);
+
+    for (const path of ["backend/.env", "backend/.env.dev", "backend/.env.test", "docker/php/setup.sh"]) {
+      expect(read(path), path).not.toMatch(/DATABASE_URL=.*\$\{MYSQL_(?:USER|PASSWORD|DATABASE)/);
+    }
+    expect(setup).toContain("rawurlencode");
+  });
+
+  it("uses an explicit MySQL patch version in every shipped runtime DSN", () => {
+    for (const path of ["backend/.env", "backend/.env.dev", "backend/.env.test", "docker/php/setup.sh"]) {
+      expect(read(path), path).not.toMatch(/serverVersion=8\.0(?!\.)/);
+    }
   });
 });
 

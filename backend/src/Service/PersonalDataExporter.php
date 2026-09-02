@@ -81,8 +81,7 @@ final class PersonalDataExporter
                 'createdAt' => $user->getCreatedAt()->format(\DateTimeInterface::ATOM),
                 'updatedAt' => $user->getUpdatedAt()->format(\DateTimeInterface::ATOM),
                 'lastLoginAt' => $user->getLastLoginAt()?->format(\DateTimeInterface::ATOM),
-                'dropboxConnected' => $user->getDropboxAccessToken() !== null
-                    || $user->getDropboxRefreshToken() !== null,
+                'dropboxConnected' => $user->hasDropboxConnection(),
                 'dropboxLastSyncedAt' => $user->getDropboxLastSyncedAt()?->format(\DateTimeInterface::ATOM),
                 'readerPreferences' => $user->getReaderPreferences(),
                 'connectedAccounts' => array_map(

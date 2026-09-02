@@ -95,7 +95,7 @@ class DropboxSyncCommand extends Command
 
             try {
                 $result = $this->syncUserDropbox($user, $io, $dryRun, $limit);
-                if (!$dryRun) {
+                if (!$dryRun && $result['errors'] === 0) {
                     $user->setDropboxLastSyncedAt(new \DateTimeImmutable());
                     $this->entityManager->flush();
                 }
@@ -127,6 +127,7 @@ class DropboxSyncCommand extends Command
             return $userRepository->createQueryBuilder('u')
                 ->where('u.dropboxAccessToken IS NOT NULL')
                 ->andWhere('u.dropboxAccessToken != :empty')
+                ->orWhere('(u.dropboxRefreshToken IS NOT NULL AND u.dropboxRefreshToken != :empty)')
                 ->setParameter('empty', '')
                 ->getQuery()
                 ->getResult();
@@ -138,7 +139,7 @@ class DropboxSyncCommand extends Command
             return null;
         }
 
-        if (!$user->getDropboxAccessToken()) {
+        if (!$user->hasDropboxConnection()) {
             $io->error("User with ID {$userId} does not have Dropbox connected");
             return null;
         }

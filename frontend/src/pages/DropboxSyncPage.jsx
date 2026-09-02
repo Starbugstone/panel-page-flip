@@ -26,8 +26,8 @@ function DropboxSyncPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mx-auto max-w-4xl space-y-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
+        <div className="mb-4 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <h1 className="mb-2 text-3xl font-bold">Dropbox Import</h1>
             <p className="text-muted-foreground">
               Import comics from your Dropbox app folder into Panel Page Flip.
@@ -39,21 +39,21 @@ function DropboxSyncPage() {
               <Link className="underline" to="/privacy">Privacy information</Link>
             </p>
           </div>
-          <DropboxOrganizationGuide />
+          {dropbox.isConfigured && <DropboxOrganizationGuide />}
         </div>
 
-        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+        {dropbox.isConfigured && <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
           <div className="flex items-start gap-2">
             <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
             <div className="text-sm">
               <span className="font-medium text-amber-800 dark:text-amber-200">Pro Tip:</span>
               <span className="ml-1 text-amber-700 dark:text-amber-300">
-                Add supported comic files to your <code className={inlineCode}>{APP_FOLDER}</code> folder.
+                Add supported comic files to your <code className={inlineCode}>{APP_FOLDER}</code>.
                 Organize in subfolders like <code className={inlineCode}>superHero/</code> or <code className={inlineCode}>Manga/Action/</code> for automatic tagging!
               </span>
             </div>
           </div>
-        </div>
+        </div>}
 
         <Card>
           <CardHeader>

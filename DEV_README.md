@@ -133,6 +133,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Authentication Pages**: Login and registration implemented in `Login.jsx`
 - **Password Reset**: Forgot password and reset password pages implemented in `ForgotPassword.jsx` and `ResetPassword.jsx`
 - **Dashboard**: Comic library view implemented in `Dashboard.jsx`
+- **Library Request Ownership**: `useLibrarySearch` reloads only when the active library location changes; completion of an unrelated folder-tree request cannot duplicate the main collection request. `TagProvider` owns one account-scoped cache and one in-flight request per tag context, so dashboard controls share the prefetch instead of issuing the same request twice and a previous account's tags are never exposed during an account change.
 - **Settings Boundaries**: `UserSettings.jsx` only composes the page. Personal-tag CRUD, conversion-tool downloads, OAuth callback notices, and privacy/account deletion each live in their own focused component or hook with direct behavior tests.
 
 #### ✅ Comic Reader
@@ -167,7 +168,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 
 #### ✅ Dropbox Integration
 - **Dropbox Import Page**: Complete UI in `DropboxSyncPage.jsx` for managing Dropbox connection and individual imports
-- **Connection Status**: Real-time detection of Dropbox connection status with proper OAuth scopes
+- **Connection Status**: Fast local connection state with an explicit retry state when the status request fails
 - **File Management**: Display of Dropbox files with accurate import status indicators
 - **Individual Import**: UI for importing specific comics with individual import buttons and loading states
 - **Smart Status Detection**: Accurately shows which files have been imported to prevent duplicates
@@ -1132,7 +1133,9 @@ from users' Dropbox accounts to the server.
 
 #### Environment Variables
 
-The Dropbox integration is fully configurable via environment variables in `backend/.env`:
+The Dropbox integration is fully configurable via environment variables. Keep
+real credentials in the ignored `backend/.env.local`; the committed
+`backend/.env` contains safe development defaults:
 
 ```env
 # =============================================================================
@@ -1158,11 +1161,12 @@ DROPBOX_SYNC_LIMIT=10
 DROPBOX_RATE_LIMIT=60
 ```
 
-The production deployment templates and scripts default `DROPBOX_APP_FOLDER` to
-`/`. The committed local-development `backend/.env` currently uses
-`/Apps/StarbugStoneComics`, which Dropbox treats as a literal path and therefore
-only suits a Full Dropbox app; override it with `/` when developing against an
-App folder app.
+All shipped environments default `DROPBOX_APP_FOLDER` to `/`. With App folder
+access, Dropbox maps that API root to the app-specific folder it created; the
+visible `/Apps/<app-name>` path must not be repeated in the API configuration.
+Leaving either credential empty disables the optional integration. The status
+API publishes that outcome, the interface explains it without offering a dead
+OAuth action, and the connect endpoint also fails closed with HTTP 503.
 
 #### Services Configuration
 
@@ -1175,10 +1179,13 @@ parameters:
     dropbox_rate_limit: '%env(int:DROPBOX_RATE_LIMIT)%'
 
 services:
+    App\Service\DropboxConfiguration:
+        arguments:
+            $appKey: '%env(DROPBOX_APP_KEY)%'
+            $appSecret: '%env(DROPBOX_APP_SECRET)%'
+
     App\Controller\DropboxController:
         arguments:
-            $dropboxAppKey: '%env(DROPBOX_APP_KEY)%'
-            $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
             $dropboxRedirectUri: '%env(DROPBOX_REDIRECT_URI)%'
             $dropboxSyncLimit: '%dropbox_sync_limit%'
 
@@ -1191,8 +1198,7 @@ services:
 
 **Required Permissions:**
 - `files.content.read` - Required for downloading CBZ files
-- `files.content.write` - Requested by the current OAuth controller
-- `account_info.read` - Required for connection status and account display
+- `files.metadata.read` - Required for listing the import folder and its subfolders
 
 **App Configuration:**
 - **Access Type**: "App folder" (recommended) or "Full Dropbox"
@@ -1243,7 +1249,7 @@ uploads/comics/
 
 - `GET /api/dropbox/connect` - Initiate OAuth flow
 - `GET /api/dropbox/callback` - Handle OAuth callback
-- `GET /api/dropbox/status` - Check connection status and user info
+- `GET /api/dropbox/status` - Return configured and locally stored connection state without waiting on Dropbox
 - `POST /api/dropbox/disconnect` - Remove Dropbox connection
 - `GET /api/dropbox/files` - List enabled comic source files in Dropbox with import status
 - `POST /api/dropbox/import` - Import one listed file
@@ -1252,6 +1258,12 @@ uploads/comics/
 ### Background Sync Command
 
 The `app:dropbox-sync` command provides automated syncing capabilities with configurable defaults:
+
+Both access-token and refresh-token-only connections are selected. The refresh
+token is the durable credential, and the client mints a replacement access
+token when a scheduled import needs one. `dropboxLastSyncedAt` advances only
+after a run finishes with no connection or file errors, so a failed attempt is
+never presented as the latest successful import.
 
 ```bash
 # Basic usage (uses DROPBOX_SYNC_LIMIT from .env, default: 10 files per user)
@@ -1307,8 +1319,8 @@ Can be scheduled to run automatically with various strategies:
 ### Frontend Integration
 
 - **Dropbox Import Page**: Complete management interface at `/dropbox-sync`
-- **Connection Status**: Real-time status detection and user info display
-- **File Listing**: Shows Dropbox files with import status indicators
+- **Connection Status**: Local status renders immediately; a failed status request gets a retry action and is never misreported as an unconfigured server
+- **File Listing**: Loads independently with its own progress state, responsive actions, and import status indicators
 - **Manual Import**: One-click import with progress feedback
 - **Dashboard Integration**: Dedicated "Dropbox" tab for imported comics
 - **Navigation**: Header includes a link to the Dropbox Import page
@@ -1383,13 +1395,13 @@ MyComics/
 
 **1. Permission Denied Error**
 ```
-Your app (ID: XXXXXXX) is not permitted to access this endpoint because it does not have the required scope 'account_info.read'
+Your app (ID: XXXXXXX) is not permitted to access this endpoint because it does not have the required scope 'files.metadata.read'
 ```
 **Solution**: Enable required scopes in Dropbox App Console:
 - Go to https://www.dropbox.com/developers/apps
 - Select your app → Permissions tab
 - Enable the scopes requested by `DropboxController`: `files.content.read`,
-  `files.content.write`, `account_info.read`
+  `files.metadata.read`
 
 **2. Redirect URI Mismatch**
 ```
@@ -1919,7 +1931,7 @@ The frontend React application is now served directly by a dedicated Vite develo
 **Key Details:**
 *   **Access URL:** To view and interact with the live-reloading frontend, open your browser to **`http://localhost:3001`**.
 *   **Live Reload / HMR:** When you make changes to files within the `./frontend/src` directory on your host machine, the Vite server inside the `frontend_dev` container will automatically detect these changes, rebuild the necessary parts of the application, and push updates to your browser, often without a full page refresh.
-*   **Automatic Dependency Installation:** The `frontend_dev` service automatically runs `npm install` when it starts, ensuring all frontend dependencies are up-to-date based on `package.json` and `package-lock.json`. You generally do not need to run `npm install` manually in the `frontend` directory unless you are specifically managing dependencies before restarting the Docker services.
+*   **Deterministic Dependency Installation:** The `frontend_dev` service automatically runs `npm ci` when it starts, installing exactly what `package-lock.json` records without rewriting the tracked lockfile. Run `npm install` on the host only when intentionally changing dependencies and their lockfile.
 *   **Role of `nginx` service (Port 8080):** The original `nginx` service (accessible at `http://localhost:8080` or your `${NGINX_PORT}`) continues to be responsible for:
     *   Proxying API requests (e.g., `/api/...`) to the backend PHP service. The Vite dev server on port 3001 is configured to route its API calls to this Nginx service.
     *   Serving a static build of the frontend if you were to build it for production (e.g., via `npm run build` results). For development, port 3001 is primary.
@@ -2085,11 +2097,14 @@ Never deploy only `frontend/dist`.
 
 ### Branching
 
-- Branch from `main`. Never commit to `main` directly.
-- `develop` is the integration branch: work that wants manual testing on a real
-  deployment lands there first and reaches `main` as one merge. CI validates
-  pull requests into it, and pushes to it, for exactly that reason.
-- `main` reflects the production state.
+- Branch ongoing feature, fix, and documentation work from fetched
+  `origin/develop`, and target `develop` with its pull request. Never commit to
+  either protected branch directly.
+- `develop` is the integration source of truth: work that wants manual testing
+  on a real deployment lands there first and reaches `main` as one deliberate
+  release merge.
+- `main` reflects the production state; urgent production hotfixes branch from
+  it and are brought back into `develop` through a separate pull request.
 
 ### Scheduled maintenance
 

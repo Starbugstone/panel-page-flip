@@ -212,10 +212,10 @@ services:
         arguments:
             $appDataKey: '%app_data_key%'
 
-    App\Service\DropboxClientFactory:
+    App\Service\DropboxConfiguration:
         arguments:
-            $dropboxAppKey: '%env(DROPBOX_APP_KEY)%'
-            $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
+            $appKey: '%env(DROPBOX_APP_KEY)%'
+            $appSecret: '%env(DROPBOX_APP_SECRET)%'
 
     App\Service\ApiRateLimiter:
         arguments:
@@ -362,8 +362,6 @@ services:
 
     App\Controller\DropboxController:
         arguments:
-            $dropboxAppKey: '%env(DROPBOX_APP_KEY)%'
-            $dropboxAppSecret: '%env(DROPBOX_APP_SECRET)%'
             $dropboxRedirectUri: '%env(DROPBOX_REDIRECT_URI)%'
             $dropboxSyncLimit: '%dropbox_sync_limit%'
 

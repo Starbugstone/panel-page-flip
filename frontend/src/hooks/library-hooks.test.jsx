@@ -94,4 +94,23 @@ describe("library hooks", () => {
     });
     expect(result.current.isSearchActive).toBe(true);
   });
+
+  it("does not reload an unfiltered library when only the folder tree finishes loading", async () => {
+    const loadLibrary = vi.fn().mockResolvedValue([]);
+    const { rerender } = renderHook(
+      ({ foldersLoading }) => useLibrarySearch({
+        loadLibrary,
+        ownership: "all",
+        isFolderView: false,
+        activeFolderId: null,
+        foldersLoading,
+        invalidFolder: false,
+      }),
+      { initialProps: { foldersLoading: true } },
+    );
+
+    await waitFor(() => expect(loadLibrary).toHaveBeenCalledTimes(1));
+    rerender({ foldersLoading: false });
+    await waitFor(() => expect(loadLibrary).toHaveBeenCalledTimes(1));
+  });
 });

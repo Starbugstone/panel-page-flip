@@ -30,6 +30,7 @@ class MigrateDropboxTokensCommand extends Command
         $users = $this->entityManager->getRepository(User::class)->createQueryBuilder('u')
             ->where('u.dropboxAccessToken IS NOT NULL')
             ->andWhere('u.dropboxAccessToken != :empty')
+            ->orWhere('(u.dropboxRefreshToken IS NOT NULL AND u.dropboxRefreshToken != :empty)')
             ->setParameter('empty', '')
             ->getQuery()
             ->getResult();

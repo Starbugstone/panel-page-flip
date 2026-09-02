@@ -100,11 +100,17 @@ Use `backend/.env.local` for machine-specific values and secrets:
 ```dotenv
 APP_SECRET=replace-with-a-random-value
 APP_DATA_KEY=replace-with-a-persistent-random-value
-DATABASE_URL="mysql://cbz_user:cbz_password@database:3306/cbz_reader?serverVersion=8.0&charset=utf8mb4"
 MAILER_DSN=smtp://mailpit:1025
 ```
 
-Only when running Symfony directly outside Docker, override `APP_URL` in `backend/.env.local`; Docker development reads it from the root `.env`.
+Docker database credentials belong in the root `.env`; Compose passes the same
+raw `MYSQL_*` values to MySQL and Symfony. When running Symfony directly in the
+development environment, set `DATABASE_HOST`, `DATABASE_PORT`,
+`MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, and
+`DATABASE_SERVER_VERSION` in `backend/.env.local`. Production uses
+`DATABASE_URL`; percent-encode URI-reserved characters in its credential and
+database-name components. Only when running Symfony directly outside Docker,
+override `APP_URL` there too; Docker development reads it from the root `.env`.
 
 Generate suitable local secrets with `openssl rand -hex 32` for `APP_SECRET` and `openssl rand -base64 32` for `APP_DATA_KEY`.
 
@@ -250,18 +256,23 @@ in [SSH-deploy.md §7](SSH-deploy.md#7-background-jobs-cron--systemd-timers).
 
 ### Frontend
 
-Run inside the existing Node 22 development container:
+Run the complete frontend checks from the repository root with Node.js 22.12 or
+newer. The host is required because committed-artifact checks read files outside
+`frontend/` that are deliberately not mounted into the development container.
 
 ```bash
-docker compose exec frontend_dev npm test
-docker compose exec frontend_dev npm run lint
-docker compose exec frontend_dev npm run build
-docker compose exec frontend_dev npm run audit:production
-docker compose exec frontend_dev npm run check:routes
-docker compose exec frontend_dev npm run check:seo
+npm run audit:production --prefix frontend
+npm run lint --prefix frontend
+npm test --prefix frontend
+npm run test:coverage --prefix frontend
+npm run check:dead-code --prefix frontend
+npm run check:duplication --prefix frontend
+npm run check:routes --prefix frontend
+npm run check:csp --prefix frontend
+npm run check:tools --prefix frontend
+APP_URL=https://comics.starbugstone.com npm run build --prefix frontend
+APP_URL=https://comics.starbugstone.com npm run check:seo --prefix frontend
 ```
-
-Alternatively, run `npm ci` and the same scripts from `frontend/` with a local Node.js 22 installation.
 
 `lint` runs with `--max-warnings=0`, so a warning fails it. The `check:` scripts
 guard artefacts that are committed rather than rebuilt on the way to production
@@ -269,14 +280,6 @@ guard artefacts that are committed rather than rebuilt on the way to production
 the generated sitemap, robots and canonical metadata, and the crawlable
 landing copy inside the built `index.html`. `check:seo` reads
 `APP_URL`, so run it after a build made with the same value CI uses.
-
-**`check:tools` and `check:csp` must be run from the host, not from
-`frontend_dev`:**
-
-```bash
-npm run check:tools --prefix frontend
-npm run check:csp --prefix frontend
-```
 
 The container mounts only `scripts/generate-nginx-routes.mjs`, never the whole
 `scripts/` directory, because that directory can hold `scripts/.env.deploy` with
@@ -332,10 +335,14 @@ under [Production deployment](#production-deployment).
 Dropbox support is optional and operates as a one-way import from Dropbox into the user's server-side library.
 
 1. Create a scoped Dropbox app, preferably with **App folder** access.
-2. Enable `files.content.read`, `files.content.write`, and `account_info.read`.
+2. Enable `files.content.read` and `files.metadata.read`.
 3. Add the exact callback URL used by the application, for example `http://localhost:8080/api/dropbox/callback`.
 4. Configure the `DROPBOX_*` variables in `backend/.env.local`.
 5. Connect the account from the Dropbox page in the application.
+
+Leaving either Dropbox credential empty keeps the integration disabled. The
+Dropbox page remains available as an explanation, but does not offer a connect
+button that cannot work.
 
 Users can import individual files from the interface. Folder names become tags, and previously imported files are detected to avoid duplicates.
 
