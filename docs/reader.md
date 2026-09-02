@@ -15,7 +15,7 @@ button as well as the standard `Escape` and outside-click dismissal.
 | --- | --- |
 | Best fit | Shows the complete page inside the available reader area without changing its aspect ratio. This is the default. |
 | Fit width | Uses the available width. Tall pages scroll vertically. |
-| Fit height | Uses the available height without changing the page aspect ratio. |
+| Fit height | Uses the available height without changing the page aspect ratio, giving a two-page spread the full reader width when it needs it. |
 | Original size | Uses the image's native dimensions. Oversized pages scroll horizontally or vertically. |
 
 Changing page size does not reload the comic or reset reading progress. Changing
