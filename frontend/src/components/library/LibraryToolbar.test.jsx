@@ -39,4 +39,27 @@ describe("LibraryToolbar", () => {
 
     expect(screen.getByRole("combobox", { name: "Sort comics" })).toHaveValue("last-read-desc");
   });
+
+  it("gives every library control enough room on narrow screens", () => {
+    renderToolbar();
+
+    const sort = screen.getByRole("combobox", { name: "Sort comics" });
+    const controls = sort.parentElement;
+    expect(controls).toHaveClass("grid", "grid-cols-2", "sm:flex");
+    expect(sort).toHaveClass("w-full", "sm:w-auto");
+    expect(screen.getByRole("group", { name: "Library view" })).toHaveClass(
+      "col-span-2",
+      "grid",
+      "grid-cols-2",
+      "sm:col-span-1",
+      "sm:flex",
+    );
+    expect(screen.getByRole("link", { name: /upload/i })).toHaveClass(
+      "col-span-2",
+      "w-full",
+      "sm:col-span-1",
+      "sm:w-auto",
+    );
+    expect(screen.getByRole("heading", { name: "My Comic Library" })).toHaveClass("text-2xl", "sm:text-3xl");
+  });
 });

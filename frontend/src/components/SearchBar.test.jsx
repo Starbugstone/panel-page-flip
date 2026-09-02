@@ -1,4 +1,5 @@
-import { act, render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SearchBar } from "./SearchBar";
@@ -67,5 +68,35 @@ describe("SearchBar tag loading", () => {
     });
 
     expect(getTags).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the mobile controls and tag picker inside the viewport", async () => {
+    const user = userEvent.setup();
+    const longTagName = "A very long personal tag name for narrow screens";
+    vi.spyOn(api, "get").mockResolvedValue({
+      tags: [{ id: 1, name: longTagName, isGlobal: false }],
+    });
+
+    renderSearchBar();
+    await user.click(await screen.findByRole("button", { name: "Tags" }));
+
+    const searchInput = screen.getByPlaceholderText("Search comics by title, author...");
+    expect(searchInput.closest("form")).toHaveClass("grid", "grid-cols-2", "sm:flex");
+    expect(searchInput.parentElement).toHaveClass("col-span-2", "min-w-0", "sm:col-span-1");
+
+    const tagButton = screen.getByRole("button", { name: "Tags" });
+    expect(tagButton).toHaveClass("w-full", "sm:w-auto");
+    expect(tagButton.parentElement).toHaveClass("w-full", "sm:w-auto");
+    expect(screen.getByRole("button", { name: "Search" })).toHaveClass("w-full", "sm:w-auto");
+
+    const panel = screen.getByRole("dialog", { name: "Tag filters" });
+    expect(panel).toHaveClass(
+      "fixed",
+      "inset-x-4",
+      "bottom-4",
+      "max-h-[calc(100dvh-2rem)]",
+      "sm:absolute",
+    );
+    expect(screen.getByText(longTagName)).toHaveClass("truncate");
   });
 });

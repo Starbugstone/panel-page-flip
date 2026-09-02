@@ -19,6 +19,7 @@ lives in [`docs/`](docs/):
 | [comic-access.md](docs/comic-access.md) | Who may reach a comic, and how the voter decides |
 | [library-covers.md](docs/library-covers.md) | Pacing cover requests, and recovering broken ones |
 | [library-folders.md](docs/library-folders.md) | Private folder tree over the library |
+| [mobile-interface.md](docs/mobile-interface.md) | Responsive layout contract for signed-in user pages |
 | [metadata-enrichment.md](docs/metadata-enrichment.md) | ComicInfo.xml, Metron, Comic Vine |
 | [storage-quota.md](docs/storage-quota.md) | Storage accounting and the per-user quota |
 | [security-logging.md](docs/security-logging.md) | Security/audit channels, retention, alerts |

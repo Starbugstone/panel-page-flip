@@ -55,7 +55,7 @@ function SearchQueryInput({ inputRef, query, selectedCount, focused, onQueryChan
   const showClear = Boolean(query) || selectedCount > 0;
 
   return (
-    <div className="relative flex-1">
+    <div className="relative col-span-2 min-w-0 sm:col-span-1 sm:flex-1">
       <Search className="absolute left-2.5 top-2.5 h-5 w-5 text-muted-foreground" />
       <Input
         ref={inputRef}
@@ -108,10 +108,10 @@ function TagOptions({ loading, error, retryCount, onRetry, tags, selectedTags, o
       {tags.map((tag) => {
         const selected = selectedTags.some((item) => item.id === tag.id);
         return (
-          <label key={tag.id} className="flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent">
+          <label key={tag.id} className="flex min-w-0 w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent">
             <Checkbox checked={selected} onCheckedChange={() => onToggle(tag)} />
-            <TagBadge tag={tag} />
-            {tag.isGlobal && <span className="ml-auto text-xs text-muted-foreground">Global</span>}
+            <TagBadge tag={tag} className="min-w-0 flex-1" />
+            {tag.isGlobal && <span className="ml-auto flex-none text-xs text-muted-foreground">Global</span>}
           </label>
         );
       })}
@@ -126,8 +126,12 @@ function TagFilterPanel({
   query, onQueryChange, selectedTags, onClear, onApply, loading, error, retryCount, onRetry, tags, onToggle,
 }) {
   return (
-    <div className={`absolute right-0 ${PAGE_LAYER_CLASSES.activeControlPanel} mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border bg-card shadow-xl`}>
-      <div className="border-b p-3">
+    <div
+      role="dialog"
+      aria-label="Tag filters"
+      className={`fixed inset-x-4 bottom-4 ${PAGE_LAYER_CLASSES.activeControlPanel} flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-lg border bg-card shadow-xl sm:absolute sm:bottom-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[min(24rem,calc(100vw-2rem))]`}
+    >
+      <div className="flex-none border-b p-3">
         <div className="mb-2 flex items-center justify-between gap-3">
           <p className="text-sm font-medium">Filter by tags</p>
           <span className="text-xs text-muted-foreground">{selectedTags.length} selected</span>
@@ -137,10 +141,10 @@ function TagFilterPanel({
           <Input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search your tags…" className="h-9 pl-8" autoFocus />
         </div>
       </div>
-      <div className="max-h-72 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 sm:max-h-72">
         <TagOptions {...{ loading, error, retryCount, onRetry, tags, selectedTags, onToggle, query }} />
       </div>
-      <div className="flex justify-between border-t p-2">
+      <div className="flex flex-none justify-between border-t p-2">
         <Button type="button" variant="ghost" size="sm" onClick={onClear} disabled={selectedTags.length === 0}>Clear</Button>
         <Button type="button" size="sm" onClick={onApply}>Apply</Button>
       </div>
@@ -149,11 +153,21 @@ function TagFilterPanel({
 }
 
 function TagFilter({ open, onOpenChange, loading, panelProps }) {
-  const className = open ? `relative ${PAGE_LAYER_CLASSES.activeControl}` : "relative";
+  const className = open
+    ? `relative w-full sm:w-auto ${PAGE_LAYER_CLASSES.activeControl}`
+    : "relative w-full sm:w-auto";
 
   return (
     <div className={className}>
-      <Button type="button" variant="outline" className="flex items-center gap-2" onClick={() => onOpenChange(!open)} disabled={loading}>
+      <Button
+        type="button"
+        variant="outline"
+        className="flex w-full items-center gap-2 sm:w-auto"
+        onClick={() => onOpenChange(!open)}
+        disabled={loading}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+      >
         {loading ? <Spinner className="mr-1 h-4 w-4" /> : <TagIcon className="h-4 w-4" />}
         Tags
       </Button>
@@ -164,7 +178,7 @@ function TagFilter({ open, onOpenChange, loading, panelProps }) {
 
 function SearchSubmitButton({ searching }) {
   return (
-    <Button type="submit" disabled={searching}>
+    <Button type="submit" className="w-full sm:w-auto" disabled={searching}>
       {searching ? (
         <><Spinner className="-ml-1 mr-2 h-4 w-4 text-white" /> Searching...</>
       ) : "Search"}
@@ -246,8 +260,8 @@ export function SearchBar({ onSearch, isSearching = false }) {
   };
   
   return (
-    <div className={`w-full max-w-3xl ${showTagDropdown ? `relative ${PAGE_LAYER_CLASSES.activeControl}` : ""}`}>
-      <form onSubmit={handleSearch} className="flex items-center gap-2">
+    <div className={`relative w-full max-w-3xl ${showTagDropdown ? PAGE_LAYER_CLASSES.activeControl : ""}`}>
+      <form onSubmit={handleSearch} className="grid grid-cols-2 items-center gap-2 sm:flex">
         <SearchQueryInput
           inputRef={searchInputRef}
           query={searchQuery}
