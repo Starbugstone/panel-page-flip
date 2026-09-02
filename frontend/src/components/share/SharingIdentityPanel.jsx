@@ -17,24 +17,27 @@ export function SharingIdentityPanel({ identity, loadFailed, copied, isRotating,
           {identity ? `@${identity.username}` : "…"}
         </span>
       </p>
-      <div className="flex items-center gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
         <code
-          className="flex-1 rounded border bg-muted px-3 py-2 font-mono text-sm tracking-widest"
+          className="col-span-2 min-w-0 break-all rounded border bg-muted px-3 py-2 font-mono text-sm tracking-widest sm:flex-1"
           aria-label="Your user code"
         >
           {identity?.userCode || "U-····-····-····"}
         </code>
-        <Button variant="outline" size="sm" disabled={!identity} onClick={onCopy} aria-label="Copy your user code">
+        <Button className="w-full sm:w-auto" variant="outline" size="sm" disabled={!identity} onClick={onCopy} aria-label="Copy your user code">
           {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          <span className="ml-2 sm:sr-only">{copied ? "Copied" : "Copy"}</span>
         </Button>
         <Button
           variant="ghost"
           size="sm"
+          className="w-full sm:w-auto"
           disabled={!identity || isRotating}
           onClick={onRotate}
           aria-label="Replace your user code"
         >
           {isRotating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          <span className="ml-2 sm:sr-only">Replace</span>
         </Button>
       </div>
       {loadFailed && (

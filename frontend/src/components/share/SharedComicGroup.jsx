@@ -15,20 +15,22 @@ export function SharedComicGroup({ group, busyShareId, onShare, onStopSharing, o
   return (
     <Card>
       <CardContent className="space-y-4 p-4">
-        <div className="flex gap-4">
-          <ShareCover src={group.coverImagePath} title={group.title} />
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate font-bold">{group.title}</h3>
-            <p className="truncate text-sm text-muted-foreground">{group.author}</p>
-            {group.explicitContent && <Badge variant="outline" className="mt-1">{EXPLICIT_FLAG_LABEL}</Badge>}
-            <p className="mt-1 text-sm text-muted-foreground">
-              {counts.total} {counts.total === 1 ? "recipient" : "recipients"}
-              {" · "}
-              {counts.accepted} accepted, {counts.pending} pending, {counts.declined} declined,{" "}
-              {counts.revoked} revoked
-            </p>
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <div className="flex min-w-0 flex-1 gap-4">
+            <ShareCover src={group.coverImagePath} title={group.title} />
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate font-bold">{group.title}</h3>
+              <p className="truncate text-sm text-muted-foreground">{group.author}</p>
+              {group.explicitContent && <Badge variant="outline" className="mt-1">{EXPLICIT_FLAG_LABEL}</Badge>}
+              <p className="mt-1 text-sm text-muted-foreground">
+                {counts.total} {counts.total === 1 ? "recipient" : "recipients"}
+                {" · "}
+                {counts.accepted} accepted, {counts.pending} pending, {counts.declined} declined,{" "}
+                {counts.revoked} revoked
+              </p>
+            </div>
           </div>
-          <div className="flex flex-none flex-col gap-2">
+          <div className="flex w-full flex-none flex-col gap-2 sm:w-auto">
             <Button size="sm" variant="outline" onClick={() => onShare({ ...EMPTY_TARGET, comicIds: [group.comicId] })}>
               <UserPlus className="mr-2 h-4 w-4" />
               Share this comic

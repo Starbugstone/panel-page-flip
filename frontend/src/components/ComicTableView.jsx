@@ -7,7 +7,15 @@ import { ComicTableRow } from "@/components/library/ComicTableRow";
 import { MoveToFolderDialog } from "@/components/library/MoveToFolderDialog";
 import { useComicSelection } from "@/hooks/use-comic-selection";
 
-const COLUMNS = ["Comic", "Author", "Tags", "Location", "Progress", "Uploaded", "Actions"];
+const COLUMNS = [
+  ["Comic", undefined],
+  ["Author", "hidden md:table-cell"],
+  ["Tags", "hidden xl:table-cell"],
+  ["Location", "hidden xl:table-cell"],
+  ["Progress", "hidden w-48 sm:table-cell xl:w-64"],
+  ["Uploaded", "hidden xl:table-cell"],
+  ["Actions", "w-20 px-2 text-right sm:w-auto sm:px-4"],
+];
 
 /**
  * The library as rows, with the bulk operations that only a table makes
@@ -44,20 +52,20 @@ export function ComicTableView({ comics, folders = [], onEditComic, onBulkAddTag
       />
 
       <div className="rounded-lg border">
-        <Table className="min-w-[920px]">
+        <Table className="table-fixed sm:table-auto">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-12">
+              <TableHead className="w-10 px-2 sm:w-12 sm:px-4">
                 <SelectAllCheckbox
                   state={selection.headerState}
                   onToggleAll={selection.toggleAll}
                   label="Select all comics"
                 />
               </TableHead>
-              {COLUMNS.map((column) => (
+              {COLUMNS.map(([column, className]) => (
                 <TableHead
                   key={column}
-                  className={column === "Progress" ? "w-64" : column === "Actions" ? "text-right" : undefined}
+                  className={className}
                 >
                   {column}
                 </TableHead>

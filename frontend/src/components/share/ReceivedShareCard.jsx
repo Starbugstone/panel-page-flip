@@ -23,24 +23,26 @@ export function ReceivedShareCard({ share, busy, onConfirmAdult, onRead, onRemov
 
   return (
     <Card>
-      <CardContent className="flex gap-4 p-4">
-        <ShareCover src={share.coverImagePath} title={title} gated={gated} />
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate font-bold">{title}</h3>
-          <p className="truncate text-sm text-muted-foreground">
-            Shared by {share.ownerLabel || share.ownerName}
-            {share.comicAuthor ? ` · ${share.comicAuthor}` : ""}
-          </p>
-          {gated && (
-            <p className="mt-1 flex items-center gap-1 text-sm font-medium text-destructive">
-              <ShieldAlert className="h-4 w-4" />
-              {EXPLICIT_GATE_TITLE}
+      <CardContent className="flex flex-col gap-4 p-4 sm:flex-row">
+        <div className="flex min-w-0 flex-1 gap-4">
+          <ShareCover src={share.coverImagePath} title={title} gated={gated} />
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate font-bold">{title}</h3>
+            <p className="truncate text-sm text-muted-foreground">
+              Shared by {share.ownerLabel || share.ownerName}
+              {share.comicAuthor ? ` · ${share.comicAuthor}` : ""}
             </p>
-          )}
-          <p className="mt-1 text-sm text-muted-foreground">{describeReceivedShare(share)}</p>
+            {gated && (
+              <p className="mt-1 flex items-center gap-1 text-sm font-medium text-destructive">
+                <ShieldAlert className="h-4 w-4" />
+                {EXPLICIT_GATE_TITLE}
+              </p>
+            )}
+            <p className="mt-1 text-sm text-muted-foreground">{describeReceivedShare(share)}</p>
+          </div>
         </div>
         {showActions && (
-          <div className="flex flex-none flex-col gap-2">
+          <div className="flex w-full flex-none flex-col gap-2 sm:w-auto">
             {gated && !share.isDead && (
               <Button size="sm" disabled={busy} onClick={onConfirmAdult}>
                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

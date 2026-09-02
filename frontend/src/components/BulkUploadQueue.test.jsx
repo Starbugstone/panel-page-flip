@@ -176,4 +176,24 @@ describe("taking a file back out of the bulk queue", () => {
 
     expect(await screen.findByText("Complete")).toBeInTheDocument();
   });
+
+  it("turns each queued file into a readable mobile row", async () => {
+    const user = userEvent.setup();
+    const name = `${"long-unbroken-file-name-".repeat(4)}comic.cbz`;
+    renderQueue();
+    await addFiles(user, [name]);
+
+    const fileName = screen.getByText(name);
+    const row = fileName.closest("tr");
+    expect(fileName).toHaveClass("break-all");
+    expect(row).toHaveClass("grid", "gap-3", "p-3", "sm:table-row", "sm:p-0");
+    expect(screen.getByLabelText(`Title for ${name}`).closest("td")).toHaveClass(
+      "block",
+      "p-0",
+      "sm:table-cell",
+      "sm:p-4",
+    );
+    expect(screen.getByText("Bulk upload comics").parentElement).toHaveClass("p-4", "sm:p-6");
+    expect(screen.getByText(/Drop supported comic files/).parentElement).toHaveClass("p-4", "sm:p-8");
+  });
 });
