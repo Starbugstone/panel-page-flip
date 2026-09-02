@@ -71,6 +71,55 @@ describe("library hooks", () => {
     expect(updateComicProgress).toHaveBeenCalledWith(9, null);
   });
 
+  it("resets every selected comic through the API and local library", async () => {
+    vi.mocked(api.post).mockResolvedValue({});
+    const updateComicProgress = vi.fn();
+    const { result } = renderHook(() => useLibraryComicActions({
+      refreshCurrent: vi.fn(),
+      updateComicProgress,
+      removeComicsFromLibrary: vi.fn(),
+      refreshSummary: vi.fn(),
+      moveComics: vi.fn(),
+    }));
+
+    await act(() => result.current.resetReadingProgressForComics([9, 12]));
+
+    expect(api.post).toHaveBeenCalledWith("/api/comics/9/reading-progress/reset", {});
+    expect(api.post).toHaveBeenCalledWith("/api/comics/12/reading-progress/reset", {});
+    expect(updateComicProgress).toHaveBeenCalledWith(9, null);
+    expect(updateComicProgress).toHaveBeenCalledWith(12, null);
+    expect(toast).toHaveBeenCalledWith({
+      title: "2 comics reset",
+    });
+  });
+
+  it("continues resetting the selection after one comic fails and reports the partial result", async () => {
+    vi.mocked(api.post).mockImplementation((path) => path.includes("/9/")
+      ? Promise.reject(new Error("Comic unavailable"))
+      : Promise.resolve({}));
+    const updateComicProgress = vi.fn();
+    const { result } = renderHook(() => useLibraryComicActions({
+      refreshCurrent: vi.fn(),
+      updateComicProgress,
+      removeComicsFromLibrary: vi.fn(),
+      refreshSummary: vi.fn(),
+      moveComics: vi.fn(),
+    }));
+
+    await act(async () => {
+      await expect(result.current.resetReadingProgressForComics([9, 12])).rejects.toThrow();
+    });
+
+    expect(api.post).toHaveBeenCalledWith("/api/comics/12/reading-progress/reset", {});
+    expect(updateComicProgress).not.toHaveBeenCalledWith(9, null);
+    expect(updateComicProgress).toHaveBeenCalledWith(12, null);
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "1 of 2 comics reset",
+      description: "Comic unavailable",
+      variant: "destructive",
+    }));
+  });
+
   it("searches the whole library with the selected tags", async () => {
     const loadLibrary = vi.fn().mockResolvedValue([]);
     const { result } = renderHook(() => useLibrarySearch({

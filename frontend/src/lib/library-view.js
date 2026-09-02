@@ -50,15 +50,25 @@ function resolveLibraryView(value) {
 }
 
 /**
- * The library page showing `comic`: the folder holding it, and a request to
- * scroll its card into view. This is where the reader's way out points, so a
- * comic filed three folders deep is not left to be found again from the root.
+ * The library page showing `comic`: its remembered quick view or folder, and a
+ * request to scroll its card into view. This is where the reader's way out
+ * points, so neither a filtered view nor a folder is lost while reading.
  *
- * An unfiled comic keeps the plain library rather than being sent to the root
- * folder view, which would hide everything that *is* filed — the jump finds the
- * card either way. Without a comic at all, the plain library is all there is.
+ * Without a remembered location, an unfiled comic keeps the plain library
+ * rather than being sent to the root folder view, which would hide everything
+ * that *is* filed. Without a comic at all, the plain library is all there is.
  */
-export function libraryPathToComic(comic) {
+export function libraryPathToComic(comic, returnTo) {
+  const returnMatch = typeof returnTo === "string"
+    ? returnTo.match(/^\/dashboard(?:\?([^#]*))?$/)
+    : null;
+  const returnQuery = returnMatch ? new URLSearchParams(returnMatch[1] || "") : null;
+
+  if (returnQuery) {
+    if (comic) returnQuery.set("jump", String(comic.id));
+    return returnQuery.size > 0 ? `/dashboard?${returnQuery}` : "/dashboard";
+  }
+
   if (!comic) return "/dashboard";
 
   const query = new URLSearchParams();

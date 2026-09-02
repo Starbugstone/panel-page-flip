@@ -13,7 +13,7 @@ import { describeComicSelection } from "@/lib/comic-selection";
  * caller reports the error, and the comics somebody picked are exactly what
  * they need to try again with.
  */
-export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMove, canShare }) {
+export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMove, onBulkResetProgress, canShare }) {
   const rows = useRowSelection({ rows: comics });
   const [isUpdating, setIsUpdating] = useState(false);
   const [orphanedComics, setOrphanedComics] = useState([]);
@@ -67,6 +67,22 @@ export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMo
     rows.clear();
   };
 
+  const resetSelected = async () => {
+    if (selection.selectedComicIds.length === 0) return false;
+
+    setIsUpdating(true);
+    try {
+      await onBulkResetProgress(selection.selectedComicIds);
+      rows.clear();
+      return true;
+    } catch {
+      // The library action reports the API error and keeps this selection for retry.
+      return false;
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   return {
     ...selection,
     headerState: rows.headerState,
@@ -79,5 +95,6 @@ export function useComicSelection({ comics, onBulkAddTag, onBulkDelete, onBulkMo
     addTag,
     deleteSelected,
     moveSelected,
+    resetSelected,
   };
 }

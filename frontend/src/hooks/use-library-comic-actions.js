@@ -1,5 +1,6 @@
 import { useToast } from "@/hooks/use-toast.js";
 import { api } from "@/lib/api";
+import { describeBulkOutcome, runBulkAction } from "@/lib/bulk-actions";
 import { buildComicUpdatePayload } from "@/lib/comic-updates";
 
 /**
@@ -21,6 +22,21 @@ export function useLibraryComicActions({ refreshCurrent, updateComicProgress, re
     await api.post(`/api/comics/${comicId}/reading-progress/reset`, {});
     updateComicProgress(comicId, null);
     return true;
+  };
+
+  const resetReadingProgressForComics = async (comicIds) => {
+    const outcome = await runBulkAction(
+      comicIds,
+      async (comicId) => {
+        await api.post(`/api/comics/${comicId}/reading-progress/reset`, {});
+        updateComicProgress(comicId, null);
+      }
+    );
+
+    toast(describeBulkOutcome(outcome, { noun: "comic", verbPast: "reset" }));
+    if (outcome.failed.length > 0) {
+      throw new Error("Some reading progress could not be reset.");
+    }
   };
 
   const saveComic = async (updatedComic) => {
@@ -78,5 +94,14 @@ export function useLibraryComicActions({ refreshCurrent, updateComicProgress, re
     }
   };
 
-  return { resetReadingProgress, saveComic, deleteComic, removeSharedComic, addTagToComics, deleteComics, moveComicsToFolder };
+  return {
+    resetReadingProgress,
+    resetReadingProgressForComics,
+    saveComic,
+    deleteComic,
+    removeSharedComic,
+    addTagToComics,
+    deleteComics,
+    moveComicsToFolder,
+  };
 }
