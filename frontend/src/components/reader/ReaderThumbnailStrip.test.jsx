@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReaderThumbnailStrip } from "./ReaderThumbnailStrip";
 
@@ -15,6 +15,8 @@ const renderStrip = (props = {}) => render(
 );
 
 describe("ReaderThumbnailStrip", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("does not ask for four hundred thumbnails to show the first page", () => {
     renderStrip();
 
@@ -54,11 +56,36 @@ describe("ReaderThumbnailStrip", () => {
     expect(onSelect).toHaveBeenCalledWith(3);
   });
 
+  it("reserves the fixed page controls instead of putting thumbnails underneath them", () => {
+    renderStrip({ pageCount: 5 });
+
+    expect(screen.getByRole("group", { name: "Page thumbnails" }))
+      .toHaveClass("reader-thumbnail-strip");
+  });
+
   it("says which page is the current one", () => {
     renderStrip({ pageCount: 5, currentPage: 2 });
 
     expect(screen.getByRole("button", { name: "Go to page 3" })).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("button", { name: "Go to page 1" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("recenters the current thumbnail when the viewport context changes", () => {
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+    const { rerender } = renderStrip({ pageCount: 5, currentPage: 2, viewportContext: "desktop-landscape" });
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ReaderThumbnailStrip
+        comicId="42"
+        pageCount={5}
+        currentPage={2}
+        viewportContext="phone-portrait"
+        onSelect={() => {}}
+      />
+    );
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
   });
 
   it("is reachable from the keyboard", async () => {

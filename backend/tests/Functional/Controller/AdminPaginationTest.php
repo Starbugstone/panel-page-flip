@@ -363,6 +363,19 @@ final class AdminPaginationTest extends AbstractApiTestCase
         self::assertArrayHasKey('comicCount', $payload['user']);
     }
 
+    public function testUserDetailReportsARefreshOnlyDropboxConnection(): void
+    {
+        $this->createAndLoginAdmin();
+        $target = UserFactory::createOne();
+        $target->setDropboxRefreshToken('stored-refresh-token');
+        self::getContainer()->get('doctrine')->getManager()->flush();
+
+        $payload = $this->getJson('/api/users/' . $target->getId());
+
+        self::assertResponseIsSuccessful();
+        self::assertTrue($payload['user']['dropboxConnected']);
+    }
+
     public function testAdminComicListIsPagedAndFilteredByOwner(): void
     {
         $admin = $this->createAndLoginAdmin();

@@ -25,7 +25,7 @@ describe("DropboxSyncPage", () => {
   it("describes one-way Dropbox imports using the correct app-folder path", async () => {
     vi.mocked(api.get).mockImplementation((path) => {
       if (path === "/api/dropbox/status") {
-        return Promise.resolve({ connected: true, user: "reader@example.com", lastSync: null });
+        return Promise.resolve({ configured: true, connected: true, user: "reader@example.com", lastSync: null });
       }
 
       return Promise.resolve({ files: [] });
@@ -37,12 +37,14 @@ describe("DropboxSyncPage", () => {
     expect(screen.getByText("Import comics from your Dropbox app folder into Panel Page Flip.")).toBeInTheDocument();
     expect(screen.getByText("Manage your Dropbox connection and imports")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import new comics" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "How to organize files" }).parentElement)
+      .toHaveClass("flex-col", "sm:flex-row");
 
     fireEvent.click(screen.getByRole("button", { name: "How to organize files" }));
 
     expect(await screen.findByRole("heading", { name: "Dropbox File Organization Guide" })).toBeInTheDocument();
-    expect(document.body).toHaveTextContent("Apps/StarbugStoneComics");
-    expect(document.body).not.toHaveTextContent("Applications/StarbugStoneComics");
+    expect(document.body).toHaveTextContent("Dropbox app folder");
+    expect(document.body).not.toHaveTextContent("Apps/StarbugStoneComics");
     expect(document.body.textContent).not.toMatch(/\bsync(?:ed|ing)?\b/i);
   });
 
@@ -50,7 +52,7 @@ describe("DropboxSyncPage", () => {
     let refreshShouldFail = false;
     vi.mocked(api.get).mockImplementation((path) => {
       if (path === "/api/dropbox/status") {
-        return Promise.resolve({ connected: true, user: null, lastSync: null });
+        return Promise.resolve({ configured: true, connected: true, user: null, lastSync: null });
       }
       if (refreshShouldFail) {
         return Promise.reject(new Error("Dropbox is temporarily unavailable"));
@@ -71,11 +73,30 @@ describe("DropboxSyncPage", () => {
     }));
   });
 
+  it("renders the local connection state while Dropbox files are still loading", async () => {
+    let resolveFiles;
+    vi.mocked(api.get).mockImplementation((path) => {
+      if (path === "/api/dropbox/status") {
+        return Promise.resolve({ configured: true, connected: true, user: null, lastSync: null });
+      }
+
+      return new Promise((resolve) => { resolveFiles = resolve; });
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Connected to Dropbox")).toBeInTheDocument();
+    expect(screen.getByText("Loading Dropbox files...")).toBeInTheDocument();
+
+    resolveFiles({ files: [] });
+    await waitFor(() => expect(screen.queryByText("Loading Dropbox files...")).not.toBeInTheDocument());
+  });
+
   it("uses a useful fallback when a refresh error has no message", async () => {
     let refreshShouldFail = false;
     vi.mocked(api.get).mockImplementation((path) => {
       if (path === "/api/dropbox/status") {
-        return Promise.resolve({ connected: true, user: null, lastSync: null });
+        return Promise.resolve({ configured: true, connected: true, user: null, lastSync: null });
       }
       if (refreshShouldFail) return Promise.reject({});
 
@@ -90,5 +111,16 @@ describe("DropboxSyncPage", () => {
     await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
       description: "Could not refresh Dropbox files. Please try again.",
     })));
+  });
+
+  it("explains an unavailable integration instead of offering a dead connect action", async () => {
+    vi.mocked(api.get).mockResolvedValue({ configured: false, connected: false, user: null, lastSync: null });
+
+    renderPage();
+
+    expect(await screen.findByText("Dropbox imports are not enabled on this server.")).toBeInTheDocument();
+    expect(screen.getByText(/administrator must configure Dropbox before accounts can connect/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect to Dropbox" })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("Apps/StarbugStoneComics");
   });
 });

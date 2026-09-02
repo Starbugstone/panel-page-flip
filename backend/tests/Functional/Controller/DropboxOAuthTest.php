@@ -6,6 +6,7 @@ namespace App\Tests\Functional\Controller;
 
 use App\Entity\User;
 use App\Service\DropboxClientFactory;
+use App\Service\DropboxConfiguration;
 use App\Service\DropboxImportService;
 use App\Tests\Functional\AbstractApiTestCase;
 use Spatie\Dropbox\Client as DropboxClient;
@@ -22,6 +23,12 @@ final class DropboxOAuthTest extends AbstractApiTestCase
         $location = (string) $this->browser()->getResponse()->headers->get('Location');
         self::assertStringStartsWith('https://www.dropbox.com/oauth2/authorize?', $location);
         self::assertStringContainsString('token_access_type=offline', $location);
+        parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+        self::assertIsString($query['scope'] ?? null);
+        self::assertSame(
+            ['files.content.read', 'files.metadata.read'],
+            explode(' ', $query['scope'])
+        );
         self::assertNotEmpty($this->browser()->getRequest()->getSession()->get('dropbox_oauth2_state'));
     }
 
@@ -30,6 +37,28 @@ final class DropboxOAuthTest extends AbstractApiTestCase
         $this->browser()->request('GET', '/api/dropbox/connect');
 
         self::assertResponseStatusCodeSame(401);
+    }
+
+    public function testUnconfiguredDropboxHasNoDeadConnectAction(): void
+    {
+        $this->createAndLoginUser();
+        static::getContainer()->set(DropboxConfiguration::class, new DropboxConfiguration('', ''));
+
+        $payload = $this->getJson('/api/dropbox/connect');
+
+        self::assertResponseStatusCodeSame(503);
+        self::assertSame('Dropbox imports are not configured on this server.', $payload['error']);
+    }
+
+    public function testUnconfiguredDropboxCallbackStopsBeforeTheTokenExchange(): void
+    {
+        $this->createAndLoginUser();
+        static::getContainer()->set(DropboxConfiguration::class, new DropboxConfiguration('', ''));
+
+        $payload = $this->getJson('/api/dropbox/callback?code=unused&state=unused');
+
+        self::assertResponseStatusCodeSame(503);
+        self::assertSame('Dropbox imports are not configured on this server.', $payload['error']);
     }
 
     public function testCallbackRejectsAMismatchedOAuthState(): void

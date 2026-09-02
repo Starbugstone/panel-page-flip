@@ -2,14 +2,26 @@ import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SearchBar } from "./SearchBar";
+import { TagProvider } from "@/hooks/use-tags";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+
+const { authUser, toast } = vi.hoisted(() => ({ authUser: { id: 7 }, toast: vi.fn() }));
+
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: authUser }) }));
+vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast }) }));
 
 const settleEffects = async () => {
   await act(async () => {
     await Promise.resolve();
   });
 };
+
+const renderSearchBar = () => render(
+  <TagProvider>
+    <SearchBar onSearch={() => {}} />
+  </TagProvider>,
+);
 
 describe("SearchBar tag loading", () => {
   afterEach(() => {
@@ -25,7 +37,7 @@ describe("SearchBar tag loading", () => {
       .mockRejectedValueOnce(new Error("network unavailable"))
       .mockResolvedValue({ tags: [] });
 
-    render(<SearchBar onSearch={() => {}} />);
+    renderSearchBar();
     await settleEffects();
 
     expect(getTags).toHaveBeenCalledTimes(1);
@@ -46,7 +58,7 @@ describe("SearchBar tag loading", () => {
     vi.spyOn(logger, "error").mockImplementation(() => {});
     const getTags = vi.spyOn(api, "get").mockRejectedValue(new Error("network unavailable"));
 
-    const { unmount } = render(<SearchBar onSearch={() => {}} />);
+    const { unmount } = renderSearchBar();
     await settleEffects();
     unmount();
 

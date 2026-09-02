@@ -42,6 +42,19 @@ final class PrivacyControllerTest extends AbstractApiTestCase
         self::assertStringContainsString('attachment;', (string) $this->client->getResponse()->headers->get('Content-Disposition'));
     }
 
+    public function testPersonalDataExportDoesNotCallEmptyDropboxFieldsAConnection(): void
+    {
+        $this->createAndLoginUser([
+            'dropboxAccessToken' => '',
+            'dropboxRefreshToken' => '',
+        ]);
+
+        $payload = $this->getJson('/api/privacy/export');
+
+        self::assertResponseIsSuccessful();
+        self::assertFalse($payload['account']['dropboxConnected']);
+    }
+
     public function testAccountDeletionRequiresPasswordAndExplicitConfirmation(): void
     {
         $this->createAndLoginUser();

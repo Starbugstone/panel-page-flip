@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
+import { useTags } from "./use-tags";
 
 export const MAX_TAG_FETCH_RETRIES = 3;
 
@@ -15,7 +15,7 @@ export function isRetryableTagError(error) {
 const errorMessage = (error) => error instanceof Error ? error.message : "Unable to load tags";
 
 export function useTagOptions() {
-  const [availableTags, setAvailableTags] = useState([]);
+  const { tags: availableTags, requestTags } = useTags();
   const [isLoadingTags, setIsLoadingTags] = useState(true);
   const [tagFetchError, setTagFetchError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -33,10 +33,9 @@ export function useTagOptions() {
       setTagFetchError(null);
 
       try {
-        const data = await api.get("/api/tags");
+        await requestTags(attempt > 0);
         if (cancelled) return;
 
-        setAvailableTags(data.tags || []);
         setRetryCount(0);
       } catch (error) {
         if (cancelled) return;
@@ -66,7 +65,7 @@ export function useTagOptions() {
       cancelled = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [requestVersion]);
+  }, [requestTags, requestVersion]);
 
   const retryTagFetch = useCallback(() => {
     setRequestVersion((version) => version + 1);

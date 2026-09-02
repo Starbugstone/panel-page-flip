@@ -37,6 +37,7 @@ export function useLibrarySearch({ loadLibrary, ownership, isFolderView, activeF
   }, [loadLibrary]);
 
   const locationUrl = buildLibraryUrl({ ownership, isFolderView, activeFolderId });
+  const folderLocationPending = isFolderView && (foldersLoading || invalidFolder);
 
   const loadComics = useCallback(async () => {
     setIsSearchActive(false);
@@ -47,7 +48,7 @@ export function useLibrarySearch({ loadLibrary, ownership, isFolderView, activeF
     // Resolve the viewer's private folder tree first. This avoids a guaranteed
     // 400/404 request for malformed or stale bookmarked folder ids before the
     // URL fallback can replace them with the root location.
-    if (isFolderView && (foldersLoading || invalidFolder)) return undefined;
+    if (folderLocationPending) return undefined;
     lastComicsUrl.current = locationUrl;
     lastSearchQuery.current = "";
     const requestId = searchRequestId.current + 1;
@@ -58,7 +59,7 @@ export function useLibrarySearch({ loadLibrary, ownership, isFolderView, activeF
       if (!ignore) setIsSearchActive(false);
     });
     return () => { ignore = true; };
-  }, [foldersLoading, invalidFolder, isFolderView, loadLibrary, locationUrl]);
+  }, [folderLocationPending, loadLibrary, locationUrl]);
 
   const search = async ({ query = "", tags = [] }) => {
     const safeQuery = query.slice(0, MAX_QUERY_LENGTH);

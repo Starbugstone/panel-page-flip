@@ -35,7 +35,7 @@ if ! is_symfony_installed; then
     # Create .env.local file
     echo "APP_ENV=dev" > .env.local
     echo "APP_SECRET=$(openssl rand -hex 16)" >> .env.local
-    echo "DATABASE_URL=\"mysql://${MYSQL_USER:-cbz_user}:${MYSQL_PASSWORD:-cbz_password}@database:3306/${MYSQL_DATABASE:-cbz_reader}?serverVersion=8.0\"" >> .env.local
+    echo "DATABASE_URL=\"mysql://${MYSQL_USER:-cbz_user}:${MYSQL_PASSWORD:-cbz_password}@database:3306/${MYSQL_DATABASE:-cbz_reader}?serverVersion=8.0.32&charset=utf8mb4\"" >> .env.local
     
     echo "Symfony project created successfully!"
 else

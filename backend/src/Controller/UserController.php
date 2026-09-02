@@ -153,8 +153,7 @@ class UserController extends AbstractController
         // The admin user page needs enough to explain why an account can or
         // cannot be deleted, and whether Dropbox is still attached.
         if ($this->isGranted('ROLE_ADMIN')) {
-            $userData['dropboxConnected'] = $targetUser->getDropboxAccessToken() !== null
-                && $targetUser->getDropboxAccessToken() !== '';
+            $userData['dropboxConnected'] = $targetUser->hasDropboxConnection();
             $userData['dropboxLastSyncedAt'] = $targetUser->getDropboxLastSyncedAt()?->format('c');
         }
 

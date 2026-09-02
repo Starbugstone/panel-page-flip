@@ -21,7 +21,7 @@ const EAGER_WINDOW = 12;
  * caller keys this component by comic: a new comic is a new strip rather than an
  * old one that has to remember to forget.
  */
-export function ReaderThumbnailStrip({ comicId, pageCount, currentPage, geometry = {}, onSelect }) {
+export function ReaderThumbnailStrip({ comicId, pageCount, currentPage, viewportContext, geometry = {}, onSelect }) {
   const [revealed, setRevealed] = useState(() => new Set());
   const containerRef = useRef(null);
   const observerRef = useRef(null);
@@ -63,7 +63,7 @@ export function ReaderThumbnailStrip({ comicId, pageCount, currentPage, geometry
 
   useEffect(() => {
     currentRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
-  }, [currentPage]);
+  }, [currentPage, viewportContext]);
 
   if (!comicId || !Number.isInteger(pageCount) || pageCount <= 0) return null;
 
@@ -73,7 +73,7 @@ export function ReaderThumbnailStrip({ comicId, pageCount, currentPage, geometry
       id="reader-thumbnail-strip"
       role="group"
       aria-label="Page thumbnails"
-      className="flex w-full gap-2 overflow-x-auto border-t bg-card/80 px-3 py-2"
+      className="reader-thumbnail-strip flex w-full gap-2 overflow-x-auto border-t bg-card/80 px-3 pt-2"
     >
       {Array.from({ length: pageCount }, (_, index) => {
         const pageNumber = index + 1;

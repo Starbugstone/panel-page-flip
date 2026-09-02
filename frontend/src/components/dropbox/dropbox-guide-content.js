@@ -5,7 +5,7 @@
  * section is stated once and a new example is one line.
  */
 
-export const APP_FOLDER = "Apps/StarbugStoneComics";
+export const APP_FOLDER = "Dropbox app folder";
 
 /** Indent depth, label, and the tags that file or folder would produce. */
 export const FOLDER_TREE = [

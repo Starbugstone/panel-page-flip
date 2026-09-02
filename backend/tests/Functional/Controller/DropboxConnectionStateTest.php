@@ -2,6 +2,8 @@
 
 namespace App\Tests\Functional\Controller;
 
+use App\Service\DropboxClientFactory;
+use App\Service\DropboxConfiguration;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 
@@ -76,11 +78,10 @@ final class DropboxConnectionStateTest extends AbstractApiTestCase
         self::getContainer()->get('doctrine')->getManager()->flush();
 
         $this->loginAs($user);
-        $this->getJson('/api/dropbox/status');
+        $payload = $this->getJson('/api/dropbox/status');
 
-        // Reachable and answered rather than refused outright; whether Dropbox
-        // then honours the refresh is not this endpoint's guard to decide.
         self::assertResponseIsSuccessful();
+        self::assertTrue($payload['connected']);
     }
 
     public function testStatusReportsAnAccountWithNoCredentialsAsDisconnected(): void
@@ -90,6 +91,40 @@ final class DropboxConnectionStateTest extends AbstractApiTestCase
         $payload = $this->getJson('/api/dropbox/status');
 
         self::assertResponseIsSuccessful();
+        self::assertTrue($payload['configured']);
         self::assertFalse($payload['connected']);
+    }
+
+    public function testStatusUsesStoredConnectionStateWithoutWaitingForDropbox(): void
+    {
+        $user = $this->createAndLoginUser();
+        $user->setDropboxAccessToken('stored-access-token');
+        self::getContainer()->get('doctrine')->getManager()->flush();
+
+        $factory = $this->createMock(DropboxClientFactory::class);
+        $factory->expects(self::never())->method('createForUser');
+        static::getContainer()->set(DropboxClientFactory::class, $factory);
+
+        $payload = $this->getJson('/api/dropbox/status');
+
+        self::assertResponseIsSuccessful();
+        self::assertTrue($payload['configured']);
+        self::assertTrue($payload['connected']);
+        self::assertNull($payload['user']);
+    }
+
+    public function testStatusReportsAnUnconfiguredIntegrationWithoutCallingDropbox(): void
+    {
+        $user = $this->createAndLoginUser();
+        $user->setDropboxAccessToken('stale-access-token');
+        self::getContainer()->get('doctrine')->getManager()->flush();
+        static::getContainer()->set(DropboxConfiguration::class, new DropboxConfiguration('', ''));
+
+        $payload = $this->getJson('/api/dropbox/status');
+
+        self::assertResponseIsSuccessful();
+        self::assertFalse($payload['configured']);
+        self::assertFalse($payload['connected']);
+        self::assertNull($payload['user']);
     }
 }

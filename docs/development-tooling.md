@@ -69,6 +69,14 @@ the production nginx header include:
 Run `node scripts/generate-csp.mjs` after editing the manifest, and
 `npm run check:csp --prefix frontend` to verify — CI runs the check.
 
+nginx also substitutes that request id into every initial script tag. Exact
+indexable route blocks rewrite canonical metadata with their own `sub_filter`
+directives; because nginx then stops inheriting the server-level filters,
+`scripts/generate-nginx-routes.mjs` repeats the nonce substitution inside each
+such block. The deployment-artefact tests execute the generator and require the
+nonce filter on every indexable route so a direct legal-page request cannot be
+left at the non-interactive SEO fallback by CSP.
+
 Local development is served directly by the Node 22 Vite container declared in
 `docker-compose.yml`. There is no second Node/nginx development image to keep in
 sync with that service.
@@ -132,4 +140,6 @@ and is not part of the workflow.
 
 `.github/workflows/build-frontend.yml` ("Validate Application") runs every command on this page — both halves — on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**` and `ci/**`, and on pushes to `main` and `develop`. It validates and does not deploy.
 
-The pre-push list in `AGENTS.md` is the same set. This page explains the gates; CI is what enforces them.
+The pre-push list in `AGENTS.md` names the mandatory release checks, while CI
+also applies the coverage, dead-code and duplication ratchets described here.
+This page explains the gates; CI is what enforces them.

@@ -4,6 +4,7 @@ namespace App\Tests\Unit\Service;
 
 use App\Entity\User;
 use App\Service\DropboxClientFactory;
+use App\Service\DropboxConfiguration;
 use App\Service\DropboxTokenProvider;
 use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -58,6 +59,17 @@ final class DropboxClientFactoryTest extends TestCase
         $this->expectException(\RuntimeException::class);
 
         $this->factory(new MockHttpClient())->createForUser(new User());
+    }
+
+    public function testAnUnconfiguredIntegrationRefusesEvenAStoredToken(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Dropbox imports are not configured');
+
+        $this->factory(
+            new MockHttpClient(),
+            new DropboxConfiguration('', '')
+        )->createForUser($this->connectedUser('orphan-token'));
     }
 
     public function testAnUnusableRefreshTokenIsRefused(): void
@@ -190,11 +202,13 @@ final class DropboxClientFactoryTest extends TestCase
         ]));
     }
 
-    private function factory(MockHttpClient $httpClient): DropboxClientFactory
+    private function factory(
+        MockHttpClient $httpClient,
+        ?DropboxConfiguration $configuration = null
+    ): DropboxClientFactory
     {
         return new DropboxClientFactory(
-            'app-key',
-            'app-secret',
+            $configuration ?? new DropboxConfiguration('app-key', 'app-secret'),
             $httpClient,
             $this->createMock(EntityManagerInterface::class),
             new NullLogger(),

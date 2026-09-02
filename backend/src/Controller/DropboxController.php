@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\DropboxClientFactory;
+use App\Service\DropboxConfiguration;
 use App\Service\DropboxImportService;
 use App\Service\PublicUrl;
 use App\Service\SecurityAuditLogger;
@@ -28,8 +29,7 @@ class DropboxController extends AbstractController
     private SessionInterface $session;
 
     public function __construct(
-        private readonly string $dropboxAppKey,
-        private readonly string $dropboxAppSecret,
+        private readonly DropboxConfiguration $configuration,
         private readonly string $dropboxRedirectUri,
         RequestStack $requestStack,
         private readonly HttpClientInterface $httpClient,
@@ -46,6 +46,10 @@ class DropboxController extends AbstractController
     public function connect(): Response
     {
         $this->requireUser();
+        $unavailable = $this->unavailableResponse();
+        if ($unavailable !== null) {
+            return $unavailable;
+        }
 
         // Random state, echoed back by Dropbox, to protect the callback from CSRF.
         $state = bin2hex(random_bytes(16));
@@ -53,12 +57,12 @@ class DropboxController extends AbstractController
         $this->logger->debug('Dropbox OAuth state created.', ['session_id' => hash('sha256', $this->session->getId())]);
 
         $authUrlParams = http_build_query([
-            'client_id' => $this->dropboxAppKey,
+            'client_id' => $this->configuration->appKey(),
             'redirect_uri' => $this->dropboxRedirectUri,
             'response_type' => 'code',
             'token_access_type' => 'offline', // To get a refresh token
             'state' => $state,
-            'scope' => 'files.content.read files.content.write account_info.read',
+            'scope' => 'files.content.read files.metadata.read',
         ]);
 
         return new RedirectResponse('https://www.dropbox.com/oauth2/authorize?' . $authUrlParams);
@@ -68,6 +72,10 @@ class DropboxController extends AbstractController
     public function callback(Request $request, EntityManagerInterface $entityManager): Response
     {
         $user = $this->requireUser();
+        $unavailable = $this->unavailableResponse();
+        if ($unavailable !== null) {
+            return $unavailable;
+        }
 
         $code = $request->query->get('code');
         $returnedState = $request->query->get('state');
@@ -92,8 +100,8 @@ class DropboxController extends AbstractController
                     'grant_type' => 'authorization_code',
                     'code' => $code,
                     'redirect_uri' => $this->dropboxRedirectUri,
-                    'client_id' => $this->dropboxAppKey,
-                    'client_secret' => $this->dropboxAppSecret,
+                    'client_id' => $this->configuration->appKey(),
+                    'client_secret' => $this->configuration->appSecret(),
                 ],
             ]);
 
@@ -127,35 +135,27 @@ class DropboxController extends AbstractController
     public function status(): Response
     {
         $user = $this->requireUser();
-
-        $connected = $user->hasDropboxConnection();
-        $dropboxUser = null;
-        $lastSync = null;
-
-        if ($connected) {
-            try {
-                $account = $this->dropboxClientFactory->createForUser($user)->getAccountInfo();
-                $dropboxUser = $account['name']['display_name'] ?? $account['email'] ?? 'Unknown';
-                $lastSync = $user->getDropboxLastSyncedAt()?->format('c');
-            } catch (\Throwable $e) {
-                // Reported as disconnected so the UI offers to reconnect. A
-                // token Dropbox merely retired has already been refreshed and
-                // retried by the client before reaching here, so what is left
-                // is a revoked grant or Dropbox being unreachable — and neither
-                // leaves anything for this endpoint to repair.
-                $this->logger->info('Dropbox status check failed, treating account as disconnected.', [
-                    'user_id' => $user->getId(),
-                    'exception' => $e,
-                ]);
-                $connected = false;
-            }
-        }
+        $configured = $this->configuration->isConfigured();
+        $connected = $configured && $user->hasDropboxConnection();
 
         return $this->json([
+            'configured' => $configured,
             'connected' => $connected,
-            'user' => $dropboxUser,
-            'lastSync' => $lastSync,
+            'user' => null,
+            'lastSync' => $connected ? $user->getDropboxLastSyncedAt()?->format('c') : null,
         ]);
+    }
+
+    private function unavailableResponse(): ?Response
+    {
+        if ($this->configuration->isConfigured()) {
+            return null;
+        }
+
+        return $this->json(
+            ['error' => DropboxConfiguration::UNAVAILABLE_MESSAGE],
+            Response::HTTP_SERVICE_UNAVAILABLE
+        );
     }
 
     #[Route('/disconnect', name: 'dropbox_disconnect', methods: ['POST'])]

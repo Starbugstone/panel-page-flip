@@ -13,8 +13,8 @@ export function useDropboxSync() {
   const dropboxFiles = useDropboxFiles();
   const { refreshFiles, setFiles } = dropboxFiles;
 
+  const [isConfigured, setIsConfigured] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [dropboxUser, setDropboxUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
@@ -27,12 +27,14 @@ export function useDropboxSync() {
   useEffect(() => {
     let ignore = false;
     api.get("/api/dropbox/status")
-      .then(async (data) => {
+      .then((data) => {
         if (ignore) return;
-        setIsConnected(data.connected);
-        setDropboxUser(data.user);
+        const configured = data.configured === true;
+        const connected = configured && data.connected === true;
+        setIsConfigured(configured);
+        setIsConnected(connected);
         setLastSync(data.lastSync);
-        if (data.connected) await refreshFiles(false);
+        if (connected) void refreshFiles(false);
       })
       .catch((error) => { logger.error("Error checking Dropbox status:", error); })
       .finally(() => { if (!ignore) setLoading(false); });
@@ -60,7 +62,6 @@ export function useDropboxSync() {
     try {
       await api.post("/api/dropbox/disconnect", {});
       setIsConnected(false);
-      setDropboxUser(null);
       setFiles([]);
       toast({ title: "Dropbox Disconnected", description: "Your Dropbox account has been disconnected." });
     } catch (error) {
@@ -101,8 +102,8 @@ export function useDropboxSync() {
 
   return {
     ...dropboxFiles,
+    isConfigured,
     isConnected,
-    dropboxUser,
     loading,
     syncing,
     syncStatus,
