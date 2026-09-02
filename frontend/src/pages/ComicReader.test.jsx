@@ -561,6 +561,23 @@ describe("ComicReader", () => {
   describe("facing pages and reading direction", () => {
     beforeEach(() => useScreen({ width: 1180, height: 820 }));
 
+    it("gives a fit-height spread the viewport width needed to reach the available height", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? { preferences: savedPreferences({ mode: "double", fit: "height" }) }
+          : comic(5)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+
+      expect(await page(2)).toBeInTheDocument();
+      expect(await page(3)).toBeInTheDocument();
+      expect(surface().closest(".reader-stage")).toHaveClass("max-w-none");
+      expect(surface().closest(".reader-stage")).not.toHaveClass("max-w-4xl");
+    });
+
     it("keeps the cover alone, then advances by a real two-page spread", async () => {
       vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
         path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "double" }) } : comic(5)
