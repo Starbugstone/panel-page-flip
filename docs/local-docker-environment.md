@@ -27,11 +27,14 @@ checkouts on the same machine:
 `.env.example` is the tracked template `dev-env.sh` renders from. Add new keys
 there, not to `.env`.
 
-Symfony's committed development defaults build `DATABASE_URL` from this root
-file's `MYSQL_USER`, `MYSQL_PASSWORD`, and `MYSQL_DATABASE`, using the stack's
-`database` service and its explicit MySQL patch version. A checkout therefore
-has one set of database credentials instead of a second hard-coded copy under
-`backend/`. Put an intentional machine-specific DSN in `backend/.env.local`.
+Compose passes this root file's `MYSQL_USER`, `MYSQL_PASSWORD`, and
+`MYSQL_DATABASE` directly to both MySQL and Symfony. Symfony uses those as
+separate Doctrine parameters, so characters such as `@`, `/`, and `#` retain
+their literal meaning instead of being mistaken for connection-URL delimiters.
+The database service tracks the `mysql:8.0` image tag; Symfony's local Doctrine
+configuration declares `DATABASE_SERVER_VERSION=8.0.32` for schema generation.
+If the image resolves to a different patch, update that value to `SELECT
+VERSION()`'s result before generating a migration.
 
 The primary checkout keeps the historical name `cbz_reader` and ports
 8080/8081/3001/1025/8025, so existing bookmarks and documentation stay true. A

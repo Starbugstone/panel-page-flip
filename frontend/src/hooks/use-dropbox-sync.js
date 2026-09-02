@@ -13,17 +13,19 @@ export function useDropboxSync() {
   const dropboxFiles = useDropboxFiles();
   const { refreshFiles, setFiles } = dropboxFiles;
 
-  const [isConfigured, setIsConfigured] = useState(false);
+  const [isConfigured, setIsConfigured] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [statusError, setStatusError] = useState(false);
+  const [statusCheckAttempt, setStatusCheckAttempt] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [connecting, setConnecting] = useState(false);
 
-  // The connection is checked once, and a reply that arrives after leaving the
-  // page is dropped rather than applied to a component that has gone.
+  // A reply that arrives after leaving the page or starting another check is
+  // dropped rather than applied to a component that has gone.
   useEffect(() => {
     let ignore = false;
     api.get("/api/dropbox/status")
@@ -36,11 +38,18 @@ export function useDropboxSync() {
         setLastSync(data.lastSync);
         if (connected) void refreshFiles(false);
       })
-      .catch((error) => { logger.error("Error checking Dropbox status:", error); })
+      .catch((error) => {
+        if (ignore) return;
+        logger.error("Error checking Dropbox status:", error);
+        setIsConfigured(null);
+        setIsConnected(false);
+        setLastSync(null);
+        setStatusError(true);
+      })
       .finally(() => { if (!ignore) setLoading(false); });
 
     return () => { ignore = true; };
-  }, [refreshFiles]);
+  }, [refreshFiles, statusCheckAttempt]);
 
   // The OAuth round trip comes back with ?status=connected. Announced once,
   // then taken out of the URL so a reload does not repeat it.
@@ -55,6 +64,12 @@ export function useDropboxSync() {
   const connect = () => {
     setConnecting(true);
     setTimeout(() => { window.location.href = "/api/dropbox/connect"; }, CONNECT_REDIRECT_MS);
+  };
+
+  const retryStatus = () => {
+    setLoading(true);
+    setStatusError(false);
+    setStatusCheckAttempt((attempt) => attempt + 1);
   };
 
   const disconnect = async () => {
@@ -81,13 +96,27 @@ export function useDropboxSync() {
 
     try {
       const data = await api.post("/api/dropbox/sync", {});
-      setSyncStatus(`Import completed: ${data.newFiles || 0} new comics added`);
-      setLastSync(new Date().toISOString());
-      toast({
-        title: "Import Complete",
-        description: `${data.newFiles || 0} new comics have been imported from Dropbox.`,
-      });
-      refreshFiles();
+      const newFiles = Number(data.newFiles) || 0;
+      const failedFiles = Number(data.failedFiles) || 0;
+
+      if (failedFiles > 0) {
+        setSyncStatus(`Import partially completed: ${newFiles} imported, ${failedFiles} failed`);
+        toast({
+          title: "Import Incomplete",
+          description: data.message || `${newFiles} imported, ${failedFiles} failed.`,
+          variant: "destructive",
+        });
+      } else {
+        const comicNoun = newFiles === 1 ? "comic" : "comics";
+        const haveOrHas = newFiles === 1 ? "has" : "have";
+        setSyncStatus(`Import completed: ${newFiles} new ${comicNoun} added`);
+        setLastSync(new Date().toISOString());
+        toast({
+          title: "Import Complete",
+          description: `${newFiles} new ${comicNoun} ${haveOrHas} been imported from Dropbox.`,
+        });
+      }
+      void refreshFiles(false);
     } catch (error) {
       setSyncStatus(`Import failed: ${error.message || "Could not import comics from Dropbox."}`);
       toast({
@@ -105,11 +134,13 @@ export function useDropboxSync() {
     isConfigured,
     isConnected,
     loading,
+    statusError,
     syncing,
     syncStatus,
     lastSync,
     disconnecting,
     connecting,
+    retryStatus,
     connect,
     disconnect,
     importAll,

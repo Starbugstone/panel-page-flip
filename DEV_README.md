@@ -168,7 +168,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 
 #### ✅ Dropbox Integration
 - **Dropbox Import Page**: Complete UI in `DropboxSyncPage.jsx` for managing Dropbox connection and individual imports
-- **Connection Status**: Real-time detection of Dropbox connection status with proper OAuth scopes
+- **Connection Status**: Fast local connection state with an explicit retry state when the status request fails
 - **File Management**: Display of Dropbox files with accurate import status indicators
 - **Individual Import**: UI for importing specific comics with individual import buttons and loading states
 - **Smart Status Detection**: Accurately shows which files have been imported to prevent duplicates
@@ -1261,7 +1261,9 @@ The `app:dropbox-sync` command provides automated syncing capabilities with conf
 
 Both access-token and refresh-token-only connections are selected. The refresh
 token is the durable credential, and the client mints a replacement access
-token when a scheduled import needs one.
+token when a scheduled import needs one. `dropboxLastSyncedAt` advances only
+after a run finishes with no connection or file errors, so a failed attempt is
+never presented as the latest successful import.
 
 ```bash
 # Basic usage (uses DROPBOX_SYNC_LIMIT from .env, default: 10 files per user)
@@ -1317,7 +1319,7 @@ Can be scheduled to run automatically with various strategies:
 ### Frontend Integration
 
 - **Dropbox Import Page**: Complete management interface at `/dropbox-sync`
-- **Connection Status**: Local status renders immediately; provider latency cannot hold the whole page on its loading screen
+- **Connection Status**: Local status renders immediately; a failed status request gets a retry action and is never misreported as an unconfigured server
 - **File Listing**: Loads independently with its own progress state, responsive actions, and import status indicators
 - **Manual Import**: One-click import with progress feedback
 - **Dashboard Integration**: Dedicated "Dropbox" tab for imported comics

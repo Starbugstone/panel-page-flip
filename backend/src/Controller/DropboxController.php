@@ -288,8 +288,10 @@ class DropboxController extends AbstractController
             // runs the same loop with its own limit.
             $result = $this->dropboxImport->syncUser($client, $user, $this->dropboxSyncLimit);
 
-            $user->setDropboxLastSyncedAt(new \DateTimeImmutable());
-            $entityManager->flush();
+            if ($result['failed'] === 0) {
+                $user->setDropboxLastSyncedAt(new \DateTimeImmutable());
+                $entityManager->flush();
+            }
 
             $message = $result['failed'] > 0
                 ? sprintf(

@@ -200,15 +200,31 @@ describe("the local Docker environment", () => {
   it("keeps fresh-install backend defaults safe and aligned with the operator template", () => {
     const defaults = read("backend/.env");
     const developmentDefaults = read("backend/.env.dev");
-    const databaseUrl = 'DATABASE_URL="mysql://${MYSQL_USER:-cbz_user}:${MYSQL_PASSWORD:-cbz_password}@database:3306/${MYSQL_DATABASE:-cbz_reader}?serverVersion=8.0.32&charset=utf8mb4"';
 
-    expect(defaults).toContain(databaseUrl);
-    expect(developmentDefaults).toContain(databaseUrl);
+    expect(defaults).toMatch(/^MYSQL_USER=cbz_user$/m);
+    expect(defaults).toMatch(/^MYSQL_PASSWORD=cbz_password$/m);
+    expect(defaults).toMatch(/^MYSQL_DATABASE=cbz_reader$/m);
+    expect(developmentDefaults).not.toMatch(/^DATABASE_URL=/m);
     expect(defaults).toMatch(/^MAX_PARALLEL_FILE_UPLOADS=2$/m);
     expect(defaults).toMatch(/^DROPBOX_APP_KEY=$/m);
     expect(defaults).toMatch(/^DROPBOX_APP_SECRET=$/m);
     expect(defaults).toMatch(/^DROPBOX_REDIRECT_URI=\$\{APP_URL\}\/api\/dropbox\/callback$/m);
     expect(defaults).toMatch(/^DROPBOX_APP_FOLDER=\/$/m);
+  });
+
+  it("does not put raw local MySQL credentials into a connection URL", () => {
+    const doctrine = read("backend/config/packages/doctrine.yaml");
+    const setup = read("docker/php/setup.sh");
+
+    expect(doctrine).toContain("user: '%env(MYSQL_USER)%'");
+    expect(doctrine).toContain("password: '%env(MYSQL_PASSWORD)%'");
+    expect(doctrine).toContain("dbname: '%env(MYSQL_DATABASE)%'");
+    expect(doctrine).toMatch(/when@prod:[\s\S]*url: '%env\(resolve:DATABASE_URL\)%'/);
+
+    for (const path of ["backend/.env", "backend/.env.dev", "backend/.env.test", "docker/php/setup.sh"]) {
+      expect(read(path), path).not.toMatch(/DATABASE_URL=.*\$\{MYSQL_(?:USER|PASSWORD|DATABASE)/);
+    }
+    expect(setup).toContain("rawurlencode");
   });
 
   it("uses an explicit MySQL patch version in every shipped runtime DSN", () => {

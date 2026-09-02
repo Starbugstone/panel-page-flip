@@ -146,6 +146,26 @@ final class MaintenanceCommandsTest extends TestCase
         self::assertSame(Command::SUCCESS, $tester->execute(['--user-id' => '7']));
     }
 
+    public function testDropboxSyncDoesNotRecordAConnectionFailureAsSuccessfullySynced(): void
+    {
+        $user = (new User())
+            ->setEmail('reader@example.test')
+            ->setDropboxRefreshToken('stored-refresh-token');
+        $repository = $this->createMock(EntityRepository::class);
+        $repository->method('find')->with('7')->willReturn($user);
+        $entityManager = $this->entityManagerWithRepository($repository);
+        $entityManager->expects(self::never())->method('flush');
+        $factory = $this->createMock(DropboxClientFactory::class);
+        $factory->method('createForUser')->with($user)->willThrowException(new \RuntimeException('Token refresh failed'));
+        $import = $this->createMock(DropboxImportService::class);
+        $import->expects(self::never())->method('syncUser');
+        $tester = new CommandTester(new DropboxSyncCommand($entityManager, $factory, $import, 10));
+
+        self::assertSame(Command::FAILURE, $tester->execute(['--user-id' => '7']));
+        self::assertNull($user->getDropboxLastSyncedAt());
+        self::assertStringContainsString('1 errors encountered', $tester->getDisplay());
+    }
+
     public function testDirectoryImportRejectsAMissingDirectoryBeforeQueryingTheDatabase(): void
     {
         $entityManager = $this->createMock(EntityManagerInterface::class);

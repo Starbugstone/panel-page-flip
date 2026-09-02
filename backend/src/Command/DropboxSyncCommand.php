@@ -95,7 +95,7 @@ class DropboxSyncCommand extends Command
 
             try {
                 $result = $this->syncUserDropbox($user, $io, $dryRun, $limit);
-                if (!$dryRun) {
+                if (!$dryRun && $result['errors'] === 0) {
                     $user->setDropboxLastSyncedAt(new \DateTimeImmutable());
                     $this->entityManager->flush();
                 }

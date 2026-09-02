@@ -10,6 +10,10 @@ is_symfony_installed() {
     fi
 }
 
+database_url_component() {
+    php -r '$value = getenv($argv[1]); echo rawurlencode($value === false || $value === "" ? $argv[2] : $value);' "$1" "$2"
+}
+
 # Change to the working directory
 cd /var/www/html
 
@@ -35,7 +39,8 @@ if ! is_symfony_installed; then
     # Create .env.local file
     echo "APP_ENV=dev" > .env.local
     echo "APP_SECRET=$(openssl rand -hex 16)" >> .env.local
-    echo "DATABASE_URL=\"mysql://${MYSQL_USER:-cbz_user}:${MYSQL_PASSWORD:-cbz_password}@database:3306/${MYSQL_DATABASE:-cbz_reader}?serverVersion=8.0.32&charset=utf8mb4\"" >> .env.local
+    database_url="mysql://$(database_url_component MYSQL_USER cbz_user):$(database_url_component MYSQL_PASSWORD cbz_password)@database:3306/$(database_url_component MYSQL_DATABASE cbz_reader)?serverVersion=8.0.32&charset=utf8mb4"
+    printf 'DATABASE_URL="%s"\n' "$database_url" >> .env.local
     
     echo "Symfony project created successfully!"
 else

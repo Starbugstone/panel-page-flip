@@ -93,9 +93,28 @@ function UnconfiguredPanel() {
   );
 }
 
+function StatusErrorPanel({ onRetry }) {
+  return (
+    <div role="alert" className="space-y-3 text-center">
+      <div className="flex items-center justify-center gap-2 text-red-600 dark:text-red-400">
+        <AlertCircle className="h-5 w-5" />
+        <span className="font-medium">Could not check Dropbox connection.</span>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        The server did not return a connection status. Try the check again before connecting or importing.
+      </p>
+      <Button variant="outline" onClick={onRetry} className="w-full sm:w-auto">
+        <RefreshCw className="mr-2 h-4 w-4" />
+        Retry status check
+      </Button>
+    </div>
+  );
+}
+
 /** Either what the connection can do, or the invitation to make one. */
 export function DropboxConnectionPanel({ dropbox }) {
-  if (!dropbox.isConfigured) return <UnconfiguredPanel />;
+  if (dropbox.statusError) return <StatusErrorPanel onRetry={dropbox.retryStatus} />;
+  if (dropbox.isConfigured === false) return <UnconfiguredPanel />;
 
   return dropbox.isConnected
     ? <ConnectedPanel dropbox={dropbox} />

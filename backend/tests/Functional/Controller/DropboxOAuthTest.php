@@ -137,6 +137,10 @@ final class DropboxOAuthTest extends AbstractApiTestCase
         self::assertSame(1, $payload['failedFiles']);
         self::assertSame('Dropbox import partially completed: 2 imported, 1 failed.', $payload['message']);
         self::assertStringNotContainsString('success', strtolower($payload['message']));
+
+        $stored = self::getContainer()->get('doctrine')->getManager()
+            ->getRepository(User::class)->find($user->getId());
+        self::assertNull($stored->getDropboxLastSyncedAt());
     }
 
     public function testFailedImportUsesImportTerminology(): void

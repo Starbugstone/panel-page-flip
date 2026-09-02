@@ -100,11 +100,17 @@ Use `backend/.env.local` for machine-specific values and secrets:
 ```dotenv
 APP_SECRET=replace-with-a-random-value
 APP_DATA_KEY=replace-with-a-persistent-random-value
-DATABASE_URL="mysql://cbz_user:cbz_password@database:3306/cbz_reader?serverVersion=8.0.32&charset=utf8mb4"
 MAILER_DSN=smtp://mailpit:1025
 ```
 
-Only when running Symfony directly outside Docker, override `APP_URL` in `backend/.env.local`; Docker development reads it from the root `.env`.
+Docker database credentials belong in the root `.env`; Compose passes the same
+raw `MYSQL_*` values to MySQL and Symfony. When running Symfony directly in the
+development environment, set `DATABASE_HOST`, `DATABASE_PORT`,
+`MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, and
+`DATABASE_SERVER_VERSION` in `backend/.env.local`. Production uses
+`DATABASE_URL`; percent-encode URI-reserved characters in its credential and
+database-name components. Only when running Symfony directly outside Docker,
+override `APP_URL` there too; Docker development reads it from the root `.env`.
 
 Generate suitable local secrets with `openssl rand -hex 32` for `APP_SECRET` and `openssl rand -base64 32` for `APP_DATA_KEY`.
 
