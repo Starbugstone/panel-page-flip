@@ -187,6 +187,11 @@ Continuous mode instead follows the scroll viewport: visible and nearby pages
 hold images, while pages outside the proximity margin return to stable
 placeholders.
 
+In every reading mode, a requested page is replaced by the same animated
+comic-panel placeholder used by covers in **My Comics** until its image has
+decoded. Fast turns and jumps therefore show that the destination is loading
+instead of leaving the previous page on screen.
+
 ## Page quality
 
 The reader asks the server for a page sized to the space it has and to how sharp

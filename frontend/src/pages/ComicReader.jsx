@@ -50,7 +50,7 @@ export default function ComicReader() {
 
   // Destructured rather than kept as an object: the hook returns a fresh one
   // every render, and an effect that depends on it re-runs forever.
-  const { imageCache, imageCacheRef, loadedVariants, loadPage, cancelLoadsExcept,
+  const { imageCache, loadedVariants, loadPage, cancelLoadsExcept,
     queuePages, evictOutside, retryPage: retryCachedPage, reset: resetPageCache } = usePageImageCache({ comicId, pageCount });
 
   const profile = useViewportProfile();
@@ -99,8 +99,8 @@ export default function ComicReader() {
   });
 
   const turns = useReaderPageTurns({
-    currentPage, pageCount, currentUnit, readingUnits, effectiveMode,
-    imageCacheRef, goToLogicalPage, resetPosition,
+    currentPage, pageCount, readingUnits, effectiveMode,
+    goToLogicalPage, resetPosition,
   });
   const { retryPage, forceReload } = useReaderPageReload({
     currentPage, currentPageRef, pageCount, retryCachedPage, variantFor, toast,
@@ -136,7 +136,7 @@ export default function ComicReader() {
 
   const { book, view, actions } = useReaderViewModel({
     comic, comicId, pageCount, currentPage, currentPageRef, layout, pageGeometry,
-    imageCache, loadedVariants, variantFor, retryPage, fallbackImages: turns.fallbackImages,
+    imageCache, loadedVariants, variantFor, retryPage,
     settings, profile, transform, isZoomed, isFullscreen, isChromeHidden, isSettingsOpen, showThumbnails,
     swipeOffset, isSwiping, preferredZoomLevel, hasContextOverride,
     preferencesState: { isLoaded, isSaving, hasSyncError },

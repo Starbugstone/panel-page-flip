@@ -768,7 +768,7 @@ describe("ComicReader", () => {
   });
 
   describe("slow requested pages", () => {
-    it("keeps the previous artwork visible while the next page is arriving", async () => {
+    it("replaces the previous artwork with the comic-panel placeholder while the next page is arriving", async () => {
       FakeImage.policy = (src) => src.includes("/pages/1") ? "load" : "hold";
       const user = userEvent.setup();
       renderReader();
@@ -777,7 +777,8 @@ describe("ComicReader", () => {
       await user.click(screen.getByRole("button", { name: /^next/i }));
 
       await screen.findByText("Loading page 2…");
-      expect(surface().querySelector("img").src).toContain("/pages/1");
+      expect(surface().querySelector("img")).toBeNull();
+      expect(surface().querySelector('[class*="animate-cover-panel"]')).not.toBeNull();
       expect(pageBox()).toHaveValue(2);
     });
 

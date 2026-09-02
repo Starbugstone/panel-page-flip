@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ReaderPageLoading } from "@/components/reader/ReaderPageLoading";
 import { useReaderGestures } from "@/hooks/use-reader-gestures";
 import { useReaderMousePan } from "@/hooks/use-reader-mouse-pan";
 import { useReaderSurfaceClicks } from "@/hooks/use-reader-surface-clicks";
@@ -23,12 +23,11 @@ export function SinglePageReader({
   onSurfaceClick,
   onSurfaceDoubleClick,
   onRetry,
-  isStale = false,
   children,
 }) {
   const zoomed = isZoomed(transform);
-  const { safeFit, viewportClass, touchAction, imageClass, alt, ariaHidden } = singlePageAppearance({
-    fit, zoomed, isSwiping, isStale, pageNumber, title,
+  const { safeFit, viewportClass, touchAction, imageClass, alt } = singlePageAppearance({
+    fit, zoomed, isSwiping, pageNumber, title,
   });
   // Mouse clicks and touch taps reach this element by different routes, and
   // only the mouse's belong to the caller: a browser sends a click after a tap
@@ -53,7 +52,6 @@ export function SinglePageReader({
           ref={imageRef}
           src={image.src}
           alt={alt}
-          aria-hidden={ariaHidden}
           data-reader-artwork="true"
           // A dragged image is the browser offering to copy a file, which under
           // a finger or a mouse is never what a page turn meant.
@@ -73,11 +71,7 @@ export function SinglePageReader({
         </div>
       )}
 
-      {isLoading && !image && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Skeleton className="mx-auto h-full w-full max-w-full object-contain" />
-        </div>
-      )}
+      {isLoading && !image && <ReaderPageLoading pageNumber={pageNumber} className="absolute inset-0 h-full w-full" />}
 
       {isLoading && image && (
         <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-background/90 px-3 py-1 text-xs shadow">

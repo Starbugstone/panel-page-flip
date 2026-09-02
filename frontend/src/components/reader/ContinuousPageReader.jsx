@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ReaderPageLoading } from "@/components/reader/ReaderPageLoading";
 import { usePageVariant } from "@/hooks/use-page-variant";
 import { useReaderGestures } from "@/hooks/use-reader-gestures";
 import { useReaderMousePan } from "@/hooks/use-reader-mouse-pan";
@@ -61,7 +62,7 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
           touchAction: isZoomed ? "none" : undefined,
         }}
       />
-      {status === "loading" && !hasPreviousImage && <div className="pointer-events-none absolute inset-0 animate-pulse bg-muted" aria-hidden="true" />}
+      {status === "loading" && !hasPreviousImage && <ReaderPageLoading pageNumber={pageIndex + 1} className="absolute inset-0" />}
       {status === "loading" && hasPreviousImage && (
         <span role="status" className="pointer-events-none absolute bottom-3 rounded-full bg-background/90 px-3 py-1 text-xs shadow">
           Loading sharper page…

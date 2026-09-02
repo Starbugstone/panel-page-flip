@@ -1,30 +1,23 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import { adjacentReadingPage } from "@/lib/reader-layout";
-import { isUsableImage } from "@/lib/reader-pages";
 
 /**
- * Where "previous" and "next" go, and what the screen shows on the way.
+ * Where "previous" and "next" go.
  *
  * In two-page mode a turn moves by reading unit rather than by one page, so the
- * spread does not walk out of step with itself. The pages being left are kept
- * as fallback artwork until the new ones decode, which is what stops a turn
- * being a flash of empty reader.
+ * spread does not walk out of step with itself.
  */
 export function useReaderPageTurns({
-  currentPage, pageCount, currentUnit, readingUnits, effectiveMode,
-  imageCacheRef, goToLogicalPage, resetPosition,
+  currentPage, pageCount, readingUnits, effectiveMode,
+  goToLogicalPage, resetPosition,
 }) {
-  const [fallbackImages, setFallbackImages] = useState([]);
-
   const goToReaderPage = useCallback((pageIndex) => {
     if (effectiveMode !== "continuous") {
-      const images = currentUnit.map((index) => imageCacheRef.current[index]);
-      if (images.length > 0 && images.every(isUsableImage)) setFallbackImages(images);
       resetPosition();
     }
     return goToLogicalPage(pageIndex);
-  }, [currentUnit, effectiveMode, goToLogicalPage, imageCacheRef, resetPosition]);
+  }, [effectiveMode, goToLogicalPage, resetPosition]);
 
   const previousTarget = effectiveMode === "double"
     ? adjacentReadingPage(readingUnits, currentPage, "previous")
@@ -41,7 +34,6 @@ export function useReaderPageTurns({
   }, [goToReaderPage, nextTarget]);
 
   return {
-    fallbackImages,
     goToReaderPage,
     goPrevious,
     goNext,

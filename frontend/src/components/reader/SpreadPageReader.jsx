@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { ReaderPageLoading } from "@/components/reader/ReaderPageLoading";
 import { useReaderGestures } from "@/hooks/use-reader-gestures";
 import { useReaderMousePan } from "@/hooks/use-reader-mouse-pan";
 import { useReaderSurfaceClicks } from "@/hooks/use-reader-surface-clicks";
@@ -24,6 +25,18 @@ function imageClasses(fit) {
   return "max-h-full max-w-full h-auto w-auto";
 }
 
+function contentSizeClasses(fit, hasPendingPage) {
+  if (fit === "width") return "w-full items-start";
+  if (fit === "original") return `w-max max-w-none items-start ${hasPendingPage ? "h-full" : ""}`;
+  if (fit === "contain") return "h-full w-full max-w-full items-center";
+  return "h-full max-w-full items-center";
+}
+
+function loadingPageClasses(fit) {
+  if (fit === "height" || fit === "original") return "aspect-[2/3] h-full max-h-full rounded";
+  return "aspect-[2/3] w-full max-w-md rounded";
+}
+
 export function SpreadPageReader({
   containerRef,
   contentRef,
@@ -41,6 +54,7 @@ export function SpreadPageReader({
   const zoomed = isZoomed(transform);
   const { safeFit, viewportClass, touchAction } = readerFitAppearance(fit, zoomed);
   const surfaceClicks = useReaderSurfaceClicks({ onSurfaceClick, onSurfaceDoubleClick });
+  const hasPendingPage = pages.some(({ image, isLoading }) => isLoading && !image);
 
   useReaderGestures(containerRef, { zoomed, paged: true, ...gestures });
   const { cursorClass } = useReaderMousePan(containerRef, { enabled: zoomed, onPan: gestures?.onPan });
@@ -57,25 +71,24 @@ export function SpreadPageReader({
     >
       <div
         ref={contentRef}
-        className={`flex ${safeFit === "width" ? "w-full items-start" : safeFit === "original" ? "w-max max-w-none items-start" : "h-full max-w-full items-center"} justify-center gap-2 ${isSwiping || zoomed ? "" : "transition-transform duration-200 motion-reduce:transition-none"}`}
+        className={`flex ${contentSizeClasses(safeFit, hasPendingPage)} justify-center gap-2 ${isSwiping || zoomed ? "" : "transition-transform duration-200 motion-reduce:transition-none"}`}
         style={{
           transform: `translate3d(${transform.x + swipeOffset}px, ${transform.y}px, 0) scale(${transform.scale})`,
           transformOrigin: "center center",
         }}
       >
-        {pages.map(({ pageIndex, image, isLoading, hasFailed, onRetry, isStale }) => (
+        {pages.map(({ pageIndex, image, isLoading, hasFailed, onRetry }) => (
           <div key={pageIndex} className={`relative flex h-full min-h-0 min-w-0 justify-center ${LETTERBOXED_FITS.has(safeFit) ? "items-center" : "items-start"} ${safeFit === "original" ? "flex-none" : "flex-1"}`}>
             {image && (
               <img
                 src={image.src}
-                alt={isStale ? "" : `Page ${pageIndex + 1} of ${title || "Comic"}`}
-                aria-hidden={isStale ? "true" : undefined}
+                alt={`Page ${pageIndex + 1} of ${title || "Comic"}`}
                 data-reader-artwork="true"
                 draggable={false}
                 className={`block select-none object-contain shadow-lg ${imageClasses(safeFit)}`}
               />
             )}
-            {isLoading && !image && <div className="aspect-[2/3] w-full max-w-md animate-pulse rounded bg-muted" />}
+            {isLoading && !image && <ReaderPageLoading pageNumber={pageIndex + 1} className={loadingPageClasses(safeFit)} />}
             {isLoading && image && (
               <span role="status" className="absolute bottom-3 rounded-full bg-background/90 px-3 py-1 text-xs shadow">
                 Loading page {pageIndex + 1}…
