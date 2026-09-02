@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Entity\User;
 use App\Service\DropboxClientFactory;
 use App\Service\DropboxConfiguration;
 use App\Service\DropboxImportService;
@@ -46,9 +47,9 @@ class DropboxController extends AbstractController
     public function connect(): Response
     {
         $this->requireUser();
-        $unavailable = $this->unavailableResponse();
-        if ($unavailable !== null) {
-            return $unavailable;
+        $refusal = $this->refuseUnlessConfigured();
+        if ($refusal !== null) {
+            return $refusal;
         }
 
         // Random state, echoed back by Dropbox, to protect the callback from CSRF.
@@ -72,9 +73,9 @@ class DropboxController extends AbstractController
     public function callback(Request $request, EntityManagerInterface $entityManager): Response
     {
         $user = $this->requireUser();
-        $unavailable = $this->unavailableResponse();
-        if ($unavailable !== null) {
-            return $unavailable;
+        $refusal = $this->refuseUnlessConfigured();
+        if ($refusal !== null) {
+            return $refusal;
         }
 
         $code = $request->query->get('code');
@@ -141,21 +142,8 @@ class DropboxController extends AbstractController
         return $this->json([
             'configured' => $configured,
             'connected' => $connected,
-            'user' => null,
             'lastSync' => $connected ? $user->getDropboxLastSyncedAt()?->format('c') : null,
         ]);
-    }
-
-    private function unavailableResponse(): ?Response
-    {
-        if ($this->configuration->isConfigured()) {
-            return null;
-        }
-
-        return $this->json(
-            ['error' => DropboxConfiguration::UNAVAILABLE_MESSAGE],
-            Response::HTTP_SERVICE_UNAVAILABLE
-        );
     }
 
     #[Route('/disconnect', name: 'dropbox_disconnect', methods: ['POST'])]
@@ -185,8 +173,9 @@ class DropboxController extends AbstractController
     {
         $user = $this->requireUser();
 
-        if (!$user->hasDropboxConnection()) {
-            return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
+        $refusal = $this->refuseUnlessConnected($user);
+        if ($refusal !== null) {
+            return $refusal;
         }
 
         try {
@@ -217,8 +206,9 @@ class DropboxController extends AbstractController
     {
         $user = $this->requireUser();
 
-        if (!$user->hasDropboxConnection()) {
-            return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
+        $refusal = $this->refuseUnlessConnected($user);
+        if ($refusal !== null) {
+            return $refusal;
         }
 
         $data = \App\Http\JsonRequestDecoder::decode($request);
@@ -277,8 +267,9 @@ class DropboxController extends AbstractController
     {
         $user = $this->requireUser();
 
-        if (!$user->hasDropboxConnection()) {
-            return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
+        $refusal = $this->refuseUnlessConnected($user);
+        if ($refusal !== null) {
+            return $refusal;
         }
 
         try {
@@ -310,5 +301,39 @@ class DropboxController extends AbstractController
             $this->logger->error('Dropbox import failed.', ['user_id' => $user->getId(), 'exception' => $e]);
             return $this->json(['error' => 'Dropbox import failed.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+    }
+
+    /** The refusal a caller gets when this server has no Dropbox application, or null. */
+    private function refuseUnlessConfigured(): ?Response
+    {
+        if ($this->configuration->isConfigured()) {
+            return null;
+        }
+
+        return $this->json(
+            ['error' => DropboxConfiguration::UNAVAILABLE_MESSAGE],
+            Response::HTTP_SERVICE_UNAVAILABLE
+        );
+    }
+
+    /**
+     * The refusal a caller gets when nothing can be read from Dropbox for this
+     * user, or null. Credentials withdrawn after an account connected leave a
+     * stored token that no longer opens anything, so the server's own state is
+     * answered first and the client is told to stop asking rather than being
+     * handed the 500 the client factory would raise.
+     */
+    private function refuseUnlessConnected(User $user): ?Response
+    {
+        $refusal = $this->refuseUnlessConfigured();
+        if ($refusal !== null) {
+            return $refusal;
+        }
+
+        if (!$user->hasDropboxConnection()) {
+            return $this->json(['error' => 'Dropbox not connected'], Response::HTTP_BAD_REQUEST);
+        }
+
+        return null;
     }
 }

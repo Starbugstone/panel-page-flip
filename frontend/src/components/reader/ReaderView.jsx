@@ -13,8 +13,10 @@ import { describeViewportContext } from "@/lib/reader-viewport";
  * height fit needs that width even at natural scale: two portrait pages can
  * only reach the available height when the spread is allowed to grow sideways.
  */
+const FULL_WIDTH_FITS = new Set(["width", "height", "original"]);
+
 const stageWidthClass = ({ effectiveMode, fit, isZoomed }) =>
-  effectiveMode === "continuous" || fit === "width" || fit === "height" || fit === "original" || isZoomed ? "max-w-none" : "max-w-4xl";
+  effectiveMode === "continuous" || isZoomed || FULL_WIDTH_FITS.has(fit) ? "max-w-none" : "max-w-4xl";
 
 /**
  * Everything inside the reader's shell: the page itself, the two groups of

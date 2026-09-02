@@ -144,6 +144,7 @@ describe("ComicTableView sharing", () => {
     expect(within(comicCell).getByText("Long Form Writer")).toHaveClass("md:hidden");
     expect(within(comicCell).getByText("A shelf with a long name")).toHaveClass("xl:hidden");
     expect(within(comicCell).getByText("Adventure")).toBeInTheDocument();
-    expect(within(comicCell).getByText("Not started")).toHaveClass("sm:hidden");
+    // The whole progress summary folds in, not just its label.
+    expect(within(comicCell).getByText("Not started").closest("div.sm\\:hidden")).not.toBeNull();
   });
 });
