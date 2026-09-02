@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ComicReader from "./ComicReader";
@@ -50,10 +50,20 @@ const savedPreferences = (patch) => ({
  */
 const PAGED_PREFERENCES = savedPreferences({ mode: "single" });
 
-const renderReader = () => render(
-  <MemoryRouter initialEntries={["/read/42"]}>
+function ReaderRoute() {
+  const location = useLocation();
+  return (
+    <>
+      <span data-testid="reader-return-location">{location.state?.libraryReturnTo || "none"}</span>
+      <ComicReader />
+    </>
+  );
+}
+
+const renderReader = (initialEntry = "/read/42") => render(
+  <MemoryRouter initialEntries={[initialEntry]}>
     <Routes>
-      <Route path="/read/:comicId" element={<ComicReader />} />
+      <Route path="/read/:comicId" element={<ReaderRoute />} />
     </Routes>
   </MemoryRouter>
 );
@@ -263,7 +273,10 @@ describe("ComicReader", () => {
         { id: 3, title: "Alpha" },
       ];
       const user = userEvent.setup();
-      renderReader();
+      renderReader({
+        pathname: "/read/42",
+        state: { libraryReturnTo: "/dashboard?view=reading" },
+      });
       await page(1);
 
       await user.click(screen.getByRole("button", { name: "Next page" }));
@@ -277,6 +290,7 @@ describe("ComicReader", () => {
       await user.click(nextComic);
 
       await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics/7"));
+      expect(screen.getByTestId("reader-return-location")).toHaveTextContent("/dashboard?view=reading");
     });
 
     it("loads the full library for ranking even when the reader was opened directly", async () => {

@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { FolderInput, Share2, Tags, Trash2 } from "lucide-react";
+import { FolderInput, RotateCcw, Share2, Tags, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TagCombobox } from "@/components/TagCombobox";
 import { useTags } from "@/hooks/use-tags.jsx";
 import { MAX_SHAREABLE_SELECTION } from "@/lib/comic-selection";
 import { describeTagSubmission } from "@/lib/tag-suggestions";
 
-function bulkActionState(selection, availableTags, tagName, canMove) {
+function bulkActionState(selection, availableTags, tagName, canMove, canReset) {
   const submission = describeTagSubmission(availableTags, tagName);
   const nothingSelected = selection.selectedComicIds.length === 0;
   const ownerActionDisabled = nothingSelected || selection.isUpdating || !selection.ownerActionsAllowed;
@@ -16,6 +16,7 @@ function bulkActionState(selection, availableTags, tagName, canMove) {
     ownerActionDisabled,
     shareDisabled: !selection.canShareSelection || selection.isUpdating,
     moveDisabled: nothingSelected || selection.isUpdating || !canMove,
+    resetDisabled: nothingSelected || selection.isUpdating || !canReset,
     canAddTag: !ownerActionDisabled
       && (submission.status === "existing" || submission.status === "new"),
   };
@@ -28,7 +29,7 @@ function bulkActionState(selection, availableTags, tagName, canMove) {
  * explanation: a selection that mixes owned and received comics is a mistake
  * somebody can fix once they know what it is.
  */
-export function ComicBulkActionsBar({ selection, totalCount, onShare, onMove, onDelete, canMove }) {
+export function ComicBulkActionsBar({ selection, totalCount, onShare, onMove, onReset, onDelete, canMove, canReset }) {
   const { tags: availableTags } = useTags();
   const [tagName, setTagName] = useState("");
 
@@ -39,7 +40,7 @@ export function ComicBulkActionsBar({ selection, totalCount, onShare, onMove, on
   // Bulk tagging submits the canonical name of an existing tag where one
   // matches, so picking "sci fi" out of the list does not create a second
   // spelling of "Sci Fi".
-  const actions = bulkActionState(selection, availableTags, tagName, canMove);
+  const actions = bulkActionState(selection, availableTags, tagName, canMove, canReset);
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -61,7 +62,7 @@ export function ComicBulkActionsBar({ selection, totalCount, onShare, onMove, on
           </span>
         )}
       </p>
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end lg:min-w-0 lg:flex-1">
         {/* The selection goes straight through, so nobody is asked to pick the
             same comics a second time in the share dialog's own list. */}
         <Button variant="outline" onClick={onShare} disabled={actions.shareDisabled}>
@@ -71,6 +72,10 @@ export function ComicBulkActionsBar({ selection, totalCount, onShare, onMove, on
         <Button variant="outline" onClick={onMove} disabled={actions.moveDisabled}>
           <FolderInput className="mr-2 h-4 w-4" />
           Move selected
+        </Button>
+        <Button variant="outline" onClick={onReset} disabled={actions.resetDisabled}>
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Reset progress
         </Button>
         <TagCombobox
           value={tagName}

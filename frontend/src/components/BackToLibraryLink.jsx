@@ -7,18 +7,19 @@ const READER_PATH = /^\/read\/(\d+)(?:\/|$)/;
 
 /**
  * The reader's way out, aimed at the comic just read rather than at the top of
- * the library: its folder, and its card scrolled into view.
+ * the library: the quick view or folder it was opened from, and its card
+ * scrolled into view.
  *
- * Which folder that is comes from the library the header is already holding,
- * not from a request of its own. A reader opened without one behind it — a
- * bookmark, a fresh tab, a shared link — falls back to the plain library.
+ * A remembered library location wins. Without one — a bookmark, a fresh tab,
+ * a shared link — the comic's folder comes from the library the header already
+ * holds, not from a request of its own. Without either, the plain library wins.
  */
 export function BackToLibraryLink({ className }) {
-  const { pathname } = useLocation();
+  const { pathname, state } = useLocation();
   const { comics } = useComicLibrary();
 
   const comicId = pathname.match(READER_PATH)?.[1];
   const comic = comics.find((candidate) => String(candidate.id) === comicId);
 
-  return <Link to={libraryPathToComic(comic)} className={className}>Back to Library</Link>;
+  return <Link to={libraryPathToComic(comic, state?.libraryReturnTo)} className={className}>Back to Library</Link>;
 }

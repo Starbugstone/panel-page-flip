@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom";
 import { Edit, Eye } from "lucide-react";
+import { LibraryReaderLink } from "@/components/LibraryReaderLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -27,7 +27,7 @@ export function ComicTableRow({ comic, checked, folderNames, onToggle, onEdit })
         />
       </TableCell>
       <TableCell>
-        <Link to={`/read/${comic.id}`} className="font-medium hover:underline">{comic.title}</Link>
+        <LibraryReaderLink comicId={comic.id} className="font-medium hover:underline">{comic.title}</LibraryReaderLink>
         {comic.autoRenameOriginalTitle && (
           <p className="text-xs text-muted-foreground">Was {comic.autoRenameOriginalTitle}</p>
         )}
@@ -64,7 +64,7 @@ export function ComicTableRow({ comic, checked, folderNames, onToggle, onEdit })
       <TableCell>{formatDate(comic.uploadedAt)}</TableCell>
       <TableCell className="text-right">
         <Button variant="ghost" size="icon" asChild>
-          <Link to={`/read/${comic.id}`} aria-label={`Read ${comic.title}`}><Eye className="h-4 w-4" /></Link>
+          <LibraryReaderLink comicId={comic.id} aria-label={`Read ${comic.title}`}><Eye className="h-4 w-4" /></LibraryReaderLink>
         </Button>
         {/* Editing belongs to the owner; a recipient reads and nothing more. */}
         {comic.canEdit !== false && (

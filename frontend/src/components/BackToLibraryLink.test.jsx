@@ -8,8 +8,8 @@ const { library } = vi.hoisted(() => ({ library: { comics: [] } }));
 
 vi.mock("@/hooks/use-comic-library.jsx", () => ({ useComicLibrary: () => library }));
 
-const renderLink = (path) => render(
-  <MemoryRouter initialEntries={[path]}>
+const renderLink = (path, state) => render(
+  <MemoryRouter initialEntries={[{ pathname: path, state }]}>
     <BackToLibraryLink className="text-sm" />
   </MemoryRouter>
 );
@@ -28,6 +28,12 @@ beforeEach(() => {
  * comic filed three folders deep meant finding it again by hand.
  */
 describe("the reader's way back", () => {
+  it("returns to the quick view that opened the reader", () => {
+    renderLink("/read/42", { libraryReturnTo: "/dashboard?view=reading" });
+
+    expect(link()).toHaveAttribute("href", "/dashboard?view=reading&jump=42");
+  });
+
   it("returns to the folder the comic is in, and to the comic", () => {
     renderLink("/read/42");
 

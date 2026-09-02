@@ -47,6 +47,7 @@ export function LibraryContents({
           onBulkAddTag={comicActions.addTagToComics}
           onBulkDelete={comicActions.deleteComics}
           onBulkMove={comicActions.moveComicsToFolder}
+          onBulkResetProgress={comicActions.resetReadingProgressForComics}
           onShareSelected={onShareComics}
         />
       </div>

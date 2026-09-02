@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { ReaderShell } from "@/components/reader/ReaderShell";
 import { ReaderView } from "@/components/reader/ReaderView";
@@ -33,6 +33,7 @@ import { effectiveReaderSettings, hasReaderOverride } from "@/lib/reader-prefere
 
 export default function ComicReader() {
   const { comicId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
   const { updateComicProgress } = useComicLibrary();
@@ -167,7 +168,7 @@ export default function ComicReader() {
         actions={actions}
         suggestions={suggestions}
         nextComic={nextComic}
-        onNextComic={() => navigate(`/read/${nextComic.id}`)}
+        onNextComic={() => navigate(`/read/${nextComic.id}`, { state: location.state })}
       />
     </ReaderShell>
   );

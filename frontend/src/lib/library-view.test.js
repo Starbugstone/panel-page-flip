@@ -95,6 +95,13 @@ describe("buildLibraryUrl", () => {
 });
 
 describe("libraryPathToComic", () => {
+  it("keeps the quick view that opened the reader", () => {
+    expect(libraryPathToComic(
+      { id: 42, libraryFolderId: 7 },
+      "/dashboard?view=reading"
+    )).toBe("/dashboard?view=reading&jump=42");
+  });
+
   it("names the folder holding the comic, and the comic to scroll to", () => {
     expect(libraryPathToComic({ id: 42, libraryFolderId: 7 })).toBe("/dashboard?folder=7&jump=42");
   });
