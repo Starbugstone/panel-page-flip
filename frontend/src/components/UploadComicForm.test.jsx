@@ -78,4 +78,31 @@ describe("UploadComicForm", () => {
       variant: "destructive",
     }));
   });
+
+  it("wraps a long selected filename and uses compact card padding on a phone", async () => {
+    const user = userEvent.setup();
+    const name = `${"a-very-long-unbroken-comic-filename-".repeat(3)}issue.cbz`;
+    render(
+      <MemoryRouter>
+        <UploadComicForm />
+      </MemoryRouter>,
+    );
+
+    await user.upload(
+      screen.getByLabelText("Comic File (CBZ)"),
+      new File(["comic"], name, { type: "application/zip" }),
+    );
+
+    expect(screen.getByText(name)).toHaveClass("min-w-0", "break-all");
+    expect(screen.getByRole("heading", { name: "Upload New Comic" }).parentElement).toHaveClass(
+      "p-4",
+      "sm:p-6",
+    );
+    expect(document.querySelector("#upload-form")?.parentElement).toHaveClass(
+      "px-4",
+      "pb-4",
+      "sm:px-6",
+      "sm:pb-6",
+    );
+  });
 });

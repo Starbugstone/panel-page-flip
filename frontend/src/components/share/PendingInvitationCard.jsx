@@ -25,22 +25,24 @@ export function PendingInvitationCard({ share, busy, onConfirmAdult, onAccept, o
 
   return (
     <Card>
-      <CardContent className="flex gap-4 p-4">
-        <ShareCover src={share.coverImagePath} title={title} gated={gated} />
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate font-bold">{title}</h3>
-          <p className="truncate text-sm text-muted-foreground">
-            {share.ownerLabel || share.ownerName} wants to share this with you.
-          </p>
-          {gated && (
-            <p className="mt-1 flex items-center gap-1 text-sm font-medium text-destructive">
-              <ShieldAlert className="h-4 w-4" />
-              {EXPLICIT_GATE_TITLE}
+      <CardContent className="flex flex-col gap-4 p-4 sm:flex-row">
+        <div className="flex min-w-0 flex-1 gap-4">
+          <ShareCover src={share.coverImagePath} title={title} gated={gated} />
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate font-bold">{title}</h3>
+            <p className="truncate text-sm text-muted-foreground">
+              {share.ownerLabel || share.ownerName} wants to share this with you.
             </p>
-          )}
-          <p className="mt-1 text-sm text-muted-foreground">{describeReceivedShare(share)}</p>
+            {gated && (
+              <p className="mt-1 flex items-center gap-1 text-sm font-medium text-destructive">
+                <ShieldAlert className="h-4 w-4" />
+                {EXPLICIT_GATE_TITLE}
+              </p>
+            )}
+            <p className="mt-1 text-sm text-muted-foreground">{describeReceivedShare(share)}</p>
+          </div>
         </div>
-        <div className="flex flex-none flex-col gap-2">
+        <div className="flex w-full flex-none flex-col gap-2 sm:w-auto">
           {gated
             ? <Button size="sm" disabled={disabled} onClick={onConfirmAdult}>{EXPLICIT_GATE_CONFIRM_LABEL}</Button>
             : <Button size="sm" disabled={disabled} onClick={onAccept}>Add to my collection</Button>}

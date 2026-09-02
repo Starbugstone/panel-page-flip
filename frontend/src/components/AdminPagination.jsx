@@ -29,8 +29,8 @@ export function AdminPagination({ pagination, itemCount, isLoading = false, onPa
           : `No ${label}`}
       </p>
 
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex items-center justify-between gap-2 sm:justify-start">
           <Label htmlFor={pageSizeId} className="whitespace-nowrap text-sm font-normal text-muted-foreground">
             Per page
           </Label>
@@ -50,7 +50,7 @@ export function AdminPagination({ pagination, itemCount, isLoading = false, onPa
           </Select>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 sm:justify-start">
           <Button
             variant="outline"
             size="sm"

@@ -92,4 +92,14 @@ describe("PersonalTagsCard", () => {
     expect(api.put).toHaveBeenCalledWith("/api/tags/2", { name: "Graphic novels" });
     expect(await screen.findByText("Graphic novels")).toBeInTheDocument();
   });
+
+  it("moves the add action below its description on a phone", async () => {
+    render(<PersonalTagsCard />);
+    await screen.findByText("No personal tags yet");
+
+    const addButton = screen.getByRole("button", { name: "Add tag" });
+    const header = screen.getByRole("heading", { name: "Personal tags" }).parentElement.parentElement;
+    expect(header).toHaveClass("flex-col", "sm:flex-row");
+    expect(addButton).toHaveClass("w-full", "sm:w-auto");
+  });
 });

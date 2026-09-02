@@ -59,7 +59,7 @@ function queueProgress(rows) {
 function BulkDropZone({ dragging, running, inputRef, comicFormats, onDraggingChange, onFiles }) {
   return (
     <div
-      className={`rounded-lg border-2 border-dashed p-8 text-center ${dragging ? "border-primary bg-primary/5" : "border-gray-300"} ${running ? "opacity-60" : "cursor-pointer"}`}
+      className={`rounded-lg border-2 border-dashed p-4 text-center sm:p-8 ${dragging ? "border-primary bg-primary/5" : "border-gray-300"} ${running ? "opacity-60" : "cursor-pointer"}`}
       onClick={() => !running && inputRef.current?.click()}
       onDragEnter={(event) => { event.preventDefault(); if (!running) onDraggingChange(true); }}
       onDragOver={(event) => event.preventDefault()}
@@ -93,12 +93,13 @@ function BulkUploadRow({ row, running, onTitleChange, onCancel, onRetry, onRemov
   const retryable = row.status === "error" || row.status === "cancelled";
 
   return (
-    <TableRow>
-      <TableCell>
-        <div className="font-medium">{row.file.name}</div>
+    <TableRow className="grid gap-3 p-3 sm:table-row sm:p-0">
+      <TableCell className="block p-0 sm:table-cell sm:p-4">
+        <div className="break-all font-medium">{row.file.name}</div>
         <div className="text-xs text-muted-foreground">{formatFileSize(row.file.size)}</div>
       </TableCell>
-      <TableCell>
+      <TableCell className="block p-0 sm:table-cell sm:p-4">
+        <span className="mb-1 block text-xs font-medium text-muted-foreground sm:sr-only">Title</span>
         <Input
           value={row.title}
           aria-label={`Title for ${row.file.name}`}
@@ -106,11 +107,13 @@ function BulkUploadRow({ row, running, onTitleChange, onCancel, onRetry, onRemov
           onChange={(event) => onTitleChange(row.id, event.target.value)}
         />
       </TableCell>
-      <TableCell className="min-w-36">
+      <TableCell className="block p-0 sm:table-cell sm:min-w-36 sm:p-4">
+        <span className="mb-1 block text-xs font-medium text-muted-foreground sm:sr-only">Progress</span>
         <Progress value={row.progress} />
         <span className="text-xs text-muted-foreground">{row.progress}%</span>
       </TableCell>
-      <TableCell>
+      <TableCell className="block p-0 sm:table-cell sm:p-4">
+        <span className="mb-1 block text-xs font-medium text-muted-foreground sm:sr-only">Status</span>
         <div className="flex items-center gap-1">
           {active && <Loader2 className="h-4 w-4 animate-spin" />}
           {row.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-600" />}
@@ -119,7 +122,7 @@ function BulkUploadRow({ row, running, onTitleChange, onCancel, onRetry, onRemov
         {row.error && <div className="max-w-52 text-xs text-destructive">{row.error}</div>}
         {row.comic?.id && <Link className="text-xs text-comic-purple underline" to={`/read/${row.comic.id}`}>Open comic</Link>}
       </TableCell>
-      <TableCell>
+      <TableCell className="block p-0 sm:table-cell sm:p-4">
         <div className="flex items-center gap-1">
           {active && (
             <Button size="icon" variant="outline" onClick={() => onCancel(row.id)} aria-label={`Cancel ${row.file.name}`}><XIcon /></Button>
@@ -146,8 +149,8 @@ function BulkUploadTable({ rows, running, onTitleChange, onCancel, onRetry, onRe
   if (rows.length === 0) return null;
 
   return (
-    <Table>
-      <TableHeader><TableRow><TableHead>File</TableHead><TableHead>Title</TableHead><TableHead>Progress</TableHead><TableHead>Status</TableHead><TableHead className="w-28">Actions</TableHead></TableRow></TableHeader>
+    <Table className="sm:min-w-[760px]">
+      <TableHeader className="hidden sm:table-header-group"><TableRow><TableHead>File</TableHead><TableHead>Title</TableHead><TableHead>Progress</TableHead><TableHead>Status</TableHead><TableHead className="w-28">Actions</TableHead></TableRow></TableHeader>
       <TableBody>
         {rows.map((row) => (
           <BulkUploadRow
@@ -303,14 +306,14 @@ export default function BulkUploadQueue() {
 
   return (
     <Card className="w-full max-w-6xl">
-      <CardHeader>
+      <CardHeader className="p-4 sm:p-6">
         <CardTitle className="text-2xl font-comic">Bulk upload comics</CardTitle>
         <CardDescription>
           Add enabled comic formats ({comicFormats.join(", ").toUpperCase()}).{" "}
           {parallelFiles === 1 ? "One comic uploads" : `${parallelFiles} comics upload`} at a time.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-5 px-4 pb-4 sm:px-6 sm:pb-6">
         <BulkDropZone
           dragging={dragging}
           running={running}
