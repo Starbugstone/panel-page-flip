@@ -57,6 +57,23 @@ describe("continuous page proximity", () => {
     expect(document.querySelector('[data-continuous-page="3"] img')).not.toBeNull();
   });
 
+  it("uses the comic-panel placeholder while a scroll page loads", () => {
+    render(
+      <ContinuousPageReader
+        containerRef={createRef()}
+        comicId="42"
+        pageCount={1}
+        currentPage={0}
+        title="Sandman"
+        geometry={{}}
+        resetToken="portrait:continuous"
+      />
+    );
+    const page = document.querySelector('[data-continuous-page="0"]');
+
+    expect(page.querySelector('[class*="animate-cover-panel"]')).not.toBeNull();
+  });
+
   it("expands page layout for settings zoom without breaking vertical flow", () => {
     const containerRef = createRef();
     render(

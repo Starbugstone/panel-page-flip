@@ -26,6 +26,7 @@ const comics = [1, 2, 3, 4, 5].map((id) => ({
 
 const renderTable = () => {
   const onShareSelected = vi.fn();
+  const onBulkResetProgress = vi.fn().mockResolvedValue(undefined);
 
   render(
     <MemoryRouter>
@@ -36,12 +37,13 @@ const renderTable = () => {
         onBulkAddTag={vi.fn()}
         onBulkDelete={vi.fn()}
         onBulkMove={vi.fn()}
+        onBulkResetProgress={onBulkResetProgress}
         onShareSelected={onShareSelected}
       />
     </MemoryRouter>
   );
 
-  return { onShareSelected };
+  return { onBulkResetProgress, onShareSelected };
 };
 
 const box = (id) => screen.getByLabelText(`Select Comic ${id}`);
@@ -64,6 +66,21 @@ const selectedIds = (onShareSelected, user) =>
  * it is handed exactly the ids the table holds.
  */
 describe("ComicTableView range selection", () => {
+  it("resets reading progress for every selected comic after confirmation", async () => {
+    const user = userEvent.setup();
+    const { onBulkResetProgress } = renderTable();
+
+    await click(user, 2);
+    await click(user, 4);
+    await user.click(screen.getByRole("button", { name: "Reset progress" }));
+
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("2 selected comics");
+    await user.click(screen.getByRole("button", { name: "Reset selected" }));
+
+    expect(onBulkResetProgress).toHaveBeenCalledWith([2, 4]);
+    expect(screen.getByText("0 of 5 selected")).toBeInTheDocument();
+  });
+
   it("selects everything between the two clicks", async () => {
     const user = userEvent.setup();
     const { onShareSelected } = renderTable();

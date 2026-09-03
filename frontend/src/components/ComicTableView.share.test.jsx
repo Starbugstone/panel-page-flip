@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -14,7 +14,9 @@ vi.mock("@/hooks/use-tags.jsx", () => ({
 }));
 // The rows link to the reader and the tag badges ask whether they are being
 // rendered for an administrator; neither is what these tests are about.
-vi.mock("@/components/TagBadge", () => ({ TagBadge: () => null }));
+vi.mock("@/components/TagBadge", () => ({
+  TagBadge: ({ tag }) => <span>{typeof tag === "string" ? tag : tag.name}</span>,
+}));
 
 const comic = (overrides = {}) => ({
   id: 1,
@@ -119,5 +121,30 @@ describe("ComicTableView sharing", () => {
 
     expect(screen.getByRole("button", { name: /Share selected/i })).toBeDisabled();
     expect(screen.getByText(/at most 20 comics at once/i)).toBeInTheDocument();
+  });
+
+  it("collapses desktop columns into the comic cell on narrow screens", () => {
+    const title = "A very long comic title that must fit on a phone";
+    renderTable([
+      comic({
+        title,
+        author: "Long Form Writer",
+        tags: ["Adventure"],
+        libraryFolderId: 7,
+      }),
+    ], { folders: [{ id: 7, name: "A shelf with a long name" }] });
+
+    expect(screen.getByRole("table")).toHaveClass("table-fixed", "sm:table-auto");
+    expect(screen.getByRole("table")).not.toHaveClass("min-w-[920px]");
+    expect(screen.getByRole("columnheader", { name: "Author" })).toHaveClass("hidden", "md:table-cell");
+    expect(screen.getByRole("columnheader", { name: "Tags" })).toHaveClass("hidden", "xl:table-cell");
+
+    const comicCell = screen.getByRole("link", { name: title }).closest("td");
+    expect(comicCell).toHaveClass("min-w-0", "px-2", "sm:px-4");
+    expect(within(comicCell).getByText("Long Form Writer")).toHaveClass("md:hidden");
+    expect(within(comicCell).getByText("A shelf with a long name")).toHaveClass("xl:hidden");
+    expect(within(comicCell).getByText("Adventure")).toBeInTheDocument();
+    // The whole progress summary folds in, not just its label.
+    expect(within(comicCell).getByText("Not started").closest("div.sm\\:hidden")).not.toBeNull();
   });
 });

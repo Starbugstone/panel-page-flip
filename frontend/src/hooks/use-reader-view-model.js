@@ -13,7 +13,7 @@ import { orderPageStates, readerPageStates } from "@/lib/reader-pages";
  */
 export function useReaderViewModel({
   comic, comicId, pageCount, currentPage, currentPageRef, layout, pageGeometry,
-  imageCache, loadedVariants, variantFor, retryPage, fallbackImages,
+  imageCache, loadedVariants, variantFor, retryPage,
   settings, profile, transform, isZoomed, isFullscreen, isChromeHidden, isSettingsOpen, showThumbnails,
   swipeOffset, isSwiping, preferredZoomLevel, hasContextOverride, preferencesState,
   pointer, settingsActions, turns, goToLogicalPage, toggleChrome, forceReload,
@@ -22,8 +22,8 @@ export function useReaderViewModel({
   const { effectiveMode, currentUnit, visiblePages } = layout;
 
   const pageStates = useMemo(
-    () => readerPageStates({ unit: currentUnit, imageCache, fallbackImages, loadedVariants, variantFor, onRetry: retryPage }),
-    [currentUnit, fallbackImages, imageCache, loadedVariants, retryPage, variantFor]
+    () => readerPageStates({ unit: currentUnit, imageCache, loadedVariants, variantFor, onRetry: retryPage }),
+    [currentUnit, imageCache, loadedVariants, retryPage, variantFor]
   );
 
   const book = {

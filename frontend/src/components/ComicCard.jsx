@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom";
 import { BookOpen } from "lucide-react";
+import { LibraryReaderLink } from "@/components/LibraryReaderLink";
 import { Button } from "@/components/ui/button";
 import { Card, CardFooter } from "@/components/ui/card";
 import { ComicCardCover } from "@/components/library/ComicCardCover";
@@ -28,8 +28,8 @@ export function ComicCard({
     <>
       <div className="group relative" data-comic-id={comic.id}>
         <Card className="relative overflow-hidden border-2 transition-all duration-300 hover:border-comic-purple hover:shadow-lg">
-          <Link
-            to={`/read/${comic.id}`}
+          <LibraryReaderLink
+            comicId={comic.id}
             aria-label={`Read ${comic.title}`}
             className="absolute inset-0 z-[1] rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           />

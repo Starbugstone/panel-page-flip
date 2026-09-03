@@ -15,7 +15,7 @@ button as well as the standard `Escape` and outside-click dismissal.
 | --- | --- |
 | Best fit | Shows the complete page inside the available reader area without changing its aspect ratio. This is the default. |
 | Fit width | Uses the available width. Tall pages scroll vertically. |
-| Fit height | Uses the available height without changing the page aspect ratio. |
+| Fit height | Uses the available height without changing the page aspect ratio, giving a two-page spread the full reader width when it needs it. |
 | Original size | Uses the image's native dimensions. Oversized pages scroll horizontally or vertically. |
 
 Changing page size does not reload the comic or reset reading progress. Changing
@@ -187,6 +187,11 @@ Continuous mode instead follows the scroll viewport: visible and nearby pages
 hold images, while pages outside the proximity margin return to stable
 placeholders.
 
+In every reading mode, a requested page is replaced by the same animated
+comic-panel placeholder used by covers in **My Comics** until its image has
+decoded. Fast turns and jumps therefore show that the destination is loading
+instead of leaving the previous page on screen.
+
 ## Page quality
 
 The reader asks the server for a page sized to the space it has and to how sharp
@@ -209,16 +214,25 @@ behind them.
 
 ## Leaving the reader
 
-**Back to Library** returns to the comic, not to the top of the library: the
-folder holding it opens, and its card is scrolled into view and briefly
-highlighted — the same landing the folder bar's **Last read** button gives. A
-comic filed nowhere returns to the whole library, where its card is found the
-same way.
+**Back to Library** returns to the comic, not to the top of the library. When
+the reader was opened from a folder, that folder opens and its card is scrolled
+into view and briefly highlighted — the same landing the folder bar's **Last
+read** button gives. A comic filed nowhere returns to the whole library, where
+its card is found the same way.
 
-The folder comes from the library list the header already holds, so a reader
-opened without one behind it — a bookmark, a fresh tab, a shared link — returns
-to the plain library instead. The URL carries the request as `?jump=<comic id>`
-alongside the folder, and any navigation within the library drops it.
+Opening the reader from a quick view such as **Currently reading**, **Not
+started**, or **Shared with me** remembers that view. **Back to Library**
+restores it and returns to the comic there instead of changing to **All
+comics**. Moving to the next comic inside the reader keeps the same return
+location. If the comic cannot be loaded, the error page's **Return to Library**
+action uses that remembered location too.
+
+The quick view or folder is remembered in browser navigation state. If a reader
+is opened without that state — a bookmark, a fresh tab, a shared link — the
+folder comes from the library list the header already holds, or the reader
+returns to the plain library when the comic was never listed. The dashboard URL
+carries the request as `?jump=<comic id>` alongside the view or folder, and any
+navigation within the library drops it.
 
 ## Keyboard controls
 

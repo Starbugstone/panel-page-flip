@@ -18,30 +18,38 @@ function tagCacheOwner(user) {
   return user.email ? `email:${user.email}` : null;
 }
 
+const emptyCache = () => ({ owner: null, tags: EMPTY_TAGS, fetchedAt: null, adminContext: null });
+
+/**
+ * Whether the cache can answer for this account and section without asking the
+ * server again. The admin context is part of the test: admin search sees every
+ * account's tags, so a cache filled outside it would silently under-report.
+ */
+function isCacheFresh(cache, owner, isAdminContext) {
+  return owner !== null
+    && cache.owner === owner
+    && cache.fetchedAt !== null
+    && cache.adminContext === isAdminContext
+    && (Date.now() - cache.fetchedAt) < TAG_CACHE_TIME;
+}
+
 /**
  * Tag search, answered from the cache when it can be.
  *
  * The local pass runs first so typing feels immediate, and a cache filled
- * recently in the same context is treated as the answer. The admin context is
- * part of that test: admin search sees every account's tags, so a cache filled
- * outside it would silently under-report.
+ * recently in the same context is treated as the answer.
  */
-function useTagSearch({ tagsRef, lastFetchedRef, lastFetchedAdminContextRef, cacheOwnerRef, owner, ownerRef }) {
+function useTagSearch({ cacheRef, owner, ownerRef }) {
   return useCallback(async (query, isAdminContext = false) => {
     if (!query || query.trim().length < 2) {
       return [];
     }
 
-    const hasCurrentAccountCache = owner !== null && cacheOwnerRef.current === owner;
-    const localResults = fuzzyFilter(hasCurrentAccountCache ? tagsRef.current : EMPTY_TAGS, query, ['name']);
+    const cache = cacheRef.current;
+    const ownedTags = owner !== null && cache.owner === owner ? cache.tags : EMPTY_TAGS;
+    const localResults = fuzzyFilter(ownedTags, query, ['name']);
 
-    // If we have local results and they were fetched recently, use them
-    if (
-      hasCurrentAccountCache
-      && lastFetchedRef.current
-      && lastFetchedAdminContextRef.current === isAdminContext
-      && (Date.now() - lastFetchedRef.current) < TAG_CACHE_TIME
-    ) {
+    if (isCacheFresh(cache, owner, isAdminContext)) {
       return localResults;
     }
 
@@ -61,18 +69,15 @@ function useTagSearch({ tagsRef, lastFetchedRef, lastFetchedAdminContextRef, cac
       // Fall back to local results if API fails
       return localResults;
     }
-  }, [cacheOwnerRef, lastFetchedAdminContextRef, lastFetchedRef, owner, ownerRef, tagsRef]);
+  }, [cacheRef, owner, ownerRef]);
 }
 
 export function TagProvider({ children }) {
-  const [tags, setTags] = useState([]);
+  // Rendered copy of the cache below, so a signed-out or newly signed-in render
+  // never shows the last account's tags.
+  const [visible, setVisible] = useState(emptyCache);
   const [isLoading, setIsLoading] = useState(false);
-  const [lastFetched, setLastFetched] = useState(null);
-  const [cacheOwner, setCacheOwner] = useState(null);
-  const tagsRef = useRef([]);
-  const lastFetchedRef = useRef(null);
-  const lastFetchedAdminContextRef = useRef(null);
-  const cacheOwnerRef = useRef(null);
+  const cacheRef = useRef(emptyCache());
   const inFlightRequestsRef = useRef(new Map());
   const mountedRef = useRef(true);
   const { user } = useAuth();
@@ -86,17 +91,16 @@ export function TagProvider({ children }) {
     return () => { mountedRef.current = false; };
   }, []);
 
-  const requestTags = useCallback((force = false, isAdminContext = false) => {
-    if (owner === null) return Promise.resolve([]);
+  const publishCache = useCallback((next) => {
+    cacheRef.current = next;
+    setVisible(next);
+  }, []);
 
-    if (
-      !force
-      && cacheOwnerRef.current === owner
-      && lastFetchedRef.current !== null
-      && lastFetchedAdminContextRef.current === isAdminContext
-      && (Date.now() - lastFetchedRef.current) < TAG_CACHE_TIME
-    ) {
-      return Promise.resolve(tagsRef.current);
+  const requestTags = useCallback((force = false, isAdminContext = false) => {
+    if (owner === null) return Promise.resolve(EMPTY_TAGS);
+
+    if (!force && isCacheFresh(cacheRef.current, owner, isAdminContext)) {
+      return Promise.resolve(cacheRef.current.tags);
     }
 
     const existingRequest = inFlightRequestsRef.current.get(isAdminContext);
@@ -105,17 +109,15 @@ export function TagProvider({ children }) {
     const requestedFor = owner;
     const url = isAdminContext ? '/api/tags?adminContext=true' : '/api/tags';
     const promise = api.get(url).then((data) => {
-      if (!mountedRef.current || requestedFor !== ownerRef.current) return [];
+      if (!mountedRef.current || requestedFor !== ownerRef.current) return EMPTY_TAGS;
 
       const fetchedTags = data.tags || [];
-      const fetchedAt = Date.now();
-      tagsRef.current = fetchedTags;
-      lastFetchedRef.current = fetchedAt;
-      lastFetchedAdminContextRef.current = isAdminContext;
-      cacheOwnerRef.current = requestedFor;
-      setTags(fetchedTags);
-      setLastFetched(fetchedAt);
-      setCacheOwner(requestedFor);
+      publishCache({
+        owner: requestedFor,
+        tags: fetchedTags,
+        fetchedAt: Date.now(),
+        adminContext: isAdminContext,
+      });
       return fetchedTags;
     }).finally(() => {
       if (inFlightRequestsRef.current.get(isAdminContext)?.promise === promise) {
@@ -125,11 +127,11 @@ export function TagProvider({ children }) {
 
     inFlightRequestsRef.current.set(isAdminContext, { requestedFor, promise });
     return promise;
-  }, [owner]);
+  }, [owner, publishCache]);
 
   // Function to fetch all tags
   const fetchTags = useCallback(async (force = false, isAdminContext = false) => {
-    if (owner === null) return [];
+    if (owner === null) return EMPTY_TAGS;
 
     setIsLoading(true);
     try {
@@ -144,68 +146,66 @@ export function TagProvider({ children }) {
           variant: 'destructive',
         });
       }
-      return [];
+      return EMPTY_TAGS;
     } finally {
       setIsLoading(false);
     }
   }, [owner, requestTags, toast]);
 
-  const searchTags = useTagSearch({
-    tagsRef,
-    lastFetchedRef,
-    lastFetchedAdminContextRef,
-    cacheOwnerRef,
-    owner,
-    ownerRef,
-  });
+  const searchTags = useTagSearch({ cacheRef, owner, ownerRef });
 
-  // Function to add a tag to the local cache after creation
+  /**
+   * A tag just created here joins the cache without a round trip. A cache
+   * belonging to nobody — or to the account before this one — is replaced
+   * rather than added to, so the new tag is visible without carrying anything
+   * that was never this account's.
+   */
   const addTagToCache = useCallback((newTag) => {
-    setTags(prevTags => {
-      // Check if tag already exists
-      if (prevTags.some(tag => tag.id === newTag.id)) {
-        return prevTags;
-      }
-      const updatedTags = [...prevTags, newTag];
-      tagsRef.current = updatedTags;
-      return updatedTags;
+    if (owner === null) return;
+
+    const cache = cacheRef.current;
+    const known = cache.owner === owner ? cache.tags : EMPTY_TAGS;
+    if (known.some((tag) => tag.id === newTag.id)) return;
+
+    publishCache({
+      ...cache,
+      owner,
+      tags: [...known, newTag],
+      // Still unfetched for this account: one known tag is not the list.
+      fetchedAt: cache.owner === owner ? cache.fetchedAt : null,
     });
-  }, []);
+  }, [owner, publishCache]);
 
   // Prefetch on mount and when the user changes without showing an event-level
   // loading state. Consumers share this request through requestTags.
   useEffect(() => {
-    if (owner === null) return undefined;
+    if (owner === null) return;
 
     const path = window.location.pathname;
     if (!(path.startsWith('/dashboard') || path.startsWith('/admin') || path.startsWith('/upload'))) {
-      return undefined;
+      return;
     }
 
     void requestTags()
       .catch((error) => {
         logger.error('Error fetching tags:', error);
       });
-    return undefined;
   }, [owner, requestTags]);
 
-  // Logging out invalidates the request cache. State from the last account is
-  // retained only as inert data and is hidden by the owner check below.
+  // Logging out invalidates the cache. The rendered copy is left alone because
+  // it is already inert: every read of it is gated on the cache belonging to
+  // the account currently signed in.
   useEffect(() => {
-    if (owner !== null) return;
-    tagsRef.current = [];
-    lastFetchedRef.current = null;
-    lastFetchedAdminContextRef.current = null;
-    cacheOwnerRef.current = null;
+    if (owner === null) cacheRef.current = emptyCache();
   }, [owner]);
 
   // The context value
   const isAdminContext = useCallback(() => window.location.pathname.startsWith('/admin'), []);
 
   // Signed out means no tags, whatever the last account left behind.
-  const hasCurrentAccountCache = owner !== null && cacheOwner === owner;
-  const visibleTags = hasCurrentAccountCache ? tags : EMPTY_TAGS;
-  const visibleLastFetched = hasCurrentAccountCache ? lastFetched : null;
+  const hasCurrentAccountCache = owner !== null && visible.owner === owner;
+  const visibleTags = hasCurrentAccountCache ? visible.tags : EMPTY_TAGS;
+  const visibleLastFetched = hasCurrentAccountCache ? visible.fetchedAt : null;
 
   const value = useMemo(() => ({
     tags: visibleTags,

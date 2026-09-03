@@ -1,7 +1,7 @@
 import { BookOpen, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CoverFailureArt, CoverLoadingArt } from "@/components/library/CoverPlaceholder";
+import { ComicLoadingArt, CoverFailureArt } from "@/components/library/CoverPlaceholder";
 import { useCoverImage } from "@/hooks/use-cover-image";
 import { cn } from "@/lib/utils";
 
@@ -53,7 +53,7 @@ export function ComicCardCover({ comic, coverPriority, isSharedWithMe, onResetPr
         </div>
       )}
       {(status === "loading" || status === "retrying") && (
-        <CoverLoadingArt isRetrying={attempt > 0} />
+        <ComicLoadingArt isRetrying={attempt > 0} />
       )}
       {status === "failed" && <CoverFailureArt title={comic.title} onRetry={retry} />}
 

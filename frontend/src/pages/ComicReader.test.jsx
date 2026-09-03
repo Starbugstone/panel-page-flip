@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ComicReader from "./ComicReader";
@@ -50,10 +50,26 @@ const savedPreferences = (patch) => ({
  */
 const PAGED_PREFERENCES = savedPreferences({ mode: "single" });
 
-const renderReader = () => render(
-  <MemoryRouter initialEntries={["/read/42"]}>
+function ReaderRoute() {
+  const location = useLocation();
+  return (
+    <>
+      <span data-testid="reader-return-location">{location.state?.libraryReturnTo || "none"}</span>
+      <ComicReader />
+    </>
+  );
+}
+
+function LibraryRoute() {
+  const location = useLocation();
+  return <span data-testid="library-location">{`${location.pathname}${location.search}`}</span>;
+}
+
+const renderReader = (initialEntry = "/read/42") => render(
+  <MemoryRouter initialEntries={[initialEntry]}>
     <Routes>
-      <Route path="/read/:comicId" element={<ComicReader />} />
+      <Route path="/read/:comicId" element={<ReaderRoute />} />
+      <Route path="/dashboard" element={<LibraryRoute />} />
     </Routes>
   </MemoryRouter>
 );
@@ -263,7 +279,10 @@ describe("ComicReader", () => {
         { id: 3, title: "Alpha" },
       ];
       const user = userEvent.setup();
-      renderReader();
+      renderReader({
+        pathname: "/read/42",
+        state: { libraryReturnTo: "/dashboard?view=reading" },
+      });
       await page(1);
 
       await user.click(screen.getByRole("button", { name: "Next page" }));
@@ -277,6 +296,7 @@ describe("ComicReader", () => {
       await user.click(nextComic);
 
       await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics/7"));
+      expect(screen.getByTestId("reader-return-location")).toHaveTextContent("/dashboard?view=reading");
     });
 
     it("loads the full library for ranking even when the reader was opened directly", async () => {
@@ -561,6 +581,23 @@ describe("ComicReader", () => {
   describe("facing pages and reading direction", () => {
     beforeEach(() => useScreen({ width: 1180, height: 820 }));
 
+    it("gives a fit-height spread the viewport width needed to reach the available height", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences"
+          ? { preferences: savedPreferences({ mode: "double", fit: "height" }) }
+          : comic(5)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+
+      expect(await page(2)).toBeInTheDocument();
+      expect(await page(3)).toBeInTheDocument();
+      expect(surface().closest(".reader-stage")).toHaveClass("max-w-none");
+      expect(surface().closest(".reader-stage")).not.toHaveClass("max-w-4xl");
+    });
+
     it("keeps the cover alone, then advances by a real two-page spread", async () => {
       vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
         path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "double" }) } : comic(5)
@@ -737,7 +774,7 @@ describe("ComicReader", () => {
   });
 
   describe("slow requested pages", () => {
-    it("keeps the previous artwork visible while the next page is arriving", async () => {
+    it("replaces the previous artwork with the comic-panel placeholder while the next page is arriving", async () => {
       FakeImage.policy = (src) => src.includes("/pages/1") ? "load" : "hold";
       const user = userEvent.setup();
       renderReader();
@@ -746,7 +783,8 @@ describe("ComicReader", () => {
       await user.click(screen.getByRole("button", { name: /^next/i }));
 
       await screen.findByText("Loading page 2…");
-      expect(surface().querySelector("img").src).toContain("/pages/1");
+      expect(surface().querySelector("img")).toBeNull();
+      expect(surface().querySelector('[class*="animate-cover-panel"]')).not.toBeNull();
       expect(pageBox()).toHaveValue(2);
     });
 
@@ -1358,6 +1396,19 @@ describe("ComicReader", () => {
       renderReader();
 
       expect(await screen.findByText(/not found|could not|problem/i)).toBeInTheDocument();
+    });
+
+    it("returns to the library view that opened the failed reader", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.get).mockRejectedValue(Object.assign(new Error("nope"), { status: 404 }));
+
+      renderReader({
+        pathname: "/read/42",
+        state: { libraryReturnTo: "/dashboard?view=reading" },
+      });
+      await user.click(await screen.findByRole("button", { name: "Return to Library" }));
+
+      expect(screen.getByTestId("library-location")).toHaveTextContent("/dashboard?view=reading");
     });
   });
 });

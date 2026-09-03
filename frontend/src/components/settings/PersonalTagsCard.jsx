@@ -101,14 +101,14 @@ export function PersonalTagsCard() {
   return (
     <>
       <Card>
-        <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+        <CardHeader className="flex-col items-stretch justify-between gap-4 space-y-0 p-4 sm:flex-row sm:items-start sm:p-6">
           <div>
             <CardTitle className="flex items-center gap-2"><Tags className="h-5 w-5" /> Personal tags</CardTitle>
             <CardDescription className="mt-2">Global tags are managed by an administrator and are not editable here.</CardDescription>
           </div>
-          <Button onClick={() => openDialog("create")}><Plus className="mr-2 h-4 w-4" /> Add tag</Button>
+          <Button className="w-full sm:w-auto" onClick={() => openDialog("create")}><Plus className="mr-2 h-4 w-4" /> Add tag</Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
           <PersonalTagList
             loading={loading}
             tags={tags}

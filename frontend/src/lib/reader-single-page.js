@@ -15,7 +15,7 @@ const IMAGE_CLASSES = {
  * modifiers, and reading it inline meant reading four class strings to answer
  * one question about the fit.
  */
-export function singlePageAppearance({ fit, zoomed, isSwiping, isStale, pageNumber, title }) {
+export function singlePageAppearance({ fit, zoomed, isSwiping, pageNumber, title }) {
   const { safeFit, viewportClass, touchAction } = readerFitAppearance(fit, zoomed);
   const settled = isSwiping || zoomed ? "" : "transition-transform duration-200 motion-reduce:transition-none";
 
@@ -24,9 +24,6 @@ export function singlePageAppearance({ fit, zoomed, isSwiping, isStale, pageNumb
     viewportClass,
     touchAction,
     imageClass: `${IMAGE_CLASSES[safeFit]} mx-auto block select-none shadow-lg ${zoomed ? "zoomed-image" : ""} ${settled}`,
-    // Artwork held over from the previous page is decoration, not this page, so
-    // it is not announced as the page it is standing in for.
-    alt: isStale ? "" : `Page ${pageNumber} of ${title || "Comic"}`,
-    ariaHidden: isStale ? "true" : undefined,
+    alt: `Page ${pageNumber} of ${title || "Comic"}`,
   };
 }

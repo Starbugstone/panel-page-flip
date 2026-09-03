@@ -12,16 +12,17 @@ export function TagBadge({ tag, hideFromLibrary, className, children, ...props }
     <Badge
       variant="outline"
       className={cn(
+        "min-w-0 max-w-full",
         hidesComics && "border-pink-400 bg-pink-100 text-pink-800 hover:bg-pink-200 dark:border-pink-500 dark:bg-pink-950/70 dark:text-pink-200 dark:hover:bg-pink-950",
         className,
       )}
       tabIndex={hidesComics ? 0 : undefined}
       {...props}
     >
-      {children ?? name}
+      {children ?? <span className="truncate">{name}</span>}
       {hidesComics && (
         <>
-          <EyeOff className="ml-1 h-3 w-3" aria-hidden="true" />
+          <EyeOff className="ml-1 h-3 w-3 flex-none" aria-hidden="true" />
           <span className="sr-only"> Hidden from the default library.</span>
         </>
       )}

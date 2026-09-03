@@ -1,11 +1,41 @@
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { ComicCard } from "./ComicCard";
 
 vi.mock("@/hooks/use-toast.js", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
 describe("ComicCard", () => {
+  it("carries its quick-view location into the reader", async () => {
+    const user = userEvent.setup();
+    const ReaderLocation = () => {
+      const location = useLocation();
+      return <span>{location.state?.libraryReturnTo || "no return"}</span>;
+    };
+
+    render(
+      <MemoryRouter initialEntries={["/dashboard?view=reading"]}>
+        <Routes>
+          <Route path="/dashboard" element={(
+            <ComicCard
+              comic={{ id: 42, title: "Watchmen", author: "Moore" }}
+              onResetProgress={vi.fn()}
+              onEditComic={vi.fn()}
+              onDeleteComic={vi.fn()}
+              onShareClick={vi.fn()}
+            />
+          )} />
+          <Route path="/read/:comicId" element={<ReaderLocation />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByRole("link", { name: "Read Watchmen" }));
+
+    expect(screen.getByText("/dashboard?view=reading")).toBeInTheDocument();
+  });
+
   it("exposes the comic id for last-read lookup", () => {
     render(
       <MemoryRouter>

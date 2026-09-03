@@ -38,7 +38,7 @@ export function SharingCodesCard({ onRedeemed, reloadKey = 0 }) {
 
   return (
     <Card className="mb-6">
-      <CardContent className="grid gap-6 p-4 md:grid-cols-2">
+      <CardContent className="grid grid-cols-1 gap-6 p-4 md:grid-cols-2">
         <SharingIdentityPanel
           identity={identity.identity}
           loadFailed={identity.loadFailed}

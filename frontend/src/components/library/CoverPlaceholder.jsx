@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 const PANEL_DELAYS = ["0ms", "180ms", "360ms", "260ms"];
 
 /**
- * What fills a cover's space while the server is being asked for it.
+ * What fills comic artwork's space while the server is being asked for it.
  *
  * Deliberately comic-shaped: panels being laid onto a page, with a light
  * sweeping over them. A generic spinner in a grid of forty cells is forty
@@ -19,7 +19,7 @@ const PANEL_DELAYS = ["0ms", "180ms", "360ms", "260ms"];
  * directly underneath — announcing "loading" forty times says nothing that the
  * page does not already say better.
  */
-export function CoverLoadingArt({ isRetrying = false }) {
+export function ComicLoadingArt({ isRetrying = false }) {
   return (
     <div
       aria-hidden="true"

@@ -17,8 +17,8 @@ export function RedeemCodePanel({ value, onChange, isRedeeming, error, onRedeem 
     <div className="space-y-2">
       <h2 className="font-semibold">Redeem a code</h2>
       <p className="text-xs text-muted-foreground">{SHARING_CODE_COPY.redeem}</p>
-      <div className="flex items-end gap-2">
-        <div className="flex-1 space-y-1">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="min-w-0 flex-1 space-y-1">
           <Label htmlFor="redeem-sharing-code" className="sr-only">Sharing code</Label>
           <Input
             id="redeem-sharing-code"
@@ -29,7 +29,7 @@ export function RedeemCodePanel({ value, onChange, isRedeeming, error, onRedeem 
             disabled={isRedeeming}
           />
         </div>
-        <Button onClick={onRedeem} disabled={isRedeeming || !isValidShareCode(value, REDEEMABLE)}>
+        <Button className="w-full sm:w-auto" onClick={onRedeem} disabled={isRedeeming || !isValidShareCode(value, REDEEMABLE)}>
           {isRedeeming && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Redeem
         </Button>

@@ -47,7 +47,7 @@ function UploadFileDropZone({
       <Label htmlFor="comic-file">Comic File ({comicFormats.join(", ").toUpperCase()})</Label>
       <div
         className={cn(
-          "rounded-lg border-2 border-dashed p-6 text-center",
+          "rounded-lg border-2 border-dashed p-4 text-center sm:p-6",
           !uploading && "cursor-pointer hover:border-gray-400",
           dragging ? "border-primary bg-primary/5" : "border-gray-300 dark:border-gray-600",
         )}
@@ -71,8 +71,8 @@ function UploadFileDropZone({
           onChange={(event) => onChoose(event.target.files[0])}
         />
         {file ? (
-          <div className="flex items-center justify-center gap-2">
-            <span className="text-sm font-medium">{file.name}</span>
+          <div className="flex min-w-0 items-center justify-center gap-2">
+            <span className="min-w-0 break-all text-sm font-medium">{file.name}</span>
             {!uploading && (
               <Button
                 type="button"
@@ -127,14 +127,14 @@ function UploadTags({
           disabled={uploading}
           placeholder="Add tags…"
           label="Add tags"
-          className="flex-1"
+          className="min-w-0 flex-1"
         />
         <Button type="button" variant="outline" onClick={() => onAddTag()} disabled={uploading || !canAddTag}>Add</Button>
       </div>
       <div className="flex flex-wrap gap-2">
         {tags.map((tag) => (
-          <TagBadge key={tag} tag={availableTags.find((item) => item.name === tag) || tag} className="flex items-center gap-1 rounded-md px-2 py-1 text-sm">
-            {tag}
+          <TagBadge key={tag} tag={availableTags.find((item) => item.name === tag) || tag} className="flex min-w-0 max-w-full items-center gap-1 rounded-md px-2 py-1 text-sm">
+            <span className="truncate">{tag}</span>
             {!uploading && (
               <button type="button" onClick={() => onRemoveTag(tag)} aria-label={`Remove ${tag}`}><X size={12} /></button>
             )}
@@ -147,7 +147,7 @@ function UploadTags({
 
 function UploadActions({ file, title, uploading, foldersLoading, onCancel, onBack }) {
   return (
-    <CardFooter className="justify-between">
+    <CardFooter className="justify-between px-4 pb-4 sm:px-6 sm:pb-6">
       <Button variant="outline" type="button" onClick={uploading ? onCancel : onBack}>
         {uploading ? "Cancel upload" : "Back"}
       </Button>
@@ -228,13 +228,13 @@ export default function UploadComicForm() {
 
   return (
     <Card className="w-full max-w-xl">
-      <CardHeader>
+      <CardHeader className="p-4 sm:p-6">
         <CardTitle className="text-2xl font-comic">Upload New Comic</CardTitle>
         <CardDescription>
           Upload one comic here, or <BulkUploadEntryLink className="text-comic-purple underline" search={folderSearch(selectedFolderId)}>upload several at once</BulkUploadEntryLink>.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
         <form id="upload-form" onSubmit={handleSubmit} className="space-y-5">
           <UploadFileDropZone
             file={file}

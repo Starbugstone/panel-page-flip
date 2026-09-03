@@ -8,11 +8,15 @@ import { describeViewportContext } from "@/lib/reader-viewport";
 
 /**
  * How wide the stage may be. Fitted artwork is held to a comfortable column;
- * anything the reader has deliberately made bigger — a width or original fit, a
- * zoom, a continuous scroll — is given the whole window.
+ * anything the reader has deliberately made bigger — a width, height or
+ * original fit, a zoom, a continuous scroll — is given the whole window. A
+ * height fit needs that width even at natural scale: two portrait pages can
+ * only reach the available height when the spread is allowed to grow sideways.
  */
+const FULL_WIDTH_FITS = new Set(["width", "height", "original"]);
+
 const stageWidthClass = ({ effectiveMode, fit, isZoomed }) =>
-  effectiveMode === "continuous" || fit === "width" || fit === "original" || isZoomed ? "max-w-none" : "max-w-4xl";
+  effectiveMode === "continuous" || isZoomed || FULL_WIDTH_FITS.has(fit) ? "max-w-none" : "max-w-4xl";
 
 /**
  * Everything inside the reader's shell: the page itself, the two groups of

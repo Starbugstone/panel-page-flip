@@ -342,7 +342,10 @@ Dropbox support is optional and operates as a one-way import from Dropbox into t
 
 Leaving either Dropbox credential empty keeps the integration disabled. The
 Dropbox page remains available as an explanation, but does not offer a connect
-button that cannot work.
+button that cannot work. Withdrawing the credentials from a server whose users
+have already connected disables the integration the same way: every Dropbox
+endpoint answers `503` with the reason, rather than failing on the first call
+Dropbox would have received.
 
 Users can import individual files from the interface. Folder names become tags, and previously imported files are detected to avoid duplicates.
 

@@ -60,6 +60,14 @@ describe("SharingCodesCard", () => {
     expect(api.get).toHaveBeenCalledWith("/api/shares/user-code");
   });
 
+  it("lets its single mobile grid column shrink to the card width", async () => {
+    renderCard();
+
+    await screen.findByText("U-7RFX-KP3M-Q82D");
+    const content = screen.getByRole("heading", { name: "Your identity" }).closest(".grid");
+    expect(content).toHaveClass("grid-cols-1");
+  });
+
   it("asks before replacing a code, because the old one breaks everywhere at once", async () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockResolvedValue({ name: "Test Reader", username: "TestReader1234", label: "Test Reader (@TestReader1234)", userCode: "U-83AY-GXKP-SNSY" });

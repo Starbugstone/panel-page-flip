@@ -48,6 +48,11 @@ export function useLibrarySearch({ loadLibrary, ownership, isFolderView, activeF
     // Resolve the viewer's private folder tree first. This avoids a guaranteed
     // 400/404 request for malformed or stale bookmarked folder ids before the
     // URL fallback can replace them with the root location.
+    //
+    // The request bookkeeping is repeated here rather than delegated to
+    // fetchComics: that function can set state synchronously, which an effect
+    // body may not do without provoking the cascading renders the lint rule
+    // guards against.
     if (folderLocationPending) return undefined;
     lastComicsUrl.current = locationUrl;
     lastSearchQuery.current = "";

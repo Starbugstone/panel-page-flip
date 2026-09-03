@@ -102,9 +102,12 @@ all it stays open with the message intact.
 | `components/admin/AdminBulkActionsBar.jsx` | the bar |
 
 The library's own table (`ComicTableView`) shares the first three. Its bulk
-operations are different — tag, move, share, and a real batch delete endpoint
-scoped to the owner — but the tick boxes underneath are the same code, which is
-why shift-click behaves identically in both places.
+operations are different — reset personal reading progress, tag, move, share,
+and a real batch delete endpoint scoped to the owner — but the tick boxes
+underneath are the same code, which is why shift-click behaves identically in
+both places. Resetting progress is confirmed once, clears every selected
+comic's personal position, and leaves the selection in place if a request fails
+so it can be retried.
 
 ## Related
 
