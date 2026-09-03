@@ -154,9 +154,10 @@ The AdSense European-regulations message is separately created and published
 under **Privacy & messaging**. Auto Ads being enabled does not create it.
 `AdSenseProvider` loads site code only on ad-safe pages. The permanent **Privacy
 choices** footer action loads Google's consent platform without advertising on
-other routes and calls `googlefc.showRevocationMessage()`. On the Google-free
-legal routes it navigates to a safe route first rather than mounting Funding
-Choices where Google's own privacy-policy requirement forbids it.
+other routes and queues `googlefc.showRevocationMessage` through Google's
+supported `googlefc.callbackQueue`. On the Google-free legal routes it navigates
+to a safe route first rather than mounting Funding Choices where Google's own
+privacy-policy requirement forbids it.
 
 While advertising is enabled, this CMP is the consent owner for the whole
 installation, including Analytics — see `ConsentConfiguration`. The application

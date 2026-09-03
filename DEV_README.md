@@ -28,7 +28,7 @@ lives in [`docs/`](docs/):
 | [admin-bulk-actions.md](docs/admin-bulk-actions.md) | Tick-box selection and bulk actions across the admin tables |
 | [admin-table-controls.md](docs/admin-table-controls.md) | Per-column sorting and filtering across the admin tables |
 | [advertising.md](docs/advertising.md) | Optional AdSense, consent, AdSense Offerwall, strict CSP |
-| [analytics.md](docs/analytics.md) | Optional privacy-first GA4, basic consent mode, route minimisation |
+| [analytics.md](docs/analytics.md) | Optional privacy-first GA4, Consent Mode v2, consent ownership, route minimisation |
 | [social-sign-in.md](docs/social-sign-in.md) | Optional Google OAuth, account linking, passwordless accounts |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
