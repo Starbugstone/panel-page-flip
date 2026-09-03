@@ -38,6 +38,17 @@ const pointerUp = () => {
 };
 
 describe("the page surface", () => {
+  it("shows the comic-panel placeholder while the requested page loads", () => {
+    renderPage({
+      image: null,
+      isLoading: true,
+      pageNumber: 2,
+    });
+
+    expect(surface().querySelector("img")).toBeNull();
+    expect(surface().querySelector('[class*="animate-cover-panel"]')).not.toBeNull();
+  });
+
   it("gives the fitted page's vertical scrolling back to the browser", () => {
     renderPage({ fit: "width" });
 

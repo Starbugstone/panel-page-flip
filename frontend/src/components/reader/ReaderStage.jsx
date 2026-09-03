@@ -48,7 +48,6 @@ export function ReaderStage({
           {...shared}
           imageRef={imageRef}
           image={book.pageStates[0]?.image}
-          isStale={book.pageStates[0]?.isStale}
           isLoading={book.pageStates[0]?.isLoading}
           hasFailed={book.pageStates[0]?.hasFailed}
           pageNumber={book.currentPage + 1}

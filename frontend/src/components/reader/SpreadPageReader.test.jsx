@@ -5,6 +5,26 @@ import { describe, expect, it } from "vitest";
 import { SpreadPageReader } from "./SpreadPageReader";
 
 describe("spread sizing", () => {
+  it("shows the comic-panel placeholder while new spread pages load", () => {
+    render(
+      <SpreadPageReader
+        containerRef={createRef()}
+        contentRef={createRef()}
+        fit="contain"
+        pages={[{
+          pageIndex: 2,
+          image: null,
+          isLoading: true,
+        }]}
+      />
+    );
+
+    const spread = document.querySelector('[data-reader-mode="double"]');
+    expect(spread.firstElementChild).toHaveClass("w-full");
+    expect(spread.querySelector("img")).toBeNull();
+    expect(spread.querySelector('[class*="animate-cover-panel"]')).not.toBeNull();
+  });
+
   it("lets original-size pages establish the scrollable spread width without overlapping", () => {
     render(
       <SpreadPageReader
