@@ -81,7 +81,14 @@ when@prod:
         handlers:
             main:
                 type: fingers_crossed
-                action_level: error
+                # WARNING, not error: the buffered-then-flushed pattern only
+                # writes what its trigger level flushes, and at error we lose
+                # every WARN the request did emit along the way. The upload
+                # rejection path, for example, logs at warning and then throws
+                # a 400 — at action_level: error that warning never reached
+                # the log file and a failing PDF looked identical to an
+                # unhandled success.
+                action_level: warning
                 handler: grouped_main
                 excluded_http_codes: [404, 405]
                 buffer_size: 50 # How many messages should be saved? Prevent memory leaks
