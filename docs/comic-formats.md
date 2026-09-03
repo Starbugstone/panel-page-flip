@@ -27,7 +27,7 @@ PDF is a first-class source alongside CBZ, and like CBZ it needs nothing install
 
 A scanned or exported comic PDF is a container holding one full-page image per page — the same thing a CBZ is, with a different wrapper. Those pages are read natively, in pure PHP: the source provider returns the page's own embedded image without rasterising it, exactly as the CBZ provider returns an entry from the archive. No subprocess, no renderer, and no intermediate re-encode. This is what lets PDF work on shared hosting, where `proc_open` is usually disabled and no package can be installed.
 
-Native parsing is capped at 64 MiB per document and also bounds container values, names, and strings before allocating them. Larger PDFs take the Poppler path when it is available; a host without Poppler rejects them cleanly at upload instead of trying to hold a source larger than the PHP worker's memory limit.
+Native parsing is capped at 500 MiB per document and also bounds container values, names, and strings before allocating them. The reader checks the opened file's size first and allocates only that size, so a small PDF does not reserve the entire ceiling and an oversized one is rejected without being read. Larger PDFs take the Poppler path when it is available; a host without Poppler rejects them cleanly at upload.
 
 What reaches the browser is then whatever **Page delivery** below produces from those bytes, normally WebP — reading a page natively is about not needing a renderer, not about the response being the embedded file.
 
