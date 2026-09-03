@@ -69,6 +69,74 @@ final class ComicUploadCompleteTest extends AbstractApiTestCase
         self::assertSame(2, $payload['chunksExpected']);
     }
 
+    /** @dataProvider chunkedCompletionFailureProvider */
+    public function testCompleteReportsTheSpecificSafeUploadFailure(
+        \RuntimeException $failure,
+        int $expectedStatus,
+        string $expectedMessage
+    ): void {
+        $user = $this->createAndLoginUser();
+        $fileId = 'upload-completion-failure';
+        $directory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $this->temporaryUploadDirectories[] = $directory;
+
+        $this->postJson('/api/comics/upload/init', [
+            'fileId' => $fileId,
+            'filename' => 'failure.cbz',
+            'totalChunks' => 1,
+            'metadata' => ['title' => 'Failure details'],
+        ]);
+        self::assertResponseIsSuccessful();
+
+        $chunkPath = tempnam(sys_get_temp_dir(), 'comic-chunk-');
+        self::assertIsString($chunkPath);
+        file_put_contents($chunkPath, 'chunk contents');
+        $this->browser()->request(
+            'POST',
+            '/api/comics/upload/chunk',
+            ['fileId' => $fileId, 'chunkIndex' => '0'],
+            ['chunk' => new UploadedFile($chunkPath, 'chunk', 'application/octet-stream', null, true)],
+            array_merge(['HTTP_ACCEPT' => 'application/json'], $this->csrfHeader())
+        );
+        if (is_file($chunkPath)) unlink($chunkPath);
+        self::assertResponseIsSuccessful();
+
+        $comicService = $this->createMock(ComicService::class);
+        $comicService->method('wouldExceedQuota')->willReturn(false);
+        $comicService->method('uploadComic')->willThrowException($failure);
+        static::getContainer()->set(ComicService::class, $comicService);
+
+        $payload = $this->postJson('/api/comics/upload/complete', ['fileId' => $fileId]);
+
+        self::assertResponseStatusCodeSame($expectedStatus);
+        self::assertSame($expectedMessage, $payload['message']);
+        self::assertStringNotContainsString('/srv/private', $payload['message']);
+    }
+
+    public function chunkedCompletionFailureProvider(): iterable
+    {
+        yield 'source rejected' => [
+            new ComicUploadRejectedException('Uploaded file is not a valid or supported comic source.'),
+            400,
+            'Uploaded file is not a valid or supported comic source.',
+        ];
+        yield 'quota exceeded' => [
+            new StorageQuotaExceededException('internal quota wording'),
+            413,
+            'User storage quota exceeded.',
+        ];
+        yield 'quota lock busy' => [
+            new StorageQuotaBusyException('internal lock wording'),
+            409,
+            'Another storage operation is already in progress. Please try again.',
+        ];
+        yield 'unexpected server error' => [
+            new \RuntimeException('Database failed at /srv/private/comics.'),
+            500,
+            'Upload failed because of a server error. Please try again later.',
+        ];
+    }
+
     public function testCreateWithoutAFileIsRejected(): void
     {
         $this->createAndLoginUser();

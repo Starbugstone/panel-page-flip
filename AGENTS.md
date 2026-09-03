@@ -158,7 +158,7 @@ its matching fetched `origin/*` ref. Never commit, amend, rebase, cherry-pick,
 or merge while either protected branch is checked out.
 
 Start every task from fetched remote state, not from whichever local branch was
-left checked out:
+left checked out. other onprotected branches we are working on do not need extra PR's and can be pushed to directly.
 
 ```bash
 git fetch --prune origin

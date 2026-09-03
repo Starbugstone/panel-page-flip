@@ -93,6 +93,8 @@ Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed 
 
 Direct uploads, chunked uploads, Dropbox import, and `app:import-comics` all use the same enabled-format and provider validation pipeline. A configured format whose runtime later disappears is omitted from uploader configuration and rejected until the runtime is restored or the format is disabled.
 
+Direct and chunked uploads return the same safe reason when validation or storage admission rejects a file. The single-upload form keeps that reason visible below its progress bar, and the bulk queue shows it on the affected row. Unexpected server failures remain generic in the response and are logged with their internal details instead of exposing them to the uploader.
+
 The direct multipart endpoint validates its form before admitting the file:
 title and optional metadata must be strings, tags must be a JSON list of
 strings, and a destination must be a positive owned-folder identifier. Bad
