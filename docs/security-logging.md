@@ -73,9 +73,9 @@ created as they are needed.
 In **production**, ordinary application logs go to **both** `php://stderr` (for
 whatever collects container output) and `var/log/app/`. Security and audit
 records go to their files **only**, and are not behind the `fingers_crossed`
-handler — that handler holds everything back until an error arrives, which is
-right for debugging a failure and wrong for an audit trail, where a successful
-role change would otherwise never be written at all.
+handler — that handler holds everything back until a warning or error arrives,
+which is right for debugging a failure and wrong for an audit trail, where a
+successful role change would otherwise never be written at all.
 
 ### If your deployment collects logs elsewhere
 
