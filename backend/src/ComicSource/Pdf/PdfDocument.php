@@ -28,10 +28,9 @@ final class PdfDocument
      * rejected every real-world comic volume this site hosts - Dragon Ball
      * volumes routinely run 110-180 MB and were the bulk of the library.
      * Raised to 500 MiB (524288000 bytes) so the native path serves the
-     * full range of image-based PDFs the library actually contains; the
-     * hard ceiling is now well above any legitimate comic but still well
-     * under PHP's typical `memory_limit` (512 MB on this host) so an
-     * oversized upload cannot OOM the worker before the cap fires.
+     * full range of image-based PDFs the library actually contains. The
+     * file is sized before reading so a smaller source only reserves its own
+     * size and an oversized source is rejected before allocating its buffer.
      *
      * The bound is kept in place as a defence-in-depth net: a 50 GB
      * upload hitting an uncapped `file_get_contents` would exhaust memory
@@ -81,13 +80,8 @@ final class PdfDocument
 
     public static function open(string $path): self
     {
-        // Read one byte past the ceiling rather than trusting a prior stat:
-        // this stays bounded even if the source is replaced between the size
-        // check and the read. Larger documents use the provider's Poppler
-        // fallback, which streams them without holding the source in PHP.
-        $buffer = @file_get_contents($path, false, null, 0, self::MAX_DOCUMENT_BYTES + 1);
-        if ($buffer === false || !str_starts_with($buffer, '%PDF-')) throw new PdfException('Not a PDF.');
-        if (strlen($buffer) > self::MAX_DOCUMENT_BYTES) throw new PdfException('PDF is too large for the native reader.');
+        $buffer = self::readSource($path);
+        if (!str_starts_with($buffer, '%PDF-')) throw new PdfException('Not a PDF.');
 
         $document = new self($buffer);
         $document->loadCrossReferences();
@@ -95,6 +89,31 @@ final class PdfDocument
         if (isset($document->trailer['Encrypt'])) throw new PdfException('Encrypted PDFs are not supported.');
 
         return $document;
+    }
+
+    private static function readSource(string $path): string
+    {
+        $stream = @fopen($path, 'rb');
+        if ($stream === false) throw new PdfException('Not a PDF.');
+
+        try {
+            $metadata = fstat($stream);
+            $size = $metadata['size'] ?? null;
+            if (!is_int($size) || $size < 0) throw new PdfException('Not a PDF.');
+            if ($size > self::MAX_DOCUMENT_BYTES) throw new PdfException('PDF is too large for the native reader.');
+
+            // The open handle cannot be redirected by replacing the path. One
+            // extra byte detects a concurrent append while keeping the read
+            // bounded by the already-validated size.
+            $buffer = @stream_get_contents($stream, $size + 1);
+        } finally {
+            fclose($stream);
+        }
+
+        if (!is_string($buffer)) throw new PdfException('Not a PDF.');
+        if (strlen($buffer) !== $size) throw new PdfException('PDF changed while it was being read.');
+
+        return $buffer;
     }
 
     public function pageCount(): int
