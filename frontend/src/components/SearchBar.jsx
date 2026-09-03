@@ -43,7 +43,7 @@ function useSearchShortcut(searchInputRef) {
 
 function Spinner({ className = "" }) {
   return (
-    <svg className={`animate-spin ${className}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <svg aria-hidden="true" className={`animate-spin ${className}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
     </svg>
@@ -68,6 +68,7 @@ function SearchQueryInput({ inputRef, query, selectedCount, focused, onQueryChan
         onChange={(event) => onQueryChange(event.target.value)}
         onFocus={() => onFocusChange(true)}
         onBlur={() => onFocusChange(false)}
+        aria-label="Search comics"
         aria-keyshortcuts="/"
       />
       {showHint && (
@@ -80,6 +81,7 @@ function SearchQueryInput({ inputRef, query, selectedCount, focused, onQueryChan
           type="button"
           className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
           onClick={onClear}
+          aria-label="Clear search and tag filters"
         >
           <X className="h-4 w-4" />
         </button>
@@ -95,7 +97,7 @@ function TagOptions({ loading, error, retryCount, onRetry, tags, selectedTags, o
       <div className="text-sm text-destructive">
         <p>Error: {error}</p>
         {retryCount < MAX_TAG_FETCH_RETRIES && (
-          <button className="mt-1 text-sm text-primary hover:text-primary-focus" onClick={onRetry}>
+          <button type="button" className="mt-1 text-sm text-primary hover:text-primary-focus" onClick={onRetry}>
             Retry
           </button>
         )}
@@ -109,7 +111,11 @@ function TagOptions({ loading, error, retryCount, onRetry, tags, selectedTags, o
         const selected = selectedTags.some((item) => item.id === tag.id);
         return (
           <label key={tag.id} className="flex min-w-0 w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent">
-            <Checkbox checked={selected} onCheckedChange={() => onToggle(tag)} />
+            <Checkbox
+              checked={selected}
+              onCheckedChange={() => onToggle(tag)}
+              aria-label={`Filter by ${tag.name}`}
+            />
             <TagBadge tag={tag} className="min-w-0 flex-1" />
             {tag.isGlobal && <span className="ml-auto flex-none text-xs text-muted-foreground">Global</span>}
           </label>
@@ -138,7 +144,14 @@ function TagFilterPanel({
         </div>
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search your tags…" className="h-9 pl-8" autoFocus />
+          <Input
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Search your tags…"
+            className="h-9 pl-8"
+            aria-label="Search tags"
+            autoFocus
+          />
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 sm:max-h-72">
@@ -153,13 +166,38 @@ function TagFilterPanel({
 }
 
 function TagFilter({ open, onOpenChange, loading, panelProps }) {
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
   const className = open
     ? `relative w-full sm:w-auto ${PAGE_LAYER_CLASSES.activeControl}`
     : "relative w-full sm:w-auto";
 
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const dismissOnEscape = (event) => {
+      if (event.key !== "Escape") return;
+
+      event.preventDefault();
+      onOpenChange(false);
+      triggerRef.current?.focus();
+    };
+    const dismissOnOutsidePointer = (event) => {
+      if (!rootRef.current?.contains(event.target)) onOpenChange(false);
+    };
+
+    document.addEventListener("keydown", dismissOnEscape);
+    document.addEventListener("pointerdown", dismissOnOutsidePointer);
+    return () => {
+      document.removeEventListener("keydown", dismissOnEscape);
+      document.removeEventListener("pointerdown", dismissOnOutsidePointer);
+    };
+  }, [onOpenChange, open]);
+
   return (
-    <div className={className}>
+    <div ref={rootRef} className={className}>
       <Button
+        ref={triggerRef}
         type="button"
         variant="outline"
         className="flex w-full items-center gap-2 sm:w-auto"
@@ -195,7 +233,12 @@ function SelectedTagBadges({ tags, onToggle }) {
         <TagBadge key={tag.id} tag={tag} className="flex shrink-0 items-center gap-1">
           <TagIcon className="h-3 w-3" />
           {tag.name}
-          <button type="button" onClick={() => onToggle(tag)} className="ml-1 hover:text-destructive">
+          <button
+            type="button"
+            onClick={() => onToggle(tag)}
+            className="ml-1 hover:text-destructive"
+            aria-label={`Remove ${tag.name} filter`}
+          >
             <X className="h-3 w-3" />
           </button>
         </TagBadge>

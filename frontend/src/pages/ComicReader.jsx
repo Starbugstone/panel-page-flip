@@ -29,6 +29,7 @@ import { useReaderWakeLock } from "@/hooks/use-reader-wake-lock";
 import { useReaderZoomedWheel } from "@/hooks/use-reader-zoomed-wheel";
 import { useToast } from "@/hooks/use-toast.js";
 import { useViewportProfile } from "@/hooks/use-viewport-profile";
+import { libraryPathToComic } from "@/lib/library-view";
 import { effectiveReaderSettings, hasReaderOverride } from "@/lib/reader-preferences";
 
 export default function ComicReader() {
@@ -149,7 +150,10 @@ export default function ComicReader() {
   if (Boolean(comicId) && isFetching) {
     return <div className="flex min-h-[60vh] items-center justify-center bg-background"><Skeleton className="h-[60vh] w-full max-w-md" /></div>;
   }
-  if (!comic) return <ComicReaderLoadFailure loadError={loadError} onLeave={() => navigate("/dashboard")} />;
+  if (!comic) {
+    const returnTo = libraryPathToComic(undefined, location.state?.libraryReturnTo);
+    return <ComicReaderLoadFailure loadError={loadError} onLeave={() => navigate(returnTo)} />;
+  }
 
   return (
     <ReaderShell

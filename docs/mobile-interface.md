@@ -23,7 +23,10 @@ the view selector together, and gives upload its own row on narrow screens. The
 search field uses the available width, with Tags and Search sharing the next
 row. The tag picker becomes a viewport-bound panel on phones, with a scrolling
 tag list and a visible Apply action; from the small breakpoint upwards it
-returns to an anchored popover.
+returns to an anchored popover. `Escape` closes the panel and returns focus to
+the Tags trigger, while a pointer press outside closes it without stealing focus
+from the target. Search, filter, clear, and remove controls all expose names to
+assistive technology even when their visible control is only an icon.
 
 The library table shows the selection, comic identity, reading progress and
 actions at phone sizes. Lower-priority metadata moves into the comic cell or is
