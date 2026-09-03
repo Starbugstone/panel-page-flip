@@ -21,6 +21,10 @@ final class PdfDocument
     private const MAX_OBJECTS = 500_000;
     private const MAX_PAGES = 20_000;
     private const MAX_TREE_DEPTH = 64;
+    /** TEST (branch test/raise-pdf-native-cap): temporarily unused; the
+     *  Sep-2 64 MB cap was disabled to verify whether the cap was the
+     *  proximate cause of large-PDF upload rejections. Defined so it can be
+     *  re-enabled in one line if the experiment fails. */
     private const MAX_DOCUMENT_BYTES = 67_108_864;
     /** ~600 megapixels: far past any comic page, well short of exhausting memory. */
     private const MAX_PIXELS = 600_000_000;
@@ -64,13 +68,13 @@ final class PdfDocument
 
     public static function open(string $path): self
     {
-        // Read one byte past the ceiling rather than trusting a prior stat:
-        // this stays bounded even if the source is replaced between the size
-        // check and the read. Larger documents use the provider's Poppler
-        // fallback, which streams them without holding the source in PHP.
-        $buffer = @file_get_contents($path, false, null, 0, self::MAX_DOCUMENT_BYTES + 1);
+        // TEST (branch test/raise-pdf-native-cap): the 64 MB ceiling and
+        // size check are intentionally bypassed to verify whether the cap is
+        // the proximate cause of large-PDF rejections. This matches the
+        // pre-3ef7bba (pre-Sep-2) read behaviour exactly. Poppler fallback
+        // upstream in PdfPageProvider::probePageCount is unchanged.
+        $buffer = @file_get_contents($path);
         if ($buffer === false || !str_starts_with($buffer, '%PDF-')) throw new PdfException('Not a PDF.');
-        if (strlen($buffer) > self::MAX_DOCUMENT_BYTES) throw new PdfException('PDF is too large for the native reader.');
 
         $document = new self($buffer);
         $document->loadCrossReferences();
