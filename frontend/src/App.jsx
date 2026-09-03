@@ -10,6 +10,8 @@ import { Header } from "@/components/Header.jsx";
 import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { AdSenseProvider } from "@/components/ads/AdSenseProvider.jsx";
 import { PublicConfigProvider } from "@/components/config/PublicConfigProvider.jsx";
+import { ConsentProvider } from "@/components/consent/ConsentProvider.jsx";
+import { AnalyticsConsentDialog } from "@/components/consent/AnalyticsConsentDialog.jsx";
 import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
 import { Footer } from "@/components/Footer.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
@@ -142,6 +144,7 @@ const AppRoutes = () => {
         </Suspense>
       </main>
       <Footer />
+      <AnalyticsConsentDialog />
       <CookieNotice />
     </div>
   );
@@ -164,15 +167,28 @@ const App = () => {
                   <SessionMonitor />
                   <BrowserRouter>
                     {/* Inside the router because the current route is what
-                        decides where advertising may run at all; outside the
+                        decides where advertising may run at all, and which
+                        routes must stay free of Google entirely; outside the
                         routed pages because Google's site code is loaded once
-                        for the whole application, never per page. */}
+                        for the whole application, never per page.
+
+                        Consent wraps both integrations because it is the thing
+                        they share — advertising does not own the consent
+                        question, and Analytics must not have to ask an
+                        advertising context whether it may run.
+
+                        AdSense sits inside it and Analytics inside that, so
+                        that on an ad-safe route the advertising site code has
+                        already installed Google's CMP by the time the consent
+                        layer decides whether to fetch a standalone copy. */}
                     <PublicConfigProvider>
-                      <AdSenseProvider>
-                        <GoogleAnalyticsProvider>
-                          <AppRoutes />
-                        </GoogleAnalyticsProvider>
-                      </AdSenseProvider>
+                      <ConsentProvider>
+                        <AdSenseProvider>
+                          <GoogleAnalyticsProvider>
+                            <AppRoutes />
+                          </GoogleAnalyticsProvider>
+                        </AdSenseProvider>
+                      </ConsentProvider>
                     </PublicConfigProvider>
                   </BrowserRouter>
                 </TooltipProvider>

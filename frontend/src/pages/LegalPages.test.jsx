@@ -4,52 +4,60 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CookieNoticePage, PrivacyPolicy, TermsOfService } from "@/pages/LegalPages.jsx";
-import { reopenPrivacyChoices } from "@/lib/privacy-choices";
-import { isAdvertisingActive } from "@/lib/advertising";
 
-const { adSense } = vi.hoisted(() => ({
-  adSense: {
-    config: { enabled: false, client: null },
+const { config } = vi.hoisted(() => ({
+  config: {
+    adsense: { enabled: false, client: null },
     analytics: { enabled: false, measurementId: null },
-    consent: { enabled: false, client: null },
+    consentProvider: null,
     legal: { operator: "Test operator", privacyEmail: null, legalEmail: null },
     turnstile: { enabled: false, siteKey: null },
     isLoading: false,
+    openPreferences: vi.fn(),
   },
 }));
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(() => Promise.resolve({})) } }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), log: vi.fn() } }));
-vi.mock("@/lib/privacy-choices", () => ({ reopenPrivacyChoices: vi.fn(() => Promise.resolve(true)) }));
-vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
-  useAdSense: () => ({ config: adSense.config, analytics: adSense.analytics, consent: adSense.consent, legal: adSense.legal, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
-}));
 vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({
   usePublicConfig: () => ({
-    legal: adSense.legal,
-    turnstile: adSense.turnstile,
-    isLoading: adSense.isLoading,
+    adsense: config.adsense,
+    analytics: config.analytics,
+    legal: config.legal,
+    turnstile: config.turnstile,
+    isLoading: config.isLoading,
+  }),
+}));
+vi.mock("@/components/consent/ConsentProvider.jsx", () => ({
+  useConsent: () => ({
+    provider: config.consentProvider,
+    canOpenPreferences: !config.isLoading && config.consentProvider !== null,
+    openPreferences: config.openPreferences,
   }),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";
 
-const advertisingOn = () => { adSense.config = { enabled: true, client: CLIENT }; };
+const advertisingOn = () => {
+  config.adsense = { enabled: true, client: CLIENT };
+  config.consentProvider = "google";
+};
 const analyticsOn = () => {
-  adSense.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
-  adSense.consent = { enabled: true, client: CLIENT };
+  config.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
+  config.consentProvider = config.adsense.enabled ? "google" : "local";
 };
 
 const renderPage = (page) => render(<MemoryRouter initialEntries={["/privacy"]}>{page}</MemoryRouter>);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  adSense.legal = { operator: "Test operator", privacyEmail: null, legalEmail: null };
-  adSense.config = { enabled: false, client: null };
-  adSense.analytics = { enabled: false, measurementId: null };
-  adSense.consent = { enabled: false, client: null };
-  adSense.isLoading = false;
-  adSense.turnstile = { enabled: false, siteKey: null };
+  config.legal = { operator: "Test operator", privacyEmail: null, legalEmail: null };
+  config.adsense = { enabled: false, client: null };
+  config.analytics = { enabled: false, measurementId: null };
+  config.consentProvider = null;
+  config.isLoading = false;
+  config.turnstile = { enabled: false, siteKey: null };
+  config.openPreferences = vi.fn();
 });
 
 /**
@@ -98,7 +106,7 @@ describe("the privacy policy", () => {
   });
 
   it("names Cloudflare only when Turnstile is enabled at runtime", async () => {
-    adSense.turnstile = { enabled: true, siteKey: "public-site-key" };
+    config.turnstile = { enabled: true, siteKey: "public-site-key" };
 
     renderPage(<PrivacyPolicy />);
 
@@ -113,7 +121,7 @@ describe("the privacy policy", () => {
    */
   it("makes neither claim until the server has answered", () => {
     advertisingOn();
-    adSense.isLoading = true;
+    config.isLoading = true;
 
     renderPage(<PrivacyPolicy />);
 
@@ -141,7 +149,22 @@ describe("the privacy policy", () => {
     renderPage(<PrivacyPolicy />);
     await userEvent.click(await screen.findByRole("button", { name: "privacy choices" }));
 
-    await waitFor(() => expect(reopenPrivacyChoices).toHaveBeenCalledWith({ client: CLIENT }));
+    await waitFor(() => expect(config.openPreferences).toHaveBeenCalledTimes(1));
+  });
+
+  /**
+   * The same paragraph has to send an Analytics-only visitor somewhere that
+   * exists. "Privacy choices" is Google's name for its panel, and this
+   * installation has no Google panel to open.
+   */
+  it("names this application's own control where there is no Google CMP", async () => {
+    analyticsOn();
+
+    renderPage(<PrivacyPolicy />);
+
+    expect(await screen.findByRole("button", { name: "analytics preferences" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "privacy choices" })).not.toBeInTheDocument();
+    expect(await screen.findByText(/rejecting is exactly as easy as accepting/i)).toBeInTheDocument();
   });
 });
 
@@ -173,7 +196,7 @@ describe("the cookie notice page", () => {
 
   it("makes neither claim until the server has answered", () => {
     advertisingOn();
-    adSense.isLoading = true;
+    config.isLoading = true;
 
     renderPage(<CookieNoticePage />);
 

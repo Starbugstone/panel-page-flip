@@ -149,6 +149,19 @@ export function loadConsentPlatform(
 }
 
 /**
+ * Whether the AdSense site code has been asked for during this page load.
+ *
+ * The site code installs Google's certified CMP as a side effect, so anything
+ * else that wants the CMP has to know whether it is already coming. Asked of
+ * this module's own record rather than of the DOM, because a script the timeout
+ * gave up on is still a script that was requested, and a second copy of Funding
+ * Choices would be a second owner of one consent dialogue.
+ */
+export function hasRequestedAdSenseScript() {
+  return inFlight.has(SCRIPT_ID);
+}
+
+/**
  * Remove advertising Google has already placed on the page.
  *
  * @returns {number} how many elements were removed, for tests and for logging

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
+import { useConsent } from "@/components/consent/ConsentProvider.jsx";
+import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
 import {
   analyticsPageFor,
   disableGoogleAnalytics,
@@ -11,39 +12,37 @@ import {
   sendAnalyticsPageView,
   setAnalyticsPageContext,
 } from "@/lib/google-analytics";
-import { observeAnalyticsConsent, PRIVACY_CHOICES_OPENING_EVENT } from "@/lib/google-consent";
+import { PRIVACY_CHOICES_OPENING_EVENT } from "@/lib/google-consent";
+import { isGoogleFreeRoute } from "@/lib/google-free-routes";
 
 const APP_ORIGIN = import.meta.env.VITE_APP_URL || "http://localhost:8080";
 
+/**
+ * Loading the measurement tag, once consent says so, and never before.
+ *
+ * Which consent — the Google CMP's analytics purpose or this application's own
+ * Analytics preferences — is {@link useConsent}'s problem, not this component's.
+ * Analytics asking an advertising context whether it may run is what made an
+ * AdSense publisher id a prerequisite for measurement in the first place.
+ */
 export function GoogleAnalyticsProvider({ children }) {
-  const { analytics, consent, isActive, isLoading, scriptStatus: adSenseScriptStatus } = useAdSense();
+  const { analytics, isLoading } = usePublicConfig();
+  const { analyticsConsent } = useConsent();
   const { key: locationKey, pathname } = useLocation();
-  const [consentDecision, setConsentDecision] = useState("waiting");
   const [scriptStatus, setScriptStatus] = useState("idle");
   const lastRoute = useRef(null);
 
-  const active = !isLoading && Boolean(
-    analytics?.enabled && analytics.measurementId && consent?.enabled && consent.client
-  );
+  const active = !isLoading && Boolean(analytics?.enabled && analytics.measurementId);
   const measurementId = analytics?.measurementId;
-
-  useEffect(() => {
-    if (!active) return undefined;
-
-    // The AdSense site tag installs the same CMP on ad-safe pages. Loading the
-    // standalone copy there would race two scripts that own one consent UI.
-    // If that tag is unavailable, fall back to the consent-only script.
-    const loadPlatform = !isActive || adSenseScriptStatus === "idle" || adSenseScriptStatus === "unavailable";
-
-    return observeAnalyticsConsent(consent.client, { onChange: setConsentDecision, loadPlatform });
-  }, [active, adSenseScriptStatus, consent?.client, isActive]);
+  const consentDecision = analyticsConsent;
 
   useEffect(() => {
     if (!active || !measurementId) return undefined;
-    const withdrawImmediately = () => {
-      disableGoogleAnalytics(measurementId);
-      setConsentDecision("denied");
-    };
+    // Synchronously, before Google's panel is on screen. The consent observer
+    // reports the withdrawal too, but that arrives through a state update on
+    // the next render — and somebody who has just opened the panel to change
+    // their mind should not be measured while they are reading it.
+    const withdrawImmediately = () => disableGoogleAnalytics(measurementId);
     window.addEventListener(PRIVACY_CHOICES_OPENING_EVENT, withdrawImmediately);
 
     return () => window.removeEventListener(PRIVACY_CHOICES_OPENING_EVENT, withdrawImmediately);
@@ -61,12 +60,16 @@ export function GoogleAnalyticsProvider({ children }) {
       return undefined;
     }
 
-    if (!analyticsPageFor(pathname)) {
+    // Never on a Google-free route, and never on a route the page table does
+    // not name. The first is a policy the page table must not be able to
+    // override by accident; the second is what keeps user-entered paths,
+    // tokens and comic ids out of measurement entirely.
+    const page = isGoogleFreeRoute(pathname) ? null : analyticsPageFor(pathname);
+    if (!page) {
       disableGoogleAnalytics(measurementId);
       return undefined;
     }
 
-    const page = analyticsPageFor(pathname);
     const pageFields = {
       page_location: new URL(page.path, APP_ORIGIN).href,
       page_title: page.title,
@@ -85,7 +88,7 @@ export function GoogleAnalyticsProvider({ children }) {
   useEffect(() => {
     if (!active || consentDecision !== "granted" || scriptStatus !== "ready") return;
 
-    const page = analyticsPageFor(pathname);
+    const page = isGoogleFreeRoute(pathname) ? null : analyticsPageFor(pathname);
     if (!page) {
       disableGoogleAnalytics(measurementId);
       return;

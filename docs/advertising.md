@@ -9,12 +9,16 @@ Run the safe application-side diagnostic after changing configuration:
 
 ```bash
 cd backend
-APP_ENV=prod php bin/console app:diagnose-advertising
+APP_ENV=prod php bin/console app:diagnose-google-integrations
 ```
 
-It reports effective enablement, publisher-id validity, whether `/ads.txt` is
-expected, dotenv mode, the ad-safe routes, the native Offerwall integration and
-the strict-CSP mode. It does not print the publisher id or any secret.
+(`app:diagnose-advertising` remains as an alias.) It covers AdSense and
+Analytics together, because the questions an operator actually has span them:
+effective enablement of each, publisher-id and measurement-id validity, which
+provider owns consent, whether `/ads.txt` is expected, dotenv mode, the ad-safe
+routes, the Google-free legal routes and the CSP profile they receive, the
+native Offerwall integration and the strict-CSP mode. It does not print the
+publisher id, a consent value or any secret.
 
 ## Runtime configuration
 
@@ -150,12 +154,29 @@ The AdSense European-regulations message is separately created and published
 under **Privacy & messaging**. Auto Ads being enabled does not create it.
 `AdSenseProvider` loads site code only on ad-safe pages. The permanent **Privacy
 choices** footer action loads Google's consent platform without advertising on
-other routes and calls `googlefc.showRevocationMessage()`.
+other routes and calls `googlefc.showRevocationMessage()`. On the Google-free
+legal routes it navigates to a safe route first rather than mounting Funding
+Choices where Google's own privacy-policy requirement forbids it.
 
-When Google Analytics is enabled, the same message must also have **Consent
-mode for advertising purposes** and **Consent mode for analytics purposes**
-enabled in its settings. Analytics uses the CMP's documented
-`CONSENT_MODE_DATA_READY` API in basic mode; see `docs/analytics.md`.
+While advertising is enabled, this CMP is the consent owner for the whole
+installation, including Analytics — see `ConsentConfiguration`. The application
+shows no second dialogue, because two panels covering the same purpose is how
+somebody accepts in one and rejects in the other. Where advertising is off and
+Analytics is on, this application's own Analytics preferences panel asks
+instead, and no AdSense account is involved at all.
+
+When Google Analytics is enabled alongside advertising, the same message must
+also have **Consent mode for advertising purposes** and **Consent mode for
+analytics purposes** enabled in its settings. Analytics uses the CMP's
+documented `CONSENT_MODE_DATA_READY` API in basic mode; see `docs/analytics.md`.
+
+The privacy-policy URL configured under **Privacy & messaging** must contain no
+Funding Choices tag and no other consent-requiring script. `<APP_URL>/privacy`
+satisfies that: `/privacy`, `/cookies` and `/terms` are served Google-free in
+every configuration, at both the application and CSP level. This application
+cannot read the URL your account is set to — it has no AdSense management-API
+access — so the diagnostic prints the URL it serves for you to compare against
+**Privacy & messaging → European regulations → Your sites**.
 
 Test from a fresh/incognito EEA session. Reject must remain as accessible as
 accept, withdrawing consent must work, and refusal must not block application
@@ -218,8 +239,8 @@ Do not grow a guessed list of Google script hosts.
 No visible ad is not itself a deterministic failure: Auto Ads may find no
 suitable placement or inventory. Check each layer separately.
 
-1. **Application:** run `app:diagnose-advertising`; verify `/api/public-config`
-   and `/ads.txt` agree.
+1. **Application:** run `app:diagnose-google-integrations`; verify
+   `/api/public-config` and `/ads.txt` agree.
 2. **Browser script:** on `/` and `/login`, with blockers disabled, verify the
    request to `pagead2.googlesyndication.com/pagead/js/adsbygoogle.js` and check
    `document.getElementById("adsense-site-code")?.src`.

@@ -9,7 +9,7 @@ import { ReaderSettingSwitch, ReaderSettingToggles } from "@/components/reader/R
 import { ReaderZoomSlider } from "@/components/reader/ReaderZoomSlider";
 import { Separator } from "@/components/ui/separator";
 import { READER_DIRECTIONS, READER_FITS, READER_MODES } from "@/lib/reader-preferences";
-import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
+import { PrivacyChoicesButton } from "@/components/consent/PrivacyChoicesButton.jsx";
 
 export function ReaderSettings({
   settings,

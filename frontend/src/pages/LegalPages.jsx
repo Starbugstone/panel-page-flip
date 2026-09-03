@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
 import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
-import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
-import { adSafeRouteSentence } from "@/lib/advertising";
+import { useConsent } from "@/components/consent/ConsentProvider.jsx";
+import { PrivacyChoicesButton } from "@/components/consent/PrivacyChoicesButton.jsx";
+import { adSafeRouteSentence, isAdvertisingActive } from "@/lib/advertising";
 
 const LAST_UPDATED = "1 September 2026";
 
@@ -28,19 +28,28 @@ function useLegalConfig() {
  * that omits a processor they do.
  */
 function useOptionalServicesInUse() {
-  const { analytics, isLoading, isActive } = useAdSense();
-  const { turnstile, isLoading: publicConfigLoading } = usePublicConfig();
+  const { adsense, analytics, turnstile, isLoading } = usePublicConfig();
+  const { provider } = useConsent();
 
   // Null, not false, until the answer arrives. These pages carry absolute
   // claims in both directions — "we do not use advertising networks" is a
   // statement of fact on an indexable page — and defaulting to the negative one
   // for the length of a round trip publishes the wrong fact on every load of an
   // installation that does show advertising. Unknown renders neither claim.
-  return isLoading || publicConfigLoading ? null : {
-    advertising: isActive,
+  return isLoading ? null : {
+    advertising: isAdvertisingActive(adsense),
     analytics: Boolean(analytics?.enabled && analytics.measurementId),
     turnstile: Boolean(turnstile?.enabled && turnstile.siteKey),
+    // Which control the prose should send the reader to. The same page has to
+    // describe a Google-certified CMP on one installation and this
+    // application's own Analytics preferences on another.
+    consentProvider: provider,
   };
+}
+
+/** How the consent control is named in prose, for the provider actually in use. */
+function consentControlName(provider) {
+  return provider === "local" ? "analytics preferences" : "privacy choices";
 }
 
 function Contact({ email }) {
@@ -92,10 +101,32 @@ function LegalLayout({ title, children }) {
  * Who else sees the data, including the advertising disclosures that only
  * apply where the operator has actually turned advertising on.
  */
+/**
+ * Which optional third parties this installation actually uses, as a sentence.
+ *
+ * Both directions are absolute claims on an indexable page, so all four states
+ * are written out rather than composed from two independent clauses that can
+ * contradict each other.
+ */
+function recipientsSentence(advertising, analytics) {
+  if (advertising && analytics) {
+    return " Google serves advertising on a small number of pages and provides optional audience measurement, as described below.";
+  }
+  if (advertising) {
+    return " Google serves advertising on a small number of pages, described below. We do not use third-party analytics.";
+  }
+  if (analytics) {
+    return " We use Google Analytics for optional audience measurement, as described below. We do not use advertising networks.";
+  }
+
+  return " We do not use advertising networks or third-party analytics.";
+}
+
 function PrivacyRecipients({ services }) {
   const advertising = services?.advertising;
   const analytics = services?.analytics;
   const turnstile = services?.turnstile;
+  const localConsent = services?.consentProvider === "local";
   return (
     <>
       <h2>Who receives data</h2>
@@ -104,13 +135,7 @@ function PrivacyRecipients({ services }) {
         Email delivery providers receive recipient addresses and message content.
         If you connect Dropbox, Dropbox receives API requests needed to list and
         import the files you select. Dropbox is optional and can be disconnected.
-        {services === null ? null : advertising && analytics
-          ? " Google serves advertising on a small number of pages and provides optional audience measurement, as described below."
-          : advertising
-            ? " Google serves advertising on a small number of pages, described below. We do not use third-party analytics."
-            : analytics
-              ? " We use Google Analytics for optional audience measurement, as described below. We do not use advertising networks."
-              : " We do not use advertising networks or third-party analytics."}
+        {services === null ? null : recipientsSentence(advertising, analytics)}
       </p>
       {turnstile && (
         <p>
@@ -189,26 +214,28 @@ function PrivacyRecipients({ services }) {
         <>
           <h2>Optional audience measurement</h2>
           <p>
-            When the certified platform reports analytics consent, or that the applicable
-            consent rules do not require it, Google Analytics measures visits to a limited
-            set of application-owned routes so the operator can understand which features
-            are used and improve the service. It receives a pseudonymous browser identifier,
-            a fixed page category, and general device, browser and approximate-location
-            information. We do not send a referrer.
+            {localConsent
+              ? "Once you accept analytics, Google Analytics measures visits to a limited set of application-owned routes so the operator can understand which features are used and improve the service."
+              : "When the certified platform reports analytics consent, or that the applicable consent rules do not require it, Google Analytics measures visits to a limited set of application-owned routes so the operator can understand which features are used and improve the service."}{" "}
+            It receives a pseudonymous browser identifier, a fixed page category, and
+            general device, browser and approximate-location information. We do not send
+            a referrer.
           </p>
           <p>
             We never send Google your account id, email address, comic ids, titles,
             filenames, metadata, tags, searches, reading activity, sharing recipients,
             Dropbox paths, reset tokens or invitation tokens. Reader, administration,
-            invitation, verification and password-reset routes are excluded. URL query
-            strings and user-entered values are not sent.
+            invitation, verification, password-reset, content-reporting and these
+            policy pages are all excluded. URL query strings and user-entered values are
+            not sent.
           </p>
           <p>
-            The Analytics tag is blocked until the certified consent platform reports
-            analytics consent, and it remains blocked if the platform is unavailable or
-            misconfigured. Google Signals and advertising-personalisation signals are
-            disabled. You can refuse or withdraw without losing any feature through{" "}
-            <PrivacyChoicesButton className="underline">privacy choices</PrivacyChoicesButton>,
+            {localConsent
+              ? "No Analytics tag is loaded and no measurement is sent before you accept, and rejecting is exactly as easy as accepting."
+              : "The Analytics tag is blocked until the certified consent platform reports analytics consent, and it remains blocked if the platform is unavailable or misconfigured."}{" "}
+            Google Signals and advertising-personalisation signals are disabled. You can
+            refuse or withdraw without losing any feature through{" "}
+            <PrivacyChoicesButton className="underline">{consentControlName(services?.consentProvider)}</PrivacyChoicesButton>,
             available in the footer and in reader settings.
           </p>
         </>
@@ -414,22 +441,40 @@ function optionalStorageSummaryFor(advertising, analytics) {
   return "Optional Google Analytics uses";
 }
 
-export function CookieNoticePage() {
-  const services = useOptionalServicesInUse();
-  const advertising = services?.advertising;
-  const analytics = services?.analytics;
-  const googleServices = Boolean(advertising || analytics);
-  const turnstile = services?.turnstile;
-  const optionalStorageSummary = optionalStorageSummaryFor(advertising, analytics);
+/**
+ * Where the consent answer is kept, which is not the same question as who asked.
+ *
+ * Google's CMP stores its own record; the Analytics-only path stores one answer
+ * and the version of the wording it was given to, in this browser.
+ */
+function consentStorageDescription(localConsent) {
+  return localConsent
+    ? "this site records your analytics answer in your browser's local storage, so it does not ask again on every visit. It holds only that answer and the version of the wording you answered."
+    : "the Google-certified consent platform stores the choices you made, so it does not ask again on every visit.";
+}
 
+function optionalStorageChoiceSentence(localConsent) {
+  return localConsent
+    ? "Analytics storage is not necessary, and nothing is loaded or sent before you accept it. Reject is offered alongside accept and is exactly as easy to choose."
+    : "Advertising and analytics storage are not necessary, and you choose whether to allow each purpose. Where the EEA, UK or Swiss rules apply, the consent panel appears before any non-essential Google storage or measurement is used; rejecting is as easy as accepting.";
+}
+
+function refusalConsequenceSentence(localConsent) {
+  return localConsent
+    ? "Refusing does not sign you out, hide your library, or take away any feature, and withdrawing removes the Analytics cookies from this site."
+    : "Refusing does not sign you out, hide your library, or take away any feature. Comic pages, covers, library screens and the reader carry no advertising at all.";
+}
+
+/**
+ * Every kind of storage this installation actually uses, one entry each.
+ *
+ * Its own component because the list grows an entry per optional service while
+ * the page around it does not, and because each entry has to describe the
+ * provider in use rather than the one the software could be configured with.
+ */
+function CookieStorageList({ advertising, analytics, turnstile, googleServices, localConsent }) {
   return (
-    <LegalLayout title="Cookie Notice">
-      <p>
-        {services === null ? null : googleServices
-          ? `Panel Page Flip uses storage needed to operate the service and remember your theme preference. ${optionalStorageSummary} additional storage only according to your privacy choices.`
-          : "Panel Page Flip does not use advertising or analytics cookies. It uses only storage needed to operate the service and remember your theme preference."}
-      </p>
-
+    <>
       <h2>Storage used</h2>
       <ul>
         <li><strong>Session cookie:</strong> keeps you signed in. It lasts for the configured session lifetime.</li>
@@ -445,8 +490,8 @@ export function CookieNoticePage() {
         )}
         {googleServices && (
           <li>
-            <strong>Consent choices:</strong> the Google-certified consent platform stores the
-            choices you made, so it does not ask again on every visit.
+            <strong>Consent choices:</strong>{" "}
+            {consentStorageDescription(localConsent)}
           </li>
         )}
         {advertising && (
@@ -461,8 +506,8 @@ export function CookieNoticePage() {
         )}
         {analytics && (
           <li>
-            <strong>Google Analytics storage:</strong> when allowed by your consent choice,
-            or where the certified platform reports that those consent rules do not apply,
+            <strong>Google Analytics storage:</strong> only once you have allowed it
+            {localConsent ? "" : ", or where the certified platform reports that those consent rules do not apply"},
             Google sets first-party <code>_ga</code> cookies containing pseudonymous
             identifiers to distinguish visits and sessions. They expire no later than
             thirteen months after first use and are not refreshed on each visit.
@@ -470,6 +515,35 @@ export function CookieNoticePage() {
           </li>
         )}
       </ul>
+    </>
+  );
+}
+
+export function CookieNoticePage() {
+  const services = useOptionalServicesInUse();
+  const advertising = services?.advertising;
+  const analytics = services?.analytics;
+  const googleServices = Boolean(advertising || analytics);
+  const turnstile = services?.turnstile;
+  const localConsent = services?.consentProvider === "local";
+  const optionalStorageSummary = optionalStorageSummaryFor(advertising, analytics);
+  const controlName = consentControlName(services?.consentProvider);
+
+  return (
+    <LegalLayout title="Cookie Notice">
+      <p>
+        {services === null ? null : googleServices
+          ? `Panel Page Flip uses storage needed to operate the service and remember your theme preference. ${optionalStorageSummary} additional storage only according to your ${controlName}.`
+          : "Panel Page Flip does not use advertising or analytics cookies. It uses only storage needed to operate the service and remember your theme preference."}
+      </p>
+
+      <CookieStorageList
+        advertising={advertising}
+        analytics={analytics}
+        turnstile={turnstile}
+        googleServices={googleServices}
+        localConsent={localConsent}
+      />
 
       <h2>Your choices</h2>
       <p>
@@ -479,16 +553,13 @@ export function CookieNoticePage() {
       {services === null ? null : googleServices ? (
         <>
           <p>
-            Advertising and analytics storage are not necessary, and you choose whether to allow each purpose. Where the
-            EEA, UK or Swiss rules apply, the consent panel appears before any non-essential
-            Google storage or measurement is used; rejecting is as easy as accepting. Reopen it at any time
-            through{" "}
-            <PrivacyChoicesButton className="underline">privacy choices</PrivacyChoicesButton>
+            {optionalStorageChoiceSentence(localConsent)}{" "}
+            Change your answer at any time through{" "}
+            <PrivacyChoicesButton className="underline">{controlName}</PrivacyChoicesButton>
             , which is also in the footer and in the comic reader’s settings.
           </p>
           <p>
-            Refusing does not sign you out, hide your library, or take away any feature. Comic
-            pages, covers, library screens and the reader carry no advertising at all.
+            {refusalConsequenceSentence(localConsent)}
           </p>
         </>
       ) : (

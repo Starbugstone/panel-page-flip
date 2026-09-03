@@ -144,10 +144,14 @@ Important configuration variables:
   nonce-based Content-Security-Policy. Account configuration and verification
   are documented in [`docs/advertising.md`](docs/advertising.md).
 - `GOOGLE_ANALYTICS_ENABLED`, `GOOGLE_ANALYTICS_MEASUREMENT_ID` — optional
-  GA4 audience measurement, off by default. Analytics also requires a valid
-  `ADSENSE_CLIENT` for Google's certified Privacy & Messaging CMP, but
-  `ADSENSE_ENABLED` may stay false. No Analytics tag or measurement request is
-  made until analytics consent is granted; see [`docs/analytics.md`](docs/analytics.md).
+  GA4 audience measurement, off by default and independent of AdSense: it needs
+  only its own switch and a valid `G-` measurement id, never an
+  `ADSENSE_CLIENT`. Who asks for consent follows from what is enabled — Google's
+  certified Privacy & Messaging CMP where advertising is on, this application's
+  own Analytics preferences where it is not — and no Analytics tag or
+  measurement request is made until that consent is granted. `/privacy`,
+  `/cookies` and `/terms` load no Google script in any configuration. See
+  [`docs/analytics.md`](docs/analytics.md).
 - `METRON_SHARED_ENABLED` — whether this server may spend its own Metron account
   on behalf of every user. Off unless set; a user's personal Metron token is
   unaffected by it.

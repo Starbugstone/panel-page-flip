@@ -12,6 +12,7 @@ vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), log: vi.fn() } }));
 vi.mock("@/lib/adsense-loader", () => ({
   loadAdSenseScript: vi.fn(() => Promise.resolve("ready")),
   keepRouteAdFree: vi.fn(() => vi.fn()),
+  hasRequestedAdSenseScript: vi.fn(() => false),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";
@@ -64,6 +65,26 @@ describe("loading Google's site code", () => {
       renderAt(pathname);
 
       await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/public-config", expect.anything()));
+      expect(loadAdSenseScript).not.toHaveBeenCalled();
+    }
+  );
+
+  /**
+   * Google requires the privacy-policy URL configured in Privacy & Messaging to
+   * carry no ad tag. None of these is on the ad-safe allowlist, but the two
+   * lists are maintained for different reasons and the provider checks both —
+   * one careless edit to the allowlist should not be able to breach a published
+   * policy commitment.
+   */
+  it.each(["/privacy", "/cookies", "/terms"])(
+    "never loads it on the Google-free route %s",
+    async (pathname) => {
+      serverSays({ enabled: true, client: CLIENT });
+
+      renderAt(pathname);
+
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/public-config", expect.anything()));
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(loadAdSenseScript).not.toHaveBeenCalled();
     }
   );

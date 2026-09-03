@@ -6,14 +6,23 @@ const ANALYTICS_COOKIE_SECONDS = 13 * 30 * 24 * 60 * 60;
 const SCRIPT_ID = "google-analytics-tag";
 const inFlight = new Map();
 
+/**
+ * The only routes that ever produce a page view, and the fixed title each one
+ * reports.
+ *
+ * An allowlist, so a new route is unmeasured until somebody decides otherwise.
+ *
+ * The legal-policy pages are deliberately absent and must stay absent: Google
+ * requires the privacy-policy URL configured in Privacy & Messaging to carry no
+ * consent-requiring tag, and `google-free-routes.js` enforces that for the
+ * whole set. `/report-content` is absent for a different reason — it is the
+ * illegal-content reporting workflow, and a page view saying somebody opened it
+ * is measurement of a legally sensitive act that nothing here needs.
+ */
 const ANALYTICS_PAGES = Object.freeze({
   "/": "Landing page",
   "/login": "Login",
   "/forgot-password": "Forgot password",
-  "/privacy": "Privacy policy",
-  "/terms": "Terms of service",
-  "/cookies": "Cookie notice",
-  "/report-content": "Report content",
   "/dashboard": "Library",
   "/upload": "Upload comic",
   "/upload/bulk": "Bulk upload information",

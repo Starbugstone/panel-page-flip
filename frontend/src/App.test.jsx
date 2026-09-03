@@ -19,6 +19,8 @@ vi.mock("./hooks/use-comic-library.jsx", () => ({ ComicLibraryProvider: ({ child
 vi.mock("./hooks/use-sharing.jsx", () => ({ SharingProvider: ({ children }) => children }));
 vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({ PublicConfigProvider: ({ children }) => children }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({ AdSenseProvider: ({ children }) => children }));
+vi.mock("@/components/consent/ConsentProvider.jsx", () => ({ ConsentProvider: ({ children }) => children }));
+vi.mock("@/components/consent/AnalyticsConsentDialog.jsx", () => ({ AnalyticsConsentDialog: () => null }));
 vi.mock("@/components/analytics/GoogleAnalyticsProvider.jsx", () => ({ GoogleAnalyticsProvider: ({ children }) => children }));
 vi.mock("@/components/Header.jsx", () => ({ Header: () => <header>Application header</header> }));
 vi.mock("@/components/AdminNoticeBanner.jsx", () => ({ AdminNoticeBanner: () => null }));

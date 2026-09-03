@@ -59,12 +59,18 @@ cleans up correctly.
 
 `backend/config/csp.json` contains the shared policy inputs. Symfony reads it to
 build Apache responses with a cryptographic per-response nonce.
-`scripts/generate-csp.mjs` emits the equivalent `$request_id` nonce policy into
-the production nginx header include:
+`scripts/generate-csp.mjs` emits both nginx profiles from it:
 
 | File | Form |
 | --- | --- |
-| `docker/nginx_frontend/security-headers.conf` | nginx `add_header`, production |
+| `docker/nginx_frontend/base-headers.conf` | the headers that never vary by route |
+| `docker/nginx_frontend/security-headers.conf` | base headers + the Google-capable `$request_id` nonce policy |
+| `docker/nginx_frontend/security-headers-google-free.conf` | base headers + the strict policy for the legal routes |
+
+The Google-free profile is derived by removing every origin in the manifest's
+`googleOrigins` from every directive, so an origin added above cannot survive
+here by being forgotten; the generator refuses to run if a Google-shaped source
+appears in a directive without being declared there.
 
 Run `node scripts/generate-csp.mjs` after editing the manifest, and
 `npm run check:csp --prefix frontend` to verify — CI runs the check.
@@ -73,9 +79,14 @@ nginx also substitutes that request id into every initial script tag. Exact
 indexable route blocks rewrite canonical metadata with their own `sub_filter`
 directives; because nginx then stops inheriting the server-level filters,
 `scripts/generate-nginx-routes.mjs` repeats the nonce substitution inside each
-such block. The deployment-artefact tests execute the generator and require the
-nonce filter on every indexable route so a direct legal-page request cannot be
-left at the non-interactive SEO fallback by CSP.
+such block. The exception is the `googleFree` routes in
+`backend/config/frontend-routes.json`, which instead include the strict header
+snippet and are deliberately not nonced — a nonce is what would let a trusted
+module pull descendants in under `strict-dynamic`, and Google requires the
+privacy-policy URL to carry no consent-requiring script. The
+deployment-artefact tests execute the generator and require the nonce filter on
+every other indexable route, so a direct legal-page request cannot be left at
+the non-interactive SEO fallback by CSP.
 
 Local development is served directly by the Node 22 Vite container declared in
 `docker-compose.yml`. There is no second Node/nginx development image to keep in
