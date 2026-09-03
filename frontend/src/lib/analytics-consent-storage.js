@@ -16,6 +16,7 @@ const STORAGE_KEY = "panel-page-flip:analytics-consent";
 
 /** Raise this when the wording changes in a way that makes old answers stale. */
 export const ANALYTICS_CONSENT_VERSION = 1;
+export const ANALYTICS_CONSENT_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
 
 export const ANALYTICS_CONSENT_UNDECIDED = "undecided";
 export const ANALYTICS_CONSENT_GRANTED = "granted";
@@ -34,13 +35,24 @@ function store(storage) {
  * reads as undecided rather than as a grant. Failing closed here is the whole
  * point: the tag must not load because a corrupted value happened to be truthy.
  */
-export function readAnalyticsConsent(storage) {
+export function readAnalyticsConsent(storage, now = Date.now()) {
   try {
     const raw = store(storage).getItem(STORAGE_KEY);
     if (!raw) return ANALYTICS_CONSENT_UNDECIDED;
 
     const parsed = JSON.parse(raw);
     if (parsed?.version !== ANALYTICS_CONSENT_VERSION) return ANALYTICS_CONSENT_UNDECIDED;
+    if (typeof parsed.decidedAt !== "string") return ANALYTICS_CONSENT_UNDECIDED;
+    const decidedAt = Date.parse(parsed.decidedAt);
+    const age = now - decidedAt;
+    if (
+      !Number.isFinite(decidedAt)
+      || !Number.isFinite(age)
+      || age < 0
+      || age > ANALYTICS_CONSENT_MAX_AGE_MS
+    ) {
+      return ANALYTICS_CONSENT_UNDECIDED;
+    }
 
     return DECISIONS.includes(parsed.decision) ? parsed.decision : ANALYTICS_CONSENT_UNDECIDED;
   } catch {
@@ -50,14 +62,16 @@ export function readAnalyticsConsent(storage) {
   }
 }
 
-export function persistAnalyticsConsent(decision, storage) {
+export function persistAnalyticsConsent(decision, storage, now = Date.now()) {
   if (!DECISIONS.includes(decision)) return false;
+  const decidedAt = new Date(now);
+  if (Number.isNaN(decidedAt.getTime())) return false;
 
   try {
     store(storage).setItem(STORAGE_KEY, JSON.stringify({
       version: ANALYTICS_CONSENT_VERSION,
       decision,
-      decidedAt: new Date().toISOString(),
+      decidedAt: decidedAt.toISOString(),
     }));
 
     return true;

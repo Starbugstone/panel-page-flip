@@ -5,8 +5,10 @@ import { useConsent } from "@/components/consent/ConsentProvider.jsx";
 import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
 import {
   analyticsPageFor,
+  denyLocalAnalyticsConsent,
   disableGoogleAnalytics,
   enableGoogleAnalytics,
+  grantLocalAnalyticsConsent,
   guardGoogleAnalyticsNavigation,
   loadGoogleAnalytics,
   sendAnalyticsPageView,
@@ -27,10 +29,10 @@ const APP_ORIGIN = import.meta.env.VITE_APP_URL || "http://localhost:8080";
  */
 export function GoogleAnalyticsProvider({ children }) {
   const { analytics, isLoading } = usePublicConfig();
-  const { analyticsConsent } = useConsent();
+  const { analyticsConsent, provider: consentProvider } = useConsent();
   const { key: locationKey, pathname } = useLocation();
   const [scriptStatus, setScriptStatus] = useState("idle");
-  const lastRoute = useRef(null);
+  const lastMeasuredNavigation = useRef(null);
 
   const active = !isLoading && Boolean(analytics?.enabled && analytics.measurementId);
   const measurementId = analytics?.measurementId;
@@ -56,7 +58,11 @@ export function GoogleAnalyticsProvider({ children }) {
 
   useEffect(() => {
     if (!active || !measurementId || consentDecision !== "granted") {
+      if (consentProvider === "local" && consentDecision === "denied") {
+        denyLocalAnalyticsConsent();
+      }
       if (measurementId) disableGoogleAnalytics(measurementId);
+      lastMeasuredNavigation.current = null;
       return undefined;
     }
 
@@ -67,6 +73,7 @@ export function GoogleAnalyticsProvider({ children }) {
     const page = isGoogleFreeRoute(pathname) ? null : analyticsPageFor(pathname);
     if (!page) {
       disableGoogleAnalytics(measurementId);
+      lastMeasuredNavigation.current = null;
       return undefined;
     }
 
@@ -76,6 +83,7 @@ export function GoogleAnalyticsProvider({ children }) {
       page_referrer: "",
     };
     let ignore = false;
+    if (consentProvider === "local") grantLocalAnalyticsConsent();
     setAnalyticsPageContext(pageFields);
     enableGoogleAnalytics(measurementId);
     loadGoogleAnalytics(measurementId, { pageFields }).then((status) => {
@@ -83,7 +91,7 @@ export function GoogleAnalyticsProvider({ children }) {
     });
 
     return () => { ignore = true; };
-  }, [active, consentDecision, measurementId, pathname]);
+  }, [active, consentDecision, consentProvider, measurementId, pathname]);
 
   useEffect(() => {
     if (!active || consentDecision !== "granted" || scriptStatus !== "ready") return;
@@ -91,6 +99,7 @@ export function GoogleAnalyticsProvider({ children }) {
     const page = isGoogleFreeRoute(pathname) ? null : analyticsPageFor(pathname);
     if (!page) {
       disableGoogleAnalytics(measurementId);
+      lastMeasuredNavigation.current = null;
       return;
     }
 
@@ -105,8 +114,8 @@ export function GoogleAnalyticsProvider({ children }) {
     // back to the real URL, then re-enable and send our sanitized view.
     setAnalyticsPageContext(pageFields);
     enableGoogleAnalytics(measurementId);
-    if (lastRoute.current === pathname) return;
-    lastRoute.current = pathname;
+    if (lastMeasuredNavigation.current === locationKey) return;
+    lastMeasuredNavigation.current = locationKey;
 
     sendAnalyticsPageView(measurementId, pageFields);
   }, [active, consentDecision, locationKey, measurementId, pathname, scriptStatus]);

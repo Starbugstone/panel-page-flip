@@ -219,8 +219,10 @@ describe("the Analytics-only consent flow", () => {
     expect(reject.tagName).toBe("BUTTON");
     expect(reject).toBeEnabled();
     expect(reject.parentElement).toBe(accept.parentElement);
+    expect(reject.parentElement.className).toContain("sm:shrink-0");
     expect(reject.className).toContain("h-9");
     expect(accept.className).toContain("h-9");
+    expect(reject.className).toBe(accept.className);
 
     await userEvent.click(reject);
 

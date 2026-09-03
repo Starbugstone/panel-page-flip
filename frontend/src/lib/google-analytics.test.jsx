@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ANALYTICS_SCRIPT_ID,
   analyticsPageFor,
+  denyLocalAnalyticsConsent,
   disableGoogleAnalytics,
+  grantLocalAnalyticsConsent,
   guardGoogleAnalyticsNavigation,
   loadGoogleAnalytics,
   resetGoogleAnalyticsForTesting,
@@ -46,6 +48,62 @@ describe("the analytics route boundary", () => {
 });
 
 describe("loading Google Analytics", () => {
+  it("queues Consent Mode v2 defaults and the local grant before configuring GA4", async () => {
+    grantLocalAnalyticsConsent();
+    grantLocalAnalyticsConsent();
+    const loading = loadGoogleAnalytics(MEASUREMENT_ID);
+
+    const commands = window.dataLayer.map((entry) => [...entry]);
+    const consentDefault = commands.findIndex(
+      ([command, action]) => command === "consent" && action === "default"
+    );
+    const consentUpdate = commands.findIndex(
+      ([command, action]) => command === "consent" && action === "update"
+    );
+    const config = commands.findIndex(([command]) => command === "config");
+
+    expect(commands[consentDefault][2]).toEqual({
+      ad_storage: "denied",
+      ad_user_data: "denied",
+      ad_personalization: "denied",
+      analytics_storage: "denied",
+    });
+    expect(commands[consentUpdate][2]).toEqual({
+      ad_storage: "denied",
+      ad_user_data: "denied",
+      ad_personalization: "denied",
+      analytics_storage: "granted",
+    });
+    expect(consentDefault).toBeLessThan(consentUpdate);
+    expect(consentUpdate).toBeLessThan(config);
+    expect(commands.filter(
+      ([command, action]) => command === "consent" && action === "update"
+    )).toHaveLength(1);
+
+    document.getElementById(ANALYTICS_SCRIPT_ID).dispatchEvent(new Event("load"));
+    await loading;
+  });
+
+  it("updates all Consent Mode v2 fields when local analytics consent is withdrawn", async () => {
+    grantLocalAnalyticsConsent();
+    const loading = loadGoogleAnalytics(MEASUREMENT_ID);
+    document.getElementById(ANALYTICS_SCRIPT_ID).dispatchEvent(new Event("load"));
+    await loading;
+
+    expect(denyLocalAnalyticsConsent()).toBe(true);
+
+    expect([...window.dataLayer.at(-1)]).toEqual([
+      "consent",
+      "update",
+      {
+        ad_storage: "denied",
+        ad_user_data: "denied",
+        ad_personalization: "denied",
+        analytics_storage: "denied",
+      },
+    ]);
+  });
+
   it("loads and configures the tag once with privacy-preserving defaults", async () => {
     const pageFields = {
       page_location: "https://comics.example/dashboard",

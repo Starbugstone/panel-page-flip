@@ -1,11 +1,13 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useNavigate } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
 import {
+  denyLocalAnalyticsConsent,
   disableGoogleAnalytics,
+  grantLocalAnalyticsConsent,
   loadGoogleAnalytics,
   sendAnalyticsPageView,
   setAnalyticsPageContext,
@@ -15,6 +17,7 @@ const state = vi.hoisted(() => ({
   analytics: { enabled: true, measurementId: "G-PSW1MY7HB4" },
   isLoading: false,
   analyticsConsent: "undecided",
+  consentProvider: "local",
   setConsent: null,
 }));
 
@@ -22,10 +25,15 @@ vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({
   usePublicConfig: () => ({ analytics: state.analytics, isLoading: state.isLoading }),
 }));
 vi.mock("@/components/consent/ConsentProvider.jsx", () => ({
-  useConsent: () => ({ analyticsConsent: state.analyticsConsent }),
+  useConsent: () => ({
+    analyticsConsent: state.analyticsConsent,
+    provider: state.consentProvider,
+  }),
 }));
 vi.mock("@/lib/google-analytics", async (importOriginal) => ({
   ...(await importOriginal()),
+  denyLocalAnalyticsConsent: vi.fn(),
+  grantLocalAnalyticsConsent: vi.fn(),
   loadGoogleAnalytics: vi.fn(() => Promise.resolve("ready")),
   sendAnalyticsPageView: vi.fn(),
   setAnalyticsPageContext: vi.fn(),
@@ -34,7 +42,13 @@ vi.mock("@/lib/google-analytics", async (importOriginal) => ({
 
 function Navigation() {
   const navigate = useNavigate();
-  return <button onClick={() => navigate("/settings")}>Settings</button>;
+  return (
+    <>
+      <button onClick={() => navigate("/settings")}>Settings</button>
+      <button onClick={() => navigate("/read/42")}>Reader</button>
+      <button onClick={() => navigate("/dashboard")}>Dashboard</button>
+    </>
+  );
 }
 
 /**
@@ -66,6 +80,7 @@ beforeEach(() => {
   state.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
   state.isLoading = false;
   state.analyticsConsent = "undecided";
+  state.consentProvider = "local";
   state.setConsent = null;
 });
 
@@ -106,6 +121,36 @@ describe("privacy-first analytics startup", () => {
     await userEvent.click(document.querySelector("button"));
     await waitFor(() => expect(sendAnalyticsPageView).toHaveBeenCalledTimes(2));
     expect(sendAnalyticsPageView.mock.calls[1][1].page_location).toBe("http://localhost:8080/settings");
+  });
+
+  it("counts a return to the same allowed route after an excluded route", async () => {
+    renderProvider();
+    act(() => state.setConsent("granted"));
+    await waitFor(() => expect(sendAnalyticsPageView).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByRole("button", { name: "Reader" }));
+    await userEvent.click(screen.getByRole("button", { name: "Dashboard" }));
+
+    await waitFor(() => expect(sendAnalyticsPageView).toHaveBeenCalledTimes(2));
+    expect(sendAnalyticsPageView.mock.calls[1][1].page_location).toBe("http://localhost:8080/dashboard");
+  });
+
+  it("emits Consent Mode v2 changes for the local banner but leaves Google's CMP authoritative", async () => {
+    const view = renderProvider();
+    act(() => state.setConsent("granted"));
+    await waitFor(() => expect(grantLocalAnalyticsConsent).toHaveBeenCalledTimes(1));
+
+    act(() => state.setConsent("denied"));
+    expect(denyLocalAnalyticsConsent).toHaveBeenCalledTimes(1);
+
+    vi.clearAllMocks();
+    view.unmount();
+    state.analyticsConsent = "granted";
+    state.consentProvider = "google";
+    renderProvider();
+    await waitFor(() => expect(loadGoogleAnalytics).toHaveBeenCalledTimes(1));
+    expect(grantLocalAnalyticsConsent).not.toHaveBeenCalled();
+    expect(denyLocalAnalyticsConsent).not.toHaveBeenCalled();
   });
 
   /**

@@ -5,7 +5,7 @@ import { useConsent } from "@/components/consent/ConsentProvider.jsx";
 import { PrivacyChoicesButton } from "@/components/consent/PrivacyChoicesButton.jsx";
 import { adSafeRouteSentence, isAdvertisingActive } from "@/lib/advertising";
 
-const LAST_UPDATED = "1 September 2026";
+const LAST_UPDATED = "3 September 2026";
 
 /**
  * The operator's contact details, from the one public-config request the
@@ -97,10 +97,6 @@ function LegalLayout({ title, children }) {
   );
 }
 
-/**
- * Who else sees the data, including the advertising disclosures that only
- * apply where the operator has actually turned advertising on.
- */
 /**
  * Which optional third parties this installation actually uses, as a sentence.
  *
@@ -244,12 +240,24 @@ function PrivacyRecipients({ services }) {
   );
 }
 
+function optionalConsentPurpose(advertising, analytics) {
+  if (advertising && analytics) {
+    return "to use optional Google advertising and Google Analytics audience measurement";
+  }
+  if (advertising) return "to use optional Google advertising";
+  if (analytics) return "to use optional Google Analytics audience measurement";
+
+  return null;
+}
+
 export function PrivacyPolicy() {
   const { operator, privacyEmail } = useLegalConfig();
 
   const services = useOptionalServicesInUse();
+  const advertising = services?.advertising;
   const analytics = services?.analytics;
   const turnstile = services?.turnstile;
+  const consentPurpose = optionalConsentPurpose(advertising, analytics);
 
   return (
     <LegalLayout title="Privacy Policy">
@@ -283,7 +291,7 @@ export function PrivacyPolicy() {
         <li><strong>Contract:</strong> to create your account and provide the library, reader, sharing, and optional Dropbox features you request.</li>
         <li><strong>Legitimate interests:</strong> to secure, troubleshoot, and administer the service, prevent abuse, and keep proportionate audit records.</li>
         <li><strong>Legal obligations:</strong> where records must be retained or disclosed under applicable law.</li>
-        {analytics && <li><strong>Consent:</strong> to perform optional audience measurement with Google Analytics.</li>}
+        {consentPurpose && <li><strong>Consent:</strong> {consentPurpose}.</li>}
       </ul>
 
       <PrivacyRecipients services={services} />
@@ -449,7 +457,7 @@ function optionalStorageSummaryFor(advertising, analytics) {
  */
 function consentStorageDescription(localConsent) {
   return localConsent
-    ? "this site records your analytics answer in your browser's local storage, so it does not ask again on every visit. It holds only that answer and the version of the wording you answered."
+    ? "this site records your analytics answer, the consent-text version and when you answered in your browser's local storage. The choice expires after 180 days so you can be asked again with current information."
     : "the Google-certified consent platform stores the choices you made, so it does not ask again on every visit.";
 }
 

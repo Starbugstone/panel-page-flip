@@ -42,8 +42,8 @@ export function AnalyticsConsentDialog() {
           Everything here works either way, and you can change your mind at any time
           through <strong>Analytics preferences</strong>.
         </p>
-        <div className="flex shrink-0 gap-2">
-          <Button size="sm" variant="outline" onClick={rejectAnalytics}>Reject analytics</Button>
+        <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:shrink-0">
+          <Button size="sm" onClick={rejectAnalytics}>Reject analytics</Button>
           <Button size="sm" onClick={acceptAnalytics}>Accept analytics</Button>
         </div>
       </div>

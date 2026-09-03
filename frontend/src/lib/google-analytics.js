@@ -5,6 +5,14 @@ const SCRIPT_TIMEOUT_MS = 5000;
 const ANALYTICS_COOKIE_SECONDS = 13 * 30 * 24 * 60 * 60;
 const SCRIPT_ID = "google-analytics-tag";
 const inFlight = new Map();
+const localConsentModeStates = new WeakMap();
+
+const DENIED_CONSENT = Object.freeze({
+  ad_storage: "denied",
+  ad_user_data: "denied",
+  ad_personalization: "denied",
+  analytics_storage: "denied",
+});
 
 /**
  * The only routes that ever produce a page view, and the fixed title each one
@@ -45,9 +53,49 @@ export function analyticsScriptSrc(measurementId) {
   return `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(measurementId)}`;
 }
 
-function initialiseQueue(win, measurementId, pageFields) {
+function ensureGoogleTagQueue(win) {
   win.dataLayer = win.dataLayer || [];
   win.gtag = win.gtag || function gtag(...args) { win.dataLayer.push(args); };
+}
+
+/**
+ * Apply the first-party banner's grant using Google's required Consent Mode v2
+ * order. Advertising remains denied because this path exists only when AdSense
+ * is off, and prevents a later GA account link from silently widening consent.
+ */
+export function grantLocalAnalyticsConsent(
+  { win = typeof window === "undefined" ? null : window } = {}
+) {
+  if (!win) return false;
+  ensureGoogleTagQueue(win);
+
+  const previousState = localConsentModeStates.get(win);
+  if (!previousState) {
+    win.gtag("consent", "default", DENIED_CONSENT);
+    win.gtag("set", "ads_data_redaction", true);
+  }
+  if (previousState !== "granted") {
+    win.gtag("consent", "update", { ...DENIED_CONSENT, analytics_storage: "granted" });
+    localConsentModeStates.set(win, "granted");
+  }
+
+  return true;
+}
+
+export function denyLocalAnalyticsConsent(
+  { win = typeof window === "undefined" ? null : window } = {}
+) {
+  if (!win?.gtag || !localConsentModeStates.has(win)) return false;
+  if (localConsentModeStates.get(win) !== "denied") {
+    win.gtag("consent", "update", DENIED_CONSENT);
+    localConsentModeStates.set(win, "denied");
+  }
+
+  return true;
+}
+
+function initialiseQueue(win, measurementId, pageFields) {
+  ensureGoogleTagQueue(win);
   win[`ga-disable-${measurementId}`] = false;
   win.gtag("js", new Date());
   win.gtag("config", measurementId, {
@@ -206,6 +254,7 @@ export function resetGoogleAnalyticsForTesting(
   inFlight.clear();
   doc?.getElementById(SCRIPT_ID)?.remove();
   if (win) {
+    localConsentModeStates.delete(win);
     measurementIds.forEach((measurementId) => { delete win[`ga-disable-${measurementId}`]; });
     delete win.dataLayer;
     delete win.gtag;

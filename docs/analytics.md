@@ -50,14 +50,22 @@ each Google-free route receives.
 This application asks, with **Accept analytics** and **Reject analytics** side
 by side and equally easy to choose. Nothing Google-owned is loaded before a
 grant — that is basic consent mode, so a visitor who rejects sends no cookieless
-pings either. The answer is stored in this browser's local storage under
+pings either. On a grant, the application queues Consent Mode v2's
+`ad_storage`, `ad_user_data`, `ad_personalization`, and `analytics_storage`
+defaults before the GA4 configuration, then updates only `analytics_storage` to
+granted. The advertising fields remain denied and ads-data redaction remains on.
+
+The answer is stored in this browser's local storage under
 `panel-page-flip:analytics-consent`, with a schema version so that changing what
-the dialogue says can invalidate answers given to the old wording. It is the one
-copy: nothing else in the application keeps a second opinion about consent.
+the dialogue says can invalidate answers given to the old wording. Acceptances
+and refusals expire after 180 days (approximately six months), following the
+CNIL's normal re-prompt recommendation. It is the one copy: nothing else in the
+application keeps a second opinion about consent.
 
 Reopening is permanent, through **Analytics preferences** in every footer and
 inside reader settings. Withdrawal takes effect immediately and removes the
-`_ga` and `_ga_*` cookies for this site.
+`_ga` and `_ga_*` cookies for this site. It also sends a Consent Mode v2 update
+that returns all four fields to denied before collection is disabled.
 
 ### With advertising
 
@@ -93,12 +101,22 @@ For either consent path:
    Data Processing Terms for the operator.
 5. Limit GA account access to named operators who need it.
 
+The application loads `gtag.js` directly; it does not install a Google Tag
+Manager container. Keep this single loader as the only GA4 deployment path so a
+second tag cannot bypass the consent and route boundaries.
+
 Google documents Consent Mode at
 <https://developers.google.com/tag-platform/security/concepts/consent-mode>, the
 AdSense CMP flags at <https://support.google.com/adsense/answer/16053245>, its
 basic-consent callback at
 <https://developers.google.com/funding-choices/fc-api-docs>, and manual SPA page
 views at <https://developers.google.com/analytics/devguides/collection/ga4/views>.
+
+For evidence of the first-party flow, retain a dated screenshot of each banner
+version alongside the release that introduced its
+`ANALYTICS_CONSENT_VERSION`. The stored record contains only the decision,
+version, and decision time; no server-side consent profile is added just to
+prove the interface existed.
 
 ## Google-free legal routes
 

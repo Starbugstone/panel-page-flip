@@ -170,6 +170,15 @@ also have **Consent mode for advertising purposes** and **Consent mode for
 analytics purposes** enabled in its settings. Analytics uses the CMP's
 documented `CONSENT_MODE_DATA_READY` API in basic mode; see `docs/analytics.md`.
 
+Configure the European-regulations message as a deterministic consent-only
+flow: enable **Do not consent** for every EEA, UK, and Swiss country served by
+the site, keep that first-layer refusal as prominent and direct as consent,
+disable consent-message optimisation, and disable legitimate-interest controls
+so the policy's stated consent basis matches the account. Publish the message,
+re-prompt returning visitors after material purpose or vendor changes, and
+review every enabled language. Google CMP (ID 300) supplies the certified IAB
+TCF flow; the application's informational cookie notice is not a substitute.
+
 The privacy-policy URL configured under **Privacy & messaging** must contain no
 Funding Choices tag and no other consent-requiring script. `<APP_URL>/privacy`
 satisfies that: `/privacy`, `/cookies` and `/terms` are served Google-free in

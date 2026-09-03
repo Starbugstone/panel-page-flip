@@ -84,6 +84,10 @@ describe("the privacy policy", () => {
 
     expect(await screen.findByText(/google serves advertising on a small number of pages/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /advertising/i })).toBeInTheDocument();
+    expect(screen.getByText((_content, element) => (
+      element.tagName === "LI"
+      && /consent:.*optional google advertising/i.test(element.textContent)
+    ))).toBeInTheDocument();
   });
 
   it("denies using advertising networks where none are used", async () => {

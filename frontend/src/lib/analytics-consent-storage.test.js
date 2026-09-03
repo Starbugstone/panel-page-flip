@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ANALYTICS_CONSENT_MAX_AGE_MS,
   ANALYTICS_CONSENT_VERSION,
   clearAnalyticsConsent,
   persistAnalyticsConsent,
@@ -52,7 +53,33 @@ describe("the stored analytics decision", () => {
     expect(JSON.parse(storage.getItem(KEY))).toMatchObject({
       version: ANALYTICS_CONSENT_VERSION,
       decision: "granted",
+      decidedAt: expect.any(String),
     });
+  });
+
+  it("asks again when either an acceptance or refusal is older than six months", () => {
+    const decidedAt = Date.parse("2026-01-01T00:00:00.000Z");
+
+    for (const decision of ["granted", "denied"]) {
+      persistAnalyticsConsent(decision, storage, decidedAt);
+
+      expect(readAnalyticsConsent(storage, decidedAt + ANALYTICS_CONSENT_MAX_AGE_MS)).toBe(decision);
+      expect(readAnalyticsConsent(storage, decidedAt + ANALYTICS_CONSENT_MAX_AGE_MS + 1)).toBe("undecided");
+    }
+  });
+
+  it.each([
+    ["a missing timestamp", undefined],
+    ["an invalid timestamp", "not-a-date"],
+    ["a future timestamp", "2027-01-01T00:00:00.000Z"],
+  ])("does not treat %s as current consent", (_label, decidedAt) => {
+    storage.setItem(KEY, JSON.stringify({
+      version: ANALYTICS_CONSENT_VERSION,
+      decision: "granted",
+      decidedAt,
+    }));
+
+    expect(readAnalyticsConsent(storage, Date.parse("2026-06-01T00:00:00.000Z"))).toBe("undecided");
   });
 
   /**

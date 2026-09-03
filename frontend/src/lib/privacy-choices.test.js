@@ -17,12 +17,17 @@ beforeEach(() => vi.clearAllMocks());
  * exception.
  */
 describe("reopening the privacy choices", () => {
-  it("asks the consent platform to show its message again", async () => {
+  it("queues the supported consent-platform revocation function", async () => {
     const showRevocationMessage = vi.fn();
+    const callbackQueue = [];
 
-    await expect(reopenPrivacyChoices({ client: CLIENT, win: { googlefc: { showRevocationMessage } } }))
+    await expect(reopenPrivacyChoices({
+      client: CLIENT,
+      win: { googlefc: { callbackQueue, showRevocationMessage } },
+    }))
       .resolves.toBe(true);
-    expect(showRevocationMessage).toHaveBeenCalledOnce();
+    expect(showRevocationMessage).not.toHaveBeenCalled();
+    expect(callbackQueue).toContain(showRevocationMessage);
     // Already there — no reason to fetch it again.
     expect(loadConsentPlatform).not.toHaveBeenCalled();
   });
@@ -40,14 +45,14 @@ describe("reopening the privacy choices", () => {
     const win = {};
     const showRevocationMessage = vi.fn();
     vi.mocked(loadConsentPlatform).mockImplementation(() => {
-      win.googlefc = { showRevocationMessage };
+      win.googlefc = { callbackQueue: [], showRevocationMessage };
 
       return Promise.resolve("ready");
     });
 
     await expect(reopenPrivacyChoices({ client: CLIENT, win })).resolves.toBe(true);
     expect(loadConsentPlatform).toHaveBeenCalledWith(CLIENT, expect.anything());
-    expect(showRevocationMessage).toHaveBeenCalledOnce();
+    expect(win.googlefc.callbackQueue).toContain(showRevocationMessage);
   });
 
   /** Clicked before the platform finished initialising. */
@@ -61,7 +66,7 @@ describe("reopening the privacy choices", () => {
     win.googlefc.showRevocationMessage = showRevocationMessage;
     win.googlefc.callbackQueue[0].CONSENT_API_READY();
 
-    expect(showRevocationMessage).toHaveBeenCalledOnce();
+    expect(win.googlefc.callbackQueue).toContain(showRevocationMessage);
   });
 
   it("creates the queue when the platform has not made one", async () => {
@@ -77,11 +82,13 @@ describe("reopening the privacy choices", () => {
   });
 
   it("survives a consent platform that throws", async () => {
+    const showRevocationMessage = () => {
+      throw new Error("iframe removed");
+    };
     const win = {
       googlefc: {
-        showRevocationMessage: () => {
-          throw new Error("iframe removed");
-        },
+        callbackQueue: { push: (callback) => callback() },
+        showRevocationMessage,
       },
     };
 

@@ -22,7 +22,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Administrator notices warning one account about their activity, a comic, or something they shared, shown on their next visit and optionally emailed — see [administrator notices](docs/administrator-notices.md)
 - Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
 - Optional Google AdSense, off unless an operator turns it on, confined by an allowlist to pages that render no uploaded comic content, with consent and the bulk-upload Offerwall owned by Google's supported account-side products — see [advertising, consent, and AdSense Offerwall](docs/advertising.md)
-- Optional Google Analytics 4, off unless an operator turns it on, blocked behind Google Privacy & Messaging basic consent mode and restricted to sanitized application-owned route categories — see [privacy-first Google Analytics](docs/analytics.md)
+- Optional Google Analytics 4, off unless an operator turns it on, protected by Consent Mode v2 and either the first-party analytics bar or Google Privacy & Messaging, and restricted to sanitized application-owned route categories — see [privacy-first Google Analytics](docs/analytics.md)
 - Optional Google social sign-in with safe account linking, passwordless onboarding, and provider-neutral identity storage — see [social sign-in setup and security model](docs/social-sign-in.md)
 
 ## Technology
