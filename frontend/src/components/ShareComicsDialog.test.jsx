@@ -25,7 +25,6 @@ const recipients = [
     name: "Jane Reader",
     label: "Jane Reader (@SilverOtter4821)",
   },
-  { email: "nobody@example.com", username: null, userCode: null, name: null, label: "nobody@example.com" },
 ];
 
 const loadPicker = () => {
