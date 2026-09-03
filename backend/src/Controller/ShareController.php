@@ -42,14 +42,7 @@ class ShareController extends AbstractController
     ) {
     }
 
-    /**
-     * Comics this user has shared, grouped by comic, one page at a time.
-     *
-     * Paged like the admin tables — same query parameters, same `pagination`
-     * block — but by comic rather than by share, because the page renders one
-     * card per comic and a boundary between two recipients of the same comic
-     * would split a card across pages.
-     */
+    /** One database-backed page of grants this user has handed out. */
     #[Route('/shared-by-me', name: 'app_shares_by_me', methods: ['GET'])]
     public function sharedByMe(Request $request): JsonResponse
     {
@@ -60,31 +53,19 @@ class ShareController extends AbstractController
         // Only shares on comics the owner still has: a deleted comic leaves this
         // list entirely, and the tombstone it leaves behind belongs to the
         // recipients who lost access, not to the person who removed it.
-        $page = $this->shareRepository->findOwnerPage($user, $pagination);
-
-        // Grouped server-side so the page does not have to reconstruct which
-        // recipients belong to which comic.
-        $groups = [];
-        foreach ($page->items as $share) {
-            $comic = $share->getComic();
-            if ($comic === null) {
-                continue;
-            }
-
-            $groups[$comic->getId()] ??= [
-                'comicId' => $comic->getId(),
-                'title' => $comic->getTitle(),
-                'author' => $comic->getAuthor(),
-                'coverImagePath' => $this->comicSerializer->coverUrl($comic),
-                'explicitContent' => $comic->isExplicitContent(),
-                'recipients' => [],
-            ];
-
-            $groups[$comic->getId()]['recipients'][] = $this->shareSerializer->forOwner($share);
-        }
+        $page = $this->shareRepository->findOwnerPage($user, $pagination, [
+            'comic' => $request->query->get('filterComic'),
+            'recipient' => $request->query->get('filterRecipient'),
+            'status' => $request->query->get('filterStatus'),
+            'createdAt' => $request->query->get('filterCreatedAt'),
+            'timezone' => $request->query->get('filterTimezone'),
+        ]);
 
         return $this->json([
-            'sharedByMe' => array_values($groups),
+            'sharedByMe' => array_map(
+                fn (ComicShare $share): array => $this->shareSerializer->forOwner($share),
+                $page->items
+            ),
             'pagination' => $page->toArray(),
         ]);
     }

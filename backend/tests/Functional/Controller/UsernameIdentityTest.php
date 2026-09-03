@@ -318,7 +318,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
         ]);
         self::assertResponseStatusCodeSame(201);
 
-        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
 
         self::assertStringNotContainsString(
             'by-handle@example.com',
@@ -394,7 +394,7 @@ final class UsernameIdentityTest extends AbstractApiTestCase
 
         // And the owner reads the new handle, not the retired one.
         $this->loginAs($owner);
-        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         self::assertSame('CompletelyDifferent', $entry['recipientUsername']);
     }
 

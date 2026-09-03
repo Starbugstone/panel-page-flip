@@ -74,6 +74,34 @@ describe("useSharingLists pagination", () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/shares/shared-by-me?page=1&limit=10"));
   });
 
+  it("sends table filters to the server and resets them to the first page", async () => {
+    const filters = {
+      sort: "recipient",
+      direction: "ASC",
+      filterStatus: "Pending",
+      filterTimezone: "Europe/Paris",
+    };
+    const { result } = renderHook(() => useSharingLists(filters), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(byMeCalls().at(-1)).toBe(
+      "/api/shares/shared-by-me?sort=recipient&direction=ASC&filterStatus=Pending&filterTimezone=Europe%2FParis&page=1&limit=25"
+    );
+  });
+
+  it("debounces an owner-table search and starts it on page one", async () => {
+    const { result } = renderHook(() => useSharingLists(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => result.current.setByMePage(2));
+    await waitFor(() => expect(byMeCalls().at(-1)).toContain("page=2"));
+
+    act(() => result.current.setByMeSearchInput("  jane  "));
+    await waitFor(() => expect(byMeCalls().at(-1)).toBe(
+      "/api/shares/shared-by-me?page=1&limit=25&search=jane"
+    ));
+  });
+
   it("falls back to the last page when the one being looked at stops existing", async () => {
     // Whatever page is asked for, the server now only has one: the state after
     // deleting the final record on a trailing page.
