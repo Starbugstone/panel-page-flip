@@ -5,6 +5,8 @@ namespace App\Tests\Unit\ComicSource\Pdf;
 use App\ComicSource\Pdf\PdfDocument;
 use App\ComicSource\Pdf\PdfException;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Process\PhpExecutableFinder;
+use Symfony\Component\Process\Process;
 
 /**
  * The native reader is what makes PDF work like CBZ: a comic PDF is a container
@@ -132,13 +134,50 @@ final class PdfDocumentTest extends TestCase
         PdfDocument::open($this->path);
     }
 
+    public function testOpeningASmallDocumentDoesNotReserveTheEntireSizeLimit(): void
+    {
+        $php = (new PhpExecutableFinder())->find();
+        if ($php === false) self::markTestSkipped('No PHP binary to run the isolated check with.');
+
+        $this->write($this->imagePdf([$this->jpeg()]));
+
+        $script = <<<'PHP'
+            require getenv('APP_AUTOLOAD');
+            echo App\ComicSource\Pdf\PdfDocument::open(getenv('APP_PDF'))->pageCount();
+        PHP;
+
+        $process = new Process([$php, '-d', 'memory_limit=64M', '-r', $script]);
+        $process->setEnv([
+            'APP_AUTOLOAD' => \dirname(__DIR__, 4).'/vendor/autoload.php',
+            'APP_PDF' => $this->path,
+        ]);
+        $process->run();
+
+        self::assertTrue($process->isSuccessful(), $process->getErrorOutput());
+        self::assertSame('1', $process->getOutput());
+    }
+
+    public function testAcceptsADocumentPastThePreviousSizeLimit(): void
+    {
+        $pdf = $this->imagePdf([$this->jpeg()]);
+        $this->write($pdf);
+
+        $handle = fopen($this->path, 'c+b');
+        self::assertIsResource($handle);
+        self::assertSame(0, fseek($handle, 67_108_865 - strlen($pdf)));
+        self::assertSame(strlen($pdf), fwrite($handle, $pdf));
+        fclose($handle);
+
+        self::assertSame(1, PdfDocument::open($this->path)->pageCount());
+    }
+
     public function testRefusesAnOversizedDocumentBeforeReadingItIntoMemory(): void
     {
         $this->path = tempnam(sys_get_temp_dir(), 'comic-pdfdoc-');
         $handle = fopen($this->path, 'c+b');
         self::assertIsResource($handle);
         self::assertSame(9, fwrite($handle, "%PDF-1.4\n"));
-        self::assertTrue(ftruncate($handle, 67_108_865));
+        self::assertTrue(ftruncate($handle, 524_288_001));
         fclose($handle);
 
         $this->expectException(PdfException::class);
