@@ -96,6 +96,17 @@ describe("the generated Nginx SPA routes", () => {
       expect(block, path).not.toContain(nonceFilter);
     }
   });
+
+  it("redirects legal route aliases to their strict canonical location and preserves the query", () => {
+    for (const path of routes.googleFree) {
+      const start = generated.indexOf(`location ~* ^${path}/*$ {`);
+      expect(start, path).toBeGreaterThan(-1);
+      const block = generated.slice(start, generated.indexOf("\n}", start));
+      expect(block).toContain("include /etc/nginx/snippets/security-headers-google-free.conf;");
+      expect(block).toContain(`return 308 ${path}$is_args$args;`);
+      expect(block).toContain("absolute_redirect off;");
+    }
+  });
 });
 
 describe("the Google-free nginx policy", () => {

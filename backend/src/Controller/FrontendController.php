@@ -44,6 +44,7 @@ class FrontendController extends AbstractController
         }
         
         $path = $reactRouting === '' ? '/' : '/'.ltrim($reactRouting, '/');
+        $path = $this->routes->canonicalPath($path);
         $isKnownRoute = $this->routes->isKnown($path);
         $status = $isKnownRoute ? Response::HTTP_OK : Response::HTTP_NOT_FOUND;
         $headers = ['Content-Type' => 'text/html'];

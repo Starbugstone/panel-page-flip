@@ -27,7 +27,7 @@ PDF is a first-class source alongside CBZ, and like CBZ it needs nothing install
 
 A scanned or exported comic PDF is a container holding one full-page image per page — the same thing a CBZ is, with a different wrapper. Those pages are read natively, in pure PHP: the source provider returns the page's own embedded image without rasterising it, exactly as the CBZ provider returns an entry from the archive. No subprocess, no renderer, and no intermediate re-encode. This is what lets PDF work on shared hosting, where `proc_open` is usually disabled and no package can be installed.
 
-Native parsing is capped at 64 MiB per document and also bounds container values, names, and strings before allocating them. Larger PDFs take the Poppler path when it is available; a host without Poppler rejects them cleanly at upload instead of trying to hold a source larger than the PHP worker's memory limit.
+Native parsing is capped at 500 MiB per document and also bounds container values, names, and strings before allocating them. The reader checks the opened file's size first and allocates only that size, so a small PDF does not reserve the entire ceiling and an oversized one is rejected without being read. Larger PDFs take the Poppler path when it is available; a host without Poppler rejects them cleanly at upload.
 
 What reaches the browser is then whatever **Page delivery** below produces from those bytes, normally WebP — reading a page natively is about not needing a renderer, not about the response being the embedded file.
 
@@ -92,6 +92,8 @@ Rendering has a 30-second timeout and uses a random, mode-0700 temporary directo
 Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed data, 64 MiB per page, and a 100:1 maximum expansion ratio between the source archive and its reported contents. External-tool listings stop at 16 MiB, and page paths stop at 1,024 bytes or 16 segments. Only JPG, PNG, GIF, and WebP entries with safe, non-traversing names and matching image content become readable pages. Page names are natural-sorted and never returned by the API.
 
 Direct uploads, chunked uploads, Dropbox import, and `app:import-comics` all use the same enabled-format and provider validation pipeline. A configured format whose runtime later disappears is omitted from uploader configuration and rejected until the runtime is restored or the format is disabled.
+
+Direct and chunked uploads return the same safe reason when validation or storage admission rejects a file. The single-upload form keeps that reason visible below its progress bar, and the bulk queue shows it on the affected row. Unexpected server failures remain generic in the response and are logged with their internal details instead of exposing them to the uploader.
 
 The direct multipart endpoint validates its form before admitting the file:
 title and optional metadata must be strings, tags must be a JSON list of

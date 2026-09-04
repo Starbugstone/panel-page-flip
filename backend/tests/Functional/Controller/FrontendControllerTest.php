@@ -114,6 +114,9 @@ class FrontendControllerTest extends WebTestCase
         yield '/privacy' => ['/privacy'];
         yield '/cookies' => ['/cookies'];
         yield '/terms' => ['/terms'];
+        yield 'privacy with trailing slash' => ['/privacy/'];
+        yield 'cookies with repeated trailing slashes' => ['/cookies///'];
+        yield 'case-insensitive legal route' => ['/TeRmS/?from=footer'];
     }
 
     public function testAnOrdinaryRouteStillGetsTheGoogleCapablePolicyOnTheSameInstallation(): void

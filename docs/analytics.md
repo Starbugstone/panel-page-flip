@@ -146,6 +146,11 @@ on SPA navigation. Google requires the privacy-policy URL configured in Privacy
 & Messaging to host neither the consent-message tag nor any other script
 requiring consent, so `<APP_URL>/privacy` is safe to configure there.
 
+Case variants and trailing slashes, such as `/PrIvAcY///`, use the same strict
+policy. nginx redirects them to the lowercase canonical path and preserves the
+query string. Symfony normalizes them before selecting page metadata and CSP,
+and the browser uses the same classification when crossing policy groups.
+
 The rule is one shared list rather than three components each remembering it:
 
 - `backend/config/frontend-routes.json` → `googleFree`, read by

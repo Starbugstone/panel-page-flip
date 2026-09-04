@@ -24,6 +24,7 @@ function renderBoundary(from, to, replaceDocument) {
 describe("document CSP transitions", () => {
   it.each([
     ["/dashboard", "/privacy"],
+    ["/dashboard", "/PrIvAcY/"],
     ["/privacy", "/?privacyChoices=open#preferences"],
   ])("loads a fresh document from %s to %s before mounting integrations", async (from, to) => {
     const replaceDocument = vi.fn();

@@ -55,13 +55,16 @@ function UploadFileDropZone({ file, uploading, comicFormats, onChoose, onRemove 
   );
 }
 
-function UploadProgress({ status, progress }) {
+function UploadProgress({ status, progress, error }) {
   if (status === "idle") return null;
 
   return (
     <div className="space-y-2" aria-live="polite">
       <div className="flex justify-between text-sm"><span>{STATUS_LABELS[status]}</span><span>{progress}%</span></div>
       <Progress value={progress} className="h-2" />
+      {status === "error" && error?.message && (
+        <p role="alert" className="text-sm text-destructive">{error.message}</p>
+      )}
     </div>
   );
 }
@@ -122,7 +125,7 @@ export default function UploadComicForm() {
   const { folders, isLoading: foldersLoading, createFolder } = useLibraryFolders();
   const concurrentChunks = configuredConcurrentChunks(config);
   const comicFormats = configuredComicFormats(config);
-  const { start, cancel, status, progress } = useChunkedUpload({ concurrentChunks, chunkSize: configuredChunkSize(config) });
+  const { start, cancel, status, progress, error } = useChunkedUpload({ concurrentChunks, chunkSize: configuredChunkSize(config) });
   const [submitting, setSubmitting] = useState(false);
   const canCancel = ["initialising", "uploading", "completing"].includes(status);
   const uploading = submitting || canCancel || status === "done";
@@ -202,7 +205,7 @@ export default function UploadComicForm() {
             onRemove={() => setFile(null)}
           />
 
-          <UploadProgress status={status} progress={progress} />
+          <UploadProgress status={status} progress={progress} error={error} />
 
           <div className="space-y-2">
             <Label htmlFor="title">Title</Label>

@@ -96,10 +96,18 @@ failure output. Incomplete verification must remain explicit.
 
 ## Git and delivery
 
-For a new task, fetch origin and inspect the working tree. Create an isolated
-worktree with a task-specific branch from `origin/develop`; implementation
-PRs target `develop`. Continue that worktree and branch for follow-up work
-on the same task.
+Before starting any task or resuming follow-up work, verify the current branch,
+its upstream, and the working tree. Always fetch `origin`, inspect the matching
+remote branch, and run `git pull --ff-only` on the existing tracking checkout
+before using it as a baseline. Do not assume a local branch or an earlier fetch
+is current. Preserve local changes and investigate divergence or an unexpected
+upstream before pulling; never use a merge, rebase, or reset to hide it.
+
+For a new task, create an isolated worktree with a task-specific branch from
+the freshly fetched `origin/develop`; implementation PRs target `develop`.
+For a PR review, verify the fetched head against GitHub's current PR head and
+record the commit being reviewed. Continue the same worktree and branch for
+follow-up work on that task, checking its own remote branch before proceeding.
 
 Urgent production hotfixes start from `origin/main` and target `main`;
 bring the fix into `develop` through a separate PR. Releases promote

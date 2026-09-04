@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SharingProvider, useSharingLists } from "./use-sharing";
+import { SharingProvider, useSharing, useSharingLists } from "./use-sharing";
 import { api } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn() } }));
@@ -30,6 +30,58 @@ function deferred() {
 
   return { promise, resolve };
 }
+
+describe("sharing summary session isolation", () => {
+  const originalUser = AUTH.user;
+  const emptySummary = { pendingInvitations: 0, deadShares: 0 };
+
+  beforeEach(() => vi.resetAllMocks());
+  afterEach(() => {
+    AUTH.isAuthenticated = true;
+    AUTH.user = originalUser;
+  });
+
+  it("hides the previous account's counts while the next account is loading", async () => {
+    const nextAccount = deferred();
+    api.get.mockResolvedValueOnce({ pendingInvitations: 8, deadShares: 3 })
+      .mockReturnValueOnce(nextAccount.promise);
+    const { result, rerender } = renderHook(useSharing, { wrapper });
+    await waitFor(() => expect(result.current.summary.pendingInvitations).toBe(8));
+
+    AUTH.user = { id: 8 };
+    rerender();
+    expect(result.current.summary).toEqual(emptySummary);
+    await act(async () => nextAccount.resolve({ pendingInvitations: 1, deadShares: 0 }));
+    expect(result.current.summary.pendingInvitations).toBe(1);
+  });
+
+  it("ignores an old action refresh after signing out and signing back in", async () => {
+    const oldRefresh = deferred();
+    const newSummary = deferred();
+    api.get.mockResolvedValueOnce({ pendingInvitations: 2, deadShares: 0 })
+      .mockReturnValueOnce(oldRefresh.promise)
+      .mockReturnValueOnce(newSummary.promise);
+    const { result, rerender } = renderHook(useSharing, { wrapper });
+    await waitFor(() => expect(result.current.summary.pendingInvitations).toBe(2));
+    const refresh = result.current.refreshSummary;
+    let pending;
+    act(() => { pending = refresh(); });
+
+    AUTH.isAuthenticated = false;
+    AUTH.user = null;
+    rerender();
+    await act(async () => { oldRefresh.resolve({ pendingInvitations: 99, deadShares: 99 }); await pending; });
+    AUTH.isAuthenticated = true;
+    AUTH.user = { id: 8 };
+    rerender();
+    expect(result.current.summary).toEqual(emptySummary);
+    await act(async () => newSummary.resolve({ pendingInvitations: 1, deadShares: 0 }));
+    expect(result.current.summary.pendingInvitations).toBe(1);
+
+    await act(async () => refresh());
+    expect(api.get).toHaveBeenCalledTimes(3);
+  });
+});
 
 describe("useSharingLists pagination", () => {
   let byMeResponse;

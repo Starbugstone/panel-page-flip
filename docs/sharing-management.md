@@ -50,6 +50,11 @@ so an action started on one page cannot overwrite a newer search, sort, filter,
 or page after its response arrives late. Stale responses also skip their error
 state and summary refresh.
 
+The navigation's invitation and unavailable-share counts belong to the active
+account too. Switching accounts hides the previous counts immediately; a late
+summary response or a refresh callback retained by the previous session cannot
+replace the new account's counts.
+
 ## Selection and bulk actions
 
 The header checkbox selects the current page. Shift-click extends a range, and
@@ -79,6 +84,14 @@ retain age confirmation, accepting or declining invitations, reading, removing
 or restoring a comic in the collection, and clearing one unavailable entry.
 Pending folder snapshots remain one decision in the table even though the
 underlying grants stay independently revocable by the owner.
+
+The recipient API includes `invitationBatchRequiresAdultConfirmation` for each
+listed grant. It checks all pending, available members of the same folder
+invitation addressed to this recipient, including members outside the current
+page or filters. The table offers age confirmation before accepting the folder
+when this flag is set, even if the visible member is suitable for all ages.
+Unavailable members stay separate from the live invitation so they can be
+removed from history without hiding actions for the remaining comics.
 
 ## Responsive behaviour
 

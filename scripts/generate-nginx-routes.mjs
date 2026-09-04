@@ -113,6 +113,16 @@ const indexableLocation = (path) => {
 
 const indexableLocations = indexable.filter((path) => path !== "/").map(indexableLocation).join("\n\n");
 
+// Exact canonical locations win first. React Router also accepts case changes
+// and trailing slashes; redirect those aliases before the generic 404 shell
+// can give a legal page the Google-capable policy.
+const googleFreeAliases = googleFree.map((path) => `location ~* ^${escapeRegex(path)}/*$ {
+    include /etc/nginx/snippets/security-headers-google-free.conf;
+    # Preserve the browser's public scheme and port behind a reverse proxy.
+    absolute_redirect off;
+    return 308 ${path}$is_args$args;
+}`).join("\n\n");
+
 const noindexBlock = noindexAlternation
   ? `location ~ "^/(?:${noindexAlternation})$" {
     include /etc/nginx/snippets/security-headers.conf;
@@ -141,6 +151,7 @@ location = / {
 }
 
 ${indexableLocations}
+${googleFreeAliases}
 ${indexableLocations ? "\n" : ""}${noindexBlock}${noindexBlock ? "\n" : ""}${notFoundBlock}`;
 
 if (outputPath) {

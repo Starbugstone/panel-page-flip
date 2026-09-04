@@ -32,6 +32,7 @@ describe("the Google-free legal routes", () => {
   it("matches exactly, ignoring a trailing slash and any query", () => {
     expect(isGoogleFreeRoute("/privacy")).toBe(true);
     expect(isGoogleFreeRoute("/privacy/")).toBe(true);
+    expect(isGoogleFreeRoute("/PrIvAcY///?from=footer#choices")).toBe(true);
     expect(isGoogleFreeRoute("/privacy?from=footer")).toBe(true);
     expect(isGoogleFreeRoute("/privacy-policy")).toBe(false);
     expect(isGoogleFreeRoute("/")).toBe(false);

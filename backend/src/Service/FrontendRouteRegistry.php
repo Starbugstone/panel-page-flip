@@ -58,7 +58,15 @@ final class FrontendRouteRegistry
     /** Whether this path must be served with no AdSense, Funding Choices or GA4. */
     public function isGoogleFree(string $path): bool
     {
-        return in_array($path, $this->googleFree, true);
+        return in_array($this->canonicalPath($path), $this->googleFree, true);
+    }
+
+    /** Match the legal-page aliases React Router accepts without widening other routes. */
+    public function canonicalPath(string $path): string
+    {
+        $normalized = strtolower(rtrim($path, '/'));
+
+        return in_array($normalized, $this->googleFree, true) ? $normalized : $path;
     }
 
     /** @return list<string> */

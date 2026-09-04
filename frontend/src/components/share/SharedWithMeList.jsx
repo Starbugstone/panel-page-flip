@@ -394,7 +394,7 @@ function receivedTableRows(shares) {
   const batches = new Map();
 
   shares.forEach((share) => {
-    if (share.status !== SHARE_STATUS.PENDING || !share.invitationBatchId) {
+    if (share.status !== SHARE_STATUS.PENDING || !share.invitationBatchId || share.isDead) {
       rows.push(share);
       return;
     }
@@ -407,7 +407,12 @@ function receivedTableRows(shares) {
       return;
     }
 
-    const batch = { ...share, batchShares: [share] };
+    const batch = {
+      ...share,
+      batchShares: [share],
+      explicitContent: share.explicitContent || Boolean(share.invitationBatchRequiresAdultConfirmation),
+      requiresAdultConfirmation: share.requiresAdultConfirmation || Boolean(share.invitationBatchRequiresAdultConfirmation),
+    };
     batches.set(share.invitationBatchId, batch);
     rows.push(batch);
   });

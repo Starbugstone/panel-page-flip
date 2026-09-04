@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   refreshSession: vi.fn(),
   start: vi.fn(),
   cancel: vi.fn(),
+  uploadState: { status: "idle", progress: 0, error: null },
 }));
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
@@ -31,8 +32,7 @@ vi.mock("@/hooks/use-chunked-upload", () => ({
   useChunkedUpload: () => ({
     start: mocks.start,
     cancel: mocks.cancel,
-    status: "idle",
-    progress: 0,
+    ...mocks.uploadState,
   }),
 }));
 vi.mock("@/components/library/FolderDestinationSelect", () => ({
@@ -60,6 +60,24 @@ describe("UploadComicForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.refreshSession.mockResolvedValue(true);
+    Object.assign(mocks.uploadState, { status: "idle", progress: 0, error: null });
+  });
+
+  it("keeps the specific failure visible after an upload stops", () => {
+    Object.assign(mocks.uploadState, {
+      status: "error",
+      progress: 95,
+      error: new Error("PDF inspection failed."),
+    });
+
+    render(
+      <MemoryRouter>
+        <UploadComicForm />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("Upload failed")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("PDF inspection failed.");
   });
 
   it("validates the selected format and sends the requested destination", async () => {

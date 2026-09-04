@@ -104,6 +104,48 @@ describe("SharedWithMeList", () => {
     expect(screen.getByText("0 of 0 shares selected")).toBeInTheDocument();
   });
 
+  it("offers age confirmation when an explicit folder member is outside the current page", async () => {
+    render(<SharedWithMeList
+      sharedWithMe={[share({
+        status: "pending", canAnswer: true, canRead: false, canRemove: false,
+        invitationBatchId: "mixed-folder", invitationBatchName: "Mixed shelf", invitationBatchSize: 2,
+        invitationBatchRequiresAdultConfirmation: true,
+      })]}
+      isLoading={false}
+      pagination={{ page: 1, limit: 1, totalItems: 2, totalPages: 2 }}
+      listKey="mixed-folder-page"
+      searchInput=""
+      tableControls={{ columnFilters: {}, headerProps: {} }}
+      actions={actions}
+      reload={vi.fn()}
+    />);
+    expect(screen.queryByRole("button", { name: /add all to my collection/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /18.*Mixed shelf/i }));
+    expect(actions.confirmAdult).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+  });
+
+  it("keeps unavailable folder members separate from the remaining invitation", async () => {
+    const members = [
+      share({ id: 1, comicTitle: "Deleted Book", status: "pending", isDead: true, isTombstoned: true, canRead: false }),
+      share({ id: 2, status: "pending", canAnswer: true, canRead: false }),
+    ].map((member) => ({
+      ...member, invitationBatchId: "partly-deleted", invitationBatchName: "Shared shelf", invitationBatchSize: 2,
+    }));
+    render(<SharedWithMeList
+      sharedWithMe={members}
+      isLoading={false}
+      pagination={{ page: 1, limit: 25, totalItems: 2, totalPages: 1 }}
+      listKey="partly-deleted"
+      searchInput=""
+      tableControls={{ columnFilters: {}, headerProps: {} }}
+      actions={actions}
+      reload={vi.fn()}
+    />);
+    expect(screen.getByRole("button", { name: "Remove Deleted Book from sharing history" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Add all to my collection from Shared shelf" }));
+    expect(actions.accept).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }));
+  });
+
   it("removes only selected unavailable records after confirmation", async () => {
     const user = userEvent.setup();
     const reload = vi.fn();
