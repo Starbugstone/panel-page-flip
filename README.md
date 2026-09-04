@@ -72,6 +72,17 @@ docker compose exec php php bin/console app:create-admin-user admin@example.com 
 
 The email and password are required positional arguments. Command-created users are marked as email-verified.
 
+To add a populated multi-user demo to the local database, load the development
+fixtures. Existing users, comics, and other application data are preserved, and
+running the command again is safe:
+
+```bash
+docker compose exec -T php php bin/console app:load-demo-fixtures
+```
+
+The fixture accounts, shared password, generated comic files, and included app
+states are listed in [the local demo fixture guide](docs/demo-fixtures.md).
+
 Development services:
 
 | Service | URL |
