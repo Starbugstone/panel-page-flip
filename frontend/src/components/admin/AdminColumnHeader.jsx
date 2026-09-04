@@ -1,4 +1,4 @@
-import { forwardRef, useId, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowDownAZ, ArrowUpAZ, CalendarRange, ListFilter, X } from "lucide-react";
 
 import { AdminDateRangeCalendar } from "@/components/admin/AdminDateRangePicker";
@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { parseAdminDateRange } from "@/lib/admin-table-filters";
+import { api } from "@/lib/api";
+import { logger } from "@/lib/logger";
 import { cn } from "@/lib/utils";
 
 const EMPTY_VALUES = [];
@@ -24,6 +26,7 @@ export function AdminColumnHeader({
   filterPlaceholder,
   filterType = "text",
   filterSuggestions = EMPTY_VALUES,
+  suggestionSource,
   filterOptions = EMPTY_VALUES,
   emptyDateLabel,
   filterMax,
@@ -85,6 +88,7 @@ export function AdminColumnHeader({
               draft={draft}
               active={activeFilter}
               suggestions={filterSuggestions}
+              suggestionSource={suggestionSource}
               options={filterOptions}
               placeholder={filterPlaceholder}
               emptyDateLabel={emptyDateLabel}
@@ -216,10 +220,40 @@ function FilterEditor(props) {
   return <TextFilter {...props} />;
 }
 
-function TextFilter({ label, draft, suggestions, placeholder, autoFocus, onDraftChange, onChoose }) {
+function TextFilter({ label, draft, suggestions, suggestionSource, placeholder, autoFocus, onDraftChange, onChoose }) {
   const suggestionsRef = useRef(null);
   const suggestionsId = useId();
-  const matches = useMemo(() => matchingSuggestions(draft, suggestions), [draft, suggestions]);
+  const requestRef = useRef(null);
+  const [databaseSuggestions, setDatabaseSuggestions] = useState([]);
+  const availableSuggestions = suggestionSource ? databaseSuggestions : suggestions;
+  const matches = useMemo(
+    () => matchingSuggestions(draft, availableSuggestions),
+    [availableSuggestions, draft],
+  );
+
+  useEffect(() => () => requestRef.current?.abort(), []);
+
+  const searchSuggestions = (value) => {
+    if (!suggestionSource) return;
+
+    requestRef.current?.abort();
+    setDatabaseSuggestions([]);
+    const query = value.trim();
+    if (query.length < 3) return;
+
+    const controller = new AbortController();
+    requestRef.current = controller;
+    api.get(
+      `/api/admin/table-filter-suggestions/${suggestionSource}?query=${encodeURIComponent(query)}`,
+      { signal: controller.signal },
+    )
+      .then((payload) => {
+        if (!controller.signal.aborted) setDatabaseSuggestions(payload?.suggestions || []);
+      })
+      .catch((error) => {
+        if (error.name !== "AbortError") logger.error("Failed to load admin filter suggestions:", error);
+      });
+  };
 
   return (
     <>
@@ -227,6 +261,7 @@ function TextFilter({ label, draft, suggestions, placeholder, autoFocus, onDraft
         type="search"
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
+        onKeyUp={(event) => searchSuggestions(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key !== "ArrowDown" || matches.length === 0) return;
           event.preventDefault();
@@ -234,7 +269,7 @@ function TextFilter({ label, draft, suggestions, placeholder, autoFocus, onDraft
         }}
         placeholder={placeholder || `Filter ${label.toLowerCase()}…`}
         aria-label={`Filter ${label}`}
-        aria-autocomplete={suggestions.length > 0 ? "list" : undefined}
+        aria-autocomplete={suggestionSource || availableSuggestions.length > 0 ? "list" : undefined}
         aria-controls={matches.length > 0 ? suggestionsId : undefined}
         autoFocus={autoFocus}
       />

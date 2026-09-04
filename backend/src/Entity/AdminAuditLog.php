@@ -10,6 +10,9 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Table(name: 'admin_audit_log')]
 #[ORM\Index(name: 'IDX_5BCE80B6642B8210', columns: ['admin_user_id'])]
 #[ORM\Index(name: 'IDX_ADMIN_AUDIT_CREATED_AT', columns: ['created_at'])]
+#[ORM\Index(name: 'IDX_admin_audit_action', columns: ['action'])]
+#[ORM\Index(name: 'IDX_admin_audit_target_type', columns: ['target_type'])]
+#[ORM\Index(name: 'IDX_admin_audit_payload_search', columns: ['payload_search'], flags: ['fulltext'])]
 class AdminAuditLog
 {
     #[ORM\Id]
@@ -33,6 +36,16 @@ class AdminAuditLog
     /** @var array<array-key, mixed>|null */
     #[ORM\Column(type: Types::JSON, nullable: true)]
     private ?array $payload = null;
+
+    #[ORM\Column(
+        type: Types::TEXT,
+        nullable: true,
+        insertable: false,
+        updatable: false,
+        generated: 'ALWAYS',
+        columnDefinition: 'LONGTEXT GENERATED ALWAYS AS (LOWER(CAST(payload AS CHAR))) STORED',
+    )]
+    private ?string $payloadSearch = null;
 
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;

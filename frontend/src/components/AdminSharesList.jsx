@@ -32,7 +32,6 @@ import { formatDate } from "@/lib/format";
 import { logger } from "@/lib/logger";
 import { SHARE_STATUS_LABELS } from "@/lib/sharing";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
-import { adminFilterSuggestions } from "@/lib/admin-table-filters";
 
 /** The statuses the backend filters on, in the order an operator wants them. */
 const STATUSES = [
@@ -305,9 +304,9 @@ export function AdminSharesList() {
                       label="Select all shares"
                     />
                   </TableHead>
-                  <TableHead><AdminColumnHeader label="Comic" sortField="comicTitle" filterField="filterComic" filterSuggestions={adminFilterSuggestions(shares, (share) => share.comic?.title)} filterValue={tableControls.columnFilters.filterComic} {...tableControls.headerProps} /></TableHead>
-                  <TableHead><AdminColumnHeader label="Shared by" sortField="owner" filterField="filterOwner" filterSuggestions={adminFilterSuggestions(shares, (share) => [share.owner?.name, share.owner?.email])} filterValue={tableControls.columnFilters.filterOwner} {...tableControls.headerProps} /></TableHead>
-                  <TableHead><AdminColumnHeader label="Shared with" sortField="recipient" filterField="filterRecipient" filterSuggestions={adminFilterSuggestions(shares, (share) => [share.recipient?.name, share.recipient?.username ? `@${share.recipient.username}` : null, share.recipientEmail])} filterValue={tableControls.columnFilters.filterRecipient} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Comic" sortField="comicTitle" filterField="filterComic" suggestionSource="shares/comic" filterValue={tableControls.columnFilters.filterComic} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Shared by" sortField="owner" filterField="filterOwner" suggestionSource="shares/owner" filterValue={tableControls.columnFilters.filterOwner} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Shared with" sortField="recipient" filterField="filterRecipient" suggestionSource="shares/recipient" filterValue={tableControls.columnFilters.filterRecipient} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Status" sortField="status" filterField="filterStatus" filterType="select" filterOptions={["Accepted", "Pending", "Declined", "Revoked"]} filterValue={tableControls.columnFilters.filterStatus} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="filterCreatedAt" filterType="date" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
                   <TableHead className="text-right">Actions</TableHead>
