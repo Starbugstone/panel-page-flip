@@ -55,9 +55,12 @@ browser so its normal image cache remains in use rather than routing every
 cover through fetched blobs and object URLs.
 
 The browser still does the fetching. This decides who may start, not how — so
-HTTP caching, decoding and `alt` text on failure all behave normally. Covers are
-served `private, immutable` with a long max-age, so returning to the library
-re-displays them without asking again at all.
+HTTP caching, decoding and `alt` text on failure all behave normally. Successfully
+generated optimized covers use `private, immutable` with a one-year max-age,
+so returning to the library re-displays them without another request. Original
+image fallbacks and missing-file placeholders use private caching with a
+five-minute max-age and no `immutable` directive; they revalidate after that
+short period.
 
 ## Recovery
 

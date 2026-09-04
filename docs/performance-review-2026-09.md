@@ -7,6 +7,10 @@ The release under review is [PR #211](https://github.com/Starbugstone/panel-page
 `3f791ca`. Work continues in the user's primary checkout on
 `codex/performance-simplicity-review-20260904`, as requested.
 
+The improvements resulting from this review are delivered in
+[PR #221](https://github.com/Starbugstone/panel-page-flip/pull/221), from that
+task branch into `develop`.
+
 The review combines the release diff, existing architecture/security reviews,
 repository-wide coverage/static-analysis/dead-code/duplication gates and manual
 tracing of uploads, source validation, covers, page delivery, geometry,
