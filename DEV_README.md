@@ -33,6 +33,7 @@ lives in [`docs/`](docs/):
 | [social-sign-in.md](docs/social-sign-in.md) | Optional Google OAuth, account linking, passwordless accounts |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
+| [demo-fixtures.md](docs/demo-fixtures.md) | Repeatable local multi-user data, credentials, generated demo comics, loading and reset behavior |
 | [local-docker-environment.md](docs/local-docker-environment.md) | Per-checkout Compose project, ports, container UID, worktree teardown |
 
 ## Current Implementation Status
@@ -1753,10 +1754,18 @@ If emails aren't appearing in Mailpit:
 ### Testing the Current Implementation
 
 ### Test Users
+
 Test users are created for development and testing purposes. Their credentials are stored in `passwords.txt` (which is in `.gitignore`):
+
 - Admin user: `testadmin@example.com` with password `AdminPass123!`
 - Regular user: `testuser1@example.com` with password `UserPass123!`
 - Regular user: `testuser2@example.com` with password `UserPass123!`
+
+### Demo fixtures
+
+The repeatable development fixtures provide six documented accounts and a
+multi-user library. See [Local demo fixtures](docs/demo-fixtures.md) for the
+load command, credentials, and the states represented in the dataset.
 
 ### Automated Test Suites
 
