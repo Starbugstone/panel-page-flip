@@ -503,20 +503,42 @@ class ComicUploadController extends AbstractController
             } finally {
                 $this->releaseUploadLock($lock);
             }
-        } catch (BadRequestHttpException $e) {
-            // Clean up if assembly has already occurred
-            if (isset($userChunkDir) && file_exists($userChunkDir)) {
-                $this->cleanupTempDirectory($userChunkDir);
-            }
+        } catch (ComicUploadRejectedException $e) {
+            $this->logger->warning('Chunked comic upload rejected.', ['user_id' => $user->getId(), 'exception' => $e]);
+            $this->cleanupFailedUpload($userChunkDir ?? null);
+
             return $this->json(['message' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
-        } catch (\Exception $e) {
-            $this->logger->warning('Error completing upload.', ['user_id' => $user->getId(), 'exception' => $e]);
-            // Clean up if assembly has already occurred
-            if (isset($userChunkDir) && file_exists($userChunkDir)) {
-                $this->cleanupTempDirectory($userChunkDir);
-            }
-            return $this->json(['message' => 'Failed to complete upload'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        } catch (StorageQuotaExceededException $e) {
+            $this->logger->warning('Chunked comic upload exceeded storage quota.', ['user_id' => $user->getId(), 'exception' => $e]);
+            $this->cleanupFailedUpload($userChunkDir ?? null);
+
+            return $this->json(['message' => 'User storage quota exceeded.'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        } catch (StorageQuotaBusyException $e) {
+            $this->logger->warning('Chunked comic upload could not acquire the storage lock.', ['user_id' => $user->getId(), 'exception' => $e]);
+            $this->cleanupFailedUpload($userChunkDir ?? null);
+
+            return $this->json(
+                ['message' => 'Another storage operation is already in progress. Please try again.'],
+                Response::HTTP_CONFLICT
+            );
+        } catch (BadRequestHttpException $e) {
+            $this->cleanupFailedUpload($userChunkDir ?? null);
+
+            return $this->json(['message' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
+        } catch (\Throwable $e) {
+            $this->logger->error('Chunked comic upload failed because of an internal error.', ['user_id' => $user->getId(), 'exception' => $e]);
+            $this->cleanupFailedUpload($userChunkDir ?? null);
+
+            return $this->json(
+                ['message' => 'Upload failed because of a server error. Please try again later.'],
+                Response::HTTP_INTERNAL_SERVER_ERROR
+            );
         }
+    }
+
+    private function cleanupFailedUpload(?string $directory): void
+    {
+        if ($directory !== null) $this->cleanupTempDirectory($directory);
     }
 
     /**
