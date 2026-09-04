@@ -95,6 +95,17 @@ final class AdminPaginationTest extends AbstractApiTestCase
         self::assertGreaterThanOrEqual(1, $payload['pagination']['limit']);
     }
 
+    public function testAnExtremePageReturnsAnEmptyListInsteadOfAServerError(): void
+    {
+        $this->createAndLoginAdmin();
+
+        $payload = $this->getJson('/api/users?page='.PHP_INT_MAX.'&limit=100');
+
+        self::assertResponseIsSuccessful();
+        self::assertSame([], $payload['items']);
+        self::assertSame(1, $payload['pagination']['totalItems']);
+    }
+
     public function testUserListPastTheLastPageIsEmptyButStillReportsTheTotal(): void
     {
         $this->createAndLoginAdmin();

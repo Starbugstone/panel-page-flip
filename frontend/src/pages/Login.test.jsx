@@ -84,6 +84,8 @@ describe("Login — registration copy", () => {
     await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({
       description: expect.stringMatching(/verify your email before logging in/i),
     })));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Login", exact: true })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getByRole("button", { name: "Log in", exact: true })).toBeInTheDocument();
   });
 });
 

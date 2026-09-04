@@ -8,7 +8,7 @@
  * every rule below can be tested without a touchscreen.
  */
 
-export const GESTURE_DEFAULTS = Object.freeze({
+const GESTURE_DEFAULTS = Object.freeze({
   // Long enough for a comfortable double tap, short enough that a deliberate
   // single tap on the controls does not feel delayed.
   doubleTapMs: 280,

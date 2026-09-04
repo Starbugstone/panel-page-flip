@@ -41,10 +41,10 @@ function prepareBody(body, headers) {
 export async function request(path, options = {}) {
   const prepared = prepareRequest(options);
   const response = await fetchResponse(path, prepared.fetchOptions);
-  const data = await responseData(response, prepared.responseType);
+  reportUnauthorized(response, prepared.notifyUnauthorized);
+  const data = await responseData(response, response.ok ? prepared.responseType : "auto");
 
   if (!response.ok) {
-    reportUnauthorized(response, prepared.notifyUnauthorized);
     throw apiResponseError(response, data);
   }
 
@@ -92,6 +92,7 @@ async function responseData(response, responseType) {
   try {
     return await parseResponse(response, responseType);
   } catch (error) {
+    if (error.name === "AbortError") throw error;
     throw new ApiError("The server returned an invalid response", {
       status: response.status,
       data: error,
@@ -107,9 +108,10 @@ function reportUnauthorized(response, notifyUnauthorized) {
 }
 
 function apiResponseError(response, data) {
-  const message = typeof data === "object" && data !== null
+  const candidate = typeof data === "object" && data !== null
     ? data.message || data.error
-    : data;
+    : null;
+  const message = typeof candidate === "string" ? candidate : null;
 
   return new ApiError(message || `Request failed (${response.status})`, {
     status: response.status,

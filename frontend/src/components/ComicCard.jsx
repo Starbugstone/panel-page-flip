@@ -27,7 +27,7 @@ export function ComicCard({
   return (
     <>
       <div className="group relative" data-comic-id={comic.id}>
-        <Card className="relative overflow-hidden border-2 transition-all duration-300 hover:border-comic-purple hover:shadow-lg">
+        <Card className="relative overflow-hidden border-2 transition-all duration-300 hover:border-primary hover:shadow-lg">
           <LibraryReaderLink
             comicId={comic.id}
             aria-label={`Read ${comic.title}`}

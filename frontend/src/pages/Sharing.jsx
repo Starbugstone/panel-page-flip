@@ -1,6 +1,7 @@
+import { PageLayout, PageHeader, PageLoading } from "@/components/layout/PageLayout";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Share2Icon, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -59,22 +60,12 @@ export default function Sharing() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Share2Icon className="h-6 w-6 text-comic-purple" />
-          <h1 className="font-comic text-3xl">Sharing</h1>
-        </div>
-        <Button onClick={() => setShareDialog(EMPTY_TARGET)}>
-          <UserPlus className="mr-2 h-4 w-4" />
-          Share comics
-        </Button>
-      </div>
-
-      <p className="mb-6 max-w-3xl text-sm text-muted-foreground">
-        Sharing gives someone permission to read your comic. The file stays yours — nothing is
-        copied — and you can withdraw access at any time.
-      </p>
+    <PageLayout>
+      <PageHeader
+        title="Sharing"
+        description="Sharing gives someone permission to read your comic. The file stays yours — nothing is copied — and you can withdraw access at any time."
+        actions={<Button onClick={() => setShareDialog(EMPTY_TARGET)}><UserPlus aria-hidden="true" className="mr-2 h-4 w-4" />Share comics</Button>}
+      />
 
       {/* Above the tabs, because neither half of the page owns it: your own
           code is how people reach you, and redeeming one is how a comic arrives
@@ -82,10 +73,7 @@ export default function Sharing() {
       <SharingCodesCard onRedeemed={focus.afterReceiving} reloadKey={focus.codesReloadKey} />
 
       {isLoading ? (
-        <div className="flex items-center gap-2 py-12 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          Loading your shared comics…
-        </div>
+        <PageLoading label="Loading your shared comics…" />
       ) : error ? (
         <Alert variant="destructive">
           <AlertTitle>Could not load sharing</AlertTitle>
@@ -96,7 +84,7 @@ export default function Sharing() {
         </Alert>
       ) : (
         <Tabs value={focus.activeTab} onValueChange={focus.setActiveTab} className="space-y-6">
-          <TabsList>
+          <TabsList className="flex h-auto w-full flex-wrap justify-start sm:w-fit">
             <TabsTrigger value="with-me">Shared with me ({withMePagination.totalItems})</TabsTrigger>
             <TabsTrigger value="by-me">Shared by me ({byMePagination.totalItems})</TabsTrigger>
           </TabsList>
@@ -176,6 +164,6 @@ export default function Sharing() {
           ),
         }}
       />
-    </div>
+    </PageLayout>
   );
 }

@@ -21,6 +21,8 @@ lives in [`docs/`](docs/):
 | [library-folders.md](docs/library-folders.md) | Private folder tree over the library |
 | [sharing-management.md](docs/sharing-management.md) | Server-paged incoming and outgoing share tables, filters, selection, and bulk actions |
 | [mobile-interface.md](docs/mobile-interface.md) | Responsive layout contract for signed-in user pages |
+| [interface-patterns.md](docs/interface-patterns.md) | Shared visual system, page layouts, keyboard navigation, account recovery, and session ordering |
+| [codebase-review-2026-09.md](docs/codebase-review-2026-09.md) | Main-baseline architecture/security review, refactoring decisions and validation |
 | [metadata-enrichment.md](docs/metadata-enrichment.md) | ComicInfo.xml, Metron, Comic Vine |
 | [storage-quota.md](docs/storage-quota.md) | Storage accounting and the per-user quota |
 | [security-logging.md](docs/security-logging.md) | Security/audit channels, retention, alerts |

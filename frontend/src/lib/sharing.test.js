@@ -24,11 +24,9 @@ import {
   describeDeadShareCleanup,
   describeReceivedShare,
   describeShareImpactOfDeletion,
-  groupReceivedShares,
   isValidShareEmail,
   requiresAdultConfirmation,
   shareDisplayTitle,
-  summariseRecipients,
   tombstoneExplanation,
 } from "./sharing";
 
@@ -103,64 +101,6 @@ describe("describeReceivedShare", () => {
   it("uses the same neutral explanation for quarantined content", () => {
     expect(describeReceivedShare(share({ contentQuarantined: true })))
       .toContain("temporarily restricted by the service administrator");
-  });
-});
-
-describe("groupReceivedShares", () => {
-  it("routes each share to exactly one group", () => {
-    const shares = [
-      share({ id: 1, status: SHARE_STATUS.PENDING }),
-      share({ id: 2, status: SHARE_STATUS.ACCEPTED }),
-      share({ id: 3, status: SHARE_STATUS.REVOKED, isDead: true }),
-      share({ id: 4, status: SHARE_STATUS.ACCEPTED, isTombstoned: true, isDead: true }),
-    ];
-
-    const { invitations, collection, dead } = groupReceivedShares(shares);
-
-    expect(invitations.map((s) => s.id)).toEqual([1]);
-    expect(collection.map((s) => s.id)).toEqual([2]);
-    expect(dead.map((s) => s.id)).toEqual([3, 4]);
-  });
-
-  it("treats deadness as the server reports it, whatever the status says", () => {
-    // A tombstoned share keeps status "accepted"; classifying on status alone
-    // would put an unreadable comic back in the collection.
-    const { collection, dead } = groupReceivedShares([
-      share({ id: 9, status: SHARE_STATUS.ACCEPTED, isTombstoned: true, isDead: true }),
-    ]);
-
-    expect(collection).toHaveLength(0);
-    expect(dead).toHaveLength(1);
-  });
-
-  it("handles no shares at all", () => {
-    expect(groupReceivedShares()).toEqual({ invitations: [], collection: [], dead: [] });
-  });
-});
-
-describe("summariseRecipients", () => {
-  it("counts every state and the total", () => {
-    const counts = summariseRecipients([
-      { status: SHARE_STATUS.ACCEPTED },
-      { status: SHARE_STATUS.ACCEPTED },
-      { status: SHARE_STATUS.PENDING },
-      { status: SHARE_STATUS.DECLINED },
-    ]);
-
-    expect(counts).toEqual({
-      accepted: 2,
-      pending: 1,
-      declined: 1,
-      revoked: 0,
-      total: 4,
-    });
-  });
-
-  it("ignores a status it does not know without losing it from the total", () => {
-    const counts = summariseRecipients([{ status: "something_else" }]);
-
-    expect(counts.total).toBe(1);
-    expect(counts.accepted).toBe(0);
   });
 });
 

@@ -1,4 +1,7 @@
 import { lazy, Suspense } from "react";
+import { PageLoading } from "@/components/layout/PageLayout";
+import { RouteErrorBoundary } from "@/components/layout/RouteErrorBoundary";
+import { RouteAccessibility } from "@/components/layout/RouteAccessibility";
 import { Toaster as Sonner } from "@/components/ui/sonner.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip.jsx";
 import SessionMonitor from "@/components/SessionMonitor.jsx";
@@ -45,7 +48,6 @@ const CookieNoticePage = lazy(() => import("./pages/LegalPages.jsx").then((modul
 const ReportContent = lazy(() => import("./pages/ReportContent.jsx"));
 
 const queryClient = new QueryClient();
-const PageLoading = () => <div className="flex h-screen items-center justify-center">Loading...</div>;
 
 const SignedOutRedirect = () => {
   const location = useLocation();
@@ -99,10 +101,12 @@ const AdminRoute = ({ children }) => {
 
 const AppRoutes = () => {
   const { isAuthenticated, logout, isAdmin } = useAuth();
-  const { search, hash } = useLocation();
+  const location = useLocation();
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="flex min-h-dvh min-w-0 flex-col">
+      <a href="#main-content" className="skip-link">Skip to content</a>
+      <RouteAccessibility />
       <Header
         isLoggedIn={isAuthenticated}
         onLogout={logout}
@@ -112,10 +116,11 @@ const AppRoutes = () => {
           comic has to be readable from wherever the reader is, and the comic
           it is about may already be gone. */}
       <AdminNoticeBanner isLoggedIn={isAuthenticated} />
-      <main className="flex-1">
+      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
+        <RouteErrorBoundary key={location.pathname}>
         <Suspense fallback={<PageLoading />}>
           <Routes>
-          <Route path="/" element={isAuthenticated ? <Navigate to={{ pathname: "/dashboard", search, hash }} /> : <Landing />} />
+          <Route path="/" element={isAuthenticated ? <Navigate to={{ pathname: "/dashboard", search: location.search, hash: location.hash }} /> : <Landing />} />
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/complete-social-signup" element={isAuthenticated ? <Navigate to="/dashboard" /> : <CompleteSocialSignup />} />
           <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ForgotPassword />} />
@@ -144,6 +149,7 @@ const AppRoutes = () => {
           <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
+        </RouteErrorBoundary>
       </main>
       <Footer />
       <AnalyticsConsentDialog />

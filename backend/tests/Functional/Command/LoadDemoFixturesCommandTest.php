@@ -7,6 +7,7 @@ namespace App\Tests\Functional\Command;
 use App\Command\LoadDemoFixturesCommand;
 use App\DataFixtures\AppFixtures;
 use App\Entity\Comic;
+use App\Entity\Tag;
 use App\Entity\User;
 use App\Service\AppDataEncryptionService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -51,6 +52,8 @@ final class LoadDemoFixturesCommandTest extends KernelTestCase
             ->setRoles(['ROLE_ADMIN', 'ROLE_USER'])
             ->setIsEmailVerified(true);
         $entityManager->persist($existingAdmin);
+        $existingTag = (new Tag())->setName('manga')->setIsGlobal(true)->setHideFromLibrary(true);
+        $entityManager->persist($existingTag);
         $entityManager->flush();
 
         $application = new Application(self::$kernel);
@@ -60,6 +63,9 @@ final class LoadDemoFixturesCommandTest extends KernelTestCase
         self::assertStringContainsString('18 demo comics', $tester->getDisplay());
         self::assertCount(7, $entityManager->getRepository(User::class)->findAll());
         self::assertCount(18, $entityManager->getRepository(Comic::class)->findAll());
+        self::assertCount(8, $entityManager->getRepository(Tag::class)->findAll());
+        self::assertSame($existingTag, $entityManager->getRepository(Tag::class)->findOneBy(['name' => 'Manga', 'isGlobal' => true]));
+        self::assertTrue($existingTag->hidesFromLibrary());
         $preservedAdmin = $entityManager->getRepository(User::class)->findOneBy([
             'email' => 'existing-admin@example.test',
         ]);

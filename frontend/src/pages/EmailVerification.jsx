@@ -1,16 +1,30 @@
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, AlertCircle, CheckCircle2, Mail } from "lucide-react";
+import { AuthLayout } from "@/components/layout/AuthLayout";
+import { Label } from "@/components/ui/label";
+import { Loader2, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 
+function verificationCopy(status, message) {
+  if (status === "verification-success") {
+    return { title: "Email Verified!", description: message || "Your email has been verified successfully. You can now log in." };
+  }
+  if (status === "verification-failed") {
+    return { title: "Verification Failed", description: message || "Failed to verify your email. The link may be invalid or expired." };
+  }
+  return { title: "Email Verification", description: message || "Please verify your email address to activate your account." };
+}
+
+function emailFromLocation(location) {
+  return location.state?.email ?? "";
+}
+
 export default function EmailVerification() {
   const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
 
@@ -34,10 +48,12 @@ export default function EmailVerification() {
   const current = resendResult?.forSearch === location.search ? resendResult : null;
   const status = current?.status ?? urlStatus;
   const message = current?.message ?? urlMessage;
-  const email = typedEmail ?? location.state?.email ?? "";
+  const initialEmail = emailFromLocation(location);
+  const email = typedEmail ?? initialEmail;
   const setEmail = setTypedEmail;
 
-  const handleResendVerification = async () => {
+  const handleResendVerification = async (event) => {
+    event.preventDefault();
     if (!email) {
       toast({
         title: "Email Required",
@@ -49,7 +65,7 @@ export default function EmailVerification() {
 
     setIsLoading(true);
     try {
-      const data = await api.post("/api/email-verification/resend", { email });
+      const data = await api.post("/api/email-verification/resend", { email }, { notifyUnauthorized: false });
       
       toast({
         title: "Verification Email Sent",
@@ -73,136 +89,25 @@ export default function EmailVerification() {
     }
   };
 
-  const renderContent = () => {
-    if (isLoading) {
-      return (
-        <div className="flex flex-col items-center justify-center text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-          <p className="text-lg text-muted-foreground">Processing, please wait...</p>
-        </div>
-      );
-    }
-
-    if (status === "verification-success") {
-      return (
-        <Alert variant="default" className="max-w-md text-center border-green-500">
-          <CheckCircle2 className="h-5 w-5 text-green-600" />
-          <AlertTitle className="text-green-700">Email Verified!</AlertTitle>
-          <AlertDescription className="mb-4">
-            {message || "Your email has been verified successfully. You can now log in."}
-          </AlertDescription>
-          <Button 
-            onClick={() => navigate("/login")} 
-            className="mt-4">
-            Go to Login
-          </Button>
-        </Alert>
-      );
-    }
-
-    if (status === "verification-failed") {
-      return (
-        <Alert variant="destructive" className="max-w-md text-center">
-          <AlertCircle className="h-5 w-5" />
-          <AlertTitle>Verification Failed</AlertTitle>
-          <AlertDescription className="mb-4">
-            {message || "Failed to verify your email. The link may be invalid or expired."}
-          </AlertDescription>
-          <div className="mt-4 space-y-4">
-            <div className="flex flex-col space-y-2">
-              <label htmlFor="email" className="text-sm font-medium">
-                Your Email Address
-              </label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email"
-                className="w-full"
-              />
-            </div>
-            <Button 
-              onClick={handleResendVerification} 
-              disabled={isLoading}
-              className="w-full">
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <Mail className="mr-2 h-4 w-4" />
-                  Resend Verification Email
-                </>
-              )}
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={() => navigate("/login")} 
-              className="w-full">
-              Back to Login
-            </Button>
-          </div>
-        </Alert>
-      );
-    }
-
-    // Default state or "resent" status
-    return (
-      <Alert variant="default" className="max-w-md text-center">
-        <Mail className="h-5 w-5" />
-        <AlertTitle>Email Verification</AlertTitle>
-        <AlertDescription className="mb-4">
-          {message || "Please verify your email address to activate your account."}
-        </AlertDescription>
-        <div className="mt-4 space-y-4">
-          <div className="flex flex-col space-y-2">
-            <label htmlFor="email" className="text-sm font-medium">
-              Your Email Address
-            </label>
-            <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your email"
-              className="w-full"
-            />
-          </div>
-          <Button 
-            onClick={handleResendVerification} 
-            disabled={isLoading}
-            className="w-full">
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Sending...
-              </>
-            ) : (
-              <>
-                <Mail className="mr-2 h-4 w-4" />
-                Resend Verification Email
-              </>
-            )}
-          </Button>
-          <Button 
-            variant="outline" 
-            onClick={() => navigate("/login")} 
-            className="w-full">
-            Back to Login
-          </Button>
-        </div>
-      </Alert>
-    );
-  };
+  const verified = status === "verification-success";
+  const failed = status === "verification-failed";
+  const { title, description } = verificationCopy(status, message);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4">
-      <div className="w-full max-w-md">
-        {renderContent()}
-      </div>
-    </div>
+    <AuthLayout title={title} footer={<Link to="/login" className="text-primary hover:underline">{verified ? "Go to Login" : "Back to Login"}</Link>}>
+      <p role={failed ? "alert" : "status"} className="mb-6 text-center text-sm text-muted-foreground">{description}</p>
+      {!verified && (
+        <form onSubmit={handleResendVerification} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Your Email Address</Label>
+            <Input id="email" name="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Enter your email" required />
+          </div>
+          <Button type="submit" disabled={isLoading} className="w-full">
+            {isLoading ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : <Mail aria-hidden="true" className="mr-2 h-4 w-4" />}
+            {isLoading ? "Sending..." : "Resend Verification Email"}
+          </Button>
+        </form>
+      )}
+    </AuthLayout>
   );
 }

@@ -1,9 +1,9 @@
 const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-export const ADMIN_DATE_RANGE_SEPARATOR = "..";
+const ADMIN_DATE_RANGE_SEPARATOR = "..";
 export const ADMIN_EMPTY_DATE = "never";
 
-export function isCalendarDate(value) {
+function isCalendarDate(value) {
   const match = CALENDAR_DATE.exec(String(value ?? ""));
   if (!match) return false;
 

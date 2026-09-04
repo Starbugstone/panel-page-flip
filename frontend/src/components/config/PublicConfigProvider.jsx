@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 
 export const ADVERTISING_OFF = Object.freeze({ enabled: false, client: null });
-export const ANALYTICS_OFF = Object.freeze({ enabled: false, measurementId: null });
+const ANALYTICS_OFF = Object.freeze({ enabled: false, measurementId: null });
 /**
  * No optional Google service is effective, so nobody owns a consent question.
  *
@@ -12,9 +12,9 @@ export const ANALYTICS_OFF = Object.freeze({ enabled: false, measurementId: null
  * the only authority on whether advertising or measurement is on, and an
  * unanswered question is not a licence to assume either.
  */
-export const CONSENT_OFF = Object.freeze({ provider: null, analytics: false, googleClient: null });
-export const TURNSTILE_OFF = Object.freeze({ enabled: false, siteKey: null });
-export const LEGAL_CONTACT_UNKNOWN = Object.freeze({
+const CONSENT_OFF = Object.freeze({ provider: null, analytics: false, googleClient: null });
+const TURNSTILE_OFF = Object.freeze({ enabled: false, siteKey: null });
+const LEGAL_CONTACT_UNKNOWN = Object.freeze({
   operator: "Panel Page Flip site operator",
   privacyEmail: null,
   legalEmail: null,

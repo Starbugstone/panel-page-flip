@@ -166,7 +166,14 @@ final class AppFixtures
             'casey-club' => (new Tag())->setName('Book club')->setCreator($users['casey']),
             'erin-review' => (new Tag())->setName('Needs review')->setCreator($users['erin']),
         ];
-        foreach ($tags as $tag) {
+        foreach ($tags as $key => $tag) {
+            if ($tag->isGlobal()) {
+                $existing = $manager->getRepository(Tag::class)->findOneBy(['name' => $tag->getName(), 'isGlobal' => true]);
+                if ($existing instanceof Tag) {
+                    $tags[$key] = $existing;
+                    continue;
+                }
+            }
             $manager->persist($tag);
         }
 

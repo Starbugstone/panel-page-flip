@@ -1,4 +1,6 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { Link } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -8,6 +10,7 @@ const auth = vi.hoisted(() => ({
   loading: false,
   isAdmin: false,
   logout: vi.fn(),
+  crashDashboard: false,
 }));
 
 vi.mock("./hooks/use-auth.jsx", () => ({
@@ -22,13 +25,16 @@ vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({ AdSenseProvider: ({ chi
 vi.mock("@/components/consent/ConsentProvider.jsx", () => ({ ConsentProvider: ({ children }) => children }));
 vi.mock("@/components/consent/AnalyticsConsentDialog.jsx", () => ({ AnalyticsConsentDialog: () => null }));
 vi.mock("@/components/analytics/GoogleAnalyticsProvider.jsx", () => ({ GoogleAnalyticsProvider: ({ children }) => children }));
-vi.mock("@/components/Header.jsx", () => ({ Header: () => <header>Application header</header> }));
+vi.mock("@/components/Header.jsx", () => ({ Header: () => <header>Application header<Link to="/admin">Administration</Link></header> }));
 vi.mock("@/components/AdminNoticeBanner.jsx", () => ({ AdminNoticeBanner: () => null }));
 vi.mock("@/components/CookieNotice.jsx", () => ({ CookieNotice: () => null }));
 vi.mock("@/components/Footer.jsx", () => ({ Footer: () => <footer>Application footer</footer> }));
 vi.mock("@/components/SessionMonitor.jsx", () => ({ default: () => null }));
 vi.mock("./pages/Login.jsx", () => ({ default: () => <div>Login route</div> }));
-vi.mock("./pages/Dashboard.jsx", () => ({ default: () => <div>Dashboard route</div> }));
+vi.mock("./pages/Dashboard.jsx", () => ({ default: () => {
+  if (auth.crashDashboard) throw new Error("Private exception details");
+  return <div>Dashboard route</div>;
+} }));
 vi.mock("./pages/AdminDashboard.jsx", () => ({ default: () => <div>Admin route</div> }));
 
 describe("application shell", () => {
@@ -36,6 +42,26 @@ describe("application shell", () => {
     auth.isAuthenticated = false;
     auth.loading = false;
     auth.isAdmin = false;
+    auth.crashDashboard = false;
+    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  });
+
+  it("keeps navigation usable after a route crashes and recovers on a different route", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    auth.isAuthenticated = true;
+    auth.isAdmin = true;
+    auth.crashDashboard = true;
+    window.history.pushState({}, "", "/dashboard");
+    try {
+      render(<App />);
+      expect(await screen.findByRole("alert")).toHaveTextContent("This page could not be displayed");
+      expect(screen.queryByText("Private exception details")).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("link", { name: "Administration" }));
+      expect(await screen.findByText("Admin route")).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("renders the real not-found route inside the shared shell", async () => {
@@ -45,6 +71,8 @@ describe("application shell", () => {
     expect(await screen.findByRole("heading", { name: "404" })).toBeInTheDocument();
     expect(screen.getByText("Application header")).toBeInTheDocument();
     expect(screen.getByText("Application footer")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Skip to content" })).toHaveAttribute("href", "#main-content");
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
   });
 
   it("preserves a privacy-panel request when a signed-in landing page redirects", async () => {

@@ -19,7 +19,7 @@ import { logger } from "@/lib/logger";
 import { describeBulkOutcome, runBulkAction } from "@/lib/bulk-actions";
 
 /** Mirrors UserWarning::MAX_MESSAGE_LENGTH. The server checks again. */
-export const MAX_WARNING_LENGTH = 2000;
+const MAX_WARNING_LENGTH = 2000;
 
 /**
  * One dialog for every place a warning is issued from, one row or many.

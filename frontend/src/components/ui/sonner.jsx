@@ -1,5 +1,5 @@
 import { useTheme } from "@/components/ThemeProvider.jsx";
-import { Toaster as Sonner, toast } from "sonner";
+import { Toaster as Sonner } from "sonner";
 
 const Toaster = ({ ...props }) => {
   const { theme = "system" } = useTheme();
@@ -24,4 +24,4 @@ const Toaster = ({ ...props }) => {
   );
 };
 
-export { Toaster, toast };
+export { Toaster };

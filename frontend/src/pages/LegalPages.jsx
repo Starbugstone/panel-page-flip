@@ -1,3 +1,4 @@
+import { PageLayout, PageHeader } from "@/components/layout/PageLayout";
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
@@ -80,10 +81,9 @@ function LegalLayout({ title, children }) {
   }, [title]);
 
   return (
-    <div className="container mx-auto max-w-4xl px-4 py-10">
-      <article className="prose prose-slate max-w-none dark:prose-invert">
-        <h1 className="font-comic">{title}</h1>
-        <p className="text-sm text-muted-foreground">Last updated: {LAST_UPDATED}</p>
+    <PageLayout width="reading">
+      <PageHeader title={title} description={`Last updated: ${LAST_UPDATED}`} />
+      <article className="legal-content">
         {children}
       </article>
       <nav className="mt-10 flex flex-wrap gap-4 border-t pt-6 text-sm">
@@ -93,7 +93,7 @@ function LegalLayout({ title, children }) {
         <Link className="underline" to="/report-content">Report illegal content</Link>
         <Link className="underline" to="/">Home</Link>
       </nav>
-    </div>
+    </PageLayout>
   );
 }
 

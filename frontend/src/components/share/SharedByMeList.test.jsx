@@ -144,6 +144,6 @@ describe("SharedByMeList", () => {
     renderList();
 
     expect(screen.getByRole("table").parentElement).toHaveClass("overflow-auto");
-    expect(screen.getByText("0 of 2 shares selected").parentElement.parentElement).toHaveClass("flex-col");
+    expect(screen.getByText("0 of 2 shares selected").parentElement.parentElement).toHaveClass("flex-col", "lg:flex-row");
   });
 });

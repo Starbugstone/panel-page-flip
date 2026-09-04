@@ -7,7 +7,7 @@ export const DEFAULT_COMIC_FORMATS = ["cbz"];
 // accepts is narrower and comes from the server, since an optional format needs
 // a runtime the admin has to have installed and enabled; this list is only the
 // fallback for stripping an extension off a title.
-export const COMIC_EXTENSIONS = ["cbz", "cbr", "cb7", "cbt", "pdf"];
+const COMIC_EXTENSIONS = ["cbz", "cbr", "cb7", "cbt", "pdf"];
 export const comicFileAccept = (extensions) => extensions.map((extension) => `.${extension}`).join(",");
 
 export const DEFAULT_PARALLEL_FILES = 2;

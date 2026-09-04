@@ -60,6 +60,6 @@ describe("LibraryToolbar", () => {
       "sm:col-span-1",
       "sm:w-auto",
     );
-    expect(screen.getByRole("heading", { name: "My Comic Library" })).toHaveClass("text-2xl", "sm:text-3xl");
+    expect(screen.getByRole("heading", { level: 1, name: "My Comic Library" })).toHaveClass("page-title");
   });
 });

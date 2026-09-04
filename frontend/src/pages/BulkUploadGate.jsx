@@ -1,3 +1,4 @@
+import { PageLayout } from "@/components/layout/PageLayout";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -23,10 +24,10 @@ export default function BulkUploadGate() {
   const singleUploaderPath = folder ? `${SINGLE_UPLOAD_ROUTE}?folder=${encodeURIComponent(folder)}` : SINGLE_UPLOAD_ROUTE;
 
   return (
-    <div className="container mx-auto flex justify-center px-4 py-8">
+    <PageLayout width="form" className="flex justify-center">
       <Card className="w-full max-w-xl">
         <CardHeader>
-          <CardTitle className="text-2xl font-comic">Bulk upload</CardTitle>
+          <CardTitle as="h1" className="page-title">Bulk upload</CardTitle>
           <CardDescription>Upload multiple comics in one batch.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm text-muted-foreground">
@@ -51,6 +52,6 @@ export default function BulkUploadGate() {
           </Button>
         </CardFooter>
       </Card>
-    </div>
+    </PageLayout>
   );
 }

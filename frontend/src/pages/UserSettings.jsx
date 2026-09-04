@@ -1,3 +1,4 @@
+import { PageLayout, PageHeader } from "@/components/layout/PageLayout";
 import { useState } from "react";
 
 import { AccountSettingsCard } from "@/components/AccountSettingsCard";
@@ -13,11 +14,8 @@ export default function UserSettings() {
   const [oauthConnections, setOauthConnections] = useState([]);
 
   return (
-    <div className="container mx-auto max-w-5xl px-4 py-8">
-      <div className="mb-6">
-        <h1 className="text-3xl font-comic">Settings</h1>
-        <p className="mt-1 text-muted-foreground">Manage your account, your storage, and the tags that belong only to you.</p>
-      </div>
+    <PageLayout width="settings">
+      <PageHeader title="Settings" description="Manage your account, your storage, and the tags that belong only to you." />
 
       <div className="mb-6">
         <AccountSettingsCard />
@@ -38,6 +36,6 @@ export default function UserSettings() {
         oauthConnections={oauthConnections}
         initiallyOpen={oauthReauthenticated}
       />
-    </div>
+    </PageLayout>
   );
 }

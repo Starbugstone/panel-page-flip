@@ -1,3 +1,4 @@
+import { PageLayout } from "@/components/layout/PageLayout";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
@@ -55,8 +56,8 @@ function AcceptedInvitation({ accepted, onRead, onDashboard }) {
   return (
     <Card className="w-full max-w-md">
       <CardContent className="space-y-4 p-6 text-center">
-        <BookOpen className="mx-auto h-10 w-10 text-comic-purple" />
-        <h1 className="font-comic text-2xl">
+        <BookOpen className="mx-auto h-10 w-10 text-primary" />
+        <h1 className="page-title">
           {count > 1 ? `${count} comics are in your collection` : `“${share.comicTitle}” is in your collection`}
         </h1>
         <p className="text-sm text-muted-foreground">
@@ -95,7 +96,7 @@ function InvitationPreview({ invitation, gated }) {
     : shareDisplayTitle(invitation);
 
   return (
-    <div className="flex gap-4">
+    <div className="flex flex-col gap-4 sm:flex-row">
       {/* A neutral placeholder, never the real cover behind a blur: the cover
           bytes do not leave the server before age confirmation. */}
       {invitation.coverImagePath ? (
@@ -112,7 +113,7 @@ function InvitationPreview({ invitation, gated }) {
         </div>
       )}
       <div className="min-w-0 space-y-1">
-        <h1 className="font-comic text-2xl">{title}</h1>
+        <h1 className="page-title">{title}</h1>
         {invitation.comicAuthor && <p className="text-sm text-muted-foreground">{invitation.comicAuthor}</p>}
         {invitation.pageCount != null && <p className="text-sm text-muted-foreground">{invitation.pageCount} pages</p>}
         <p className="pt-2 text-sm">
@@ -377,7 +378,7 @@ export default function ShareInvitation() {
   };
 
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center bg-background p-4">
+    <PageLayout width="form" className="flex min-h-[60vh] flex-col items-center justify-center">
       <InvitationBody
         authLoading={auth.loading}
         authenticated={auth.isAuthenticated}
@@ -393,6 +394,6 @@ export default function ShareInvitation() {
         onAccept={() => answer("accept")}
         onDecline={() => answer("decline")}
       />
-    </div>
+    </PageLayout>
   );
 }

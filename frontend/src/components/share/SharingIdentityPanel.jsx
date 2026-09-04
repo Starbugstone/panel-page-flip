@@ -7,7 +7,7 @@ export function SharingIdentityPanel({ identity, loadFailed, copied, isRotating,
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <KeyRound className="h-4 w-4 text-comic-purple" />
+        <KeyRound className="h-4 w-4 text-primary" />
         <h2 className="font-semibold">Your identity</h2>
       </div>
       <p className="text-xs text-muted-foreground">{SHARING_CODE_COPY.mine}</p>

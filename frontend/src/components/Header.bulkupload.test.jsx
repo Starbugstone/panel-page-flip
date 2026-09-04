@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Header } from "@/components/Header.jsx";
+import { ThemeProvider } from "@/components/ThemeProvider.jsx";
+import { RouteAccessibility } from "@/components/layout/RouteAccessibility";
 
 const { adSense } = vi.hoisted(() => ({ adSense: { isActive: false } }));
 
@@ -13,7 +15,7 @@ vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
 const renderHeader = (entry, { isAdmin = false } = {}) => render(
   <MemoryRouter initialEntries={[entry]}>
-    <Header isLoggedIn onLogout={vi.fn()} isAdmin={isAdmin} />
+    <ThemeProvider><Header isLoggedIn onLogout={vi.fn()} isAdmin={isAdmin} /></ThemeProvider>
   </MemoryRouter>
 );
 
@@ -22,6 +24,19 @@ const bulkLink = () => screen.getByRole("link", { name: "Bulk Upload" });
 beforeEach(() => {
   vi.clearAllMocks();
   adSense.isActive = false;
+});
+
+it("leaves focus on the destination content after using the mobile menu", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  render(
+    <MemoryRouter initialEntries={["/dashboard"]}>
+      <ThemeProvider><Header isLoggedIn onLogout={vi.fn()} /><RouteAccessibility /><main id="main-content" tabIndex={-1}>Page content</main></ThemeProvider>
+    </MemoryRouter>,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Open navigation menu" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+  await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("main")).toHaveFocus());
 });
 
 /**
@@ -47,7 +62,7 @@ describe("the bulk upload link", () => {
   it("highlights while the gate is on screen", () => {
     renderHeader("/upload/bulk");
 
-    expect(bulkLink().className).toContain("text-comic-purple");
+    expect(bulkLink()).toHaveAttribute("aria-current", "page");
   });
 
   /**
@@ -59,7 +74,7 @@ describe("the bulk upload link", () => {
   it("stays highlighted on the batch screen behind it", () => {
     renderHeader("/upload/bulk/session");
 
-    expect(bulkLink().className).toContain("text-comic-purple");
+    expect(bulkLink()).toHaveAttribute("aria-current", "page");
   });
 
   /**
@@ -84,6 +99,18 @@ describe("the bulk upload link", () => {
 });
 
 describe("the admin destination", () => {
+  it("identifies the current section on an admin account detail page", () => {
+    renderHeader("/admin/users/7", { isAdmin: true });
+    expect(screen.getByRole("link", { name: "Admin dashboard" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("navigation")).toHaveAccessibleName("Main navigation");
+  });
+
+  it("identifies the same active section in the mobile menu", async () => {
+    renderHeader("/settings");
+    await userEvent.click(screen.getByRole("button", { name: "Open navigation menu" }));
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("menuitem", { name: "My Comics" })).not.toHaveAttribute("aria-current");
+  });
   it("uses Admin dashboard as its visible and accessible name", () => {
     renderHeader("/dashboard", { isAdmin: true });
 

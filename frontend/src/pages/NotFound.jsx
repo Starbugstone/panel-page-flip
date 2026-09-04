@@ -1,15 +1,12 @@
-const NotFound = () => {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">404</h1>
-        <p className="text-xl text-gray-600 mb-4">Oops! Page not found</p>
-        <a href="/" className="text-blue-500 hover:text-blue-700 underline">
-          Return to Home
-        </a>
-      </div>
-    </div>
-  );
-};
+import { Link } from "react-router-dom";
+import { PageHeader, PageLayout } from "@/components/layout/PageLayout";
+import { Button } from "@/components/ui/button";
 
-export default NotFound;
+export default function NotFound() {
+  return (
+    <PageLayout width="reading" className="flex min-h-[60vh] flex-col justify-center">
+      <PageHeader title="404" description="This page could not be found. The link may have changed or the page may no longer exist." />
+      <Button asChild className="self-start"><Link to="/">Return to Home</Link></Button>
+    </PageLayout>
+  );
+}

@@ -1,5 +1,6 @@
+import { PageLayout } from "@/components/layout/PageLayout";
 import BulkUploadQueue from "@/components/BulkUploadQueue";
 
 export default function BulkUploadComic() {
-  return <div className="container mx-auto flex justify-center px-4 py-8"><BulkUploadQueue /></div>;
+  return <PageLayout width="settings" className="flex justify-center"><BulkUploadQueue /></PageLayout>;
 }

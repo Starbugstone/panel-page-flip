@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/layout/PageLayout";
 import { Link } from "react-router-dom";
 import { Folders, Grid3X3, List, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,11 +15,9 @@ const SORT_OPTIONS = [
 /** The library's heading and the controls that change how it is shown. */
 export function LibraryToolbar({ isRefreshing, sort, onSortChange, viewMode, onViewModeChange, onOpenSidebar, uploadUrl }) {
   return (
-    <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-comic sm:text-3xl">My Comic Library</h1>
-        {isRefreshing && <span className="text-sm text-muted-foreground" role="status">Refreshing…</span>}
-      </div>
+    <PageHeader title="My Comic Library" className="lg:flex-col xl:flex-row xl:items-center"
+      description={isRefreshing ? <span role="status">Refreshing…</span> : "Your collection, ready for the next chapter."}
+      actions={
       <div className="grid grid-cols-2 items-stretch gap-2 sm:flex sm:flex-wrap sm:items-center">
         <Button variant="outline" className="w-full sm:w-auto lg:hidden" onClick={onOpenSidebar}>
           <Folders className="mr-2 h-4 w-4" />Folders
@@ -41,6 +40,7 @@ export function LibraryToolbar({ isRefreshing, sort, onSortChange, viewMode, onV
         </div>
         <Button asChild className="col-span-2 w-full sm:col-span-1 sm:w-auto"><Link to={uploadUrl}><Upload className="mr-2 h-4 w-4" />Upload</Link></Button>
       </div>
-    </div>
+      }
+    />
   );
 }

@@ -10,8 +10,7 @@ import { useSharing } from "@/hooks/use-sharing.jsx";
 
 export function Header({ isLoggedIn, onLogout, isAdmin }) {
   const location = useLocation();
-  const inBulkUpload = location.pathname === "/upload/bulk" || location.pathname.startsWith("/upload/bulk/");
-  const isReaderPage = location.pathname.includes("/read/");
+  const isReaderPage = location.pathname.startsWith("/read/");
   const isLibraryPage = location.pathname === "/dashboard";
   const [isFullscreen, setIsFullscreen] = useState(false);
   const { summary } = useSharing();
@@ -36,7 +35,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
       return (
         <header className="reader-header-fullscreen fixed left-0 right-0 top-0 z-[60] bg-gradient-to-b from-background/90 to-transparent p-2 transition-opacity duration-300 motion-reduce:transition-none">
           <div className="flex justify-between items-center">
-            <BackToLibraryLink className="text-foreground hover:text-comic-purple text-sm" />
+            <BackToLibraryLink className="text-foreground hover:text-primary text-sm" />
             <ThemeToggle />
           </div>
         </header>
@@ -46,7 +45,7 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
       return (
         <header className={`reader-header relative w-full shrink-0 border-b border-border bg-background ${PAGE_LAYER_CLASSES.header}`}>
           <div className="flex h-full items-center justify-between">
-            <BackToLibraryLink className="text-foreground hover:text-comic-purple text-sm" />
+            <BackToLibraryLink className="text-foreground hover:text-primary text-sm" />
             <ThemeToggle />
           </div>
         </header>
@@ -58,14 +57,13 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
     <header className={`border-b ${isLibraryPage ? `bg-background lg:sticky lg:top-0 ${PAGE_LAYER_CLASSES.header}` : ""}`}>
       <div className="container flex h-16 items-center justify-between px-4 md:px-6">
         <Link to="/" aria-label="Panel Page Flip" className="flex min-h-10 min-w-10 items-center gap-2">
-          <BookOpen className="h-6 w-6 text-comic-purple" />
-          <span className="hidden font-comic text-2xl sm:inline">Panel Page Flip</span>
+          <BookOpen aria-hidden="true" className="h-6 w-6 text-primary" />
+          <span className="hidden text-xl font-semibold tracking-tight sm:inline">Panel Page Flip</span>
         </Link>
-        <nav className="flex items-center gap-2 sm:gap-4">
+        <nav aria-label="Main navigation" className="flex items-center gap-2 sm:gap-3">
           {isLoggedIn ? (
             <SignedInNav
               location={location}
-              inBulkUpload={inBulkUpload}
               isAdmin={isAdmin}
               pendingInvitations={pendingInvitations}
               onLogout={onLogout}
@@ -73,7 +71,8 @@ export function Header({ isLoggedIn, onLogout, isAdmin }) {
           ) : (
             <Link 
               to="/login" 
-              className={`${location.pathname === "/login" ? "text-comic-purple" : "text-foreground hover:text-comic-purple"}`}
+              aria-current={location.pathname === "/login" ? "page" : undefined}
+              className="rounded-md px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10"
             >
               Login
             </Link>

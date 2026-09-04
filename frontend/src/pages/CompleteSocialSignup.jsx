@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { BookOpen } from "lucide-react";
+import { AuthLayout } from "@/components/layout/AuthLayout";
+import { PageLoading } from "@/components/layout/PageLayout";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
@@ -69,28 +70,17 @@ export default function CompleteSocialSignup() {
     }
   };
 
-  if (loading) return <div className="container mx-auto max-w-md px-4 py-16 text-center">Loading social signup…</div>;
+  if (loading) return <AuthLayout title="Complete social signup"><PageLoading label="Loading social signup…" /></AuthLayout>;
   if (expired || !pending) {
     return (
-      <div className="container mx-auto max-w-md px-4 py-16 text-center">
-        <h1 className="font-comic text-2xl">This social signup has expired</h1>
-        <p className="mt-3 text-muted-foreground">Start again so the provider can confirm your account.</p>
+      <AuthLayout title="This social signup has expired" description="Start again so the provider can confirm your account.">
         <Button asChild className="mt-6"><Link to="/login">Back to login</Link></Button>
-      </div>
+      </AuthLayout>
     );
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md rounded-lg bg-card p-6 shadow-lg sm:p-8">
-        <div className="text-center">
-          <BookOpen className="mx-auto h-12 w-12 text-comic-purple" />
-          <h1 className="mt-4 font-comic text-2xl">Complete social signup</h1>
-          <p className="mt-2 text-muted-foreground">
-            Continue with {providerName(pending.provider)} as {pending.email}
-          </p>
-        </div>
-
+    <AuthLayout title="Complete social signup" description={<>Continue with {providerName(pending.provider)} as {pending.email}</>}>
         <form onSubmit={completeSignup} className="mt-8 space-y-5">
           <div className="space-y-2">
             <Label htmlFor="social-username">Username</Label>
@@ -117,11 +107,10 @@ export default function CompleteSocialSignup() {
             </Label>
           </div>
 
-          <Button className="w-full bg-comic-purple hover:bg-comic-purple-dark" disabled={!agreeTerms || Boolean(usernameError) || saving}>
+          <Button className="w-full" disabled={!agreeTerms || Boolean(usernameError) || saving}>
             {saving ? "Creating account…" : "Create account and continue"}
           </Button>
         </form>
-      </div>
-    </div>
+    </AuthLayout>
   );
 }
