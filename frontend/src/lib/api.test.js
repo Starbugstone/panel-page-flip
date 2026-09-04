@@ -72,4 +72,43 @@ describe("api.request", () => {
       message: "Unable to reach the server",
     });
   });
+
+  it("expires the session even when a 401 body is malformed JSON", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{broken", {
+      status: 401, headers: { "Content-Type": "application/json" },
+    })));
+
+    await expect(api.get("/api/comics")).rejects.toMatchObject({ status: 401 });
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: UNAUTHORIZED_EVENT }));
+  });
+
+  it.each(["blob", "response", "text"])("reads JSON errors even when a successful request expects %s", async (responseType) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ message: "Comic unavailable" }), {
+      status: 403, headers: { "Content-Type": "application/json" },
+    })));
+
+    await expect(request("/api/comics/1/download", { responseType })).rejects.toMatchObject({
+      status: 403, message: "Comic unavailable", data: { message: "Comic unavailable" },
+    });
+  });
+
+  it("does not put an upstream HTML error page into a user-facing message", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>Proxy details and internal paths</html>", {
+      status: 502, headers: { "Content-Type": "text/html" },
+    })));
+
+    await expect(api.get("/api/comics")).rejects.toMatchObject({ message: "Request failed (502)" });
+  });
+
+  it("preserves cancellation while a response body is being read", async () => {
+    const abort = new DOMException("Request aborted", "AbortError");
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }),
+      text: () => Promise.reject(abort),
+    })));
+
+    await expect(api.get("/api/comics")).rejects.toBe(abort);
+  });
 });

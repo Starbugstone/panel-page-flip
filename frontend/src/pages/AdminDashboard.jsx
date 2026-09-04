@@ -1,3 +1,4 @@
+import { PageLayout, PageHeader, PageLoading } from "@/components/layout/PageLayout";
 
 import { useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -46,23 +47,16 @@ export default function AdminDashboard() {
     });
   };
 
-  // Display a loading message while authentication is in progress
-  if (loading) {
-    return (
-      <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[calc(100vh-200px)]">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-primary"></div>
-      </div>
-    );
-  }
-  
+  if (loading) return <PageLayout><PageLoading label="Loading administration…" /></PageLayout>;
+
   // If loading is complete and user is not admin, redirect to dashboard
   if (!isAdmin) {
     return <Navigate to="/dashboard" replace />;
   }
   
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-comic mb-8">Admin dashboard</h1>
+    <PageLayout>
+      <PageHeader title="Admin dashboard" description="Manage accounts, content, and your installation." />
       
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="mb-6 flex h-auto w-full justify-start overflow-x-auto">
@@ -128,6 +122,6 @@ export default function AdminDashboard() {
           <AdminAuditList />
         </TabsContent>
       </Tabs>
-    </div>
+    </PageLayout>
   );
 }

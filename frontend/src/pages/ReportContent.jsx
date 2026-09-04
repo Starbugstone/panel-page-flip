@@ -1,3 +1,4 @@
+import { PageLayout, PageHeader } from "@/components/layout/PageLayout";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -146,10 +147,10 @@ export default function ReportContent() {
 
   if (result) {
     return (
-      <div className="container mx-auto max-w-3xl px-4 py-10">
+      <PageLayout width="form">
         <Card>
           <CardHeader>
-            <CardTitle>Report received</CardTitle>
+            <CardTitle as="h1" className="page-title">Report received</CardTitle>
             <CardDescription>{result.message}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -163,17 +164,13 @@ export default function ReportContent() {
             <Button variant="outline" onClick={() => setResult(null)}>Submit another report</Button>
           </CardContent>
         </Card>
-      </div>
+      </PageLayout>
     );
   }
 
   return (
-    <div className="container mx-auto max-w-3xl px-4 py-10">
-      <h1 className="mb-3 font-comic text-4xl">Report illegal content</h1>
-      <p className="mb-8 text-muted-foreground">
-        Use this public form to identify specific material you believe is illegal or infringes intellectual-property rights.
-        You do not need an account or an internal comic ID. This is not a public moderation feed.
-      </p>
+    <PageLayout width="form">
+      <PageHeader title="Report illegal content" description="Use this public form to identify specific material you believe is illegal or infringes intellectual-property rights. You do not need an account or an internal comic ID. This is not a public moderation feed." />
 
       <form className="space-y-6" onSubmit={submit} noValidate>
         {errors.form && <p role="alert" className="text-sm text-destructive">{errors.form}</p>}
@@ -240,7 +237,7 @@ export default function ReportContent() {
         </p>
         <p className="mt-2">See the <Link className="underline" to="/privacy">Privacy Policy</Link> for how report data is handled.</p>
       </div>
-    </div>
+    </PageLayout>
   );
 }
 

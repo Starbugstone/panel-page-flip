@@ -5,8 +5,8 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 240 33% 98%;
+    --foreground: 230 30% 14%;
 
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
@@ -14,42 +14,42 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 258 70% 74%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 258 58% 49%;
+    --primary-foreground: 0 0% 100%;
 
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
 
     --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted-foreground: 225 14% 42%;
 
     --accent: 210 40% 96.1%;
     --accent-foreground: 222.2 47.4% 11.2%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 350 70% 42%;
+    --destructive-foreground: 0 0% 100%;
 
     --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 258 70% 74%;
+    --input: 225 16% 56%;
+    --ring: 258 58% 49%;
     --scrollbar-thumb: 215 18% 60%;
     --scrollbar-thumb-hover: 258 50% 55%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
+    --background: 230 30% 9%;
     --foreground: 210 40% 98%;
 
-    --card: 222.2 84% 4.9%;
+    --card: 230 25% 12%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 222.2 84% 4.9%;
+    --popover: 230 25% 12%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 258 70% 74%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 258 85% 79%;
+    --primary-foreground: 230 30% 12%;
 
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
@@ -60,12 +60,12 @@
     --accent: 217.2 32.6% 17.5%;
     --accent-foreground: 210 40% 98%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 350 85% 76%;
+    --destructive-foreground: 230 30% 12%;
 
     --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 258 70% 74%;
+    --input: 225 16% 48%;
+    --ring: 258 85% 79%;
     --scrollbar-thumb: 215 20% 40%;
     --scrollbar-thumb-hover: 258 70% 65%;
   }
@@ -103,14 +103,91 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
 @layer components {
+  .page-layout {
+    @apply mx-auto w-full min-w-0 px-4 py-6 sm:px-6 sm:py-8;
+  }
+
+  .page-header {
+    @apply mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between;
+  }
+
+  .page-title {
+    @apply break-words text-2xl font-semibold tracking-tight sm:text-3xl;
+    overflow-wrap: anywhere;
+  }
+
+  .page-actions {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .auth-layout {
+    @apply mx-auto flex min-h-[65vh] w-full max-w-lg flex-col justify-center px-4 py-8 sm:py-12;
+  }
+
+  .auth-card {
+    @apply w-full min-w-0 rounded-2xl border bg-card p-5 shadow-sm sm:p-8;
+    overflow-wrap: anywhere;
+  }
+
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground focus:shadow-lg;
+  }
+
+  .legal-content {
+    @apply max-w-none break-words text-sm leading-7 sm:text-base;
+  }
+
+  .legal-content > * + * {
+    @apply mt-4;
+  }
+
+  .legal-content h1 {
+    @apply page-title;
+  }
+
+  .legal-content h2 {
+    @apply mb-3 mt-8 text-xl font-semibold tracking-tight;
+  }
+
+  .legal-content h3 {
+    @apply mb-2 mt-6 text-lg font-semibold;
+  }
+
+  .legal-content ul {
+    @apply list-disc space-y-2 pl-6;
+  }
+
+  .legal-content ol {
+    @apply list-decimal space-y-2 pl-6;
+  }
+
+  .legal-content a {
+    @apply text-primary underline underline-offset-4;
+    overflow-wrap: anywhere;
+  }
+
   .comic-card {
-    @apply relative overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md hover:-translate-y-1;
+    @apply relative overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm transition-shadow hover:shadow-md;
   }
 
   /* Dynamic viewport units with the static ones as a fallback. Mobile browser

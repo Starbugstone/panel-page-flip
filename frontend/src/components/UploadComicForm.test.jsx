@@ -45,6 +45,18 @@ vi.mock("@/components/TagCombobox", () => ({
 }));
 
 describe("UploadComicForm", () => {
+  it("offers a keyboard-operable file chooser without submitting the form", async () => {
+    render(<MemoryRouter><UploadComicForm /></MemoryRouter>);
+    const input = screen.getByLabelText("Comic File (CBZ)");
+    const click = vi.spyOn(input, "click").mockImplementation(() => {});
+    const choose = screen.getByRole("button", { name: "Choose file" });
+    choose.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { level: 1, name: "Upload New Comic" })).toBeInTheDocument();
+    click.mockRestore();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.refreshSession.mockResolvedValue(true);

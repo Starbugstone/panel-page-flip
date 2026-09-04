@@ -25,6 +25,7 @@ final class ComicInfoParser
     private const MAX_SUMMARY_LENGTH = 20_000;
     private const MAX_PAGES = 20_000;
     private const MAX_CREATORS_PER_ROLE = 50;
+    private const MAX_INTEGER = 2_147_483_647;
 
     private const CREATOR_ROLES = [
         'Writer' => 'writer',
@@ -107,9 +108,9 @@ final class ComicInfoParser
 
     private function positiveInt(\SimpleXMLElement $root, string $field): ?int
     {
-        $value = $this->text($root, $field);
+        $value = $this->boundedInt($this->text($root, $field));
 
-        return $value !== null && ctype_digit($value) && (int) $value > 0 ? (int) $value : null;
+        return $value !== null && $value > 0 ? $value : null;
     }
 
     /** ISO 639 codes only, so a free-text language never reaches the column. */
@@ -220,7 +221,7 @@ final class ComicInfoParser
                 break;
             }
 
-            $image = $this->attributeInt($element, 'Image');
+            $image = $this->boundedInt($this->attribute($element, 'Image'), self::MAX_PAGES - 1);
             if ($image === null || $image < 0 || isset($pages[$image + 1])) {
                 continue;
             }
@@ -248,9 +249,23 @@ final class ComicInfoParser
 
     private function attributeInt(\SimpleXMLElement $element, string $name): ?int
     {
-        $value = $this->attribute($element, $name);
+        return $this->boundedInt($this->attribute($element, $name));
+    }
 
-        return $value !== null && preg_match('/^\d+$/', $value) === 1 ? (int) $value : null;
+    private function boundedInt(?string $value, int $maximum = self::MAX_INTEGER): ?int
+    {
+        if ($value === null || !ctype_digit($value)) {
+            return null;
+        }
+
+        $decimal = ltrim($value, '0');
+        $ceiling = (string) $maximum;
+        if (strlen($decimal) > strlen($ceiling)
+            || (strlen($decimal) === strlen($ceiling) && strcmp($decimal, $ceiling) > 0)) {
+            return null;
+        }
+
+        return (int) $decimal;
     }
 
     private function positiveAttribute(\SimpleXMLElement $element, string $name): ?int

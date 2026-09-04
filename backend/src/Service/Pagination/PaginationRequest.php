@@ -16,6 +16,7 @@ final class PaginationRequest
 {
     public const DEFAULT_LIMIT = 25;
     public const MAX_LIMIT = 100;
+    private const MAX_OFFSET = 2_147_483_647;
 
     /**
      * @param string $sortField A field name the caller declared sortable.
@@ -45,6 +46,7 @@ final class PaginationRequest
         $page = max(1, $request->query->getInt('page', 1));
         $limit = $request->query->getInt('limit', self::DEFAULT_LIMIT);
         $limit = max(1, min(self::MAX_LIMIT, $limit));
+        $page = min($page, intdiv(self::MAX_OFFSET, $limit) + 1);
 
         $search = trim((string) $request->query->get('search', ''));
 

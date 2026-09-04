@@ -20,6 +20,12 @@ repeat run reports that the fixtures are already loaded and changes nothing. If
 only some of the reserved demo email addresses exist, the command stops with an
 error instead of guessing whether those accounts are safe to change.
 
+Global tags already supplied by migrations or the operator are reused by name,
+including case-insensitive matches, without changing their visibility settings.
+The command loads its database graph in one transaction: a failed load cannot
+leave six accounts that incorrectly make the next run appear complete. Generated
+demo files from a failed attempt are replaced by the next load.
+
 The command refuses to run outside the `dev` and `test` environments. During a
 new load it only replaces generated files whose names begin with
 `demo-fixture-`; unrelated files under `public/uploads/comics/` are not touched.

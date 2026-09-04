@@ -58,7 +58,7 @@ export function ComicCardCover({ comic, coverPriority, isSharedWithMe, onResetPr
       {status === "failed" && <CoverFailureArt title={comic.title} onRetry={retry} />}
 
       {isSharedWithMe && (
-        <Badge className="absolute left-2 top-2 bg-comic-purple text-white">
+        <Badge className="absolute left-2 top-2 bg-primary text-primary-foreground">
           Shared by {comic.sharedBy?.name || "another user"}
         </Badge>
       )}

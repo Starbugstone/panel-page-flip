@@ -12,6 +12,7 @@ import { logger } from '@/lib/logger';
 
 class SessionManager {
   constructor() {
+    this.revision = 0;
     this.keepAliveInterval = null;
     this.sessionCheckInterval = null;
     this.isActive = false;
@@ -34,12 +35,12 @@ class SessionManager {
    * @param {number} options.sessionCheckIntervalMs Interval for session checks (default: 1 minute)
    */
   start(options = {}) {
-    this.onSessionExpired = options.onSessionExpired;
     const keepAliveIntervalMs = options.keepAliveIntervalMs || 4 * 60 * 1000; // 4 minutes
     const sessionCheckIntervalMs = options.sessionCheckIntervalMs || 60 * 1000; // 1 minute
 
     // Clear any existing intervals
     this.stop();
+    this.onSessionExpired = options.onSessionExpired;
     
     // Start keep-alive pings
     this.keepAliveInterval = setInterval(() => {
@@ -65,6 +66,11 @@ class SessionManager {
    * Stop the session manager
    */
   stop() {
+    this.revision += 1;
+    this.checkInProgress = false;
+    this.lastCheckTime = 0;
+    this.consecutiveFailures = 0;
+    this.onSessionExpired = null;
     if (this.keepAliveInterval) {
       clearInterval(this.keepAliveInterval);
       this.keepAliveInterval = null;
@@ -113,11 +119,16 @@ class SessionManager {
     this.updateLastActivity();
   }
 
+  finishCheck(revision) {
+    if (revision === this.revision) this.checkInProgress = false;
+  }
+
   /**
    * Send a keep-alive ping to the server
    * @returns {Promise<boolean>} True if successful, false otherwise
    */
   async pingKeepAlive() {
+    const revision = this.revision;
     // Prevent multiple simultaneous pings
     if (this.checkInProgress) {
       logger.log('Keep-alive ping already in progress, skipping');
@@ -137,12 +148,12 @@ class SessionManager {
       logger.log('Sending session keep-alive ping');
       
       await api.post(this.sessionEndpoint, {}, { notifyUnauthorized: false });
-      return true;
+      return revision === this.revision;
     } catch (error) {
       logger.error('Keep-alive ping failed:', error);
       return false;
     } finally {
-      this.checkInProgress = false;
+      this.finishCheck(revision);
     }
   }
 
@@ -167,6 +178,7 @@ class SessionManager {
   }
 
   async checkSession(triggerExpiration = true) {
+    const revision = this.revision;
     // Prevent multiple simultaneous checks
     if (this.checkInProgress) {
       logger.log('Session check already in progress, skipping');
@@ -185,6 +197,7 @@ class SessionManager {
       this.lastCheckTime = now;
       
       const data = await api.get(this.sessionEndpoint, { notifyUnauthorized: false });
+      if (revision !== this.revision) return false;
       if (!data?.user) {
         if (triggerExpiration) this.expireOnce();
         return false;
@@ -192,6 +205,7 @@ class SessionManager {
       this.consecutiveFailures = 0;
       return true;
     } catch (error) {
+      if (revision !== this.revision) return false;
       logger.warn('Session check failed:', error.message);
       if (triggerExpiration && this.onSessionExpired && this.isActive) {
         this.consecutiveFailures++;
@@ -202,7 +216,7 @@ class SessionManager {
       }
       return false;
     } finally {
-      this.checkInProgress = false;
+      this.finishCheck(revision);
     }
   }
 

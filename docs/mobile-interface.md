@@ -15,6 +15,13 @@ general mobile use.
   truncate inside their container rather than widening the page.
 - Dialogs keep a viewport gutter and cap their height. Long dialog content
   scrolls inside the dialog so its controls remain reachable.
+  Their grid column can shrink below its contents' intrinsic width, preventing
+  a form or long label from clipping the right-hand side at 320 pixels.
+
+Page widths, headings, colors and account forms follow the
+[shared interface patterns](interface-patterns.md). The mobile navigation menu
+uses the same destinations and current-page indication as desktop navigation;
+choosing a destination leaves focus on the destination's main content.
 
 ## User-page behaviour
 
@@ -34,8 +41,9 @@ revealed again as the viewport grows, rather than forcing a desktop-width table
 onto the screen.
 
 Upload queues turn each file into a stacked row on phones, and long filenames
-wrap. Sharing cards keep their cover or folder icon beside the description and
-move the complete action group below that pair.
+wrap. Both upload forms expose a native keyboard-accessible file chooser as well
+as drag-and-drop. Invitation previews stack their cover above the description
+on phones; sharing cards keep their complete action group reachable.
 Sharing identity, redeem-code, pagination, and personal-tag controls stack or
 expand to the available width. These layouts return to their compact horizontal
 form at the existing tablet and desktop breakpoints.

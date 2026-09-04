@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { BookOpen } from "lucide-react";
+import { AuthLayout } from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button.jsx";
 import { Input } from "@/components/ui/input.jsx";
 import { Label } from "@/components/ui/label.jsx";
@@ -34,8 +34,8 @@ export default function Login() {
   const [socialProviders, setSocialProviders] = useState({});
   
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const defaultTab = searchParams.get("signup") ? "signup" : "login";
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("signup") ? "signup" : "login";
   const requestedRedirect = searchParams.get("redirect");
   const oauthError = searchParams.get("oauth_error");
   const redirectPath = resolveLocalRedirect(requestedRedirect);
@@ -43,6 +43,15 @@ export default function Login() {
   const { login, register } = useAuth();
   const registerPasswordErrors = validatePassword(registerPassword);
   const registerUsernameError = registerUsername === "" ? null : validateUsername(registerUsername);
+
+  const changeTab = (tab) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (tab === "signup") next.set("signup", "true");
+      else next.delete("signup");
+      return next;
+    }, { replace: true });
+  };
 
   useEffect(() => {
     let active = true;
@@ -187,15 +196,9 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
-      <div className="max-w-md w-full space-y-6">
-        <div className="space-y-8 bg-card p-6 sm:p-8 rounded-lg shadow-lg">
-          <div className="text-center">
-            <BookOpen className="h-12 w-12 text-comic-purple mx-auto" />
-            <h1 className="mt-4 font-comic text-2xl">Welcome to Panel Page Flip</h1>
-            <p className="mt-2 text-muted-foreground">Access your comic collection</p>
-          </div>
-
+    <AuthLayout title="Welcome to Panel Page Flip" description="Access your comic collection"
+      footer={<p className="text-muted-foreground">Panel Page Flip is your personal multi-format comic library. Upload, organize, and pick up where you left off. Share it directly by username, U- code, or email, or send a private C- or G- code.</p>}
+    >
           {socialProviders.google && (
             <div className="space-y-4">
               <Button type="button" variant="outline" className="w-full" onClick={() => socialLogin("google")}>
@@ -209,7 +212,7 @@ export default function Login() {
             </div>
           )}
 
-          <Tabs defaultValue={defaultTab} className="w-full">
+          <Tabs value={activeTab} onValueChange={changeTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="login">Login</TabsTrigger>
               <TabsTrigger value="signup">Sign up</TabsTrigger>
@@ -232,7 +235,7 @@ export default function Login() {
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <Label htmlFor="login-password">Password</Label>
-                    <Link to="/forgot-password" className="text-xs text-comic-purple hover:underline">
+                    <Link to="/forgot-password" className="text-xs text-primary hover:underline">
                       Forgot password?
                     </Link>
                   </div>
@@ -248,7 +251,7 @@ export default function Login() {
                 </div>
                 <Button 
                   type="submit" 
-                  className="w-full bg-comic-purple hover:bg-comic-purple-dark"
+                  className="w-full"
                   disabled={loginLoading}
                 >
                   {loginLoading ? "Logging in..." : "Log in"}
@@ -272,7 +275,7 @@ export default function Login() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-username">Username</Label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       id="signup-username"
                       name="username"
@@ -346,7 +349,7 @@ export default function Login() {
                 </div>
                 <Button 
                   type="submit" 
-                  className="w-full bg-comic-purple hover:bg-comic-purple-dark"
+                  className="w-full"
                   disabled={registerLoading || !agreeTerms}
                 >
                   {registerLoading ? "Creating account..." : "Create account"}
@@ -354,21 +357,6 @@ export default function Login() {
               </form>
             </TabsContent>
           </Tabs>
-        </div>
-
-        <div className="bg-card p-6 sm:p-8 rounded-lg shadow-lg space-y-2 text-center text-sm text-muted-foreground">
-          <p>
-            Panel Page Flip is your personal multi-format comic library on the web. Upload your comics,
-            organize them with tags, and read page by page with your progress saved
-            so you can pick up right where you left off.
-          </p>
-          <p>
-            Keep your collection tidy with search and reading filters, or sync comic sources
-            from Dropbox when you prefer. When a friend should see a book too, share
-            it directly by username, U- code, or email, or send a private C- or G- code.
-          </p>
-        </div>
-      </div>
-    </div>
+    </AuthLayout>
   );
 }

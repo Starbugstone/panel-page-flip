@@ -14,6 +14,7 @@ import {
 import { AdminPagination } from "@/components/AdminPagination";
 import { AdminBulkActionsBar } from "@/components/admin/AdminBulkActionsBar";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
+import { ShareStatusColumns } from "@/components/share/ShareStatusColumns";
 import { SelectAllCheckbox, SelectionCheckbox } from "@/components/SelectionCheckbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -192,28 +193,7 @@ export function SharedByMeList({
                   {...tableControls.headerProps}
                 />
               </TableHead>
-              <TableHead>
-                <AdminColumnHeader
-                  label="Status"
-                  sortField="status"
-                  filterField="filterStatus"
-                  filterType="select"
-                  filterOptions={["Accepted", "Pending", "Declined", "Revoked"]}
-                  filterValue={tableControls.columnFilters.filterStatus}
-                  {...tableControls.headerProps}
-                />
-              </TableHead>
-              <TableHead>
-                <AdminColumnHeader
-                  label="Shared"
-                  sortField="createdAt"
-                  filterField="filterCreatedAt"
-                  filterType="date"
-                  filterValue={tableControls.columnFilters.filterCreatedAt}
-                  {...tableControls.headerProps}
-                />
-              </TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <ShareStatusColumns tableControls={tableControls} />
             </TableRow>
           </TableHeader>
           <TableBody>

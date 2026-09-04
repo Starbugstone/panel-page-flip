@@ -28,6 +28,11 @@ A server-side filter is a new result set, so `useAdminList` resets to page 1
 when one changes. Landing on page 3 of a list that now has one page shows an
 empty table.
 
+The shared server pagination parser bounds the offset to 2,147,483,647 before
+multiplication. An extreme page number returns an empty page instead of
+overflowing into a server error; normal page sizes, filters and sorting retain
+their existing behavior.
+
 Text and range filters are applied on **Apply filter**, not per keystroke. For
 the server-paged tables, a free-text box starts asking
 `/api/admin/table-filter-suggestions/{table}/{column}` for suggestions once its

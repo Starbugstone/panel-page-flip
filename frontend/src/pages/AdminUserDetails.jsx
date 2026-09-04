@@ -1,3 +1,4 @@
+import { PageLayout, PageHeader, PageLoading } from "@/components/layout/PageLayout";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
@@ -48,48 +49,32 @@ function AdminUserDetailsPage({ userId }) {
   const [isRotateOpen, setIsRotateOpen] = useState(false);
   const { user } = details;
 
-  if (details.isLoading) {
-    return (
-      <div className="container mx-auto flex justify-center px-4 py-16">
-        <div className="h-12 w-12 animate-spin rounded-full border-b-4 border-t-4 border-primary" />
-      </div>
-    );
-  }
+  if (details.isLoading) return <PageLayout><PageLoading label="Loading account…" /></PageLayout>;
 
   if (details.notFound || !user) {
     return (
-      <div className="container mx-auto px-4 py-16 text-center">
-        <h1 className="text-2xl font-bold">User not found</h1>
-        <p className="mt-2 text-muted-foreground">This account may already have been deleted.</p>
+      <PageLayout width="reading">
+        <PageHeader title="User not found" description="This account may already have been deleted." />
         <BackToUsers className="mt-6" />
-      </div>
+      </PageLayout>
     );
   }
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <PageLayout>
       <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
         <Link to="/admin?tab=users"><ArrowLeft className="mr-2 h-4 w-4" /> Back to users</Link>
       </Button>
 
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-comic">{user.name || user.email}</h1>
-          {/* Most accounts have no display name, and the heading falls back to
-              the address — printing it again underneath said nothing and read
-              as a rendering fault. */}
-          {user.name ? <p className="mt-1 text-muted-foreground">{user.email}</p> : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <PageHeader title={user.name || user.email} description={user.name ? user.email : null}
+        actions={<>
           {user.roles?.includes(ROLE_ADMIN) && <Badge>Admin</Badge>}
-          {user.isEmailVerified
-            ? <Badge variant="outline">Verified</Badge>
-            : <Badge variant="destructive">Pending verification</Badge>}
-        </div>
-      </div>
+          {user.isEmailVerified ? <Badge variant="outline">Verified</Badge> : <Badge variant="destructive">Pending verification</Badge>}
+        </>}
+      />
 
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="mb-6">
+        <TabsList className="mb-6 flex h-auto w-full flex-wrap justify-start sm:w-fit">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="comics">Comics ({user.comicCount ?? 0})</TabsTrigger>
           <TabsTrigger value="tags">Tags ({user.tagCount ?? 0})</TabsTrigger>
@@ -140,6 +125,6 @@ function AdminUserDetailsPage({ userId }) {
           onConfirm: async () => { await details.rotateUserCode(); setIsRotateOpen(false); },
         }}
       />
-    </div>
+    </PageLayout>
   );
 }

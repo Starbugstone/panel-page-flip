@@ -42,7 +42,7 @@ export function ComicLoadingArt({ isRetrying = false }) {
 
       {isRetrying && (
         <RefreshCw
-          className="absolute bottom-2 right-2 h-4 w-4 text-comic-purple-dark motion-safe:animate-spin"
+          className="absolute bottom-2 right-2 h-4 w-4 text-primary motion-safe:animate-spin"
           strokeWidth={2.5}
         />
       )}

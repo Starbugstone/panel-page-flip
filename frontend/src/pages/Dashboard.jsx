@@ -1,3 +1,4 @@
+import { PageLayout } from "@/components/layout/PageLayout";
 import { useCallback, useState } from "react";
 import { PendingSharesAlert } from "@/components/PendingSharesAlert.jsx";
 import { SearchBar } from "@/components/SearchBar.jsx";
@@ -151,7 +152,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <PageLayout>
       <LibraryToolbar
         isRefreshing={isRefreshing}
         sort={sort}
@@ -233,6 +234,6 @@ export default function Dashboard() {
         onSaveComic={comicActions.saveComic}
         onShared={() => loadLibrary()}
       />
-    </div>
+    </PageLayout>
   );
 }

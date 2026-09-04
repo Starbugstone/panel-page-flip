@@ -33,6 +33,16 @@ const addFiles = async (user, names) => {
 };
 
 describe("taking a file back out of the bulk queue", () => {
+  it("offers a keyboard-operable file chooser", async () => {
+    renderQueue();
+    const input = document.querySelector('input[type="file"]');
+    const click = vi.spyOn(input, "click").mockImplementation(() => {});
+    screen.getByRole("button", { name: "Choose files" }).focus();
+    await userEvent.keyboard(" ");
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Bulk upload comics" })).toBeInTheDocument();
+    click.mockRestore();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.refreshSession.mockResolvedValue(true);
@@ -194,6 +204,6 @@ describe("taking a file back out of the bulk queue", () => {
       "sm:p-4",
     );
     expect(screen.getByText("Bulk upload comics").parentElement).toHaveClass("p-4", "sm:p-6");
-    expect(screen.getByText(/Drop supported comic files/).parentElement).toHaveClass("p-4", "sm:p-8");
+    expect(screen.getByRole("group", { name: "Comic file selection" })).toHaveClass("p-4", "sm:p-6");
   });
 });

@@ -17,7 +17,7 @@ export function PendingFolderInvitationCard({ shares, busy, onConfirmAdult, onAc
       <ShareCardShell
         media={(
           <div className="flex h-16 w-16 flex-none items-center justify-center rounded bg-muted sm:h-24">
-            <Folder className="h-8 w-8 text-comic-purple" />
+            <Folder className="h-8 w-8 text-primary" />
           </div>
         )}
         title={share.invitationBatchName || "Shared folder"}

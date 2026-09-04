@@ -1,12 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, Loader2, RotateCcw, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { createUploadRequestPool, uploadComicInChunks } from "@/hooks/use-chunked-upload";
 import { useAuth } from "@/hooks/use-auth";
 import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
 import {
-  comicFileAccept,
   configuredComicFormats,
   configuredConcurrentChunks,
   formatFileSize,
@@ -15,6 +14,7 @@ import {
   resolveParallelFiles,
 } from "@/lib/comic-upload";
 import { Button } from "@/components/ui/button";
+import { ComicFilePicker } from "@/components/upload/ComicFilePicker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,38 +56,6 @@ function queueProgress(rows) {
   };
 }
 
-function BulkDropZone({ dragging, running, inputRef, comicFormats, onDraggingChange, onFiles }) {
-  return (
-    <div
-      className={`rounded-lg border-2 border-dashed p-4 text-center sm:p-8 ${dragging ? "border-primary bg-primary/5" : "border-gray-300"} ${running ? "opacity-60" : "cursor-pointer"}`}
-      onClick={() => !running && inputRef.current?.click()}
-      onDragEnter={(event) => { event.preventDefault(); if (!running) onDraggingChange(true); }}
-      onDragOver={(event) => event.preventDefault()}
-      onDragLeave={(event) => { if (event.currentTarget === event.target) onDraggingChange(false); }}
-      onDrop={(event) => {
-        event.preventDefault();
-        onDraggingChange(false);
-        if (!running) onFiles(event.dataTransfer.files);
-      }}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept={comicFileAccept(comicFormats)}
-        className="hidden"
-        disabled={running}
-        onChange={(event) => {
-          onFiles(event.target.files);
-          event.target.value = "";
-        }}
-      />
-      <Upload className="mx-auto mb-2 h-10 w-10 text-gray-400" />
-      <p className="font-medium">Drop supported comic files here or choose files</p>
-    </div>
-  );
-}
-
 function BulkUploadRow({ row, running, onTitleChange, onCancel, onRetry, onRemove }) {
   const active = ACTIVE_STATUSES.has(row.status);
   const retryable = row.status === "error" || row.status === "cancelled";
@@ -120,7 +88,7 @@ function BulkUploadRow({ row, running, onTitleChange, onCancel, onRetry, onRemov
           {statusLabel(row.status)}
         </div>
         {row.error && <div className="max-w-52 text-xs text-destructive">{row.error}</div>}
-        {row.comic?.id && <Link className="text-xs text-comic-purple underline" to={`/read/${row.comic.id}`}>Open comic</Link>}
+        {row.comic?.id && <Link className="text-xs text-primary underline" to={`/read/${row.comic.id}`}>Open comic</Link>}
       </TableCell>
       <TableCell className="block p-0 sm:table-cell sm:p-4">
         <div className="flex items-center gap-1">
@@ -200,7 +168,6 @@ export default function BulkUploadQueue() {
   );
   const [rows, setRows] = useState([]);
   const [tagsInput, setTagsInput] = useState("");
-  const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
   const { selectedFolderId, setFolderId } = useUploadFolderDestination(folders, foldersLoading);
   const controllers = useRef(new Map());
@@ -208,7 +175,6 @@ export default function BulkUploadQueue() {
   // captured when the run began, so without this a file removed mid-run would
   // still be uploaded after it had left the screen.
   const removedRef = useRef(new Set());
-  const inputRef = useRef(null);
   const progress = queueProgress(rows);
   const tags = useMemo(() => tagsInput.split(",").map((tag) => tag.trim()).filter(Boolean), [tagsInput]);
 
@@ -307,21 +273,14 @@ export default function BulkUploadQueue() {
   return (
     <Card className="w-full max-w-6xl">
       <CardHeader className="p-4 sm:p-6">
-        <CardTitle className="text-2xl font-comic">Bulk upload comics</CardTitle>
+        <CardTitle as="h1" className="page-title">Bulk upload comics</CardTitle>
         <CardDescription>
           Add enabled comic formats ({comicFormats.join(", ").toUpperCase()}).{" "}
           {parallelFiles === 1 ? "One comic uploads" : `${parallelFiles} comics upload`} at a time.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5 px-4 pb-4 sm:px-6 sm:pb-6">
-        <BulkDropZone
-          dragging={dragging}
-          running={running}
-          inputRef={inputRef}
-          comicFormats={comicFormats}
-          onDraggingChange={setDragging}
-          onFiles={addFiles}
-        />
+        <ComicFilePicker multiple disabled={running} formats={comicFormats} onFiles={addFiles} />
 
         <div className="space-y-2">
           <Label htmlFor="bulk-tags">Tags applied to every comic (comma-separated)</Label>
