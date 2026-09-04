@@ -32,6 +32,8 @@
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 258 70% 74%;
+    --scrollbar-thumb: 215 18% 60%;
+    --scrollbar-thumb-hover: 258 50% 55%;
 
     --radius: 0.5rem;
   }
@@ -64,12 +66,40 @@
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 258 70% 74%;
+    --scrollbar-thumb: 215 20% 40%;
+    --scrollbar-thumb-hover: 258 70% 65%;
   }
 }
 
 @layer base {
   * {
     @apply border-border;
+    scrollbar-color: hsl(var(--scrollbar-thumb)) transparent;
+    scrollbar-width: thin;
+  }
+
+  *::-webkit-scrollbar {
+    width: 0.625rem;
+    height: 0.625rem;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-color: hsl(var(--scrollbar-thumb));
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--scrollbar-thumb-hover));
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
   }
 
   body {
