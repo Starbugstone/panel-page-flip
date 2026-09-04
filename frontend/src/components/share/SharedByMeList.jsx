@@ -429,11 +429,11 @@ function shareAgainTarget(share) {
   };
 }
 
+/** One row named the same way in the confirmation and in the result toast. */
+const describeRow = (share) => `${share.comicTitle} — ${recipientLabel(share)}`;
+
 function bulkConfig(action, items) {
-  const labels = summariseLabels(
-    items,
-    (share) => `${share.comicTitle} — ${recipientLabel(share)}`
-  );
+  const labels = summariseLabels(items, describeRow);
 
   if (action === "revoke") {
     return {
@@ -442,11 +442,7 @@ function bulkConfig(action, items) {
       confirmLabel: "Revoke access",
       items,
       perform: (share) => api.post(`/api/shares/${share.id}/revoke`, {}),
-      phrasing: {
-        noun: "share",
-        verbPast: "revoked",
-        labelOf: (share) => `${share.comicTitle} — ${recipientLabel(share)}`,
-      },
+      phrasing: { noun: "share", verbPast: "revoked", labelOf: describeRow },
     };
   }
 
@@ -456,10 +452,6 @@ function bulkConfig(action, items) {
     confirmLabel: "Delete records",
     items,
     perform: (share) => api.delete(`/api/shares/${share.id}`),
-    phrasing: {
-      noun: "record",
-      verbPast: "deleted",
-      labelOf: (share) => `${share.comicTitle} — ${recipientLabel(share)}`,
-    },
+    phrasing: { noun: "record", verbPast: "deleted", labelOf: describeRow },
   };
 }

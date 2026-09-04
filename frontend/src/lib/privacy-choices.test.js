@@ -13,6 +13,15 @@ const CLIENT = "ca-pub-1234567890123456";
 beforeEach(() => vi.clearAllMocks());
 
 /**
+ * Run what was queued, the way Funding Choices would.
+ *
+ * The queue is checked by what it does rather than by which reference is in it:
+ * the entry is a call *through* `googlefc`, so that Google's own method is not
+ * invoked detached from the object it belongs to.
+ */
+const drain = (callbackQueue, index = callbackQueue.length - 1) => callbackQueue[index]();
+
+/**
  * Consent lives entirely in Google's certified platform. What matters here is
  * that this application can hand somebody back to it from wherever they are,
  * and that a page with no platform loaded degrades to nothing rather than to an
@@ -22,14 +31,15 @@ describe("reopening the privacy choices", () => {
   it("queues the supported consent-platform revocation function", async () => {
     const showRevocationMessage = vi.fn();
     const callbackQueue = [];
+    const win = { googlefc: { callbackQueue, showRevocationMessage } };
 
-    await expect(reopenPrivacyChoices({
-      client: CLIENT,
-      win: { googlefc: { callbackQueue, showRevocationMessage } },
-    }))
-      .resolves.toBe(true);
+    await expect(reopenPrivacyChoices({ client: CLIENT, win })).resolves.toBe(true);
     expect(showRevocationMessage).not.toHaveBeenCalled();
-    expect(callbackQueue).toContain(showRevocationMessage);
+    expect(callbackQueue).toHaveLength(1);
+
+    drain(callbackQueue);
+    expect(showRevocationMessage).toHaveBeenCalledTimes(1);
+    expect(showRevocationMessage.mock.contexts[0]).toBe(win.googlefc);
     // Already there — no reason to fetch it again.
     expect(acquireConsentPlatform).toHaveBeenCalledWith(CLIENT, expect.anything());
   });
@@ -54,7 +64,9 @@ describe("reopening the privacy choices", () => {
 
     await expect(reopenPrivacyChoices({ client: CLIENT, win })).resolves.toBe(true);
     expect(acquireConsentPlatform).toHaveBeenCalledWith(CLIENT, expect.anything());
-    expect(win.googlefc.callbackQueue).toContain(showRevocationMessage);
+
+    drain(win.googlefc.callbackQueue);
+    expect(showRevocationMessage).toHaveBeenCalledTimes(1);
   });
 
   /** Clicked before the platform finished initialising. */
@@ -68,7 +80,9 @@ describe("reopening the privacy choices", () => {
     win.googlefc.showRevocationMessage = showRevocationMessage;
     win.googlefc.callbackQueue[0].CONSENT_API_READY();
 
-    expect(win.googlefc.callbackQueue).toContain(showRevocationMessage);
+    expect(win.googlefc.callbackQueue).toHaveLength(2);
+    drain(win.googlefc.callbackQueue);
+    expect(showRevocationMessage).toHaveBeenCalledTimes(1);
   });
 
   it("creates the queue when the platform has not made one", async () => {

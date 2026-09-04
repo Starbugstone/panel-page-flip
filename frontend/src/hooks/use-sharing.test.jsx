@@ -180,4 +180,36 @@ describe("useSharingLists pagination", () => {
     expect(result.current.sharedByMe).toEqual([{ id: "current-b" }]);
     expect(result.current.byMeIsLoading).toBe(false);
   });
+
+  /**
+   * A bulk revoke can outlive a search, a filter or a page turn: its callback
+   * is captured when the confirmation is clicked and only reloads once every
+   * request has come back. Dropping that reload would leave the rows it just
+   * changed on screen exactly as they were.
+   */
+  it("reloads what is on screen now when an action's callback predates a page turn", async () => {
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (url === "/api/shares/summary") return Promise.resolve({ pendingInvitations: 0, deadShares: 0 });
+      if (url === "/api/shares/shared-with-me") return Promise.resolve({ sharedWithMe: [] });
+
+      return Promise.resolve({
+        sharedByMe: [{ id: url }],
+        pagination: paginationBlock({ totalItems: 60, totalPages: 3 }),
+      });
+    });
+
+    const { result } = renderHook(() => useSharingLists(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const reloadFromPageOne = result.current.reload;
+
+    act(() => result.current.setByMePage(2));
+    await waitFor(() => expect(byMeCalls().at(-1)).toBe("/api/shares/shared-by-me?page=2&limit=25"));
+
+    await act(async () => { await reloadFromPageOne(); });
+
+    // Page two, not the page one it was captured on, and not nothing at all.
+    expect(byMeCalls().at(-1)).toBe("/api/shares/shared-by-me?page=2&limit=25");
+    expect(byMeCalls().filter((url) => url.includes("page=2"))).toHaveLength(2);
+    expect(result.current.sharedByMe).toEqual([{ id: "/api/shares/shared-by-me?page=2&limit=25" }]);
+  });
 });

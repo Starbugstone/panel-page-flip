@@ -59,7 +59,11 @@ async function finishAdSenseRequest() {
   window.googlefc = { callbackQueue: [], showRevocationMessage };
   document.getElementById(ADSENSE_SCRIPT_ID).dispatchEvent(new Event("load"));
 
-  await waitFor(() => expect(window.googlefc.callbackQueue).toContain(showRevocationMessage));
+  // Checked by what the queued entry does, not by which reference it is: it
+  // calls Google's method through `googlefc` rather than detached from it.
+  await waitFor(() => expect(window.googlefc.callbackQueue).toHaveLength(1));
+  window.googlefc.callbackQueue[0]();
+  expect(showRevocationMessage).toHaveBeenCalledTimes(1);
 }
 
 beforeEach(() => {

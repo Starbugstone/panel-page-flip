@@ -198,15 +198,15 @@ export function useSharingLists(byMeFilters = {}) {
     currentRequestContext.current = { isAuthenticated, user, byMeUrl };
   }, [byMeUrl, isAuthenticated, user]);
 
-  const applyLists = useCallback((byMe, withMe) => {
+  const applyLists = useCallback((byMe, withMe, requestedUrl) => {
     listRevisionRef.current += 1;
     setResult({
       forUser: user,
       byMe: byMe.sharedByMe || [],
       withMe: withMe.sharedWithMe || [],
       byMePagination: byMe.pagination || EMPTY_PAGINATION,
-      byMeUrl,
-      byMeListKey: `${byMeUrl}|${listRevisionRef.current}`,
+      byMeUrl: requestedUrl,
+      byMeListKey: `${requestedUrl}|${listRevisionRef.current}`,
       error: null,
     });
 
@@ -218,32 +218,39 @@ export function useSharingLists(byMeFilters = {}) {
     if (totalPages) {
       setByMeParams((current) => (current.page > totalPages ? { ...current, page: totalPages } : current));
     }
-  }, [byMeUrl, user]);
+  }, [user]);
 
-  const applyError = useCallback((err) => {
+  const applyError = useCallback((err, requestedUrl) => {
     logger.error('Failed to load sharing lists:', err);
     setResult(emptySharingLists(
       user,
-      byMeUrl,
+      requestedUrl,
       err.message || 'Could not load your shared comics.'
     ));
-  }, [byMeUrl, user]);
+  }, [user]);
 
   /**
-   * Both halves in one round trip, applied only while this request still owns
-   * the current account and URL.
+   * Both halves in one round trip, applied only while the answer still
+   * describes what is on screen.
    *
-   * The revision also orders overlapping reloads for the same URL. URL and
-   * account refs are checked separately because an action can retain an old
-   * reload callback across a table navigation.
+   * `requestedUrl` is passed in rather than closed over, because the two
+   * callers want different things from it. The mount path asks for the URL of
+   * the render it belongs to; `reload` asks for whatever the table is showing
+   * *now*, since an action's callback is captured before the action finishes
+   * and a bulk run can outlive a search, a filter or a page turn. Closing over
+   * it would make those reloads no-ops, which is the one outcome an action
+   * cannot survive: the rows it just changed would stay on screen as they were.
+   *
+   * The revision then orders overlapping requests, so a slow earlier one can
+   * never overwrite a later answer.
    *
    * A promise chain rather than async/await, so that every setState sits
    * inside a callback: called from an effect, an awaited one reads as a
    * synchronous setState and the rule against cascading renders rejects it.
    */
-  const fetchLists = useCallback((isCancelled = () => false) => {
+  const fetchLists = useCallback((isCancelled, requestedUrl) => {
     const context = currentRequestContext.current;
-    if (!context.isAuthenticated || context.user !== user || context.byMeUrl !== byMeUrl) {
+    if (!context.isAuthenticated || context.user !== user) {
       return Promise.resolve();
     }
 
@@ -256,19 +263,19 @@ export function useSharingLists(byMeFilters = {}) {
         || requestRevisionRef.current !== requestRevision
         || !current.isAuthenticated
         || current.user !== user
-        || current.byMeUrl !== byMeUrl;
+        || current.byMeUrl !== requestedUrl;
     };
 
     return Promise.all([
-      api.get(byMeUrl),
+      api.get(requestedUrl),
       api.get('/api/shares/shared-with-me'),
     ])
-      .then(([byMe, withMe]) => { if (!isStale()) applyLists(byMe, withMe); })
-      .catch((err) => { if (!isStale()) applyError(err); })
+      .then(([byMe, withMe]) => { if (!isStale()) applyLists(byMe, withMe, requestedUrl); })
+      .catch((err) => { if (!isStale()) applyError(err, requestedUrl); })
       // The counts come from the same records, so refreshing them here keeps the
       // badge honest without another round of coordination.
       .finally(() => { if (!isStale()) refreshSummary(); });
-  }, [applyError, applyLists, byMeUrl, refreshSummary, user]);
+  }, [applyError, applyLists, refreshSummary, user]);
 
   const reload = useCallback(async () => {
     const current = currentRequestContext.current;
@@ -278,7 +285,7 @@ export function useSharingLists(byMeFilters = {}) {
       return;
     }
 
-    await fetchLists();
+    await fetchLists(() => false, current.byMeUrl);
   }, [fetchLists]);
 
   // As above: reload is for the page's own actions, the mount path asks
@@ -288,10 +295,10 @@ export function useSharingLists(byMeFilters = {}) {
     if (!isAuthenticated) return undefined;
 
     let ignore = false;
-    fetchLists(() => ignore);
+    fetchLists(() => ignore, byMeUrl);
 
     return () => { ignore = true; };
-  }, [fetchLists, isAuthenticated]);
+  }, [byMeUrl, fetchLists, isAuthenticated]);
 
   const current = currentSharingResult(result, user);
   const visible = visibleSharingLists(current, byMeUrl, isAuthenticated, byMeSearchInput);

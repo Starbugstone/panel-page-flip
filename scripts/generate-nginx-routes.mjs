@@ -46,9 +46,15 @@ for (const path of allExact) {
     throw new Error(`Invalid frontend route: ${JSON.stringify(path)}`);
   }
 }
+// Indexable specifically, not merely known: only those get a `location =` block
+// of their own below, and that block is the one place the strict header set is
+// applied. A Google-free route listed under `noindex` would fall into the shared
+// noindex location and be served the Google-capable policy without a word.
 for (const path of googleFree) {
-  if (!allExact.includes(path)) {
-    throw new Error(`Google-free route is not a known frontend route: ${JSON.stringify(path)}`);
+  if (!indexable.includes(path)) {
+    throw new Error(
+      `Google-free route must be an indexable frontend route with a location of its own: ${JSON.stringify(path)}`,
+    );
   }
 }
 for (const pattern of patterns) {

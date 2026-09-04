@@ -3,7 +3,10 @@ import { logger } from "@/lib/logger";
 import { PRIVACY_CHOICES_OPENING_EVENT } from "@/lib/google-consent";
 
 function queueRevocationMessage(googlefc) {
-  googlefc.callbackQueue.push(googlefc.showRevocationMessage);
+  // Called through the object rather than pushed as a bare reference: what the
+  // queue invokes is Google's own method, and handing it over detached would
+  // run it with whatever `this` the queue happens to use.
+  googlefc.callbackQueue.push(() => googlefc.showRevocationMessage());
 }
 
 /**

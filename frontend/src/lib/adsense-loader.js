@@ -188,7 +188,10 @@ export function acquireConsentPlatform(
     return acquireAfterAdSense(adSenseRequest, client, { win, doc, timeoutMs });
   }
 
-  if (win.googlefc) return Promise.resolve("ready");
+  // `hasLiveConsentPlatform`, not a truthiness test: `observeAnalyticsConsent`
+  // installs a bare `googlefc` stub to hold its callback queue, and treating
+  // that as the platform would leave the real script unrequested for ever.
+  if (hasLiveConsentPlatform(win)) return Promise.resolve("ready");
 
   return loadConsentPlatform(client, { doc, timeoutMs });
 }
