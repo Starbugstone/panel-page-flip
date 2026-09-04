@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
-import { hasRequestedAdSenseScript } from "@/lib/adsense-loader";
 import {
   ANALYTICS_CONSENT_DENIED,
   ANALYTICS_CONSENT_GRANTED,
@@ -90,14 +89,7 @@ export function ConsentProvider({ children }) {
   useEffect(() => {
     if (provider !== "google" || !coversAnalytics || googleFree || !googleClient) return undefined;
 
-    // The advertising site code installs the same CMP on ad-safe routes.
-    // Fetching the standalone copy as well would put two scripts in charge of
-    // one consent dialogue, so the loader is asked whether it has already been
-    // requested rather than this component keeping its own tally.
-    return observeAnalyticsConsent(googleClient, {
-      onChange: setGoogleDecision,
-      loadPlatform: !hasRequestedAdSenseScript(),
-    });
+    return observeAnalyticsConsent(googleClient, { onChange: setGoogleDecision });
   }, [coversAnalytics, googleClient, googleFree, provider]);
 
   const openGooglePanel = useCallback(() => {

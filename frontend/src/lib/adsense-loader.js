@@ -148,17 +148,49 @@ export function loadConsentPlatform(
   });
 }
 
+function hasLiveConsentPlatform(win) {
+  return typeof win.googlefc?.showRevocationMessage === "function"
+    || typeof win.googlefc?.getGoogleConsentModeValues === "function";
+}
+
+async function acquireAfterAdSense(adSenseRequest, client, options) {
+  const status = await adSenseRequest;
+  if (status === "ready" || hasLiveConsentPlatform(options.win)) return "ready";
+
+  return loadConsentPlatform(client, options);
+}
+
 /**
- * Whether the AdSense site code has been asked for during this page load.
+ * Ensure one of Google's two script paths is providing the consent platform.
  *
- * The site code installs Google's certified CMP as a side effect, so anything
- * else that wants the CMP has to know whether it is already coming. Asked of
- * this module's own record rather than of the DOM, because a script the timeout
- * gave up on is still a script that was requested, and a second copy of Funding
- * Choices would be a second owner of one consent dialogue.
+ * AdSense installs the same CMP as a side effect. A caller arriving while its
+ * site code is loading must join that request instead of starting Funding
+ * Choices independently. Only a failed site-code request which did not expose
+ * the CMP may fall back to the standalone script.
+ *
+ * @returns {Promise<"ready" | "unavailable">}
  */
-export function hasRequestedAdSenseScript() {
-  return inFlight.has(SCRIPT_ID);
+export function acquireConsentPlatform(
+  client,
+  {
+    win = typeof window === "undefined" ? null : window,
+    doc = typeof document === "undefined" ? null : document,
+    timeoutMs = SCRIPT_TIMEOUT_MS,
+  } = {}
+) {
+  if (!win || !doc || !client) return Promise.resolve("unavailable");
+
+  const standaloneRequest = inFlight.get(CMP_SCRIPT_ID);
+  if (standaloneRequest) return standaloneRequest;
+
+  const adSenseRequest = inFlight.get(SCRIPT_ID);
+  if (adSenseRequest) {
+    return acquireAfterAdSense(adSenseRequest, client, { win, doc, timeoutMs });
+  }
+
+  if (win.googlefc) return Promise.resolve("ready");
+
+  return loadConsentPlatform(client, { doc, timeoutMs });
 }
 
 /**

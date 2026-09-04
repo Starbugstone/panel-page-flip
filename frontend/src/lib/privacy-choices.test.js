@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { reopenPrivacyChoices } from "@/lib/privacy-choices";
-import { loadConsentPlatform } from "@/lib/adsense-loader";
+import { acquireConsentPlatform } from "@/lib/adsense-loader";
 
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), log: vi.fn() } }));
-vi.mock("@/lib/adsense-loader", () => ({ loadConsentPlatform: vi.fn(() => Promise.resolve("unavailable")) }));
+vi.mock("@/lib/adsense-loader", () => ({
+  acquireConsentPlatform: vi.fn(() => Promise.resolve("unavailable")),
+}));
 
 const CLIENT = "ca-pub-1234567890123456";
 
@@ -29,7 +31,7 @@ describe("reopening the privacy choices", () => {
     expect(showRevocationMessage).not.toHaveBeenCalled();
     expect(callbackQueue).toContain(showRevocationMessage);
     // Already there — no reason to fetch it again.
-    expect(loadConsentPlatform).not.toHaveBeenCalled();
+    expect(acquireConsentPlatform).toHaveBeenCalledWith(CLIENT, expect.anything());
   });
 
   /**
@@ -44,14 +46,14 @@ describe("reopening the privacy choices", () => {
   it("fetches the consent platform on a page that never loaded advertising", async () => {
     const win = {};
     const showRevocationMessage = vi.fn();
-    vi.mocked(loadConsentPlatform).mockImplementation(() => {
+    vi.mocked(acquireConsentPlatform).mockImplementation(() => {
       win.googlefc = { callbackQueue: [], showRevocationMessage };
 
       return Promise.resolve("ready");
     });
 
     await expect(reopenPrivacyChoices({ client: CLIENT, win })).resolves.toBe(true);
-    expect(loadConsentPlatform).toHaveBeenCalledWith(CLIENT, expect.anything());
+    expect(acquireConsentPlatform).toHaveBeenCalledWith(CLIENT, expect.anything());
     expect(win.googlefc.callbackQueue).toContain(showRevocationMessage);
   });
 

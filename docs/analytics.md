@@ -76,6 +76,12 @@ purposes** and **Consent mode for analytics purposes**, then publish the message
 for the site. Google documents that the analytics-purpose option lets the
 existing European-regulations message gather `analytics_storage`.
 
+The consent observer and the permanent preferences control share one loader
+arbiter. When AdSense site code is already in flight, both wait for that request
+before considering the standalone Funding Choices script; the standalone path
+is used only when no site-code request exists or that request becomes
+unavailable without exposing the CMP.
+
 If the account never grants the analytics purpose, Analytics stays off. That is
 the intended failure: silently measuring somebody who did not agree would be
 worse than losing the measurement.

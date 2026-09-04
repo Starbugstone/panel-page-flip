@@ -12,7 +12,6 @@ vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), log: vi.fn() } }));
 vi.mock("@/lib/adsense-loader", () => ({
   loadAdSenseScript: vi.fn(() => Promise.resolve("ready")),
   keepRouteAdFree: vi.fn(() => vi.fn()),
-  hasRequestedAdSenseScript: vi.fn(() => false),
 }));
 
 const CLIENT = "ca-pub-1234567890123456";

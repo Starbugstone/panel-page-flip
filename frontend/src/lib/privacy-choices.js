@@ -1,4 +1,4 @@
-import { loadConsentPlatform } from "@/lib/adsense-loader";
+import { acquireConsentPlatform } from "@/lib/adsense-loader";
 import { logger } from "@/lib/logger";
 import { PRIVACY_CHOICES_OPENING_EVENT } from "@/lib/google-consent";
 
@@ -35,9 +35,7 @@ export async function reopenPrivacyChoices({
   if (!win) return false;
   win.dispatchEvent?.(new Event(PRIVACY_CHOICES_OPENING_EVENT));
 
-  if (!win.googlefc) {
-    await loadConsentPlatform(client, { doc });
-  }
+  await acquireConsentPlatform(client, { win, doc });
 
   const googlefc = win.googlefc;
   if (!googlefc) {

@@ -1,4 +1,4 @@
-import { loadConsentPlatform } from "@/lib/adsense-loader";
+import { acquireConsentPlatform } from "@/lib/adsense-loader";
 import { logger } from "@/lib/logger";
 
 const GRANTED = 1;
@@ -30,7 +30,6 @@ export function observeAnalyticsConsent(
     win = typeof window === "undefined" ? null : window,
     doc = typeof document === "undefined" ? null : document,
     onChange = () => {},
-    loadPlatform = true,
   } = {}
 ) {
   if (!client || !win) {
@@ -38,6 +37,7 @@ export function observeAnalyticsConsent(
     return () => {};
   }
 
+  const platform = acquireConsentPlatform(client, { win, doc });
   const googlefc = ensureGoogleFc(win);
   let stopped = false;
   let listenerId = null;
@@ -84,11 +84,9 @@ export function observeAnalyticsConsent(
     },
   });
 
-  if (loadPlatform) {
-    loadConsentPlatform(client, { doc }).then((status) => {
-      if (!stopped && status !== "ready") onChange("denied");
-    });
-  }
+  platform.then((status) => {
+    if (!stopped && status !== "ready") onChange("denied");
+  });
 
   return () => {
     stopped = true;

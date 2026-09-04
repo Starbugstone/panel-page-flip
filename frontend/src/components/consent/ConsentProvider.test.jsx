@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AnalyticsConsentDialog } from "@/components/consent/AnalyticsConsentDialog.jsx";
 import { ConsentProvider, useConsent } from "@/components/consent/ConsentProvider.jsx";
-import { hasRequestedAdSenseScript } from "@/lib/adsense-loader";
 import { observeAnalyticsConsent } from "@/lib/google-consent";
 import { reopenPrivacyChoices } from "@/lib/privacy-choices";
 
@@ -16,15 +15,11 @@ const state = vi.hoisted(() => ({
     consent: { provider: null, analytics: false, googleClient: null },
     isLoading: false,
   },
-  adSenseRequested: false,
   consentCallback: null,
 }));
 
 vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({
   usePublicConfig: () => state.publicConfig,
-}));
-vi.mock("@/lib/adsense-loader", () => ({
-  hasRequestedAdSenseScript: vi.fn(() => state.adSenseRequested),
 }));
 vi.mock("@/lib/google-consent", () => ({
   observeAnalyticsConsent: vi.fn((_client, { onChange }) => {
@@ -110,7 +105,6 @@ beforeEach(() => {
   window.localStorage.clear();
   configure("neither");
   state.publicConfig.isLoading = false;
-  state.adSenseRequested = false;
   state.consentCallback = null;
 });
 
@@ -157,28 +151,15 @@ describe("who owns the consent question", () => {
     expect(observed().analyticsConsent).toBe("granted");
   });
 
-  /**
-   * The site code installs the same CMP. Fetching the standalone copy as well
-   * would put two scripts in charge of one dialogue.
-   */
-  it("leaves the CMP to the advertising site code once that has been requested", async () => {
-    configure("both");
-    state.adSenseRequested = true;
-
-    renderProvider("/");
-
-    await waitFor(() => expect(observeAnalyticsConsent).toHaveBeenCalled());
-    expect(observeAnalyticsConsent.mock.calls[0][1].loadPlatform).toBe(false);
-    expect(hasRequestedAdSenseScript).toHaveBeenCalled();
-  });
-
-  it("fetches the consent platform itself where the site code will not", async () => {
+  it("delegates consent-platform acquisition to the observer", async () => {
     configure("both");
 
     renderProvider("/dashboard");
 
     await waitFor(() => expect(observeAnalyticsConsent).toHaveBeenCalled());
-    expect(observeAnalyticsConsent.mock.calls[0][1].loadPlatform).toBe(true);
+    expect(observeAnalyticsConsent).toHaveBeenCalledWith(CLIENT, {
+      onChange: expect.any(Function),
+    });
   });
 
   it("says nothing at all until the server has answered", () => {
@@ -202,7 +183,6 @@ describe("the Analytics-only consent flow", () => {
     await waitFor(() => expect(observed().provider).toBe("local"));
     expect(observed().googleClient).toBeNull();
     expect(observeAnalyticsConsent).not.toHaveBeenCalled();
-    expect(hasRequestedAdSenseScript).not.toHaveBeenCalled();
   });
 
   it("measures nobody until they accept, and offers reject just as prominently", async () => {
