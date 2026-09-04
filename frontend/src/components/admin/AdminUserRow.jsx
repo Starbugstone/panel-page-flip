@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, Edit, Trash, UserRoundCog } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Edit, Mail, Trash, UserRoundCog } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SelectionCheckbox } from "@/components/SelectionCheckbox";
@@ -67,8 +67,24 @@ export function AdminUserRow({ user, checked, onToggle, onEdit, onWarn, onDelete
           </Button>
           {!user.isEmailVerified && (
             <>
-              <Button variant="ghost" size="sm" onClick={onResendVerification}>Resend</Button>
-              <Button variant="ghost" size="sm" onClick={onVerify}>Verify</Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Email ${who} a new verification link`}
+                title="Resend verification email"
+                onClick={onResendVerification}
+              >
+                <Mail className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Verify ${who}`}
+                title="Verify user"
+                onClick={onVerify}
+              >
+                <BadgeCheck className="h-4 w-4" />
+              </Button>
             </>
           )}
           <Button variant="ghost" size="sm" aria-label={`Delete ${who}`} title="Delete user" onClick={onDelete}>
