@@ -152,7 +152,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         $body = (string) $this->browser()->getResponse()->getContent();
         self::assertStringNotContainsString('hidden@example.com', $body);
 
-        $entry = $sharedByMe[0]['recipients'][0];
+        $entry = $sharedByMe[0];
         self::assertNull($entry['recipientEmail']);
         self::assertSame($recipient->getUsername(), $entry['recipientUsername']);
         self::assertSame(
@@ -189,7 +189,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         ]);
         self::assertResponseStatusCodeSame(201);
 
-        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['id'];
         $this->postJson(sprintf('/api/shares/%d/revoke', $shareId), []);
         self::assertResponseIsSuccessful();
 
@@ -201,7 +201,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         ]);
         self::assertResponseStatusCodeSame(201);
 
-        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         self::assertSame('both-ways@example.com', $entry['recipientEmail']);
         self::assertNull($entry['recipientUserCode']);
         // Still named by username, because that is the public identity of a
@@ -540,7 +540,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         // the Sharing page like any other rather than by the code going away.
         $sharedByMe = $this->getJson('/api/shares/shared-by-me')['sharedByMe'];
         self::assertCount(1, $sharedByMe);
-        self::assertSame(ComicShare::STATUS_ACCEPTED, $sharedByMe[0]['recipients'][0]['status']);
+        self::assertSame(ComicShare::STATUS_ACCEPTED, $sharedByMe[0]['status']);
 
         $this->createAndLoginUser(['email' => 'too-late@example.com']);
         $this->postJson('/api/shares/content-codes/redeem', ['code' => $code]);
@@ -749,7 +749,7 @@ final class SharingCodeControllerTest extends AbstractApiTestCase
         // stale snapshot in the picker would put the withdrawn code straight
         // back into circulation.
         $this->loginAs($owner);
-        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         self::assertSame($newCode, $entry['recipientUserCode']);
         self::assertNull($entry['recipientEmail']);
 

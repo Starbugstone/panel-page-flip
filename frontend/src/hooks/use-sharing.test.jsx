@@ -22,6 +22,13 @@ const byMeCalls = () =>
 
 const wrapper = ({ children }) => <SharingProvider>{children}</SharingProvider>;
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((settle) => { resolve = settle; });
+
+  return { promise, resolve };
+}
+
 describe("useSharingLists pagination", () => {
   let byMeResponse;
 
@@ -74,6 +81,34 @@ describe("useSharingLists pagination", () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/shares/shared-by-me?page=1&limit=10"));
   });
 
+  it("sends table filters to the server and resets them to the first page", async () => {
+    const filters = {
+      sort: "recipient",
+      direction: "ASC",
+      filterStatus: "Pending",
+      filterTimezone: "Europe/Paris",
+    };
+    const { result } = renderHook(() => useSharingLists(filters), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(byMeCalls().at(-1)).toBe(
+      "/api/shares/shared-by-me?sort=recipient&direction=ASC&filterStatus=Pending&filterTimezone=Europe%2FParis&page=1&limit=25"
+    );
+  });
+
+  it("debounces an owner-table search and starts it on page one", async () => {
+    const { result } = renderHook(() => useSharingLists(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => result.current.setByMePage(2));
+    await waitFor(() => expect(byMeCalls().at(-1)).toContain("page=2"));
+
+    act(() => result.current.setByMeSearchInput("  jane  "));
+    await waitFor(() => expect(byMeCalls().at(-1)).toBe(
+      "/api/shares/shared-by-me?page=1&limit=25&search=jane"
+    ));
+  });
+
   it("falls back to the last page when the one being looked at stops existing", async () => {
     // Whatever page is asked for, the server now only has one: the state after
     // deleting the final record on a trailing page.
@@ -88,5 +123,61 @@ describe("useSharingLists pagination", () => {
     // last page that exists rather than rendered as an empty list.
     await waitFor(() => expect(byMeCalls().at(-1)).toBe("/api/shares/shared-by-me?page=1&limit=25"));
     expect(byMeCalls()).toContain("/api/shares/shared-by-me?page=3&limit=25");
+  });
+
+  it("ignores an action reload for an old URL after the new page has loaded", async () => {
+    const latePageOne = deferred();
+    const pageTwo = deferred();
+    let initialPageOne = true;
+
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (url === "/api/shares/summary") return Promise.resolve({ pendingInvitations: 0, deadShares: 0 });
+      if (url === "/api/shares/shared-with-me") return Promise.resolve({ sharedWithMe: [] });
+      if (url === "/api/shares/shared-by-me?page=2&limit=25") return pageTwo.promise;
+      if (url === "/api/shares/shared-by-me?page=1&limit=25") {
+        if (initialPageOne) {
+          initialPageOne = false;
+          return Promise.resolve({
+            sharedByMe: [{ id: "initial-a" }],
+            pagination: paginationBlock({ totalItems: 2, totalPages: 2 }),
+          });
+        }
+
+        return latePageOne.promise;
+      }
+
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    const { result } = renderHook(() => useSharingLists(), { wrapper });
+    await waitFor(() => expect(result.current.sharedByMe).toEqual([{ id: "initial-a" }]));
+    const reloadPageOne = result.current.reload;
+
+    let lateReload;
+    act(() => { lateReload = reloadPageOne(); });
+    await waitFor(() => expect(byMeCalls().filter((url) => url.includes("page=1"))).toHaveLength(2));
+
+    act(() => result.current.setByMePage(2));
+    await waitFor(() => expect(byMeCalls()).toContain("/api/shares/shared-by-me?page=2&limit=25"));
+    await act(async () => {
+      pageTwo.resolve({
+        sharedByMe: [{ id: "current-b" }],
+        pagination: paginationBlock({ page: 2, totalItems: 2, totalPages: 2 }),
+      });
+      await pageTwo.promise;
+    });
+    await waitFor(() => expect(result.current.sharedByMe).toEqual([{ id: "current-b" }]));
+    expect(result.current.byMeIsLoading).toBe(false);
+
+    await act(async () => {
+      latePageOne.resolve({
+        sharedByMe: [{ id: "late-a" }],
+        pagination: paginationBlock({ totalItems: 2, totalPages: 2 }),
+      });
+      await lateReload;
+    });
+
+    expect(result.current.sharedByMe).toEqual([{ id: "current-b" }]);
+    expect(result.current.byMeIsLoading).toBe(false);
   });
 });

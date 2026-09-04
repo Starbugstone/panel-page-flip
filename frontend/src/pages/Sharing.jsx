@@ -4,7 +4,6 @@ import { Loader2, Share2Icon, UserPlus } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AdminPagination } from "@/components/AdminPagination";
 import { ShareComicsDialog } from "@/components/ShareComicsDialog";
 import { SharingCodesCard } from "@/components/SharingCodesCard";
 import { SharedByMeList } from "@/components/share/SharedByMeList";
@@ -12,6 +11,7 @@ import { SharedWithMeList } from "@/components/share/SharedWithMeList";
 import { SharingConfirmDialogs } from "@/components/share/SharingConfirmDialogs";
 import { useComicLibrary } from "@/hooks/use-comic-library";
 import { useSharingActions } from "@/hooks/use-sharing-actions";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
 import { useSharingLists } from "@/hooks/use-sharing";
 import { useSharingPageFocus } from "@/hooks/use-sharing-page-focus";
 import { describeDeadShareCleanup, groupReceivedShares } from "@/lib/sharing";
@@ -26,9 +26,11 @@ const EMPTY_TARGET = { email: "", username: "", userCode: "", comicIds: [] };
  * be put through lives in `useSharingActions`.
  */
 export default function Sharing() {
+  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
   const {
-    sharedByMe, sharedWithMe, byMePagination, isLoading, error, reload, setByMePage, setByMeLimit,
-  } = useSharingLists();
+    sharedByMe, sharedWithMe, byMePagination, byMeListKey, byMeIsLoading,
+    byMeSearchInput, isLoading, error, reload, setByMeSearchInput, setByMePage, setByMeLimit,
+  } = useSharingLists(tableControls.query);
   const { loadLibrary } = useComicLibrary();
   const navigate = useNavigate();
   const actions = useSharingActions({ reload, loadLibrary });
@@ -106,26 +108,22 @@ export default function Sharing() {
           <TabsContent value="by-me">
             <SharedByMeList
               sharedByMe={sharedByMe}
+              byMePagination={byMePagination}
+              byMeListKey={byMeListKey}
+              byMeIsLoading={byMeIsLoading}
+              searchInput={byMeSearchInput}
+              tableControls={tableControls}
               busyShareId={actions.busyShareId}
+              onSearch={setByMeSearchInput}
+              onPageChange={setByMePage}
+              onLimitChange={setByMeLimit}
               onShare={setShareDialog}
               onStopSharing={setStopSharingTarget}
               onResend={actions.resend}
               onRevoke={actions.revoke}
               onDelete={actions.deleteRecord}
+              reload={reload}
             />
-            {/* The same pager as the admin tables, for the same reason: this
-                list is every share ever handed out, and it only grows. */}
-            {byMePagination.totalItems > 0 && (
-              <div className="mt-4">
-                <AdminPagination
-                  pagination={byMePagination}
-                  itemCount={sharedByMe.length}
-                  onPageChange={setByMePage}
-                  onLimitChange={setByMeLimit}
-                  label="shared comics"
-                />
-              </div>
-            )}
           </TabsContent>
         </Tabs>
       )}

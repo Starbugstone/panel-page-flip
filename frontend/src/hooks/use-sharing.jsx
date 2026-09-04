@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './use-auth';
 import { api } from '@/lib/api';
-import { DEFAULT_PAGE_SIZE } from '@/lib/admin-list-params';
+import { buildAdminListUrl, DEFAULT_PAGE_SIZE } from '@/lib/admin-list-params';
 import { logger } from '@/lib/logger';
 
 const SharingContext = createContext(undefined);
@@ -10,6 +10,38 @@ const EMPTY_SUMMARY = { pendingInvitations: 0, deadShares: 0 };
 // Stable identities so a signed-out render does not hand consumers new objects.
 const EMPTY_LIST = [];
 const EMPTY_PAGINATION = { page: 1, limit: DEFAULT_PAGE_SIZE, totalItems: 0, totalPages: 1 };
+const SEARCH_DEBOUNCE_MS = 300;
+
+function emptySharingLists(user, byMeUrl, error = null) {
+  return {
+    forUser: user,
+    byMe: EMPTY_LIST,
+    withMe: EMPTY_LIST,
+    byMePagination: EMPTY_PAGINATION,
+    byMeUrl,
+    byMeListKey: error ? `${byMeUrl}|error` : byMeUrl,
+    error,
+  };
+}
+
+function visibleSharingLists(current, byMeUrl, isAuthenticated, byMeSearchInput) {
+  const currentUrlMatches = current?.byMeUrl === byMeUrl;
+
+  return {
+    sharedByMe: current?.byMe ?? EMPTY_LIST,
+    sharedWithMe: current?.withMe ?? EMPTY_LIST,
+    byMePagination: current?.byMePagination ?? EMPTY_PAGINATION,
+    byMeListKey: currentUrlMatches ? current.byMeListKey : byMeUrl,
+    byMeIsLoading: isAuthenticated && current?.byMeUrl !== byMeUrl,
+    byMeSearchInput,
+    isLoading: isAuthenticated && current === null,
+    error: current?.error ?? null,
+  };
+}
+
+function currentSharingResult(result, user) {
+  return result?.forUser === user ? result : null;
+}
 
 /**
  * Holds the sharing counts the header badge and the dashboard alert both read.
@@ -111,32 +143,70 @@ export function useSharing() {
  * to a dead entry), and refetching is cheaper than keeping two views of the
  * same records in step.
  *
- * "Shared by me" is served one page of comics at a time — the same protocol as
- * the admin tables — so the hook also owns which page is being looked at.
+ * "Shared by me" is a server-side table, so this hook also owns its search and
+ * pagination. Sorts and column filters come from the table controls on the
+ * page and are folded into the same request.
  */
-export function useSharingLists() {
+export function useSharingLists(byMeFilters = {}) {
   // One piece of state for the whole answer, tagged with the account it belongs
   // to. Loading and the lists then follow from it, so signing out and back in
   // cannot leave the previous session's shares on screen with nothing marked as
   // loading — the tag simply stops matching.
   const [result, setResult] = useState(null);
-  const [byMeParams, setByMeParams] = useState({ page: 1, limit: DEFAULT_PAGE_SIZE });
+  const [byMeParams, setByMeParams] = useState({ page: 1, limit: DEFAULT_PAGE_SIZE, search: '' });
+  const [byMeSearchInput, setByMeSearchInput] = useState('');
   const { isAuthenticated, user } = useAuth();
   const { refreshSummary } = useSharing();
+  const filterQuery = JSON.stringify(byMeFilters);
+  const lastFilterQuery = useRef(filterQuery);
+  const listRevisionRef = useRef(0);
+  const requestRevisionRef = useRef(0);
 
   const setByMePage = useCallback((page) => {
     setByMeParams((current) => ({ ...current, page: Math.max(1, page) }));
   }, []);
   // A new page size starts again from the first page; staying on page 6 of a
   // result set that now has two pages shows nothing.
-  const setByMeLimit = useCallback((limit) => setByMeParams({ page: 1, limit }), []);
+  const setByMeLimit = useCallback((limit) => {
+    setByMeParams((current) => ({ ...current, page: 1, limit }));
+  }, []);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setByMeParams((current) => {
+        const search = byMeSearchInput.trim();
+        return current.search === search ? current : { ...current, page: 1, search };
+      });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(timeout);
+  }, [byMeSearchInput]);
+
+  useEffect(() => {
+    if (lastFilterQuery.current === filterQuery) return;
+    lastFilterQuery.current = filterQuery;
+    setByMeParams((current) => (current.page === 1 ? current : { ...current, page: 1 }));
+  }, [filterQuery]);
+
+  const byMeUrl = buildAdminListUrl(
+    '/api/shares/shared-by-me',
+    byMeParams,
+    JSON.parse(filterQuery)
+  );
+  const currentRequestContext = useRef(null);
+  useLayoutEffect(() => {
+    currentRequestContext.current = { isAuthenticated, user, byMeUrl };
+  }, [byMeUrl, isAuthenticated, user]);
 
   const applyLists = useCallback((byMe, withMe) => {
+    listRevisionRef.current += 1;
     setResult({
       forUser: user,
       byMe: byMe.sharedByMe || [],
       withMe: withMe.sharedWithMe || [],
       byMePagination: byMe.pagination || EMPTY_PAGINATION,
+      byMeUrl,
+      byMeListKey: `${byMeUrl}|${listRevisionRef.current}`,
       error: null,
     });
 
@@ -148,51 +218,68 @@ export function useSharingLists() {
     if (totalPages) {
       setByMeParams((current) => (current.page > totalPages ? { ...current, page: totalPages } : current));
     }
-  }, [user]);
+  }, [byMeUrl, user]);
 
   const applyError = useCallback((err) => {
     logger.error('Failed to load sharing lists:', err);
-    setResult({
-      forUser: user,
-      byMe: EMPTY_LIST,
-      withMe: EMPTY_LIST,
-      byMePagination: EMPTY_PAGINATION,
-      error: err.message || 'Could not load your shared comics.',
-    });
-  }, [user]);
-
-  const byMeUrl = `/api/shares/shared-by-me?page=${byMeParams.page}&limit=${byMeParams.limit}`;
+    setResult(emptySharingLists(
+      user,
+      byMeUrl,
+      err.message || 'Could not load your shared comics.'
+    ));
+  }, [byMeUrl, user]);
 
   /**
-   * Both halves in one round trip, applied unless the caller has lost interest.
+   * Both halves in one round trip, applied only while this request still owns
+   * the current account and URL.
    *
-   * `isStale` is how the mount path drops an answer that arrived after the
-   * page turned or the account changed; `reload` has nothing to race with and
-   * takes the default.
+   * The revision also orders overlapping reloads for the same URL. URL and
+   * account refs are checked separately because an action can retain an old
+   * reload callback across a table navigation.
    *
    * A promise chain rather than async/await, so that every setState sits
    * inside a callback: called from an effect, an awaited one reads as a
    * synchronous setState and the rule against cascading renders rejects it.
    */
-  const fetchLists = useCallback((isStale = () => false) => Promise.all([
-    api.get(byMeUrl),
-    api.get('/api/shares/shared-with-me'),
-  ])
-    .then(([byMe, withMe]) => { if (!isStale()) applyLists(byMe, withMe); })
-    .catch((err) => { if (!isStale()) applyError(err); })
-    // The counts come from the same records, so refreshing them here keeps the
-    // badge honest without another round of coordination.
-    .finally(() => { if (!isStale()) refreshSummary(); }),
-  [applyError, applyLists, byMeUrl, refreshSummary]);
+  const fetchLists = useCallback((isCancelled = () => false) => {
+    const context = currentRequestContext.current;
+    if (!context.isAuthenticated || context.user !== user || context.byMeUrl !== byMeUrl) {
+      return Promise.resolve();
+    }
+
+    const requestRevision = requestRevisionRef.current + 1;
+    requestRevisionRef.current = requestRevision;
+    const isStale = () => {
+      const current = currentRequestContext.current;
+
+      return isCancelled()
+        || requestRevisionRef.current !== requestRevision
+        || !current.isAuthenticated
+        || current.user !== user
+        || current.byMeUrl !== byMeUrl;
+    };
+
+    return Promise.all([
+      api.get(byMeUrl),
+      api.get('/api/shares/shared-with-me'),
+    ])
+      .then(([byMe, withMe]) => { if (!isStale()) applyLists(byMe, withMe); })
+      .catch((err) => { if (!isStale()) applyError(err); })
+      // The counts come from the same records, so refreshing them here keeps the
+      // badge honest without another round of coordination.
+      .finally(() => { if (!isStale()) refreshSummary(); });
+  }, [applyError, applyLists, byMeUrl, refreshSummary, user]);
 
   const reload = useCallback(async () => {
-    if (!isAuthenticated) {
-      setResult({ forUser: user, byMe: EMPTY_LIST, withMe: EMPTY_LIST, byMePagination: EMPTY_PAGINATION, error: null });
+    const current = currentRequestContext.current;
+    if (!current.isAuthenticated) {
+      requestRevisionRef.current += 1;
+      setResult(emptySharingLists(current.user, current.byMeUrl));
       return;
     }
 
     await fetchLists();
-  }, [fetchLists, isAuthenticated, user]);
+  }, [fetchLists]);
 
   // As above: reload is for the page's own actions, the mount path asks
   // directly so nothing is set before the request exists. Turning the page
@@ -206,16 +293,13 @@ export function useSharingLists() {
     return () => { ignore = true; };
   }, [fetchLists, isAuthenticated]);
 
-  // Only an answer belonging to the account that is signed in now counts.
-  const current = result?.forUser === user ? result : null;
+  const current = currentSharingResult(result, user);
+  const visible = visibleSharingLists(current, byMeUrl, isAuthenticated, byMeSearchInput);
 
   return {
-    sharedByMe: current?.byMe ?? EMPTY_LIST,
-    sharedWithMe: current?.withMe ?? EMPTY_LIST,
-    byMePagination: current?.byMePagination ?? EMPTY_PAGINATION,
-    isLoading: isAuthenticated && current === null,
-    error: current?.error ?? null,
+    ...visible,
     reload,
+    setByMeSearchInput,
     setByMePage,
     setByMeLimit,
   };

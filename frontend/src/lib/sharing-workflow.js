@@ -45,14 +45,18 @@ export function liveComicIdsForRecipient(sharedByMe, email) {
   const ids = new Set();
   if (!wanted) return ids;
 
-  (sharedByMe || []).forEach((group) => {
-    const alreadyLive = (group.recipients || []).some((recipient) => {
+  (sharedByMe || []).forEach((share) => {
+    // The management endpoint now returns one grant per row. Accept the former
+    // grouped shape as well so an already-open dialog does not briefly offer a
+    // duplicate while a rolling deployment moves from cards to the table.
+    const recipients = Array.isArray(share.recipients) ? share.recipients : [share];
+    const alreadyLive = recipients.some((recipient) => {
       if (normaliseEmail(recipient.recipientEmail) !== wanted) return false;
       if (recipient.status === SHARE_STATUS.ACCEPTED) return true;
       return recipient.status === SHARE_STATUS.PENDING && !recipient.isExpired;
     });
 
-    if (alreadyLive) ids.add(String(group.comicId));
+    if (alreadyLive) ids.add(String(share.comicId));
   });
 
   return ids;

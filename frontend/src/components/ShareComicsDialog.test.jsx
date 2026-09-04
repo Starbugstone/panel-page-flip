@@ -115,8 +115,11 @@ describe("ShareComicsDialog", () => {
     open({
       initialRecipient: "jane@example.com",
       sharedByMe: [{
+        id: 10,
         comicId: 1,
-        recipients: [{ id: 10, recipientEmail: "jane@example.com", status: "accepted", isExpired: false }],
+        recipientEmail: "jane@example.com",
+        status: "accepted",
+        isExpired: false,
       }],
     });
 

@@ -106,11 +106,11 @@ final class FolderShareControllerTest extends AbstractApiTestCase
             [$first->getId(), $second->getId()],
             array_column($sharedByMe, 'comicId')
         );
-        foreach ($sharedByMe as $group) {
-            self::assertSame(ComicShare::STATUS_PENDING, $group['recipients'][0]['status']);
-            self::assertNotNull($group['recipients'][0]['invitationBatchId']);
-            self::assertSame('DragonBall', $group['recipients'][0]['invitationBatchName']);
-            self::assertSame(2, $group['recipients'][0]['invitationBatchSize']);
+        foreach ($sharedByMe as $share) {
+            self::assertSame(ComicShare::STATUS_PENDING, $share['status']);
+            self::assertNotNull($share['invitationBatchId']);
+            self::assertSame('DragonBall', $share['invitationBatchName']);
+            self::assertSame(2, $share['invitationBatchSize']);
         }
 
         $this->loginAs($recipient);

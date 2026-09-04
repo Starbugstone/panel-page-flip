@@ -170,7 +170,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postInvitation((int) $comic->getId(), 'guest@example.com');
-        $share = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $share = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
 
         // The record is kept server-side; the client is told state, not history.
         self::assertArrayNotHasKey('senderResponsibilityAcceptedAt', $share);
@@ -183,7 +183,7 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
         $comic = ComicFactory::new()->ownedBy($owner)->create();
 
         $this->postInvitation((int) $comic->getId(), 'guest@example.com');
-        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['id'];
         // Read back from storage on both sides. The in-memory object still
         // carries microseconds the DATETIME column does not, and comparing one
         // against the other would fail on precision rather than on the value.
@@ -761,10 +761,9 @@ final class ExplicitShareControllerTest extends AbstractApiTestCase
 
         // An age gate protects a recipient from content they have not agreed to
         // see. It is not a lock on somebody's own library.
-        $group = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
-        self::assertSame('Mine To See', $group['title']);
-        self::assertTrue($group['explicitContent']);
-        self::assertSame('Mine To See', $group['recipients'][0]['comicTitle']);
+        $share = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
+        self::assertSame('Mine To See', $share['comicTitle']);
+        self::assertTrue($share['explicitContent']);
     }
 
     /* ---------------------------------------------------------------------- */

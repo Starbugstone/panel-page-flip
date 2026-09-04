@@ -381,7 +381,7 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
 
         $this->loginAs($owner);
-        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $entry = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         $body = (string) $this->browser()->getResponse()->getContent();
 
         self::assertStringNotContainsString('stranger-address@example.com', $body);
@@ -460,7 +460,7 @@ final class ShareContentCodeTest extends AbstractApiTestCase
         self::assertTrue($this->getJson('/api/shares/shared-with-me')['sharedWithMe'][0]['canRead']);
 
         $this->loginAs($owner);
-        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['id'];
         $this->postJson(sprintf('/api/shares/%d/revoke', $shareId), []);
         self::assertResponseIsSuccessful();
 

@@ -94,9 +94,9 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
             [$first->getId(), $second->getId()],
             array_column($sharedByMe, 'comicId')
         );
-        foreach ($sharedByMe as $group) {
-            self::assertSame('friend@example.com', $group['recipients'][0]['recipientEmail']);
-            self::assertSame(ComicShare::STATUS_PENDING, $group['recipients'][0]['status']);
+        foreach ($sharedByMe as $share) {
+            self::assertSame('friend@example.com', $share['recipientEmail']);
+            self::assertSame(ComicShare::STATUS_PENDING, $share['status']);
         }
     }
 
@@ -385,12 +385,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         // Refused before anything was created, so the eleventh recipient has no
         // half-made relationship waiting for them.
         $sharedByMe = $this->getJson('/api/shares/shared-by-me')['sharedByMe'];
-        $recipients = [];
-        foreach ($sharedByMe as $group) {
-            foreach ($group['recipients'] as $recipient) {
-                $recipients[] = $recipient['recipientEmail'];
-            }
-        }
+        $recipients = array_column($sharedByMe, 'recipientEmail');
         self::assertNotContains('one-too-many@example.com', $recipients);
     }
 

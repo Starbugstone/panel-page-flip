@@ -1,11 +1,12 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { PendingFolderInvitationCard } from "./PendingFolderInvitationCard";
 import { PendingInvitationCard } from "./PendingInvitationCard";
 import { ReceivedShareCard } from "./ReceivedShareCard";
 import { RedeemCodePanel } from "./RedeemCodePanel";
-import { SharedComicGroup } from "./SharedComicGroup";
+import { SharedByMeList } from "./SharedByMeList";
 import { SharingIdentityPanel } from "./SharingIdentityPanel";
 
 const share = {
@@ -80,28 +81,49 @@ describe("mobile sharing controls", () => {
     expect(actions.parentElement).toHaveClass("flex-col", "sm:flex-row");
   });
 
-  it("gives a shared comic's owner actions their own mobile row", () => {
+  it("keeps the owner's management table scrollable on a phone", () => {
     render(
-      <SharedComicGroup
-        group={{
-          comicId: 4,
-          title: "A comic shared by the reader",
-          author: "Writer",
-          explicitContent: false,
-          recipients: [],
-        }}
-        busyShareId={null}
-        onShare={vi.fn()}
-        onStopSharing={vi.fn()}
-        onResend={vi.fn()}
-        onRevoke={vi.fn()}
-        onDelete={vi.fn()}
-      />,
+      <MemoryRouter>
+        <SharedByMeList
+          sharedByMe={[{
+            id: 1,
+            comicId: 4,
+            comicTitle: "A comic shared by the reader",
+            comicAuthor: "Writer",
+            explicitContent: false,
+            recipientEmail: "reader@example.com",
+            recipientLabel: "reader@example.com",
+            status: "accepted",
+            createdAt: "2026-09-01T12:00:00+00:00",
+            canResend: false,
+            canRevoke: true,
+            canDelete: false,
+          }]}
+          byMePagination={{ page: 1, limit: 25, totalItems: 1, totalPages: 1 }}
+          byMeListKey="mobile-list"
+          byMeIsLoading={false}
+          searchInput=""
+          tableControls={{
+            columnFilters: {},
+            headerProps: { sort: "createdAt", direction: "DESC", onSort: vi.fn(), onFilter: vi.fn() },
+          }}
+          busyShareId={null}
+          onSearch={vi.fn()}
+          onPageChange={vi.fn()}
+          onLimitChange={vi.fn()}
+          onShare={vi.fn()}
+          onStopSharing={vi.fn()}
+          onResend={vi.fn()}
+          onRevoke={vi.fn()}
+          onDelete={vi.fn()}
+          reload={vi.fn()}
+        />
+      </MemoryRouter>,
     );
 
-    const actions = screen.getByRole("button", { name: "Share this comic" }).parentElement;
-    expect(actions).toHaveClass("w-full", "sm:w-auto");
-    expect(actions.parentElement).toHaveClass("flex-col", "sm:flex-row");
+    expect(screen.getByRole("table").parentElement).toHaveClass("overflow-auto");
+    expect(screen.getByText("0 of 1 share selected").parentElement.parentElement)
+      .toHaveClass("flex-col", "lg:flex-row");
   });
 
   it("separates the account code from its actions on a phone", () => {

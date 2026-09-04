@@ -5,9 +5,11 @@ namespace App\Repository;
 use App\Entity\Comic;
 use App\Entity\ComicShare;
 use App\Entity\User;
+use App\Enum\ShareCodeType;
 use App\Service\Pagination\ColumnFilter;
 use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
+use App\Service\SharingCodeFormat;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -25,11 +27,13 @@ class ComicShareRepository extends ServiceEntityRepository
         'recipient' => 'recipientSort',
     ];
 
-    /**
-     * The one sort {@see findOwnerPage()} offers: comics by their newest
-     * share. Declared so PaginationRequest has an allow-list to check against.
-     */
-    public const OWNER_SORT_FIELDS = ['createdAt' => 'newestShare'];
+    /** Query alias => DQL expression for the owner's share-management table. */
+    public const OWNER_SORT_FIELDS = [
+        'createdAt' => 's.createdAt',
+        'status' => 's.status',
+        'comicTitle' => 'c.title',
+        'recipient' => 'recipientSort',
+    ];
 
     /** The statuses the admin table may filter on. */
     public const ADMIN_STATUSES = [
@@ -179,72 +183,110 @@ class ComicShareRepository extends ServiceEntityRepository
     }
 
     /**
-     * One page of the owner's sharing list, paged by comic rather than by
-     * share.
+     * One page of the owner's grants, with the same database-backed controls
+     * as the administrative share table.
      *
-     * The page renders one card per comic with every recipient inside it, so a
-     * page boundary must never fall between two recipients of the same comic —
-     * half a card on each page would read as two different comics. Comics are
-     * therefore paged first, newest share first, and then every share on the
-     * page's comics is loaded whole.
+     * A row is one comic-recipient relationship. That is the unit an owner can
+     * resend, revoke or forget, and paging by it keeps page sizes and bulk
+     * selection honest for comics shared with many people.
      *
-     * Tombstones are deliberately excluded. They exist to explain a
-     * disappearance to the people who lost access; the owner is the one who
-     * caused it, already knows, and has no comic left to manage — so a deleted
-     * comic leaves their sharing list entirely.
+     * Tombstones are deliberately excluded. They explain a disappearance to
+     * the people who lost access; the owner caused it and has no comic left to
+     * manage, so a deleted comic leaves this list entirely.
+     *
+     * @param array{comic?: string|null, recipient?: string|null, status?: string|null,
+     *               createdAt?: string|null, timezone?: string|null} $filters
      *
      * @return PaginatedResult<ComicShare>
      */
-    public function findOwnerPage(User $user, PaginationRequest $request): PaginatedResult
+    public function findOwnerPage(User $user, PaginationRequest $request, array $filters = []): PaginatedResult
     {
-        $ownedShares = fn (): \Doctrine\ORM\QueryBuilder => $this->createQueryBuilder('s')
+        $qb = $this->createQueryBuilder('s')
+            ->addSelect('c', 'r')
+            ->leftJoin('s.comic', 'c')
+            ->leftJoin('s.recipientUser', 'r')
             ->andWhere('s.owner = :owner')
             ->andWhere('s.comic IS NOT NULL')
             ->andWhere('s.unavailableAt IS NULL')
             ->setParameter('owner', $user);
 
-        $total = (int) $ownedShares()
-            ->select('COUNT(DISTINCT s.comic)')
-            ->getQuery()
-            ->getSingleScalarResult();
+        if ($pattern = $request->searchPattern()) {
+            $expressions = [
+                'LOWER(c.title) LIKE :search',
+                'LOWER(c.author) LIKE :search',
+                'LOWER(r.name) LIKE :search',
+                "LOWER(CONCAT('@', r.username)) LIKE :search",
+                'LOWER(s.recipientAliasName) LIKE :search',
+                'LOWER(s.recipientEmailNormalized) LIKE :search',
+            ];
+            if ($token = self::displayedUserCodeToken($request->search)) {
+                $expressions[] = '(s.recipientUserCode IS NOT NULL AND r.userCode = :searchRecipientCode)';
+                $qb->setParameter('searchRecipientCode', $token);
+            }
 
-        $rows = $ownedShares()
-            ->select('IDENTITY(s.comic) AS comicId')
-            ->addSelect('MAX(s.createdAt) AS HIDDEN newestShare')
-            ->groupBy('s.comic')
-            ->orderBy('newestShare', $request->direction)
-            ->addOrderBy('comicId', 'DESC')
+            $qb->andWhere($qb->expr()->orX(...$expressions))->setParameter('search', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['comic'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(c.title) LIKE :filterComic',
+                'LOWER(c.author) LIKE :filterComic',
+            ))->setParameter('filterComic', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['recipient'] ?? null)) {
+            $expressions = [
+                'LOWER(r.name) LIKE :filterRecipient',
+                "LOWER(CONCAT('@', r.username)) LIKE :filterRecipient",
+                'LOWER(s.recipientAliasName) LIKE :filterRecipient',
+                'LOWER(s.recipientEmailNormalized) LIKE :filterRecipient',
+            ];
+            if ($token = self::displayedUserCodeToken($filters['recipient'] ?? null)) {
+                $expressions[] = '(s.recipientUserCode IS NOT NULL AND r.userCode = :filterRecipientCode)';
+                $qb->setParameter('filterRecipientCode', $token);
+            }
+
+            $qb->andWhere($qb->expr()->orX(...$expressions))->setParameter('filterRecipient', $pattern);
+        }
+
+        $statuses = ColumnFilter::matchLabels($qb, $filters['status'] ?? null, self::ADMIN_STATUS_LABELS);
+        if ($statuses !== null) {
+            $qb->andWhere('s.status IN (:ownerStatuses)')->setParameter('ownerStatuses', $statuses);
+        }
+
+        ColumnFilter::applyDay(
+            $qb,
+            's.createdAt',
+            'ownerFilterCreatedAt',
+            $filters['createdAt'] ?? null,
+            $filters['timezone'] ?? null
+        );
+
+        $total = (int) (clone $qb)->select('COUNT(s.id)')->getQuery()->getSingleScalarResult();
+
+        if ($request->sortField === 'recipient') {
+            $qb->addSelect(
+                'COALESCE(r.username, r.name, s.recipientAliasName, s.recipientEmailNormalized) AS HIDDEN recipientSort'
+            );
+        }
+
+        $shares = $qb
+            ->orderBy(self::OWNER_SORT_FIELDS[$request->sortField], $request->direction)
+            ->addOrderBy('s.id', 'DESC')
             ->setFirstResult($request->offset())
             ->setMaxResults($request->limit)
             ->getQuery()
-            ->getScalarResult();
-        $comicIds = array_map(static fn (array $row): int => (int) $row['comicId'], $rows);
-
-        if ($comicIds === []) {
-            return PaginatedResult::fromRequest([], $total, $request);
-        }
-
-        $shares = $ownedShares()
-            ->addSelect('c')
-            ->leftJoin('s.comic', 'c')
-            ->andWhere('s.comic IN (:comicIds)')
-            ->setParameter('comicIds', $comicIds)
-            ->getQuery()
             ->getResult();
 
-        // Comics in page order, recipients newest first within each — sorted
-        // here rather than trusted to a second ORDER BY, so the group order the
-        // client renders is exactly the order the page boundaries were cut on.
-        $rank = array_flip($comicIds);
-        usort($shares, static function (ComicShare $a, ComicShare $b) use ($rank): int {
-            $byComic = $rank[(int) $a->getComic()?->getId()] <=> $rank[(int) $b->getComic()?->getId()];
-
-            return $byComic !== 0
-                ? $byComic
-                : ($b->getCreatedAt() <=> $a->getCreatedAt() ?: $b->getId() <=> $a->getId());
-        });
-
         return PaginatedResult::fromRequest($shares, $total, $request);
+    }
+
+    /** The token behind a complete displayed U-code, if that is what was typed. */
+    private static function displayedUserCodeToken(mixed $value): ?string
+    {
+        $parsed = SharingCodeFormat::parse(ColumnFilter::text($value));
+
+        return $parsed?->is(ShareCodeType::USER) === true ? $parsed->token : null;
     }
 
     /**
