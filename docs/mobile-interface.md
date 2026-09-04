@@ -40,6 +40,15 @@ Sharing identity, redeem-code, pagination, and personal-tag controls stack or
 expand to the available width. These layouts return to their compact horizontal
 form at the existing tablet and desktop breakpoints.
 
+## Scroll surfaces
+
+Native scroll areas use one theme-aware treatment throughout the application.
+Desktop scrollbars are slim, keep a transparent track, and use a rounded thumb
+that shifts toward the primary colour on hover. Light and dark themes define
+their own thumb contrast. Firefox receives the standard `scrollbar-width` and
+`scrollbar-color` properties; Chromium and Safari receive the equivalent
+WebKit pseudo-elements. Native touch scrolling remains unchanged.
+
 ## Regression coverage
 
 Component tests assert the responsive class contract for the library toolbar,

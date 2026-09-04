@@ -136,6 +136,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Authentication Pages**: Login and registration implemented in `Login.jsx`
 - **Password Reset**: Forgot password and reset password pages implemented in `ForgotPassword.jsx` and `ResetPassword.jsx`
 - **Dashboard**: Comic library view implemented in `Dashboard.jsx`
+- **Scroll Surfaces**: Native scroll areas use slim, rounded, theme-aware scrollbars with transparent tracks and a clearer hover state. See [mobile-interface.md](docs/mobile-interface.md).
 - **Library Request Ownership**: `useLibrarySearch` reloads only when the active library location changes; completion of an unrelated folder-tree request cannot duplicate the main collection request. `TagProvider` owns one account-scoped cache and one in-flight request per tag context, so dashboard controls share the prefetch instead of issuing the same request twice and a previous account's tags are never exposed during an account change.
 - **Settings Boundaries**: `UserSettings.jsx` only composes the page. Personal-tag CRUD, conversion-tool downloads, OAuth callback notices, and privacy/account deletion each live in their own focused component or hook with direct behavior tests.
 
