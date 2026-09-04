@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Share2Icon, UserPlus } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -12,9 +12,9 @@ import { SharingConfirmDialogs } from "@/components/share/SharingConfirmDialogs"
 import { useComicLibrary } from "@/hooks/use-comic-library";
 import { useSharingActions } from "@/hooks/use-sharing-actions";
 import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
-import { useSharingLists } from "@/hooks/use-sharing";
+import { useSharing, useSharingLists } from "@/hooks/use-sharing";
 import { useSharingPageFocus } from "@/hooks/use-sharing-page-focus";
-import { describeDeadShareCleanup, groupReceivedShares } from "@/lib/sharing";
+import { describeDeadShareCleanup } from "@/lib/sharing";
 
 const EMPTY_TARGET = { email: "", username: "", userCode: "", comicIds: [] };
 
@@ -26,11 +26,16 @@ const EMPTY_TARGET = { email: "", username: "", userCode: "", comicIds: [] };
  * be put through lives in `useSharingActions`.
  */
 export default function Sharing() {
-  const tableControls = useAdminTableControls({ defaultSort: "createdAt" });
+  const byMeTableControls = useAdminTableControls({ defaultSort: "createdAt" });
+  const withMeTableControls = useAdminTableControls({ defaultSort: "createdAt" });
   const {
     sharedByMe, sharedWithMe, byMePagination, byMeListKey, byMeIsLoading,
-    byMeSearchInput, isLoading, error, reload, setByMeSearchInput, setByMePage, setByMeLimit,
-  } = useSharingLists(tableControls.query);
+    withMePagination, withMeListKey, withMeIsLoading,
+    byMeSearchInput, withMeSearchInput, isLoading, error, reload,
+    setByMeSearchInput, setByMePage, setByMeLimit,
+    setWithMeSearchInput, setWithMePage, setWithMeLimit,
+  } = useSharingLists(byMeTableControls.query, withMeTableControls.query);
+  const { summary } = useSharing();
   const { loadLibrary } = useComicLibrary();
   const navigate = useNavigate();
   const actions = useSharingActions({ reload, loadLibrary });
@@ -45,7 +50,6 @@ export default function Sharing() {
   const [shareDialog, setShareDialog] = useState(null);
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [stopSharingTarget, setStopSharingTarget] = useState(null);
-  const groups = useMemo(() => groupReceivedShares(sharedWithMe), [sharedWithMe]);
 
   const confirmThen = (action, close) => async () => {
     setIsDialogBusy(true);
@@ -93,16 +97,25 @@ export default function Sharing() {
       ) : (
         <Tabs value={focus.activeTab} onValueChange={focus.setActiveTab} className="space-y-6">
           <TabsList>
-            <TabsTrigger value="with-me">Shared with me ({sharedWithMe.length})</TabsTrigger>
+            <TabsTrigger value="with-me">Shared with me ({withMePagination.totalItems})</TabsTrigger>
             <TabsTrigger value="by-me">Shared by me ({byMePagination.totalItems})</TabsTrigger>
           </TabsList>
           <TabsContent value="with-me">
             <SharedWithMeList
               sharedWithMe={sharedWithMe}
-              groups={groups}
+              pagination={withMePagination}
+              listKey={withMeListKey}
+              isLoading={withMeIsLoading}
+              searchInput={withMeSearchInput}
+              tableControls={withMeTableControls}
               actions={actions}
+              onSearch={setWithMeSearchInput}
+              onPageChange={setWithMePage}
+              onLimitChange={setWithMeLimit}
               onRead={(share) => navigate(`/read/${share.comicId}`)}
               onCleanupDead={() => setConfirmingCleanup(true)}
+              deadShareCount={summary.deadShares}
+              reload={reload}
             />
           </TabsContent>
           <TabsContent value="by-me">
@@ -112,7 +125,7 @@ export default function Sharing() {
               byMeListKey={byMeListKey}
               byMeIsLoading={byMeIsLoading}
               searchInput={byMeSearchInput}
-              tableControls={tableControls}
+              tableControls={byMeTableControls}
               busyShareId={actions.busyShareId}
               onSearch={setByMeSearchInput}
               onPageChange={setByMePage}
@@ -151,7 +164,7 @@ export default function Sharing() {
         cleanup={{
           open: confirmingCleanup,
           onOpenChange: setConfirmingCleanup,
-          copy: describeDeadShareCleanup(groups.dead.length),
+          copy: describeDeadShareCleanup(summary.deadShares),
           onConfirm: confirmThen(actions.removeAllDead, () => setConfirmingCleanup(false)),
         }}
         stopSharing={{

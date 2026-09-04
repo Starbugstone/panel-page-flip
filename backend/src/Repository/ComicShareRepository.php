@@ -35,6 +35,14 @@ class ComicShareRepository extends ServiceEntityRepository
         'recipient' => 'recipientSort',
     ];
 
+    /** Query alias => DQL expression for the recipient's share-management table. */
+    public const RECIPIENT_SORT_FIELDS = [
+        'createdAt' => 's.createdAt',
+        'status' => 's.status',
+        'comicTitle' => 'comicTitleSort',
+        'owner' => 'ownerSort',
+    ];
+
     /** The statuses the admin table may filter on. */
     public const ADMIN_STATUSES = [
         ComicShare::STATUS_PENDING,
@@ -180,6 +188,76 @@ class ComicShareRepository extends ServiceEntityRepository
             ->orderBy('s.createdAt', 'DESC')
             ->getQuery()
             ->getResult();
+    }
+
+    /**
+     * One page of grants addressed to the recipient, including unavailable
+     * history whose comic or owner has since gone away.
+     *
+     * @param array{comic?: string|null, owner?: string|null, status?: string|null,
+     *               createdAt?: string|null, timezone?: string|null} $filters
+     *
+     * @return PaginatedResult<ComicShare>
+     */
+    public function findRecipientPage(User $user, PaginationRequest $request, array $filters = []): PaginatedResult
+    {
+        $qb = $this->recipientQueryBuilder($user)
+            ->addSelect('c', 'o')
+            ->leftJoin('s.comic', 'c')
+            ->leftJoin('s.owner', 'o');
+
+        if ($pattern = $request->searchPattern()) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(COALESCE(c.title, s.comicTitleSnapshot)) LIKE :search',
+                'LOWER(COALESCE(c.author, s.comicAuthorSnapshot)) LIKE :search',
+                'LOWER(COALESCE(o.name, s.ownerNameSnapshot)) LIKE :search',
+                "LOWER(CONCAT('@', o.username)) LIKE :search",
+                'LOWER(o.email) LIKE :search',
+            ))->setParameter('search', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['comic'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(COALESCE(c.title, s.comicTitleSnapshot)) LIKE :recipientFilterComic',
+                'LOWER(COALESCE(c.author, s.comicAuthorSnapshot)) LIKE :recipientFilterComic',
+            ))->setParameter('recipientFilterComic', $pattern);
+        }
+
+        if ($pattern = ColumnFilter::pattern($filters['owner'] ?? null)) {
+            $qb->andWhere($qb->expr()->orX(
+                'LOWER(COALESCE(o.name, s.ownerNameSnapshot)) LIKE :recipientFilterOwner',
+                "LOWER(CONCAT('@', o.username)) LIKE :recipientFilterOwner",
+                'LOWER(o.email) LIKE :recipientFilterOwner',
+            ))->setParameter('recipientFilterOwner', $pattern);
+        }
+
+        $statuses = ColumnFilter::matchLabels($qb, $filters['status'] ?? null, self::ADMIN_STATUS_LABELS);
+        if ($statuses !== null) {
+            $qb->andWhere('s.status IN (:recipientStatuses)')->setParameter('recipientStatuses', $statuses);
+        }
+
+        ColumnFilter::applyDay(
+            $qb,
+            's.createdAt',
+            'recipientFilterCreatedAt',
+            $filters['createdAt'] ?? null,
+            $filters['timezone'] ?? null
+        );
+
+        $total = (int) (clone $qb)->select('COUNT(s.id)')->getQuery()->getSingleScalarResult();
+
+        $qb->addSelect('COALESCE(c.title, s.comicTitleSnapshot) AS HIDDEN comicTitleSort');
+        $qb->addSelect('COALESCE(o.username, o.name, s.ownerNameSnapshot) AS HIDDEN ownerSort');
+
+        $shares = $qb
+            ->orderBy(self::RECIPIENT_SORT_FIELDS[$request->sortField], $request->direction)
+            ->addOrderBy('s.id', 'DESC')
+            ->setFirstResult($request->offset())
+            ->setMaxResults($request->limit)
+            ->getQuery()
+            ->getResult();
+
+        return PaginatedResult::fromRequest($shares, $total, $request);
     }
 
     /**

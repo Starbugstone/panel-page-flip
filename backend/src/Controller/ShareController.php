@@ -70,16 +70,28 @@ class ShareController extends AbstractController
         ]);
     }
 
-    /** Invitations, accepted shares and tombstones addressed to this user. */
+    /** One database-backed page of invitations, accepted shares and tombstones addressed to this user. */
     #[Route('/shared-with-me', name: 'app_shares_with_me', methods: ['GET'])]
-    public function sharedWithMe(): JsonResponse
+    public function sharedWithMe(Request $request): JsonResponse
     {
         $user = $this->requireUser();
 
-        $shares = $this->shareRepository->findAllForRecipient($user);
+        $pagination = PaginationRequest::fromRequest(
+            $request,
+            ComicShareRepository::RECIPIENT_SORT_FIELDS,
+            'createdAt'
+        );
+        $page = $this->shareRepository->findRecipientPage($user, $pagination, [
+            'comic' => $request->query->get('filterComic'),
+            'owner' => $request->query->get('filterOwner'),
+            'status' => $request->query->get('filterStatus'),
+            'createdAt' => $request->query->get('filterCreatedAt'),
+            'timezone' => $request->query->get('filterTimezone'),
+        ]);
 
         return $this->json([
-            'sharedWithMe' => $this->shareSerializer->serializeManyForRecipient($shares),
+            'sharedWithMe' => $this->shareSerializer->serializeManyForRecipient($page->items),
+            'pagination' => $page->toArray(),
         ]);
     }
 

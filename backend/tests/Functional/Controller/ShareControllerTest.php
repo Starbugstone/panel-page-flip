@@ -801,6 +801,35 @@ final class ShareControllerTest extends AbstractApiTestCase
         }
     }
 
+    public function testTheRecipientSharingTablePagesSortsSearchesAndFiltersIndividualShares(): void
+    {
+        $recipient = $this->createAndLoginUser(['email' => 'table-recipient@test.local']);
+        $alex = UserFactory::createOne(['email' => 'alex-owner@test.local', 'name' => 'Alex Owner']);
+        $blair = UserFactory::createOne(['email' => 'blair-owner@test.local', 'name' => 'Blair Owner']);
+        $alpha = ComicFactory::new()->ownedBy($alex)->create(['title' => 'Alpha Book']);
+        $middle = ComicFactory::new()->ownedBy($blair)->create(['title' => 'Middle Book']);
+        $zeta = ComicFactory::new()->ownedBy($alex)->create(['title' => 'Zeta Book']);
+
+        $this->persistShare($zeta, $alex, (string) $recipient->getEmail());
+        $this->persistShare($middle, $blair, (string) $recipient->getEmail());
+        $this->createAcceptedShare($alpha, $alex, $recipient);
+
+        $firstPage = $this->getJson('/api/shares/shared-with-me?page=1&limit=2&sort=comicTitle&direction=ASC');
+        self::assertSame(
+            ['page' => 1, 'limit' => 2, 'totalItems' => 3, 'totalPages' => 2],
+            $firstPage['pagination']
+        );
+        self::assertSame(['Alpha Book', 'Middle Book'], array_column($firstPage['sharedWithMe'], 'comicTitle'));
+
+        $search = $this->getJson('/api/shares/shared-with-me?search=blair');
+        self::assertSame(['Middle Book'], array_column($search['sharedWithMe'], 'comicTitle'));
+
+        $filtered = $this->getJson(
+            '/api/shares/shared-with-me?filterComic=zeta&filterOwner=alex&filterStatus=Pending'
+        );
+        self::assertSame(['Zeta Book'], array_column($filtered['sharedWithMe'], 'comicTitle'));
+    }
+
     /**
      * The retention sweep removes a revoked share only once its window has
      * passed, and never touches anything still live — pressing the admin
