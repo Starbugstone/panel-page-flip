@@ -452,7 +452,7 @@ The dialog picks owned comics (`GET /api/comics?ownership=mine`, filtered again 
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/shares/recent-recipients` | up to 20 registered accounts linked to this owner's prior shares, most recent first and once per account, by current username; unresolved email invitations are omitted |
+| `GET /api/shares/recent-recipients` | up to 20 registered accounts linked to this owner's prior shares, ordered by the latest time the owner shared with each account (including a reopened relationship) and once per account, by current username; unresolved email invitations are omitted |
 | `POST /api/shares/invitations/bulk` | a per-comic result for up to 20 comics — `created`, `skipped`, `rate_limited` or `failed`. A comic the caller cannot share refuses the **whole batch** before this point |
 
 `SharingWorkflowService` is only the permission gate: it resolves each id, asks

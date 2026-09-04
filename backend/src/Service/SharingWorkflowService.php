@@ -100,7 +100,7 @@ final class SharingWorkflowService
     }
 
     /**
-     * Registered people this owner has already shared with, newest first.
+     * Registered people this owner has already shared with, latest share first.
      *
      * No directory and no search: the rows are restricted to people this owner
      * already has a sharing relationship with, so nothing is learned that
@@ -125,6 +125,7 @@ final class SharingWorkflowService
             ->addSelect('ru.username AS username')
             ->addSelect('ru.userCode AS currentCode')
             ->addSelect('ru.name AS currentName')
+            ->addSelect('MAX(s.lastSharedAt) AS HIDDEN latestSharedAt')
             ->addSelect('MAX(s.id) AS HIDDEN lastShareId')
             ->from(ComicShare::class, 's')
             ->innerJoin('s.recipientUser', 'ru')
@@ -134,7 +135,8 @@ final class SharingWorkflowService
             ->addGroupBy('ru.username')
             ->addGroupBy('ru.userCode')
             ->addGroupBy('ru.name')
-            ->orderBy('lastShareId', 'DESC')
+            ->orderBy('latestSharedAt', 'DESC')
+            ->addOrderBy('lastShareId', 'DESC')
             ->setMaxResults($safeLimit)
             ->getQuery()
             ->getArrayResult();

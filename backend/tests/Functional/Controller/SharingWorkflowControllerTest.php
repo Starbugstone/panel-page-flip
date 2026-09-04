@@ -237,6 +237,44 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         self::assertSame(sprintf('Friend%d', $shared - 1), $recipients[0]['username']);
     }
 
+    public function testRecentRecipientsAreOrderedByTheLatestShareWithEachPerson(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'repeat-sharer@example.com']);
+        $alice = UserFactory::createOne([
+            'email' => 'alice@example.com',
+            'username' => 'AliceReader',
+        ]);
+        $bob = UserFactory::createOne([
+            'email' => 'bob@example.com',
+            'username' => 'BobReader',
+        ]);
+
+        $aliceComic = ComicFactory::new()->ownedBy($owner)->create();
+        $bobComic = ComicFactory::new()->ownedBy($owner)->create();
+
+        $aliceShare = $this->persistPendingShare($aliceComic, $owner, (string) $alice->getEmail());
+        $aliceShare->markAccepted($alice)->markRevoked();
+        $this->persistPendingShare($bobComic, $owner, (string) $bob->getEmail())
+            ->markAccepted($bob);
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
+
+        // ComicShare is a durable relationship: reopening Alice's older row
+        // must make Alice recent even though Bob's row still has the higher id.
+        sleep(1);
+        $payload = $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$aliceComic->getId()],
+            'username' => $alice->getUsername(),
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(201);
+        self::assertSame(1, $payload['created']);
+
+        $recipients = $this->getJson('/api/shares/recent-recipients')['recipients'];
+
+        self::assertSame(['AliceReader', 'BobReader'], array_column($recipients, 'username'));
+    }
+
     /**
      * Twenty comics must not mean twenty messages in somebody's inbox. Each one
      * still carries its own link, because each invitation is still answered,
