@@ -12,7 +12,7 @@ import { logger } from "@/lib/logger";
  * specific description of a specific purpose; if the description changes
  * materially, the old answer is not consent to the new one.
  */
-const STORAGE_KEY = "panel-page-flip:analytics-consent";
+export const ANALYTICS_CONSENT_STORAGE_KEY = "panel-page-flip:analytics-consent";
 
 /** Raise this when the wording changes in a way that makes old answers stale. */
 export const ANALYTICS_CONSENT_VERSION = 1;
@@ -37,7 +37,7 @@ function store(storage) {
  */
 export function readAnalyticsConsent(storage, now = Date.now()) {
   try {
-    const raw = store(storage).getItem(STORAGE_KEY);
+    const raw = store(storage).getItem(ANALYTICS_CONSENT_STORAGE_KEY);
     if (!raw) return ANALYTICS_CONSENT_UNDECIDED;
 
     const parsed = JSON.parse(raw);
@@ -68,7 +68,7 @@ export function persistAnalyticsConsent(decision, storage, now = Date.now()) {
   if (Number.isNaN(decidedAt.getTime())) return false;
 
   try {
-    store(storage).setItem(STORAGE_KEY, JSON.stringify({
+    store(storage).setItem(ANALYTICS_CONSENT_STORAGE_KEY, JSON.stringify({
       version: ANALYTICS_CONSENT_VERSION,
       decision,
       decidedAt: decidedAt.toISOString(),

@@ -65,7 +65,10 @@ application keeps a second opinion about consent.
 Reopening is permanent, through **Analytics preferences** in every footer and
 inside reader settings. Withdrawal takes effect immediately and removes the
 `_ga` and `_ga_*` cookies for this site. It also sends a Consent Mode v2 update
-that returns all four fields to denied before collection is disabled.
+that returns all four fields to denied before collection is disabled. Other open
+tabs observe storage changes, so a withdrawal or cleared choice also stops
+measurement there without requiring a reload, including while public
+configuration is still loading.
 
 ### With advertising
 
@@ -90,6 +93,10 @@ The tag is not downloaded before the CMP reports `analytics_storage` as
 `GRANTED`, or `NOT_APPLICABLE` because EU consent rules do not apply. `DENIED`,
 `UNKNOWN`, `NOT_CONFIGURED`, a blocked CMP, an invalid response and a timeout all
 leave Analytics off.
+
+The observer removes its TCF listener on cleanup, including when registration
+finishes after the observer has stopped. Late callbacks cannot register new
+listeners or add stale consent work to the queue.
 
 ## GA4 account prerequisites
 
@@ -125,6 +132,13 @@ version, and decision time; no server-side consent profile is added just to
 prove the interface existed.
 
 ## Google-free legal routes
+
+`GooglePolicyBoundary` requests a fresh document whenever navigation crosses
+between these routes and the rest of the application. CSP belongs to the
+document; client-side routing cannot replace it or unload Google code already
+running. Navigation within either policy group remains client-side. The privacy
+choices button carries its request across that reload using a one-use query
+parameter, which the consent provider removes before reopening the panel.
 
 `/privacy`, `/cookies` and `/terms` load no AdSense site code, no Funding
 Choices tag and no `gtag.js`, in every configuration, on direct load as well as

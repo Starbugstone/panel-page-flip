@@ -47,6 +47,31 @@ describe("observing Google's certified CMP", () => {
     await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith("denied"));
   });
 
+  it("does not register a listener after observation has stopped", () => {
+    const win = { googlefc: { callbackQueue: [] }, __tcfapi: vi.fn() };
+    const stop = observeAnalyticsConsent("ca-pub-1234567890123456", { win, doc: document });
+    stop();
+    win.googlefc.callbackQueue.find((entry) => entry.CONSENT_API_READY).CONSENT_API_READY();
+    expect(win.__tcfapi).not.toHaveBeenCalled();
+  });
+
+  it("removes a listener whose registration completes after cleanup", () => {
+    let registered;
+    const win = {
+      googlefc: { callbackQueue: [] },
+      __tcfapi: vi.fn((command, _version, callback) => {
+        if (command === "addEventListener") registered = callback;
+      }),
+    };
+    const stop = observeAnalyticsConsent("ca-pub-1234567890123456", { win, doc: document });
+    win.googlefc.callbackQueue.find((entry) => entry.CONSENT_API_READY).CONSENT_API_READY();
+    const queued = win.googlefc.callbackQueue.length;
+    stop();
+    registered({ listenerId: 42 }, true);
+    expect(win.__tcfapi).toHaveBeenCalledWith("removeEventListener", 2, expect.any(Function), 42);
+    expect(win.googlefc.callbackQueue).toHaveLength(queued);
+  });
+
   it("follows later consent changes through the TCF v2 listener", () => {
     const onChange = vi.fn();
     let tcfListener;

@@ -88,6 +88,22 @@ describe("SharedWithMeList", () => {
     expect(screen.getByRole("table").parentElement).toHaveClass("overflow-auto");
   });
 
+  it("cannot remove stale records while the next page is loading", async () => {
+    render(<SharedWithMeList
+      sharedWithMe={[share({ isDead: true, status: "revoked" })]}
+      isLoading
+      pagination={{ page: 1, limit: 25, totalItems: 1, totalPages: 1 }}
+      listKey="received-loading"
+      searchInput=""
+      tableControls={{ columnFilters: {}, headerProps: {} }}
+      actions={actions}
+      reload={vi.fn()}
+    />);
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select all received shares" }));
+    expect(screen.getByRole("button", { name: "Remove records" })).toBeDisabled();
+    expect(screen.getByText("0 of 0 shares selected")).toBeInTheDocument();
+  });
+
   it("removes only selected unavailable records after confirmation", async () => {
     const user = userEvent.setup();
     const reload = vi.fn();

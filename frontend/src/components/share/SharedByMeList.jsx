@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AdminPagination } from "@/components/AdminPagination";
 import { AdminBulkActionsBar } from "@/components/admin/AdminBulkActionsBar";
+import { ShareStatusColumns } from "@/components/share/ShareStatusColumns";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { SelectAllCheckbox, SelectionCheckbox } from "@/components/SelectionCheckbox";
 import { Badge } from "@/components/ui/badge";
@@ -70,7 +71,8 @@ export function SharedByMeList({
   reload,
 }) {
   const [bulkAction, setBulkAction] = useState(null);
-  const selection = useRowSelection({ rows: sharedByMe, resetKey: byMeListKey });
+  const rows = byMeIsLoading ? [] : sharedByMe;
+  const selection = useRowSelection({ rows, resetKey: byMeListKey });
   const bulk = useAdminBulkAction({ reload });
   const selected = selection.selectedRows;
   const revocable = selected.filter((share) => share.canRevoke);
@@ -130,7 +132,7 @@ export function SharedByMeList({
 
       <AdminBulkActionsBar
         selectedCount={selection.selectedCount}
-        totalCount={sharedByMe.length}
+        totalCount={rows.length}
         noun="share"
         actions={[
           {
@@ -192,28 +194,7 @@ export function SharedByMeList({
                   {...tableControls.headerProps}
                 />
               </TableHead>
-              <TableHead>
-                <AdminColumnHeader
-                  label="Status"
-                  sortField="status"
-                  filterField="filterStatus"
-                  filterType="select"
-                  filterOptions={["Accepted", "Pending", "Declined", "Revoked"]}
-                  filterValue={tableControls.columnFilters.filterStatus}
-                  {...tableControls.headerProps}
-                />
-              </TableHead>
-              <TableHead>
-                <AdminColumnHeader
-                  label="Shared"
-                  sortField="createdAt"
-                  filterField="filterCreatedAt"
-                  filterType="date"
-                  filterValue={tableControls.columnFilters.filterCreatedAt}
-                  {...tableControls.headerProps}
-                />
-              </TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <ShareStatusColumns tableControls={tableControls} />
             </TableRow>
           </TableHeader>
           <TableBody>

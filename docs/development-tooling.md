@@ -88,6 +88,10 @@ deployment-artefact tests execute the generator and require the nonce filter on
 every other indexable route, so a direct legal-page request cannot be left at
 the non-interactive SEO fallback by CSP.
 
+The router also reloads the document when crossing between the two CSP profiles;
+otherwise a direct legal-page visit would keep blocking Google after navigation
+to the library, and the reverse direction would retain already-loaded Google code.
+
 Local development is served directly by the Node 22 Vite container declared in
 `docker-compose.yml`. There is no second Node/nginx development image to keep in
 sync with that service.

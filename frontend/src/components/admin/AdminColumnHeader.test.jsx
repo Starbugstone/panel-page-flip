@@ -67,7 +67,7 @@ describe("AdminColumnHeader", () => {
     expect(onFilter).toHaveBeenCalledWith("filterOwner", "Selina Kyle");
   });
 
-  it("searches database-wide suggestions after three typed characters and aborts the stale request", async () => {
+  it("searches database-wide suggestions after three input characters, including pasted text and aborts the stale request", async () => {
     const pending = [];
     vi.mocked(api.get).mockImplementation((path, options) => new Promise((resolve) => {
       pending.push({ path, options, resolve });
@@ -88,14 +88,14 @@ describe("AdminColumnHeader", () => {
     expect(api.get).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: "sel" } });
-    fireEvent.keyUp(input, { key: "l" });
     expect(api.get).toHaveBeenCalledOnce();
     expect(pending[0].path).toBe("/api/admin/table-filter-suggestions/comics/owner?query=sel");
     expect(pending[0].options.signal).toBeInstanceOf(AbortSignal);
     expect(pending[0].options.signal.aborted).toBe(false);
+    fireEvent.keyUp(input, { key: "ArrowLeft" });
+    expect(api.get).toHaveBeenCalledOnce();
 
     fireEvent.change(input, { target: { value: "seli" } });
-    fireEvent.keyUp(input, { key: "i" });
     expect(pending[0].options.signal.aborted).toBe(true);
     expect(api.get).toHaveBeenCalledTimes(2);
 

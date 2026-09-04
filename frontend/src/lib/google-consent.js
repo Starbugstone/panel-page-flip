@@ -43,6 +43,13 @@ export function observeAnalyticsConsent(
   let listenerId = null;
   let lastDecision = null;
 
+  const removeListener = () => {
+    if (listenerId !== null && typeof win.__tcfapi === "function") {
+      win.__tcfapi("removeEventListener", TCF_API_VERSION, () => {}, listenerId);
+      listenerId = null;
+    }
+  };
+
   const publish = () => {
     if (stopped) return;
     let decision = "denied";
@@ -74,9 +81,13 @@ export function observeAnalyticsConsent(
   googlefc.callbackQueue.push({ CONSENT_MODE_DATA_READY: publish });
   googlefc.callbackQueue.push({
     CONSENT_API_READY: () => {
-      if (typeof win.__tcfapi !== "function") return;
+      if (stopped || typeof win.__tcfapi !== "function") return;
       win.__tcfapi("addEventListener", TCF_API_VERSION, (data, success) => {
         if (success && data?.listenerId !== undefined) listenerId = data.listenerId;
+        if (stopped) {
+          removeListener();
+          return;
+        }
         // Once consent-mode data is ready this executes synchronously. Before
         // then it remains queued, so the TCF event can never race the values.
         googlefc.callbackQueue.push({ CONSENT_MODE_DATA_READY: publish });
@@ -91,8 +102,6 @@ export function observeAnalyticsConsent(
   return () => {
     stopped = true;
     win.removeEventListener?.(PRIVACY_CHOICES_OPENING_EVENT, withdraw);
-    if (listenerId !== null && typeof win.__tcfapi === "function") {
-      win.__tcfapi("removeEventListener", TCF_API_VERSION, () => {}, listenerId);
-    }
+    removeListener();
   };
 }
