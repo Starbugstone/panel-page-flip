@@ -94,6 +94,16 @@ describe("AdminUsersList storage column", () => {
     expect(screen.getByText(/Showing/)).toBeInTheDocument();
   });
 
+  it("keeps pending-account actions compact without hiding their purpose", async () => {
+    const row = await renderList([user({ isEmailVerified: false })]);
+
+    expect(row.getByRole("button", { name: "Email Alice a new verification link" }))
+      .toBeInTheDocument();
+    expect(row.getByRole("button", { name: "Verify Alice" })).toBeInTheDocument();
+    expect(row.queryByText("Resend")).not.toBeInTheDocument();
+    expect(row.queryByText("Verify")).not.toBeInTheDocument();
+  });
+
   it("enables user creation only after every required field meets the password policy", async () => {
     const actor = userEvent.setup();
     await renderList([user()]);

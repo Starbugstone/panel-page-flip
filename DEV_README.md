@@ -149,7 +149,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 
 #### ✅ Admin Interface
 - **Admin Dashboard**: Implemented in `AdminDashboard.jsx`, now includes a loading indicator during user authentication.
-- **Admin Users Management**: Enhanced UI in `AdminUsersList.jsx` for managing user roles (e.g., ensuring `ROLE_USER` persistence, clearer role assignment).
+- **Admin Users Management**: Enhanced UI in `AdminUsersList.jsx` for managing user roles (e.g., ensuring `ROLE_USER` persistence, clearer role assignment). Pending-account verification actions stay icon-sized so the complete actions column remains visible in the desktop table.
 - **Admin Comics List**: Improved tag display in `AdminComicsList.jsx` to correctly handle various tag data formats.
 - **Admin Tags List**: UI refinements in `AdminTagsList.jsx` for tag creation and editing dialogs.
 
