@@ -993,7 +993,11 @@ class ComicShareService
             return $share;
         }
 
-        return $share->setOwner($owner)->refreshSnapshots()->resetAdultConfirmation();
+        return $share
+            ->setOwner($owner)
+            ->markShared()
+            ->refreshSnapshots()
+            ->resetAdultConfirmation();
     }
 
     /**

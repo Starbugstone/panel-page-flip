@@ -107,6 +107,10 @@ class ComicShare
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;
 
+    /** The latest time the owner opened or reopened this relationship. */
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
+    private \DateTimeImmutable $lastSharedAt;
+
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $acceptedAt = null;
 
@@ -229,10 +233,12 @@ class ComicShare
 
     public function __construct(Comic $comic, User $owner, string $recipientEmail)
     {
+        $now = new \DateTimeImmutable();
         $this->comic = $comic;
         $this->owner = $owner;
         $this->recipientEmailNormalized = self::normaliseEmail($recipientEmail);
-        $this->createdAt = new \DateTimeImmutable();
+        $this->createdAt = $now;
+        $this->lastSharedAt = $now;
         $this->invitationTokens = new ArrayCollection();
         $this->refreshSnapshots();
     }
@@ -415,6 +421,19 @@ class ComicShare
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
+    }
+
+    public function getLastSharedAt(): \DateTimeImmutable
+    {
+        return $this->lastSharedAt;
+    }
+
+    /** Record a fresh sharing action against this durable relationship. */
+    public function markShared(): self
+    {
+        $this->lastSharedAt = new \DateTimeImmutable();
+
+        return $this;
     }
 
     public function getAcceptedAt(): ?\DateTimeImmutable
