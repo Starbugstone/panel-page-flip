@@ -14,8 +14,8 @@ const READER_LADDER = [
 
 const THUMBNAIL_VARIANT = "thumb";
 
-/** What the reader asks for before it has measured anything. */
-export const DEFAULT_READER_VARIANT = "reader-medium";
+/** A fallback for environments without a measurable viewport. */
+const DEFAULT_READER_VARIANT = "reader-medium";
 
 /**
  * Beyond this, extra device pixels stop being visible on comic line art and

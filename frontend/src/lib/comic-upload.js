@@ -16,6 +16,14 @@ export function configuredConcurrentChunks(config) {
   return config.upload?.maxConcurrentUploads || DEFAULT_CONCURRENT_CHUNKS;
 }
 
+/** Respect older servers and keep each in-memory slice bounded to 2 MiB. */
+export function configuredChunkSize(config) {
+  const limit = config.upload?.maxChunkBytes;
+  return Number.isSafeInteger(limit) && limit > 0
+    ? Math.min(limit, 2 * CHUNK_SIZE_BYTES)
+    : CHUNK_SIZE_BYTES;
+}
+
 export function configuredComicFormats(config) {
   return config.upload?.comicFormats || DEFAULT_COMIC_FORMATS;
 }

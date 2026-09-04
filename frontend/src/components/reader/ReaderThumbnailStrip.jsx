@@ -1,13 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { createPageThumbnailUrl } from "@/lib/reader-pages";
+import { useCoverImage } from "@/hooks/use-cover-image";
 
 /**
  * How many thumbnails either side of the current page are fetched without being
  * asked for. Enough to fill the strip on a wide screen, few enough that opening
  * a 400-page book is not 400 requests.
  */
-const EAGER_WINDOW = 12;
+const EAGER_WINDOW = 3;
+
+function ThumbnailImage({ url }) {
+  // These share the cover request budget. Opening the strip must not launch
+  // a screenful of expensive resizes ahead of the page being read.
+  const { src, onLoad, onError } = useCoverImage(url, { eager: true });
+
+  return src ? <img src={src} alt="" decoding="async" loading="lazy" fetchPriority="low" onLoad={onLoad} onError={onError} className="h-full w-full object-contain" /> : null;
+}
 
 /**
  * A page navigator built from the same derivative pipeline the reader uses.
@@ -24,7 +33,6 @@ const EAGER_WINDOW = 12;
 export function ReaderThumbnailStrip({ comicId, pageCount, currentPage, viewportContext, geometry = {}, onSelect }) {
   const [revealed, setRevealed] = useState(() => new Set());
   const containerRef = useRef(null);
-  const observerRef = useRef(null);
   const currentRef = useRef(null);
 
   useEffect(() => {
@@ -32,16 +40,14 @@ export function ReaderThumbnailStrip({ comicId, pageCount, currentPage, viewport
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const arrived = entries
-          .filter((entry) => entry.isIntersecting)
-          .map((entry) => Number(entry.target.dataset.pageIndex))
-          .filter((index) => Number.isInteger(index));
-
-        if (arrived.length === 0) return;
-
         setRevealed((previous) => {
           const next = new Set(previous);
-          arrived.forEach((index) => next.add(index));
+          entries.forEach((entry) => {
+            const index = Number(entry.target.dataset.pageIndex);
+            if (!Number.isInteger(index)) return;
+            if (entry.isIntersecting) next.add(index);
+            else next.delete(index);
+          });
           return next;
         });
       },
@@ -50,16 +56,10 @@ export function ReaderThumbnailStrip({ comicId, pageCount, currentPage, viewport
       { root: containerRef.current, rootMargin: "300px" }
     );
 
-    observerRef.current = observer;
-    return () => {
-      observer.disconnect();
-      observerRef.current = null;
-    };
-  }, [comicId]);
-
-  const registerSlot = useCallback((node) => {
-    if (node) observerRef.current?.observe(node);
-  }, []);
+    // Callback refs run before effects, when the observer does not exist yet.
+    containerRef.current?.querySelectorAll('[data-page-index]').forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [comicId, pageCount]);
 
   useEffect(() => {
     currentRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
@@ -87,7 +87,6 @@ export function ReaderThumbnailStrip({ comicId, pageCount, currentPage, viewport
             type="button"
             data-page-index={index}
             ref={(node) => {
-              registerSlot(node);
               if (isCurrent) currentRef.current = node;
             }}
             onClick={() => onSelect?.(index)}
@@ -102,13 +101,7 @@ export function ReaderThumbnailStrip({ comicId, pageCount, currentPage, viewport
               style={aspectRatio ? { aspectRatio: String(aspectRatio), height: "6rem", width: "auto" } : undefined}
             >
               {shouldLoad && (
-                <img
-                  src={createPageThumbnailUrl(comicId, pageNumber)}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full object-contain"
-                />
+                <ThumbnailImage url={createPageThumbnailUrl(comicId, pageNumber)} />
               )}
             </span>
             <span>{pageNumber}</span>

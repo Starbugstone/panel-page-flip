@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { createUploadRequestPool, uploadComicInChunks } from "@/hooks/use-chunked-upload";
@@ -7,6 +7,7 @@ import { useConfig } from "@/hooks/use-config";
 import { useToast } from "@/hooks/use-toast";
 import {
   configuredComicFormats,
+  configuredChunkSize,
   configuredConcurrentChunks,
   formatFileSize,
   generateTitleFromFilename,
@@ -56,7 +57,7 @@ function queueProgress(rows) {
   };
 }
 
-function BulkUploadRow({ row, running, onTitleChange, onCancel, onRetry, onRemove }) {
+const BulkUploadRow = memo(function BulkUploadRow({ row, running, onTitleChange, onCancel, onRetry, onRemove }) {
   const active = ACTIVE_STATUSES.has(row.status);
   const retryable = row.status === "error" || row.status === "cancelled";
 
@@ -111,7 +112,7 @@ function BulkUploadRow({ row, running, onTitleChange, onCancel, onRetry, onRemov
       </TableCell>
     </TableRow>
   );
-}
+});
 
 function BulkUploadTable({ rows, running, onTitleChange, onCancel, onRetry, onRemove }) {
   if (rows.length === 0) return null;
@@ -178,9 +179,11 @@ export default function BulkUploadQueue() {
   const progress = queueProgress(rows);
   const tags = useMemo(() => tagsInput.split(",").map((tag) => tag.trim()).filter(Boolean), [tagsInput]);
 
-  const updateRow = (id, updates) => {
+  const updateRow = useCallback((id, updates) => {
     setRows((current) => current.map((row) => row.id === id ? { ...row, ...updates } : row));
-  };
+  }, []);
+  const changeTitle = useCallback((id, title) => updateRow(id, { title }), [updateRow]);
+  const cancelRow = useCallback((id) => controllers.current.get(id)?.abort(), []);
 
   /**
    * Take a file back out of the queue.
@@ -189,10 +192,10 @@ export default function BulkUploadQueue() {
    * most wanted: fifty files were dropped in, three of them were the wrong ones,
    * and waiting for the whole run to finish before fixing that is not an answer.
    */
-  const removeRow = (id) => {
+  const removeRow = useCallback((id) => {
     removedRef.current.add(id);
     setRows((current) => current.filter((row) => row.id !== id));
-  };
+  }, []);
 
   const addFiles = (files) => {
     const candidates = Array.from(files);
@@ -214,7 +217,8 @@ export default function BulkUploadQueue() {
     });
   };
 
-  const uploadRow = async (row) => {
+  const chunkSize = configuredChunkSize(config);
+  const uploadRow = useCallback(async (row) => {
     const controller = new AbortController();
     controllers.current.set(row.id, controller);
     updateRow(row.id, { status: "initialising", progress: 0, error: null, comic: null });
@@ -223,6 +227,7 @@ export default function BulkUploadQueue() {
         file: row.file,
         metadata: { title: row.title, tags, folderId: selectedFolderId },
         concurrentChunks,
+        chunkSize,
         requestPool,
         signal: controller.signal,
         onProgress: (progress) => updateRow(row.id, { progress }),
@@ -235,7 +240,7 @@ export default function BulkUploadQueue() {
     } finally {
       controllers.current.delete(row.id);
     }
-  };
+  }, [chunkSize, concurrentChunks, requestPool, selectedFolderId, tags, updateRow]);
 
   const runQueue = async (selectedRows) => {
     let nextIndex = 0;
@@ -251,24 +256,28 @@ export default function BulkUploadQueue() {
   };
 
   const startAll = async () => {
+    if (running) return;
     const pending = rows.filter((row) => RETRYABLE_STATUSES.includes(row.status) && row.title.trim());
     if (!pending.length) return;
-    if (!await refreshSession()) {
-      toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
-      return;
-    }
     // Only removals made during this run may cancel work in it.
     removedRef.current = new Set();
     setRunning(true);
-    await runQueue(pending);
-    setRunning(false);
+    try {
+      if (!await refreshSession()) {
+        toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
+        return;
+      }
+      await runQueue(pending);
+    } finally {
+      setRunning(false);
+    }
   };
 
-  const retryRow = async (row) => {
+  const retryRow = useCallback(async (row) => {
     setRunning(true);
     await uploadRow(row);
     setRunning(false);
-  };
+  }, [uploadRow]);
 
   return (
     <Card className="w-full max-w-6xl">
@@ -298,8 +307,8 @@ export default function BulkUploadQueue() {
         <BulkUploadTable
           rows={rows}
           running={running}
-          onTitleChange={(id, title) => updateRow(id, { title })}
-          onCancel={(id) => controllers.current.get(id)?.abort()}
+          onTitleChange={changeTitle}
+          onCancel={cancelRow}
           onRetry={retryRow}
           onRemove={removeRow}
         />

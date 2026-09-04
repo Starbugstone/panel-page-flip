@@ -10,6 +10,7 @@ use App\Security\ComicAccess;
 use App\Security\ComicNotAccessibleException;
 use App\Security\Voter\ComicVoter;
 use App\Service\ComicService;
+use App\Service\ComicCoverService;
 use App\Service\PageDerivativeService;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -332,7 +333,8 @@ class ComicPageController extends AbstractController
         int $userId,
         int $comicId,
         string $filename,
-        Request $request
+        Request $request,
+        ComicCoverService $covers
     ): Response {
         $this->requireUser();
 
@@ -375,6 +377,14 @@ class ComicPageController extends AbstractController
         // BinaryFileResponse handles Content-Type, Content-Length and range
         // requests; the helper adds the caching policy on top so returning to
         // the library re-displays covers from the browser cache.
-        return $this->cacheableImageResponse($absolutePath, $request, self::COVER_CACHE_SECONDS, true);
+        $rendition = $covers->getOrCreate($comicId, $absolutePath);
+        $optimized = $rendition !== $absolutePath;
+
+        return $this->cacheableImageResponse(
+            $rendition,
+            $request,
+            $optimized ? self::COVER_CACHE_SECONDS : self::COVER_PLACEHOLDER_CACHE_SECONDS,
+            $optimized
+        );
     }
 }

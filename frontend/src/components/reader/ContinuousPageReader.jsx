@@ -18,7 +18,7 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
   // the server for a rung the page will never show. A pinch is not in the
   // measurement — a CSS transform leaves layout size alone — so that one counts.
   const variant = usePageVariant(containerRef, { zoomLevel: transform.scale });
-  const baseUrl = createReaderPageUrl(comicId, pageIndex + 1, variant);
+  const baseUrl = variant ? createReaderPageUrl(comicId, pageIndex + 1, variant) : null;
   const url = useMemo(() => retry > 0 ? withForcedReload(baseUrl) : baseUrl, [baseUrl, retry]);
   const status = result.key === url ? result.status : "loading";
   const hasPreviousImage = result.status === "loaded";
@@ -53,6 +53,7 @@ function ContinuousPageContent({ containerRef, comicId, pageIndex, title, resetT
         alt={`Page ${pageIndex + 1} of ${title || "Comic"}`}
         data-reader-artwork="true"
         draggable={false}
+        decoding="async"
         onLoad={() => setResult({ key: url, status: "loaded" })}
         onError={() => setResult({ key: url, status: "failed" })}
         className={`block max-h-full max-w-full select-none object-contain shadow-lg ${cursorClass}`}

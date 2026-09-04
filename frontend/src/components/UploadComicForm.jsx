@@ -10,6 +10,7 @@ import { useTags } from "@/hooks/use-tags.jsx";
 import { useToast } from "@/hooks/use-toast";
 import {
   configuredComicFormats,
+  configuredChunkSize,
   configuredConcurrentChunks,
   generateTitleFromFilename,
   isComicFile,
@@ -99,11 +100,11 @@ function UploadTags({
   );
 }
 
-function UploadActions({ file, title, uploading, foldersLoading, onCancel, onBack }) {
+function UploadActions({ file, title, uploading, canCancel, foldersLoading, onCancel, onBack }) {
   return (
     <CardFooter className="justify-between px-4 pb-4 sm:px-6 sm:pb-6">
-      <Button variant="outline" type="button" onClick={uploading ? onCancel : onBack}>
-        {uploading ? "Cancel upload" : "Back"}
+      <Button variant="outline" type="button" disabled={uploading && !canCancel} onClick={canCancel ? onCancel : onBack}>
+        {canCancel ? "Cancel upload" : "Back"}
       </Button>
       <Button type="submit" form="upload-form" disabled={!file || !title.trim() || uploading || foldersLoading}>
         {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</> : "Upload Comic"}
@@ -121,8 +122,10 @@ export default function UploadComicForm() {
   const { folders, isLoading: foldersLoading, createFolder } = useLibraryFolders();
   const concurrentChunks = configuredConcurrentChunks(config);
   const comicFormats = configuredComicFormats(config);
-  const { start, cancel, status, progress } = useChunkedUpload({ concurrentChunks });
-  const uploading = ["initialising", "uploading", "completing"].includes(status);
+  const { start, cancel, status, progress } = useChunkedUpload({ concurrentChunks, chunkSize: configuredChunkSize(config) });
+  const [submitting, setSubmitting] = useState(false);
+  const canCancel = ["initialising", "uploading", "completing"].includes(status);
+  const uploading = submitting || canCancel || status === "done";
 
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState("");
@@ -153,16 +156,17 @@ export default function UploadComicForm() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (uploading) return;
     if (!file) {
       toast({ title: "No file selected", description: "Select a comic before uploading.", variant: "destructive" });
       return;
     }
-    if (!await refreshSession()) {
-      toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
-      return;
-    }
-
+    setSubmitting(true);
     try {
+      if (!await refreshSession()) {
+        toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
+        return;
+      }
       const result = await start(file, { title, author, tags, folderId: selectedFolderId });
       result.comic?.tags?.forEach((tag) => {
         if (tag?.id && tag?.name) addTagToCache(tag);
@@ -175,6 +179,8 @@ export default function UploadComicForm() {
         description: error.message,
         variant: error.message === "Upload cancelled" ? "default" : "destructive",
       });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -229,6 +235,7 @@ export default function UploadComicForm() {
         file={file}
         title={title}
         uploading={uploading}
+        canCancel={canCancel}
         foldersLoading={foldersLoading}
         onCancel={cancel}
         onBack={() => navigate(-1)}
