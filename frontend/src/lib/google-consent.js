@@ -1,4 +1,4 @@
-import { loadConsentPlatform } from "@/lib/adsense-loader";
+import { acquireConsentPlatform } from "@/lib/adsense-loader";
 import { logger } from "@/lib/logger";
 
 const GRANTED = 1;
@@ -30,7 +30,6 @@ export function observeAnalyticsConsent(
     win = typeof window === "undefined" ? null : window,
     doc = typeof document === "undefined" ? null : document,
     onChange = () => {},
-    loadPlatform = true,
   } = {}
 ) {
   if (!client || !win) {
@@ -38,6 +37,7 @@ export function observeAnalyticsConsent(
     return () => {};
   }
 
+  const platform = acquireConsentPlatform(client, { win, doc });
   const googlefc = ensureGoogleFc(win);
   let stopped = false;
   let listenerId = null;
@@ -57,6 +57,20 @@ export function observeAnalyticsConsent(
     }
   };
 
+  /**
+   * Reopening the panel withdraws consent until the CMP says otherwise.
+   *
+   * It also re-arms `lastDecision`, which is what makes a re-grant visible: the
+   * CMP republishes `granted` after the user confirms, and a publish that
+   * matches the last reported value is suppressed. Without this, somebody who
+   * opened the panel and accepted again would stay unmeasured until reload.
+   */
+  const withdraw = () => {
+    lastDecision = "denied";
+    onChange("denied");
+  };
+  win.addEventListener?.(PRIVACY_CHOICES_OPENING_EVENT, withdraw);
+
   googlefc.callbackQueue.push({ CONSENT_MODE_DATA_READY: publish });
   googlefc.callbackQueue.push({
     CONSENT_API_READY: () => {
@@ -70,14 +84,13 @@ export function observeAnalyticsConsent(
     },
   });
 
-  if (loadPlatform) {
-    loadConsentPlatform(client, { doc }).then((status) => {
-      if (!stopped && status !== "ready") onChange("denied");
-    });
-  }
+  platform.then((status) => {
+    if (!stopped && status !== "ready") onChange("denied");
+  });
 
   return () => {
     stopped = true;
+    win.removeEventListener?.(PRIVACY_CHOICES_OPENING_EVENT, withdraw);
     if (listenerId !== null && typeof win.__tcfapi === "function") {
       win.__tcfapi("removeEventListener", TCF_API_VERSION, () => {}, listenerId);
     }

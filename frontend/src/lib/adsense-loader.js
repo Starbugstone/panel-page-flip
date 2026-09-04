@@ -148,6 +148,51 @@ export function loadConsentPlatform(
   });
 }
 
+function hasLiveConsentPlatform(win) {
+  return typeof win.googlefc?.showRevocationMessage === "function"
+    || typeof win.googlefc?.getGoogleConsentModeValues === "function";
+}
+
+async function acquireAfterAdSense(adSenseRequest, client, options) {
+  const status = await adSenseRequest;
+  if (status === "ready" || hasLiveConsentPlatform(options.win)) return "ready";
+
+  return loadConsentPlatform(client, options);
+}
+
+/**
+ * Ensure one of Google's two script paths is providing the consent platform.
+ *
+ * AdSense installs the same CMP as a side effect. A caller arriving while its
+ * site code is loading must join that request instead of starting Funding
+ * Choices independently. Only a failed site-code request which did not expose
+ * the CMP may fall back to the standalone script.
+ *
+ * @returns {Promise<"ready" | "unavailable">}
+ */
+export function acquireConsentPlatform(
+  client,
+  {
+    win = typeof window === "undefined" ? null : window,
+    doc = typeof document === "undefined" ? null : document,
+    timeoutMs = SCRIPT_TIMEOUT_MS,
+  } = {}
+) {
+  if (!win || !doc || !client) return Promise.resolve("unavailable");
+
+  const standaloneRequest = inFlight.get(CMP_SCRIPT_ID);
+  if (standaloneRequest) return standaloneRequest;
+
+  const adSenseRequest = inFlight.get(SCRIPT_ID);
+  if (adSenseRequest) {
+    return acquireAfterAdSense(adSenseRequest, client, { win, doc, timeoutMs });
+  }
+
+  if (win.googlefc) return Promise.resolve("ready");
+
+  return loadConsentPlatform(client, { doc, timeoutMs });
+}
+
 /**
  * Remove advertising Google has already placed on the page.
  *

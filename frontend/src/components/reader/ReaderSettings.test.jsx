@@ -5,25 +5,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReaderSettings } from "./ReaderSettings";
 import { DEFAULT_READER_PREFERENCES } from "@/lib/reader-preferences";
 
-const { googleServices } = vi.hoisted(() => ({
-  googleServices: {
-    config: { enabled: false, client: null },
-    analytics: { enabled: false, measurementId: null },
-    consent: { enabled: false, client: null },
-    isActive: false,
-    isLoading: false,
-  },
+const { consent } = vi.hoisted(() => ({
+  consent: { provider: null, openPreferences: vi.fn() },
 }));
 
-vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({ useAdSense: () => googleServices }));
-vi.mock("@/lib/privacy-choices", () => ({ reopenPrivacyChoices: vi.fn(() => Promise.resolve(true)) }));
+vi.mock("@/components/consent/ConsentProvider.jsx", () => ({
+  useConsent: () => ({
+    provider: consent.provider,
+    canOpenPreferences: consent.provider !== null,
+    openPreferences: consent.openPreferences,
+  }),
+}));
 
 beforeEach(() => {
-  googleServices.config = { enabled: false, client: null };
-  googleServices.analytics = { enabled: false, measurementId: null };
-  googleServices.consent = { enabled: false, client: null };
-  googleServices.isActive = false;
-  googleServices.isLoading = false;
+  consent.provider = null;
+  consent.openPreferences = vi.fn();
 });
 
 describe("reader settings persistence status", () => {
@@ -54,8 +50,7 @@ describe("reader settings persistence status", () => {
   });
 
   it("keeps consent withdrawal reachable without putting a footer over the reader", async () => {
-    googleServices.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
-    googleServices.consent = { enabled: true, client: "ca-pub-1234567890123456" };
+    consent.provider = "google";
     render(
       <ReaderSettings
         settings={DEFAULT_READER_PREFERENCES.settings}

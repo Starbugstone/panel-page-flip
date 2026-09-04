@@ -141,14 +141,14 @@ describe("the allowlist against the router", () => {
   });
 
   /**
-   * The operator-facing diagnostic (`app:diagnose-advertising`) prints this
+   * The operator-facing diagnostic (`app:diagnose-google-integrations`) prints this
    * list so somebody can hold it up against their AdSense page exclusions. It
    * cannot import the allowlist — it is PHP, on the other side of the release —
    * so the copy is checked from here, where the authoritative list lives.
    */
   it("is the list the backend diagnostic reports to an operator", () => {
     const command = readFileSync(
-      resolve(frontendDir, "..", "backend/src/Command/DiagnoseAdvertisingCommand.php"),
+      resolve(frontendDir, "..", "backend/src/Command/DiagnoseGoogleIntegrationsCommand.php"),
       "utf8",
     );
     const declaration = command.match(/AD_SAFE_ROUTES = \[(.*?)\];/s);

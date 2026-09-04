@@ -24,28 +24,52 @@ if (!turnstileLoader.includes(`TURNSTILE_SCRIPT_ORIGIN = "${manifest.turnstileSc
   throw new Error("The Turnstile loader origin has drifted from backend/config/csp.json.");
 }
 if (!manifest.directives["frame-src"].includes(manifest.turnstileScriptOrigin)
-  || !manifest.scriptSrcWithoutAdvertising.includes(manifest.turnstileScriptOrigin)
-  || !manifest.scriptSrcWithAdvertising.includes(manifest.turnstileScriptOrigin)) {
+  || !manifest.scriptSrcWithoutGoogle.includes(manifest.turnstileScriptOrigin)
+  || !manifest.scriptSrcWithGoogle.includes(manifest.turnstileScriptOrigin)) {
   throw new Error("The Turnstile origin must be present in every applicable script-src and frame-src policy.");
+}
+
+// Everything Google-shaped the manifest names anywhere has to be in
+// googleOrigins, or the legal-route policy below would keep whichever origin
+// was added to a directive and forgotten here.
+const googleShaped = /google|doubleclick|adtrafficquality/i;
+const undeclared = Object.values(manifest.directives)
+  .flat()
+  .filter((source) => googleShaped.test(source) && !manifest.googleOrigins.includes(source));
+if (undeclared.length > 0) {
+  throw new Error(`Google origins missing from googleOrigins in backend/config/csp.json: ${[...new Set(undeclared)].join(", ")}`);
 }
 
 const policy = (directives) => Object.entries(directives)
   .map(([directive, values]) => `${directive} ${values.join(" ")}`)
   .join("; ");
 
-const advertisingPolicy = (nonce) => {
-  const base = {
-    ...manifest.directives,
-    "script-src": manifest.scriptSrcWithAdvertising.map((value) => value.replace("{nonce}", nonce)),
-  };
+const googlePolicy = (nonce) => policy({
+  ...manifest.directives,
+  "script-src": manifest.scriptSrcWithGoogle.map((value) => value.replace("{nonce}", nonce)),
+});
 
-  return policy(base);
+/**
+ * The policy for the legal-policy routes, which must name no Google origin in
+ * any directive. Derived from the same manifest rather than written out again,
+ * so an origin added above cannot survive here by being forgotten. A directive
+ * left with nothing is dropped: an empty source list is a parse error, and
+ * `default-src 'self'` already covers what would have remained.
+ */
+const googleFreePolicy = () => {
+  const directives = Object.fromEntries(
+    Object.entries(manifest.directives)
+      .map(([directive, values]) => [directive, values.filter((value) => !manifest.googleOrigins.includes(value))])
+      .filter(([, values]) => values.length > 0),
+  );
+
+  return policy({ ...directives, "script-src": manifest.scriptSrcWithoutGoogle });
 };
 
-const rewrite = (relativePath) => {
+const rewrite = (relativePath, expectedPolicy) => {
   const path = resolve(repoRoot, relativePath);
   const before = readFileSync(path, "utf8");
-  const replacement = `add_header Content-Security-Policy "${advertisingPolicy("$request_id")}" always;`;
+  const replacement = `add_header Content-Security-Policy "${expectedPolicy}" always;`;
   const after = before.replace(/add_header Content-Security-Policy "[^"]*" always;/, replacement);
   if (after === before && !before.includes(replacement)) {
     throw new Error(`No Content-Security-Policy line found in ${relativePath}.`);
@@ -56,7 +80,8 @@ const rewrite = (relativePath) => {
 };
 
 const stale = [
-  rewrite("docker/nginx_frontend/security-headers.conf"),
+  rewrite("docker/nginx_frontend/security-headers.conf", googlePolicy("$request_id")),
+  rewrite("docker/nginx_frontend/security-headers-google-free.conf", googleFreePolicy()),
 ].filter(Boolean);
 
 if (checkOnly && stale.length > 0) {

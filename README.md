@@ -22,7 +22,7 @@ Panel Page Flip is a self-hosted web application for managing and reading CBZ, C
 - Administrator notices warning one account about their activity, a comic, or something they shared, shown on their next visit and optionally emailed — see [administrator notices](docs/administrator-notices.md)
 - Per-user storage usage against the enforced quota, visible to each account in its library sidebar and settings page as well as in the admin user list — see [storage accounting and the per-user quota](docs/storage-quota.md)
 - Optional Google AdSense, off unless an operator turns it on, confined by an allowlist to pages that render no uploaded comic content, with consent and the bulk-upload Offerwall owned by Google's supported account-side products — see [advertising, consent, and AdSense Offerwall](docs/advertising.md)
-- Optional Google Analytics 4, off unless an operator turns it on, blocked behind Google Privacy & Messaging basic consent mode and restricted to sanitized application-owned route categories — see [privacy-first Google Analytics](docs/analytics.md)
+- Optional Google Analytics 4, off unless an operator turns it on, protected by Consent Mode v2 and either the first-party analytics bar or Google Privacy & Messaging, and restricted to sanitized application-owned route categories — see [privacy-first Google Analytics](docs/analytics.md)
 - Optional Google social sign-in with safe account linking, passwordless onboarding, and provider-neutral identity storage — see [social sign-in setup and security model](docs/social-sign-in.md)
 
 ## Technology
@@ -144,10 +144,14 @@ Important configuration variables:
   nonce-based Content-Security-Policy. Account configuration and verification
   are documented in [`docs/advertising.md`](docs/advertising.md).
 - `GOOGLE_ANALYTICS_ENABLED`, `GOOGLE_ANALYTICS_MEASUREMENT_ID` — optional
-  GA4 audience measurement, off by default. Analytics also requires a valid
-  `ADSENSE_CLIENT` for Google's certified Privacy & Messaging CMP, but
-  `ADSENSE_ENABLED` may stay false. No Analytics tag or measurement request is
-  made until analytics consent is granted; see [`docs/analytics.md`](docs/analytics.md).
+  GA4 audience measurement, off by default and independent of AdSense: it needs
+  only its own switch and a valid `G-` measurement id, never an
+  `ADSENSE_CLIENT`. Who asks for consent follows from what is enabled — Google's
+  certified Privacy & Messaging CMP where advertising is on, this application's
+  own Analytics preferences where it is not — and no Analytics tag or
+  measurement request is made until that consent is granted. `/privacy`,
+  `/cookies` and `/terms` load no Google script in any configuration. See
+  [`docs/analytics.md`](docs/analytics.md).
 - `METRON_SHARED_ENABLED` — whether this server may spend its own Metron account
   on behalf of every user. Off unless set; a user's personal Metron token is
   unaffected by it.

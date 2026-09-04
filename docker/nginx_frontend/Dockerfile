@@ -49,7 +49,11 @@ COPY ./docker/nginx_frontend/nginx.conf /etc/nginx/conf.d/default.conf
 # adds a header of its own; nginx would fail to start without it. Kept out of
 # conf.d, which the base image globs into the http block — landing there would
 # apply these a second time at http level.
+COPY ./docker/nginx_frontend/base-headers.conf /etc/nginx/snippets/base-headers.conf
 COPY ./docker/nginx_frontend/security-headers.conf /etc/nginx/snippets/security-headers.conf
+# The strict profile for the Google-free legal routes, included by the
+# per-route locations spa-routes.conf generates for them.
+COPY ./docker/nginx_frontend/security-headers-google-free.conf /etc/nginx/snippets/security-headers-google-free.conf
 COPY --from=builder /tmp/spa-routes.conf /etc/nginx/snippets/spa-routes.conf
 
 # Expose port 80 for Nginx

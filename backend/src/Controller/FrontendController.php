@@ -96,12 +96,17 @@ class FrontendController extends AbstractController
             $content = str_replace('</head>', "    ".implode("\n    ", $missingTags)."\n  </head>", $content);
         }
 
+        // Path-aware, so the legal-policy routes keep the tight non-Google
+        // policy even on an installation that has AdSense or Analytics on. The
+        // shell is not nonced there either: a nonce is what lets a trusted
+        // module pull in descendants under strict-dynamic, and those pages are
+        // required to pull in none.
         $nonce = null;
-        if ($this->contentSecurityPolicy->googleScriptsEnabled()) {
+        if ($this->contentSecurityPolicy->googleScriptsEnabledFor($path)) {
             $nonce = $this->contentSecurityPolicy->nonce();
             $content = $this->contentSecurityPolicy->nonceScripts($content, $nonce);
         }
-        $headers['Content-Security-Policy'] = $this->contentSecurityPolicy->header($nonce);
+        $headers['Content-Security-Policy'] = $this->contentSecurityPolicy->header($nonce, $path);
 
         return new Response($content, $status, $headers);
     }

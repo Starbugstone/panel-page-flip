@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 
-import { PrivacyChoicesButton } from "@/components/ads/PrivacyChoicesButton.jsx";
+import { PrivacyChoicesButton } from "@/components/consent/PrivacyChoicesButton.jsx";
 
 export function Footer() {
   const { pathname } = useLocation();

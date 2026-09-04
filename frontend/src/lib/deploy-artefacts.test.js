@@ -67,13 +67,55 @@ describe("the generated Nginx SPA routes", () => {
     },
   );
 
-  it("injects the CSP nonce in every indexable route that overrides sub_filter", () => {
-    const nonceFilter = `sub_filter '<script ' '<script nonce="$request_id" ';`;
+  const locationBlock = (path) => generated.match(new RegExp(`location = ${path} \\{[\\s\\S]*?\\n\\}`))?.[0] ?? "";
+  const nonceFilter = `sub_filter '<script ' '<script nonce="$request_id" ';`;
 
-    for (const { path } of routes.indexable.filter((route) => route.path !== "/")) {
-      const block = generated.match(new RegExp(`location = ${path} \\{[\\s\\S]*?\\n\\}`))?.[0] ?? "";
-      expect(block, path).toContain(nonceFilter);
+  it("injects the CSP nonce in every indexable route that overrides sub_filter", () => {
+    const nonced = routes.indexable
+      .map((route) => route.path)
+      .filter((path) => path !== "/" && !routes.googleFree.includes(path));
+
+    expect(nonced.length).toBeGreaterThan(0);
+    for (const path of nonced) {
+      expect(locationBlock(path), path).toContain(nonceFilter);
     }
+  });
+
+  /**
+   * The static deployment has to enforce the Google-free legal routes too. The
+   * Apache/Symfony path decides this per response in ContentSecurityPolicy;
+   * nginx serves static HTML, so it has to be baked into the location.
+   */
+  it("serves the Google-free routes with the strict policy and no nonce", () => {
+    expect(routes.googleFree.length).toBeGreaterThan(0);
+    for (const path of routes.googleFree) {
+      const block = locationBlock(path);
+      expect(block, path).toContain("include /etc/nginx/snippets/security-headers-google-free.conf;");
+      // A nonce is what would let a trusted module pull descendants in under
+      // strict-dynamic, and these pages must pull in none.
+      expect(block, path).not.toContain(nonceFilter);
+    }
+  });
+});
+
+describe("the Google-free nginx policy", () => {
+  const snippet = read("docker/nginx_frontend/security-headers-google-free.conf");
+  const manifest = JSON.parse(read("backend/config/csp.json"));
+  // The header itself, not the prose above it, which is allowed to name the
+  // things the policy exists to keep out.
+  const policy = snippet.match(/add_header Content-Security-Policy "([^"]*)"/)?.[1] ?? "";
+
+  it("names no Google origin in any directive", () => {
+    for (const origin of manifest.googleOrigins) {
+      expect(policy, origin).not.toContain(origin);
+    }
+    expect(policy).not.toContain("strict-dynamic");
+    expect(policy).not.toContain("$request_id");
+    expect(policy).toContain("script-src 'self' https://challenges.cloudflare.com");
+  });
+
+  it("keeps the shared headers rather than replacing them with a CSP alone", () => {
+    expect(snippet).toContain("include /etc/nginx/snippets/base-headers.conf;");
   });
 });
 

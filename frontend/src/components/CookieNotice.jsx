@@ -1,35 +1,59 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useAdSense } from "@/components/ads/AdSenseProvider.jsx";
+import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
+import { useConsent } from "@/components/consent/ConsentProvider.jsx";
 import { persistCookieNoticeDismissal, wasCookieNoticeDismissed } from "@/lib/cookie-notice-storage";
+import { isAdvertisingActive } from "@/lib/advertising";
 import { NOTIFICATION_LAYER_CLASSES } from "@/lib/overlay-layers";
 import { cn } from "@/lib/utils";
 
+/**
+ * What this installation stores, in one sentence, for each of the four states.
+ *
+ * "Got it" acknowledges the notice; it grants nothing. Where there is an
+ * optional purpose to agree to, the sentence names the control that actually
+ * decides it — Google's panel, or this application's Analytics preferences —
+ * rather than implying that dismissing this banner was the decision.
+ */
+function storageSentence(advertising, analytics) {
+  if (advertising && analytics) {
+    return "Advertising on some pages and optional analytics use additional storage, which you accept or reject by purpose in the Google privacy choices panel.";
+  }
+  if (advertising) {
+    return "Advertising on some pages uses additional storage, which you accept or reject in the Google privacy choices panel.";
+  }
+  if (analytics) {
+    return "Optional analytics uses additional storage only if you accept it; you can change that at any time through Analytics preferences.";
+  }
+
+  return "No advertising or analytics cookies are used.";
+}
+
 export function CookieNotice() {
   const { pathname } = useLocation();
-  const { analytics, isLoading, isActive } = useAdSense();
+  const { adsense, analytics, isLoading } = usePublicConfig();
+  const { isAnalyticsDialogOpen } = useConsent();
   const [visible, setVisible] = useState(() => !wasCookieNoticeDismissed());
   const isReaderPage = pathname.startsWith("/read/");
-  const advertising = isActive;
+  const advertising = isAdvertisingActive(adsense);
   const analyticsActive = Boolean(analytics?.enabled && analytics.measurementId);
-  const optionalStorageNotice = advertising && analyticsActive
-    ? "Advertising on some pages and optional analytics use additional storage, which you accept or reject by purpose in the privacy choices panel."
-    : advertising
-      ? "Advertising on some pages uses additional storage, which you accept or reject in the privacy choices panel."
-      : "Optional analytics uses additional storage only after you accept it in the privacy choices panel.";
 
   const dismiss = () => {
     persistCookieNoticeDismissal();
     setVisible(false);
   };
 
-  // Nothing is said about cookies until the server has said whether this
-  // installation shows advertising. The two wordings contradict each other, and
+  // Nothing is said about cookies until the server has said what this
+  // installation actually uses. The four wordings contradict each other, and
   // the dismissal is permanent: somebody who pressed "Got it" during the round
-  // trip would have been told the opposite of the truth, once, and never see
-  // the correction.
-  if (!visible || isLoading) return null;
+  // trip would have been told the wrong one, once, and never see the
+  // correction.
+  //
+  // It also yields to the analytics consent request, which occupies the same
+  // corner and is an actual question rather than a notice. This notice returns
+  // on the next page load once that has been answered.
+  if (!visible || isLoading || isAnalyticsDialogOpen) return null;
 
   return (
     <aside
@@ -41,15 +65,9 @@ export function CookieNotice() {
       )}
     >
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {/* Two banners asking about the same thing is how somebody ends up
-            accepting in one and rejecting in the other. Where advertising is on,
-            Google's certified consent platform owns the choice and this notice
-            says only what it is for; where it is off, there is no choice to make
-            and this stays the whole story. */}
         <p className="text-sm text-muted-foreground">
-          {advertising || analyticsActive
-            ? `We use necessary session and security cookies, plus a theme preference. ${optionalStorageNotice}`
-            : "We use necessary session and security cookies, plus a theme preference. No advertising or analytics cookies are used."}{" "}
+          We use necessary session and security cookies, plus a theme preference.{" "}
+          {storageSentence(advertising, analyticsActive)}{" "}
           <Link className="font-medium text-foreground underline" to="/cookies">Learn more</Link>
         </p>
         <Button className="shrink-0" size="sm" onClick={dismiss}>Got it</Button>

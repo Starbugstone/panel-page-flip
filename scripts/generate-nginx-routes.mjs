@@ -36,6 +36,7 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const indexable = manifest.indexable?.map((route) => route.path) ?? [];
 const noindex = manifest.noindex ?? [];
 const patterns = manifest.noindexPatterns ?? [];
+const googleFree = manifest.googleFree ?? [];
 
 const allExact = [...indexable, ...noindex];
 if (!indexable.includes("/")) throw new Error("The frontend route manifest must include the landing page.");
@@ -43,6 +44,11 @@ if (new Set(allExact).size !== allExact.length) throw new Error("Frontend routes
 for (const path of allExact) {
   if (typeof path !== "string" || !path.startsWith("/") || path.includes("?")) {
     throw new Error(`Invalid frontend route: ${JSON.stringify(path)}`);
+  }
+}
+for (const path of googleFree) {
+  if (!allExact.includes(path)) {
+    throw new Error(`Google-free route is not a known frontend route: ${JSON.stringify(path)}`);
   }
 }
 for (const pattern of patterns) {
@@ -78,13 +84,28 @@ for (const source of [canonicalSource, openGraphSource]) {
   }
 }
 
-const indexableLocations = indexable.filter((path) => path !== "/").map((path) => `location = ${path} {
-    sub_filter_once off;
-    ${nonceSubFilter}
-    sub_filter '${canonicalSource}' '<link rel="canonical" href="${appUrl}${path}" />';
-    sub_filter '${openGraphSource}' '<meta property="og:url" content="${appUrl}${path}" />';
-    try_files /index.html =404;
-}`).join("\n\n");
+// A Google-free route gets the strict header set and, deliberately, no nonce
+// filter: the nonce is what would let a trusted module pull descendants in
+// under strict-dynamic, and these pages must pull in none. Because the location
+// then declares an add_header of its own, it must include the whole header set
+// rather than inheriting the server block's.
+const indexableLocation = (path) => {
+  const lines = ["sub_filter_once off;"];
+  if (googleFree.includes(path)) {
+    lines.unshift("include /etc/nginx/snippets/security-headers-google-free.conf;");
+  } else {
+    lines.push(nonceSubFilter);
+  }
+  lines.push(
+    `sub_filter '${canonicalSource}' '<link rel="canonical" href="${appUrl}${path}" />';`,
+    `sub_filter '${openGraphSource}' '<meta property="og:url" content="${appUrl}${path}" />';`,
+    "try_files /index.html =404;",
+  );
+
+  return `location = ${path} {\n${lines.map((line) => `    ${line}`).join("\n")}\n}`;
+};
+
+const indexableLocations = indexable.filter((path) => path !== "/").map(indexableLocation).join("\n\n");
 
 const noindexBlock = noindexAlternation
   ? `location ~ "^/(?:${noindexAlternation})$" {
@@ -124,7 +145,8 @@ if (outputPath) {
   // redirect keeps `npm run check:routes` working on Windows too.
   console.log(
     `Frontend route manifest is valid: ${indexable.length} indexable, `
-    + `${noindex.length} noindex, ${patterns.length} noindex patterns.`,
+    + `${noindex.length} noindex, ${patterns.length} noindex patterns, `
+    + `${googleFree.length} Google-free.`,
   );
 } else {
   process.stdout.write(output);
