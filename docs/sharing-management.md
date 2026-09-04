@@ -39,6 +39,12 @@ The endpoint never turns this into a user directory. It starts with
 that account already created. Addresses hidden by username or a `U-` code stay
 hidden in `ComicShareSerializer::forOwner()`.
 
+List responses are committed only while both the signed-in account and the
+requested table URL still match. A request revision orders overlapping reloads,
+so an action started on one page cannot overwrite a newer search, sort, filter,
+or page after its response arrives late. Stale responses also skip their error
+state and summary refresh.
+
 ## Selection and bulk actions
 
 The header checkbox selects the current page. Shift-click extends a range, and

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './use-auth';
 import { api } from '@/lib/api';
 import { buildAdminListUrl, DEFAULT_PAGE_SIZE } from '@/lib/admin-list-params';
@@ -160,6 +160,7 @@ export function useSharingLists(byMeFilters = {}) {
   const filterQuery = JSON.stringify(byMeFilters);
   const lastFilterQuery = useRef(filterQuery);
   const listRevisionRef = useRef(0);
+  const requestRevisionRef = useRef(0);
 
   const setByMePage = useCallback((page) => {
     setByMeParams((current) => ({ ...current, page: Math.max(1, page) }));
@@ -192,6 +193,10 @@ export function useSharingLists(byMeFilters = {}) {
     byMeParams,
     JSON.parse(filterQuery)
   );
+  const currentRequestContext = useRef(null);
+  useLayoutEffect(() => {
+    currentRequestContext.current = { isAuthenticated, user, byMeUrl };
+  }, [byMeUrl, isAuthenticated, user]);
 
   const applyLists = useCallback((byMe, withMe) => {
     listRevisionRef.current += 1;
@@ -225,35 +230,56 @@ export function useSharingLists(byMeFilters = {}) {
   }, [byMeUrl, user]);
 
   /**
-   * Both halves in one round trip, applied unless the caller has lost interest.
+   * Both halves in one round trip, applied only while this request still owns
+   * the current account and URL.
    *
-   * `isStale` is how the mount path drops an answer that arrived after the
-   * page turned or the account changed; `reload` has nothing to race with and
-   * takes the default.
+   * The revision also orders overlapping reloads for the same URL. URL and
+   * account refs are checked separately because an action can retain an old
+   * reload callback across a table navigation.
    *
    * A promise chain rather than async/await, so that every setState sits
    * inside a callback: called from an effect, an awaited one reads as a
    * synchronous setState and the rule against cascading renders rejects it.
    */
-  const fetchLists = useCallback((isStale = () => false) => Promise.all([
-    api.get(byMeUrl),
-    api.get('/api/shares/shared-with-me'),
-  ])
-    .then(([byMe, withMe]) => { if (!isStale()) applyLists(byMe, withMe); })
-    .catch((err) => { if (!isStale()) applyError(err); })
-    // The counts come from the same records, so refreshing them here keeps the
-    // badge honest without another round of coordination.
-    .finally(() => { if (!isStale()) refreshSummary(); }),
-  [applyError, applyLists, byMeUrl, refreshSummary]);
+  const fetchLists = useCallback((isCancelled = () => false) => {
+    const context = currentRequestContext.current;
+    if (!context.isAuthenticated || context.user !== user || context.byMeUrl !== byMeUrl) {
+      return Promise.resolve();
+    }
+
+    const requestRevision = requestRevisionRef.current + 1;
+    requestRevisionRef.current = requestRevision;
+    const isStale = () => {
+      const current = currentRequestContext.current;
+
+      return isCancelled()
+        || requestRevisionRef.current !== requestRevision
+        || !current.isAuthenticated
+        || current.user !== user
+        || current.byMeUrl !== byMeUrl;
+    };
+
+    return Promise.all([
+      api.get(byMeUrl),
+      api.get('/api/shares/shared-with-me'),
+    ])
+      .then(([byMe, withMe]) => { if (!isStale()) applyLists(byMe, withMe); })
+      .catch((err) => { if (!isStale()) applyError(err); })
+      // The counts come from the same records, so refreshing them here keeps the
+      // badge honest without another round of coordination.
+      .finally(() => { if (!isStale()) refreshSummary(); });
+  }, [applyError, applyLists, byMeUrl, refreshSummary, user]);
 
   const reload = useCallback(async () => {
-    if (!isAuthenticated) {
-      setResult(emptySharingLists(user, byMeUrl));
+    const current = currentRequestContext.current;
+    if (!current.isAuthenticated) {
+      requestRevisionRef.current += 1;
+      setResult(emptySharingLists(current.user, current.byMeUrl));
       return;
     }
 
     await fetchLists();
-  }, [byMeUrl, fetchLists, isAuthenticated, user]);
+  }, [fetchLists]);
 
   // As above: reload is for the page's own actions, the mount path asks
   // directly so nothing is set before the request exists. Turning the page
