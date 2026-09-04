@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ANALYTICS_CONSENT_MAX_AGE_MS,
   ANALYTICS_CONSENT_VERSION,
-  clearAnalyticsConsent,
   persistAnalyticsConsent,
   readAnalyticsConsent,
 } from "@/lib/analytics-consent-storage";
@@ -112,14 +111,6 @@ describe("the stored analytics decision", () => {
     expect(storage.getItem(KEY)).toBeNull();
   });
 
-  it("forgets the answer when asked to", () => {
-    persistAnalyticsConsent("granted", storage);
-
-    clearAnalyticsConsent(storage);
-
-    expect(readAnalyticsConsent(storage)).toBe("undecided");
-  });
-
   /**
    * Private browsing and blocked storage both throw. The choice still applies
    * for this page load; it simply is not remembered, and nothing crashes.
@@ -128,11 +119,9 @@ describe("the stored analytics decision", () => {
     const blocked = {
       getItem: vi.fn(() => { throw new Error("blocked"); }),
       setItem: vi.fn(() => { throw new Error("blocked"); }),
-      removeItem: vi.fn(() => { throw new Error("blocked"); }),
     };
 
     expect(readAnalyticsConsent(blocked)).toBe("undecided");
     expect(persistAnalyticsConsent("granted", blocked)).toBe(false);
-    expect(() => clearAnalyticsConsent(blocked)).not.toThrow();
   });
 });

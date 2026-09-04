@@ -378,7 +378,7 @@ class ComicShareService
                     throw new ShareException('This folder invitation is no longer available to resend.', 410);
                 }
                 $this->assertSharingAvailable($memberComic, $memberOwner);
-                $member->markPending($this->invitationExpiry())->refreshSnapshots()->awaitNotification();
+                $member->markPending($this->invitationExpiry())->markShared()->refreshSnapshots()->awaitNotification();
             }
 
             $this->reserveInvitationAllowance($owner);
@@ -413,7 +413,11 @@ class ComicShareService
         // leaves the invitation exactly as it was.
         $this->reserveInvitationAllowance($owner);
 
-        $share->markPending($this->invitationExpiry())->refreshSnapshots();
+        // A resend is a fresh sharing action against this relationship, so it
+        // counts for recipient ordering the same as opening one: somebody the
+        // owner chased last week is a likelier next recipient than somebody
+        // they invited a year ago and never followed up.
+        $share->markPending($this->invitationExpiry())->markShared()->refreshSnapshots();
         $this->revokeOutstandingTokens($share);
 
         [$plaintext, $hash] = ShareInvitationToken::generate();

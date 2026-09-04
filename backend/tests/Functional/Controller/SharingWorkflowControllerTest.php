@@ -275,6 +275,38 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         self::assertSame(['AliceReader', 'BobReader'], array_column($recipients, 'username'));
     }
 
+    public function testResendingAnInvitationMakesThatRecipientRecentAgain(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'chaser@example.com']);
+        $alice = UserFactory::createOne(['email' => 'alice@example.com', 'username' => 'AliceReader']);
+        $bob = UserFactory::createOne(['email' => 'bob@example.com', 'username' => 'BobReader']);
+
+        $aliceComic = ComicFactory::new()->ownedBy($owner)->create();
+        $bobComic = ComicFactory::new()->ownedBy($owner)->create();
+
+        $aliceShare = $this->persistPendingShare($aliceComic, $owner, (string) $alice->getEmail());
+        $aliceShare->markAccepted($alice)->markRevoked();
+        $this->persistPendingShare($bobComic, $owner, (string) $bob->getEmail())
+            ->markAccepted($bob);
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
+
+        self::assertSame(
+            ['BobReader', 'AliceReader'],
+            array_column($this->getJson('/api/shares/recent-recipients')['recipients'], 'username')
+        );
+
+        // Chasing somebody is a sharing action too: the person an owner
+        // followed up last week is a likelier next recipient than the one they
+        // invited a year ago and left alone.
+        sleep(1);
+        $this->postJson('/api/shares/'.$aliceShare->getId().'/resend');
+        self::assertResponseIsSuccessful();
+
+        $recipients = $this->getJson('/api/shares/recent-recipients')['recipients'];
+
+        self::assertSame(['AliceReader', 'BobReader'], array_column($recipients, 'username'));
+    }
+
     /**
      * Twenty comics must not mean twenty messages in somebody's inbox. Each one
      * still carries its own link, because each invitation is still answered,

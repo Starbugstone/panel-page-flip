@@ -96,6 +96,34 @@ describe("useSharingLists pagination", () => {
     );
   });
 
+  /**
+   * The reset has to happen in render, not from an effect. An effect leaves one
+   * commit carrying the new filters and the old page, and the fetch effect in
+   * that same commit would ask the server for a page the filters just
+   * invalidated — a whole round trip whose answer is thrown away.
+   */
+  it("asks for the first page only, when a filter changes off page one", async () => {
+    // Enough pages that page three exists; otherwise the clamp pulls it back on
+    // its own and the reset under test never gets a look in.
+    byMeResponse = () => ({ sharedByMe: [], pagination: paginationBlock({ totalItems: 60, totalPages: 3 }) });
+    const { rerender, result } = renderHook(
+      ({ filters }) => useSharingLists(filters),
+      { wrapper, initialProps: { filters: { sort: "createdAt", direction: "DESC" } } },
+    );
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => result.current.setByMePage(3));
+    await waitFor(() => expect(byMeCalls().at(-1)).toContain("page=3"));
+    const before = byMeCalls().length;
+
+    rerender({ filters: { sort: "createdAt", direction: "DESC", filterStatus: "Pending" } });
+    await waitFor(() => expect(byMeCalls().at(-1)).toContain("filterStatus=Pending"));
+
+    expect(byMeCalls().slice(before)).toEqual([
+      "/api/shares/shared-by-me?sort=createdAt&direction=DESC&filterStatus=Pending&page=1&limit=25",
+    ]);
+  });
+
   it("debounces an owner-table search and starts it on page one", async () => {
     const { result } = renderHook(() => useSharingLists(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));

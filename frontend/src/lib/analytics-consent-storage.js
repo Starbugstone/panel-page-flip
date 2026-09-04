@@ -83,11 +83,3 @@ export function persistAnalyticsConsent(decision, storage, now = Date.now()) {
     return false;
   }
 }
-
-export function clearAnalyticsConsent(storage) {
-  try {
-    store(storage).removeItem(STORAGE_KEY);
-  } catch {
-    // Nothing to do; an unreadable store is already undecided.
-  }
-}

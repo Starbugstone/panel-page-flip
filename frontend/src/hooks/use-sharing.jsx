@@ -158,7 +158,7 @@ export function useSharingLists(byMeFilters = {}) {
   const { isAuthenticated, user } = useAuth();
   const { refreshSummary } = useSharing();
   const filterQuery = JSON.stringify(byMeFilters);
-  const lastFilterQuery = useRef(filterQuery);
+  const [appliedFilterQuery, setAppliedFilterQuery] = useState(filterQuery);
   const listRevisionRef = useRef(0);
   const requestRevisionRef = useRef(0);
 
@@ -182,17 +182,20 @@ export function useSharingLists(byMeFilters = {}) {
     return () => clearTimeout(timeout);
   }, [byMeSearchInput]);
 
-  useEffect(() => {
-    if (lastFilterQuery.current === filterQuery) return;
-    lastFilterQuery.current = filterQuery;
+  // A page number belongs to the filter set it was chosen under, so a changed
+  // sort or column filter can only mean starting again from the first one.
+  //
+  // Reset in render rather than from an effect, because the URL below is built
+  // in the same pass: an effect leaves one commit in which the new filters and
+  // the old page are both live, and the fetch effect in that commit asks the
+  // server for a page the filters have already invalidated. React re-runs this
+  // function before committing, so that request is never made.
+  if (appliedFilterQuery !== filterQuery) {
+    setAppliedFilterQuery(filterQuery);
     setByMeParams((current) => (current.page === 1 ? current : { ...current, page: 1 }));
-  }, [filterQuery]);
+  }
 
-  const byMeUrl = buildAdminListUrl(
-    '/api/shares/shared-by-me',
-    byMeParams,
-    JSON.parse(filterQuery)
-  );
+  const byMeUrl = buildAdminListUrl('/api/shares/shared-by-me', byMeParams, byMeFilters);
   const currentRequestContext = useRef(null);
   useLayoutEffect(() => {
     currentRequestContext.current = { isAuthenticated, user, byMeUrl };

@@ -107,7 +107,7 @@ class ComicShare
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $createdAt;
 
-    /** The latest time the owner opened or reopened this relationship. */
+    /** The latest time the owner opened, reopened or resent this relationship. */
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE)]
     private \DateTimeImmutable $lastSharedAt;
 
@@ -428,7 +428,13 @@ class ComicShare
         return $this->lastSharedAt;
     }
 
-    /** Record a fresh sharing action against this durable relationship. */
+    /**
+     * Record a fresh sharing action against this durable relationship.
+     *
+     * Opening, reopening and resending all count; accepting, declining and
+     * revoking do not. This tracks what the *owner* did, because what it
+     * orders is the owner's own list of people to share with next.
+     */
     public function markShared(): self
     {
         $this->lastSharedAt = new \DateTimeImmutable();
