@@ -37,7 +37,9 @@ final class LoadDemoFixturesCommand extends Command
         }
 
         try {
-            $created = $this->fixtures->load($this->entityManager);
+            $created = $this->entityManager->wrapInTransaction(
+                fn (): bool => $this->fixtures->load($this->entityManager)
+            );
         } catch (\RuntimeException $exception) {
             $io->error($exception->getMessage());
 

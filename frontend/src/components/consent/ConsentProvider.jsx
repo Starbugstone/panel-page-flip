@@ -6,6 +6,7 @@ import {
   ANALYTICS_CONSENT_DENIED,
   ANALYTICS_CONSENT_GRANTED,
   ANALYTICS_CONSENT_UNDECIDED,
+  ANALYTICS_CONSENT_STORAGE_KEY,
   persistAnalyticsConsent,
   readAnalyticsConsent,
 } from "@/lib/analytics-consent-storage";
@@ -59,7 +60,7 @@ const PREFERENCES_FALLBACK_ROUTE = "/";
 
 export function ConsentProvider({ children }) {
   const { consent, isLoading } = usePublicConfig();
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
   const navigate = useNavigate();
   const provider = consent?.provider ?? null;
   const googleClient = consent?.googleClient ?? null;
@@ -72,11 +73,7 @@ export function ConsentProvider({ children }) {
   // frame to somebody who rejected analytics months ago.
   const [localDecision, setLocalDecision] = useState(readAnalyticsConsent);
   const [reopenedLocally, setReopenedLocally] = useState(false);
-  // Set when the user asks for the Google panel from a Google-free page. Those
-  // pages must not mount Funding Choices, so the request survives one
-  // navigation instead. A ref rather than state: it is a pending instruction,
-  // not something any render reads.
-  const pendingGooglePanel = useRef(false);
+  const handledGooglePanelRequest = useRef(false);
 
   const analyticsConsent = useMemo(() => {
     if (!coversAnalytics) return ANALYTICS_CONSENT_DENIED;
@@ -92,15 +89,29 @@ export function ConsentProvider({ children }) {
     return observeAnalyticsConsent(googleClient, { onChange: setGoogleDecision });
   }, [coversAnalytics, googleClient, googleFree, provider]);
 
+  useEffect(() => {
+    const syncDecision = (event) => {
+      if (event.key !== null && event.key !== ANALYTICS_CONSENT_STORAGE_KEY) return;
+      setLocalDecision(readAnalyticsConsent());
+    };
+    window.addEventListener("storage", syncDecision);
+    return () => window.removeEventListener("storage", syncDecision);
+  }, []);
+
   const openGooglePanel = useCallback(() => {
     reopenPrivacyChoices({ client: googleClient });
   }, [googleClient]);
 
   useEffect(() => {
-    if (!pendingGooglePanel.current || googleFree) return;
-    pendingGooglePanel.current = false;
+    const params = new URLSearchParams(search);
+    if (handledGooglePanelRequest.current || googleFree || isLoading
+      || provider !== "google" || !googleClient || params.get("privacyChoices") !== "open") return;
+
+    handledGooglePanelRequest.current = true;
+    params.delete("privacyChoices");
+    navigate({ pathname, search: params.toString(), hash }, { replace: true });
     openGooglePanel();
-  }, [googleFree, openGooglePanel, pathname]);
+  }, [googleClient, googleFree, hash, isLoading, navigate, openGooglePanel, pathname, provider, search]);
 
   const decide = useCallback((decision) => {
     persistAnalyticsConsent(decision);
@@ -137,9 +148,9 @@ export function ConsentProvider({ children }) {
         }
         if (provider !== "google" || !googleClient) return;
         if (googleFree) {
-          // Do not defeat the Google-free rule to honour a click on it.
-          pendingGooglePanel.current = true;
-          navigate(PREFERENCES_FALLBACK_ROUTE);
+          // The query carries the request across the fresh document required
+          // to leave the legal page's restrictive CSP.
+          navigate(PREFERENCES_FALLBACK_ROUTE + "?privacyChoices=open");
 
           return;
         }

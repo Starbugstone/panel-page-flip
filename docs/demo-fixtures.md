@@ -20,6 +20,11 @@ repeat run reports that the fixtures are already loaded and changes nothing. If
 only some of the reserved demo email addresses exist, the command stops with an
 error instead of guessing whether those accounts are safe to change.
 
+The database changes run in one transaction. If archive creation or a later
+fixture step fails, the command rolls back every new row so the next run cannot
+mistake six partially-created accounts for a complete dataset. Generated files
+from an interrupted attempt are replaced by the existing fixture cleanup on retry.
+
 The command refuses to run outside the `dev` and `test` environments. During a
 new load it only replaces generated files whose names begin with
 `demo-fixture-`; unrelated files under `public/uploads/comics/` are not touched.

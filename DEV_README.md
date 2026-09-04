@@ -32,6 +32,7 @@ lives in [`docs/`](docs/):
 | [analytics.md](docs/analytics.md) | Optional privacy-first GA4, Consent Mode v2, consent ownership, route minimisation |
 | [social-sign-in.md](docs/social-sign-in.md) | Optional Google OAuth, account linking, passwordless accounts |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
+| [develop-review-2026-09-04.md](docs/develop-review-2026-09-04.md) | Review scope, confirmed regressions, simplifications, and validation evidence |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
 | [demo-fixtures.md](docs/demo-fixtures.md) | Repeatable local multi-user data, credentials, generated demo comics, loading and reset behavior |
 | [local-docker-environment.md](docs/local-docker-environment.md) | Per-checkout Compose project, ports, container UID, worktree teardown |

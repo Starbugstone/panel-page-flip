@@ -801,6 +801,73 @@ final class ShareControllerTest extends AbstractApiTestCase
         }
     }
 
+    public function testOwnerSearchCannotDiscoverAHiddenRecipientEmail(): void
+    {
+        $owner = $this->createAndLoginUser();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $recipient = UserFactory::createOne(['email' => 'private-address@example.test', 'username' => 'public_reader']);
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
+        $share->hideRecipientBehindSharingCode((string) $recipient->getUserCode(), 'Public Reader')
+            ->linkRecipientUser($this->managed(User::class, (int) $recipient->getId()));
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
+
+        foreach (['search', 'filterRecipient'] as $parameter) {
+            $hidden = $this->getJson('/api/shares/shared-by-me?'.$parameter.'=private-address');
+            self::assertResponseIsSuccessful();
+            self::assertSame(0, $hidden['pagination']['totalItems'], $parameter);
+            $visible = $this->getJson('/api/shares/shared-by-me?'.$parameter.'=public_reader');
+            self::assertSame([$share->getId()], array_column($visible['sharedByMe'], 'id'));
+        }
+    }
+
+    public function testRecipientSearchCannotDiscoverTheOwnerEmail(): void
+    {
+        $recipient = $this->createAndLoginUser();
+        $owner = UserFactory::createOne(['email' => 'private-owner@example.test', 'username' => 'public_owner']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
+
+        foreach (['search', 'filterOwner'] as $parameter) {
+            $hidden = $this->getJson('/api/shares/shared-with-me?'.$parameter.'=private-owner');
+            self::assertResponseIsSuccessful();
+            self::assertSame(0, $hidden['pagination']['totalItems'], $parameter);
+            $visible = $this->getJson('/api/shares/shared-with-me?'.$parameter.'=public_owner');
+            self::assertSame([$share->getId()], array_column($visible['sharedWithMe'], 'id'));
+        }
+    }
+
+    public function testRecipientSearchRespectsTheComicAgeGateIncludingTombstones(): void
+    {
+        $recipient = $this->createAndLoginUser();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create([
+            'title' => 'HiddenTitle',
+            'author' => 'HiddenAuthor',
+            'explicitContent' => true,
+        ]);
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
+
+        foreach ([false, true] as $tombstone) {
+            if ($tombstone) {
+                $share = $this->managed(ComicShare::class, (int) $share->getId());
+                $share->markUnavailable('comic_deleted')->setComic(null);
+                static::getContainer()->get(EntityManagerInterface::class)->flush();
+            }
+            foreach (['search', 'filterComic'] as $parameter) {
+                foreach (['HiddenTitle', 'HiddenAuthor'] as $query) {
+                    $hidden = $this->getJson('/api/shares/shared-with-me?'.$parameter.'='.$query);
+                    self::assertResponseIsSuccessful();
+                    self::assertSame(0, $hidden['pagination']['totalItems'], $parameter.'='.$query);
+                }
+            }
+        }
+        $share = $this->managed(ComicShare::class, (int) $share->getId());
+        $share->confirmAdult();
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
+        $visible = $this->getJson('/api/shares/shared-with-me?filterComic=HiddenTitle');
+        self::assertSame([$share->getId()], array_column($visible['sharedWithMe'], 'id'));
+    }
+
     public function testTheRecipientSharingTablePagesSortsSearchesAndFiltersIndividualShares(): void
     {
         $recipient = $this->createAndLoginUser(['email' => 'table-recipient@test.local']);

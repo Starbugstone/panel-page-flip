@@ -260,8 +260,10 @@ function TextFilter({ label, draft, suggestions, suggestionSource, placeholder, 
       <Input
         type="search"
         value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
-        onKeyUp={(event) => searchSuggestions(event.currentTarget.value)}
+        onChange={(event) => {
+          onDraftChange(event.target.value);
+          searchSuggestions(event.target.value);
+        }}
         onKeyDown={(event) => {
           if (event.key !== "ArrowDown" || matches.length === 0) return;
           event.preventDefault();

@@ -31,19 +31,21 @@ empty table.
 Text and range filters are applied on **Apply filter**, not per keystroke. For
 the server-paged tables, a free-text box starts asking
 `/api/admin/table-filter-suggestions/{table}/{column}` for suggestions once its
-trimmed value reaches three characters. The lookup runs on keyup, searches the
+trimmed value reaches three characters. The lookup runs when the input changes (including paste and clear), searches the
 full database with a case-insensitive substring match, returns at most six
-distinct values, and ranks prefix matches first. Each keyup aborts the previous
+distinct values, and ranks prefix matches first. Each input change aborts the previous
 request so a slow answer for an older value cannot replace the current list.
 Choosing a suggestion, or a value from a fixed-value select, applies it in one
 click. The small client-side tables continue to derive suggestions from the
 complete result set they already hold.
 
 The suggestion endpoint accepts only its internal table/column allow-list and
-requires an administrator. Searchable identity, title, author, tag and
-relationship columns are backed by their direct or foreign-key indexes. Audit
-payload search uses a stored lowercased generated column with a full-text index;
-the JSON payload itself remains the value shown in the suggestion.
+requires an administrator. Relationship joins use their foreign-key indexes. Text matching uses escaped
+`LIKE` substrings, including the JSON audit payload. A full-text index cannot
+accelerate these predicates, so there is no duplicate stored audit payload or
+full-text index to maintain. Migration `Version20260904214000` removes those
+derived objects while preserving every original JSON audit record. Audit
+inserts no longer reload a generated copy of their payload.
 
 ## What a column filter matches
 

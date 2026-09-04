@@ -222,6 +222,48 @@ describe("the Analytics-only consent flow", () => {
     expect(screen.queryByRole("dialog", { name: "Analytics preferences" })).not.toBeInTheDocument();
   });
 
+  it("honours a withdrawal or cleared choice from another tab", async () => {
+    renderProvider();
+    await userEvent.click(await screen.findByRole("button", { name: "Accept analytics" }));
+    expect(observed().analyticsConsent).toBe("granted");
+
+    window.localStorage.setItem("panel-page-flip:analytics-consent", JSON.stringify({
+      version: 1, decision: "denied", decidedAt: new Date().toISOString(),
+    }));
+    act(() => window.dispatchEvent(new StorageEvent("storage", {
+      key: "panel-page-flip:analytics-consent", storageArea: window.localStorage,
+    })));
+    expect(observed().analyticsConsent).toBe("denied");
+
+    window.localStorage.clear();
+    act(() => window.dispatchEvent(new StorageEvent("storage", {
+      key: null, storageArea: window.localStorage,
+    })));
+    expect(observed().analyticsConsent).toBe("undecided");
+  });
+
+  it("keeps a withdrawal made while public configuration is loading", () => {
+    configure("neither");
+    state.publicConfig.isLoading = true;
+    const persistDecision = (decision) => window.localStorage.setItem(
+      "panel-page-flip:analytics-consent",
+      JSON.stringify({ version: 1, decision, decidedAt: new Date().toISOString() })
+    );
+    persistDecision("granted");
+    const tree = () => <MemoryRouter><ConsentProvider><Probe /></ConsentProvider></MemoryRouter>;
+    const view = render(tree());
+
+    persistDecision("denied");
+    act(() => window.dispatchEvent(new StorageEvent("storage", {
+      key: "panel-page-flip:analytics-consent", storageArea: window.localStorage,
+    })));
+    configure("analyticsOnly");
+    state.publicConfig.isLoading = false;
+    view.rerender(tree());
+
+    expect(observed().analyticsConsent).toBe("denied");
+  });
+
   it("can be reopened to withdraw, from the permanent control", async () => {
     const first = renderProvider();
     await userEvent.click(await screen.findByRole("button", { name: "Accept analytics" }));
@@ -277,6 +319,13 @@ describe("the Google-free legal routes", () => {
 
     await waitFor(() => expect(screen.getByTestId("path").textContent).toBe("/"));
     await waitFor(() => expect(reopenPrivacyChoices).toHaveBeenCalledWith({ client: CLIENT }));
+  });
+
+  it("honours the privacy-panel request after a full document navigation", async () => {
+    configure("both");
+    renderProvider("/?privacyChoices=open");
+    await waitFor(() => expect(reopenPrivacyChoices).toHaveBeenCalledWith({ client: CLIENT }));
+    expect(reopenPrivacyChoices).toHaveBeenCalledTimes(1);
   });
 
   it("opens Google's panel in place on an ordinary route", async () => {
