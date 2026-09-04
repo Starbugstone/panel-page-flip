@@ -3,10 +3,9 @@ import { AdminPagination } from "@/components/AdminPagination";
 import { AdminUserRow } from "@/components/admin/AdminUserRow";
 import { SelectAllCheckbox } from "@/components/SelectionCheckbox";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
-import { adminFilterSuggestions } from "@/lib/admin-table-filters";
 
 const IDENTITY_COLUMNS = [
-  { label: "Name / Email", sortField: "name", filterField: "filterIdentity" },
+  { label: "Name / Email", sortField: "name", filterField: "filterIdentity", suggestionSource: "users/identity" },
   { label: "Role", sortField: "role", filterField: "filterRole", filterType: "select", filterOptions: ["Admin", "Editor", "User"] },
   { label: "Verified?", sortField: "verified", filterField: "filterVerified", filterType: "select", filterOptions: ["Verified", "Pending"] },
   { label: "Created", sortField: "createdAt", filterField: "filterCreatedAt", filterType: "date" },
@@ -34,9 +33,6 @@ const headClass = (column) => {
  */
 export function AdminUsersTable({ users, selection, pagination, isLoading, emptyMessage, label, onPageChange, onLimitChange, rowActions, tableControls, comicCountMax = 0, storageMaxBytes = 0, showContentColumns = true }) {
   const columns = [...IDENTITY_COLUMNS, ...(showContentColumns ? CONTENT_COLUMNS : []), ACTIONS_COLUMN];
-  const suggestions = {
-    filterIdentity: adminFilterSuggestions(users, (user) => [user.name, user.email]),
-  };
 
   return (
     <div className="overflow-x-auto rounded-md border">
@@ -53,7 +49,6 @@ export function AdminUsersTable({ users, selection, pagination, isLoading, empty
                     {...column}
                     {...tableControls.headerProps}
                     filterValue={tableControls.columnFilters[column.filterField]}
-                    filterSuggestions={column.filterSuggestions || suggestions[column.filterField]}
                     filterMax={column.filterField === "filterStorage" ? storageMaxBytes : (column.filterField === "filterComicCount" ? comicCountMax : undefined)}
                     className={column.label === "Actions" ? "justify-end" : undefined}
                   />

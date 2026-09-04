@@ -153,6 +153,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Admin Users Management**: Enhanced UI in `AdminUsersList.jsx` for managing user roles (e.g., ensuring `ROLE_USER` persistence, clearer role assignment). Pending-account verification actions stay icon-sized so the complete actions column remains visible in the desktop table.
 - **Admin Comics List**: Improved tag display in `AdminComicsList.jsx` to correctly handle various tag data formats.
 - **Admin Tags List**: UI refinements in `AdminTagsList.jsx` for tag creation and editing dialogs.
+- **Admin Table Filters**: Free-text column filters on server-paged tables fetch fuzzy suggestions from the full database after three characters, abort stale keyup requests, and query only indexed, allow-listed fields. See [admin-table-controls.md](docs/admin-table-controls.md).
 
 #### ✅ Comic Upload
 - **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx` with chunked upload support, progress tracking, and tag management

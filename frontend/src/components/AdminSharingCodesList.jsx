@@ -24,7 +24,6 @@ import { logger } from "@/lib/logger";
 import { formatDate } from "@/lib/format";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { AdminDateRangePopover } from "@/components/admin/AdminDateRangePicker";
-import { adminFilterSuggestions } from "@/lib/admin-table-filters";
 
 /** The statuses the backend filters on, in the order an operator wants them. */
 const STATUSES = [
@@ -188,8 +187,8 @@ export function AdminSharingCodesList() {
           <TableHeader>
             <TableRow>
               <TableHead><AdminColumnHeader label="ID" sortField="id" filterField="filterId" filterPlaceholder="Exact ID…" filterValue={tableControls.columnFilters.filterId} {...tableControls.headerProps} /></TableHead>
-              <TableHead><AdminColumnHeader label="Owner" sortField="owner" filterField="filterOwner" filterSuggestions={adminFilterSuggestions(codes, (code) => [code.ownerName, code.ownerEmail])} filterValue={tableControls.columnFilters.filterOwner} {...tableControls.headerProps} /></TableHead>
-              <TableHead><AdminColumnHeader label="Comics" sortField="comicCount" filterField="filterComics" filterPlaceholder="Title or exact count…" filterSuggestions={adminFilterSuggestions(codes, (code) => code.comics?.map((comic) => comic.title) || [])} filterValue={tableControls.columnFilters.filterComics} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Owner" sortField="owner" filterField="filterOwner" suggestionSource="sharing-codes/owner" filterValue={tableControls.columnFilters.filterOwner} {...tableControls.headerProps} /></TableHead>
+              <TableHead><AdminColumnHeader label="Comics" sortField="comicCount" filterField="filterComics" filterPlaceholder="Title or exact count…" suggestionSource="sharing-codes/comics" filterValue={tableControls.columnFilters.filterComics} {...tableControls.headerProps} /></TableHead>
               <TableHead><AdminColumnHeader label="Uses" sortField="timesUsed" filterField="filterUses" filterType="range" filterMax={payload?.usesMax ?? 0} filterValue={tableControls.columnFilters.filterUses} {...tableControls.headerProps} /></TableHead>
               <TableHead><AdminColumnHeader label="Created" sortField="createdAt" filterField="filterCreatedAt" filterType="date" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
               {/* Deletion is a fixed span after expiry, so Expires already
