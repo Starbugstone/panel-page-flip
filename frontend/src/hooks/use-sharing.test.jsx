@@ -19,6 +19,8 @@ const paginationBlock = (overrides = {}) => ({ page: 1, limit: 25, totalItems: 0
 /** Every by-me URL the hook asked for, in order. */
 const byMeCalls = () =>
   vi.mocked(api.get).mock.calls.map(([url]) => url).filter((url) => url.startsWith("/api/shares/shared-by-me"));
+const withMeCalls = () =>
+  vi.mocked(api.get).mock.calls.map(([url]) => url).filter((url) => url.startsWith("/api/shares/shared-with-me"));
 
 const wrapper = ({ children }) => <SharingProvider>{children}</SharingProvider>;
 
@@ -31,16 +33,40 @@ function deferred() {
 
 describe("useSharingLists pagination", () => {
   let byMeResponse;
+  let withMeResponse;
 
   beforeEach(() => {
     vi.clearAllMocks();
     byMeResponse = () => ({ sharedByMe: [], pagination: paginationBlock() });
+    withMeResponse = () => ({ sharedWithMe: [], pagination: paginationBlock() });
     vi.mocked(api.get).mockImplementation((url) => {
       if (url === "/api/shares/summary") return Promise.resolve({ pendingInvitations: 0, deadShares: 0 });
-      if (url === "/api/shares/shared-with-me") return Promise.resolve({ sharedWithMe: [] });
+      if (url.startsWith("/api/shares/shared-with-me")) return Promise.resolve(withMeResponse(url));
       if (url.startsWith("/api/shares/shared-by-me")) return Promise.resolve(byMeResponse(url));
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
+  });
+
+  it("pages and filters the recipient table independently", async () => {
+    withMeResponse = (url) => ({
+      sharedWithMe: [],
+      pagination: paginationBlock({
+        page: Number(new URLSearchParams(url.split("?")[1]).get("page")),
+        totalItems: 30,
+        totalPages: 2,
+      }),
+    });
+    const withMeFilters = { sort: "owner", direction: "ASC", filterStatus: "Pending" };
+    const { result } = renderHook(() => useSharingLists({}, withMeFilters), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(withMeCalls().at(-1)).toBe(
+      "/api/shares/shared-with-me?sort=owner&direction=ASC&filterStatus=Pending&page=1&limit=25"
+    );
+
+    act(() => result.current.setWithMePage(2));
+    await waitFor(() => expect(withMeCalls().at(-1)).toContain("page=2"));
+    await waitFor(() => expect(result.current.withMePagination.page).toBe(2));
   });
 
   it("asks for the first page at the shared default size and returns the server's pagination", async () => {
@@ -160,7 +186,9 @@ describe("useSharingLists pagination", () => {
 
     vi.mocked(api.get).mockImplementation((url) => {
       if (url === "/api/shares/summary") return Promise.resolve({ pendingInvitations: 0, deadShares: 0 });
-      if (url === "/api/shares/shared-with-me") return Promise.resolve({ sharedWithMe: [] });
+      if (url.startsWith("/api/shares/shared-with-me")) {
+        return Promise.resolve({ sharedWithMe: [], pagination: paginationBlock() });
+      }
       if (url === "/api/shares/shared-by-me?page=2&limit=25") return pageTwo.promise;
       if (url === "/api/shares/shared-by-me?page=1&limit=25") {
         if (initialPageOne) {
@@ -218,7 +246,9 @@ describe("useSharingLists pagination", () => {
   it("reloads what is on screen now when an action's callback predates a page turn", async () => {
     vi.mocked(api.get).mockImplementation((url) => {
       if (url === "/api/shares/summary") return Promise.resolve({ pendingInvitations: 0, deadShares: 0 });
-      if (url === "/api/shares/shared-with-me") return Promise.resolve({ sharedWithMe: [] });
+      if (url.startsWith("/api/shares/shared-with-me")) {
+        return Promise.resolve({ sharedWithMe: [], pagination: paginationBlock() });
+      }
 
       return Promise.resolve({
         sharedByMe: [{ id: url }],

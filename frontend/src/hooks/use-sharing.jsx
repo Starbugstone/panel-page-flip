@@ -12,30 +12,49 @@ const EMPTY_LIST = [];
 const EMPTY_PAGINATION = { page: 1, limit: DEFAULT_PAGE_SIZE, totalItems: 0, totalPages: 1 };
 const SEARCH_DEBOUNCE_MS = 300;
 
-function emptySharingLists(user, byMeUrl, error = null) {
+function emptySharingLists(user, byMeUrl, withMeUrl, error = null) {
   return {
     forUser: user,
     byMe: EMPTY_LIST,
     withMe: EMPTY_LIST,
     byMePagination: EMPTY_PAGINATION,
+    withMePagination: EMPTY_PAGINATION,
     byMeUrl,
+    withMeUrl,
     byMeListKey: error ? `${byMeUrl}|error` : byMeUrl,
+    withMeListKey: error ? `${withMeUrl}|error` : withMeUrl,
     error,
   };
 }
 
-function visibleSharingLists(current, byMeUrl, isAuthenticated, byMeSearchInput) {
-  const currentUrlMatches = current?.byMeUrl === byMeUrl;
+function visibleSharingLists(current, byMeUrl, withMeUrl, isAuthenticated, byMeSearchInput, withMeSearchInput) {
+  const byMe = visibleSharingTable(current, "byMe", byMeUrl, isAuthenticated);
+  const withMe = visibleSharingTable(current, "withMe", withMeUrl, isAuthenticated);
 
   return {
-    sharedByMe: current?.byMe ?? EMPTY_LIST,
-    sharedWithMe: current?.withMe ?? EMPTY_LIST,
-    byMePagination: current?.byMePagination ?? EMPTY_PAGINATION,
-    byMeListKey: currentUrlMatches ? current.byMeListKey : byMeUrl,
-    byMeIsLoading: isAuthenticated && current?.byMeUrl !== byMeUrl,
+    sharedByMe: byMe.rows,
+    sharedWithMe: withMe.rows,
+    byMePagination: byMe.pagination,
+    withMePagination: withMe.pagination,
+    byMeListKey: byMe.listKey,
+    withMeListKey: withMe.listKey,
+    byMeIsLoading: byMe.isLoading,
+    withMeIsLoading: withMe.isLoading,
     byMeSearchInput,
+    withMeSearchInput,
     isLoading: isAuthenticated && current === null,
     error: current?.error ?? null,
+  };
+}
+
+function visibleSharingTable(current, prefix, url, isAuthenticated) {
+  const matches = current?.[`${prefix}Url`] === url;
+
+  return {
+    rows: current?.[prefix] ?? EMPTY_LIST,
+    pagination: current?.[`${prefix}Pagination`] ?? EMPTY_PAGINATION,
+    listKey: matches ? current[`${prefix}ListKey`] : url,
+    isLoading: isAuthenticated && !matches,
   };
 }
 
@@ -147,69 +166,72 @@ export function useSharing() {
  * pagination. Sorts and column filters come from the table controls on the
  * page and are folded into the same request.
  */
-export function useSharingLists(byMeFilters = {}) {
-  // One piece of state for the whole answer, tagged with the account it belongs
-  // to. Loading and the lists then follow from it, so signing out and back in
-  // cannot leave the previous session's shares on screen with nothing marked as
-  // loading — the tag simply stops matching.
-  const [result, setResult] = useState(null);
-  const [byMeParams, setByMeParams] = useState({ page: 1, limit: DEFAULT_PAGE_SIZE, search: '' });
-  const [byMeSearchInput, setByMeSearchInput] = useState('');
-  const { isAuthenticated, user } = useAuth();
-  const { refreshSummary } = useSharing();
-  const filterQuery = JSON.stringify(byMeFilters);
+function usePagedSharingTable(filters) {
+  const [params, setParams] = useState({ page: 1, limit: DEFAULT_PAGE_SIZE, search: '' });
+  const [searchInput, setSearchInput] = useState('');
+  const filterQuery = JSON.stringify(filters);
   const [appliedFilterQuery, setAppliedFilterQuery] = useState(filterQuery);
-  const listRevisionRef = useRef(0);
-  const requestRevisionRef = useRef(0);
 
-  const setByMePage = useCallback((page) => {
-    setByMeParams((current) => ({ ...current, page: Math.max(1, page) }));
+  const setPage = useCallback((page) => {
+    setParams((current) => ({ ...current, page: Math.max(1, page) }));
   }, []);
-  // A new page size starts again from the first page; staying on page 6 of a
-  // result set that now has two pages shows nothing.
-  const setByMeLimit = useCallback((limit) => {
-    setByMeParams((current) => ({ ...current, page: 1, limit }));
+  const setLimit = useCallback((limit) => {
+    setParams((current) => ({ ...current, page: 1, limit }));
   }, []);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      setByMeParams((current) => {
-        const search = byMeSearchInput.trim();
+      setParams((current) => {
+        const search = searchInput.trim();
         return current.search === search ? current : { ...current, page: 1, search };
       });
     }, SEARCH_DEBOUNCE_MS);
 
     return () => clearTimeout(timeout);
-  }, [byMeSearchInput]);
+  }, [searchInput]);
 
-  // A page number belongs to the filter set it was chosen under, so a changed
-  // sort or column filter can only mean starting again from the first one.
-  //
-  // Reset in render rather than from an effect, because the URL below is built
-  // in the same pass: an effect leaves one commit in which the new filters and
-  // the old page are both live, and the fetch effect in that commit asks the
-  // server for a page the filters have already invalidated. React re-runs this
-  // function before committing, so that request is never made.
   if (appliedFilterQuery !== filterQuery) {
     setAppliedFilterQuery(filterQuery);
-    setByMeParams((current) => (current.page === 1 ? current : { ...current, page: 1 }));
+    setParams((current) => (current.page === 1 ? current : { ...current, page: 1 }));
   }
 
-  const byMeUrl = buildAdminListUrl('/api/shares/shared-by-me', byMeParams, byMeFilters);
+  return { params, searchInput, setSearchInput, setPage, setLimit, setParams };
+}
+
+export function useSharingLists(byMeFilters = {}, withMeFilters = {}) {
+  // One piece of state for the whole answer, tagged with the account it belongs
+  // to. Loading and the lists then follow from it, so signing out and back in
+  // cannot leave the previous session's shares on screen with nothing marked as
+  // loading — the tag simply stops matching.
+  const [result, setResult] = useState(null);
+  const byMeTable = usePagedSharingTable(byMeFilters);
+  const withMeTable = usePagedSharingTable(withMeFilters);
+  const setByMeParams = byMeTable.setParams;
+  const setWithMeParams = withMeTable.setParams;
+  const { isAuthenticated, user } = useAuth();
+  const { refreshSummary } = useSharing();
+  const listRevisionRef = useRef(0);
+  const requestRevisionRef = useRef(0);
+
+  const byMeUrl = buildAdminListUrl('/api/shares/shared-by-me', byMeTable.params, byMeFilters);
+  const withMeUrl = buildAdminListUrl('/api/shares/shared-with-me', withMeTable.params, withMeFilters);
   const currentRequestContext = useRef(null);
   useLayoutEffect(() => {
-    currentRequestContext.current = { isAuthenticated, user, byMeUrl };
-  }, [byMeUrl, isAuthenticated, user]);
+    currentRequestContext.current = { isAuthenticated, user, byMeUrl, withMeUrl };
+  }, [byMeUrl, isAuthenticated, user, withMeUrl]);
 
-  const applyLists = useCallback((byMe, withMe, requestedUrl) => {
+  const applyLists = useCallback((byMe, withMe, requestedByMeUrl, requestedWithMeUrl) => {
     listRevisionRef.current += 1;
     setResult({
       forUser: user,
       byMe: byMe.sharedByMe || [],
       withMe: withMe.sharedWithMe || [],
       byMePagination: byMe.pagination || EMPTY_PAGINATION,
-      byMeUrl: requestedUrl,
-      byMeListKey: `${requestedUrl}|${listRevisionRef.current}`,
+      withMePagination: withMe.pagination || EMPTY_PAGINATION,
+      byMeUrl: requestedByMeUrl,
+      withMeUrl: requestedWithMeUrl,
+      byMeListKey: `${requestedByMeUrl}|${listRevisionRef.current}`,
+      withMeListKey: `${requestedWithMeUrl}|${listRevisionRef.current}`,
       error: null,
     });
 
@@ -221,13 +243,20 @@ export function useSharingLists(byMeFilters = {}) {
     if (totalPages) {
       setByMeParams((current) => (current.page > totalPages ? { ...current, page: totalPages } : current));
     }
-  }, [user]);
+    const withMeTotalPages = withMe.pagination?.totalPages;
+    if (withMeTotalPages) {
+      setWithMeParams((current) => (
+        current.page > withMeTotalPages ? { ...current, page: withMeTotalPages } : current
+      ));
+    }
+  }, [setByMeParams, setWithMeParams, user]);
 
-  const applyError = useCallback((err, requestedUrl) => {
+  const applyError = useCallback((err, requestedByMeUrl, requestedWithMeUrl) => {
     logger.error('Failed to load sharing lists:', err);
     setResult(emptySharingLists(
       user,
-      requestedUrl,
+      requestedByMeUrl,
+      requestedWithMeUrl,
       err.message || 'Could not load your shared comics.'
     ));
   }, [user]);
@@ -251,7 +280,7 @@ export function useSharingLists(byMeFilters = {}) {
    * inside a callback: called from an effect, an awaited one reads as a
    * synchronous setState and the rule against cascading renders rejects it.
    */
-  const fetchLists = useCallback((isCancelled, requestedUrl) => {
+  const fetchLists = useCallback((isCancelled, requestedByMeUrl, requestedWithMeUrl) => {
     const context = currentRequestContext.current;
     if (!context.isAuthenticated || context.user !== user) {
       return Promise.resolve();
@@ -266,15 +295,20 @@ export function useSharingLists(byMeFilters = {}) {
         || requestRevisionRef.current !== requestRevision
         || !current.isAuthenticated
         || current.user !== user
-        || current.byMeUrl !== requestedUrl;
+        || current.byMeUrl !== requestedByMeUrl
+        || current.withMeUrl !== requestedWithMeUrl;
     };
 
     return Promise.all([
-      api.get(requestedUrl),
-      api.get('/api/shares/shared-with-me'),
+      api.get(requestedByMeUrl),
+      api.get(requestedWithMeUrl),
     ])
-      .then(([byMe, withMe]) => { if (!isStale()) applyLists(byMe, withMe, requestedUrl); })
-      .catch((err) => { if (!isStale()) applyError(err, requestedUrl); })
+      .then(([byMe, withMe]) => {
+        if (!isStale()) applyLists(byMe, withMe, requestedByMeUrl, requestedWithMeUrl);
+      })
+      .catch((err) => {
+        if (!isStale()) applyError(err, requestedByMeUrl, requestedWithMeUrl);
+      })
       // The counts come from the same records, so refreshing them here keeps the
       // badge honest without another round of coordination.
       .finally(() => { if (!isStale()) refreshSummary(); });
@@ -284,11 +318,11 @@ export function useSharingLists(byMeFilters = {}) {
     const current = currentRequestContext.current;
     if (!current.isAuthenticated) {
       requestRevisionRef.current += 1;
-      setResult(emptySharingLists(current.user, current.byMeUrl));
+      setResult(emptySharingLists(current.user, current.byMeUrl, current.withMeUrl));
       return;
     }
 
-    await fetchLists(() => false, current.byMeUrl);
+    await fetchLists(() => false, current.byMeUrl, current.withMeUrl);
   }, [fetchLists]);
 
   // As above: reload is for the page's own actions, the mount path asks
@@ -298,19 +332,29 @@ export function useSharingLists(byMeFilters = {}) {
     if (!isAuthenticated) return undefined;
 
     let ignore = false;
-    fetchLists(() => ignore, byMeUrl);
+    fetchLists(() => ignore, byMeUrl, withMeUrl);
 
     return () => { ignore = true; };
-  }, [byMeUrl, fetchLists, isAuthenticated]);
+  }, [byMeUrl, fetchLists, isAuthenticated, withMeUrl]);
 
   const current = currentSharingResult(result, user);
-  const visible = visibleSharingLists(current, byMeUrl, isAuthenticated, byMeSearchInput);
+  const visible = visibleSharingLists(
+    current,
+    byMeUrl,
+    withMeUrl,
+    isAuthenticated,
+    byMeTable.searchInput,
+    withMeTable.searchInput,
+  );
 
   return {
     ...visible,
     reload,
-    setByMeSearchInput,
-    setByMePage,
-    setByMeLimit,
+    setByMeSearchInput: byMeTable.setSearchInput,
+    setByMePage: byMeTable.setPage,
+    setByMeLimit: byMeTable.setLimit,
+    setWithMeSearchInput: withMeTable.setSearchInput,
+    setWithMePage: withMeTable.setPage,
+    setWithMeLimit: withMeTable.setLimit,
   };
 }

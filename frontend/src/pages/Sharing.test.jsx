@@ -14,13 +14,20 @@ const lists = {
   byMePagination: emptyPagination(),
   byMeListKey: "sharing-list-1",
   byMeIsLoading: false,
+  withMePagination: emptyPagination(),
+  withMeListKey: "received-list-1",
+  withMeIsLoading: false,
   byMeSearchInput: "",
+  withMeSearchInput: "",
   isLoading: false,
   error: null,
   reload: vi.fn(),
   setByMeSearchInput: vi.fn(),
   setByMePage: vi.fn(),
   setByMeLimit: vi.fn(),
+  setWithMeSearchInput: vi.fn(),
+  setWithMePage: vi.fn(),
+  setWithMeLimit: vi.fn(),
 };
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
@@ -45,7 +52,7 @@ const stubGets = (overrides = {}) => {
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock("@/hooks/use-sharing", () => ({
-  useSharing: () => ({ refreshSummary: vi.fn() }),
+  useSharing: () => ({ summary: { pendingInvitations: 0, deadShares: 0 }, refreshSummary: vi.fn() }),
   useSharingLists: () => lists,
 }));
 vi.mock("@/hooks/use-comic-library", () => ({
@@ -113,7 +120,11 @@ describe("Sharing page", () => {
     lists.byMePagination = emptyPagination();
     lists.byMeListKey = "sharing-list-1";
     lists.byMeIsLoading = false;
+    lists.withMePagination = emptyPagination();
+    lists.withMeListKey = "received-list-1";
+    lists.withMeIsLoading = false;
     lists.byMeSearchInput = "";
+    lists.withMeSearchInput = "";
     lists.isLoading = false;
     lists.error = null;
   });
@@ -360,8 +371,8 @@ describe("Sharing page", () => {
     renderPage();
     await settleSharingCard();
 
-    const card = screen.getByText("Ordinary Comic").closest("li");
-    expect(within(card).getByRole("button", { name: /add to my collection/i })).toBeInTheDocument();
+    const row = screen.getByText("Ordinary Comic").closest("tr");
+    expect(within(row).getByRole("button", { name: /add to my collection/i })).toBeInTheDocument();
     expect(screen.queryByText(EXPLICIT_GATE_TITLE)).not.toBeInTheDocument();
   });
 });

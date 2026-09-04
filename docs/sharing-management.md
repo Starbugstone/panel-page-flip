@@ -1,22 +1,18 @@
 # Managing a large sharing history
 
-The owner-facing **Shared by me** tab is a server-paged table. One row is one
-durable grant: a comic shared with one recipient. That is also the unit the
-owner can resend, revoke, or remove from their history, so page sizes and bulk
-selection remain truthful when one comic has many recipients.
-
-The recipient-facing **Shared with me** tab remains card-based. Invitations,
-age confirmation, collection access, and unavailable-comic explanations are
-decisions about content arriving for the reader, not rows in an owner
-management queue.
+Both **Shared with me** and **Shared by me** are server-paged management tables.
+One row is one durable grant between a comic and a recipient. The two tables
+share their layout, search, sortable/filterable columns, current-page selection,
+pagination, and responsive horizontal scrolling while keeping the actions
+appropriate to the side of the relationship being viewed.
 
 ## Table controls
 
-`GET /api/shares/shared-by-me` accepts the same bounded `page`, `limit`,
-`search`, `sort`, and `direction` contract as the administrative tables. The
-owner repository applies every control before pagination; sorting only the 25
-rows already in the browser would give a convincing but incorrect order for a
-large account.
+`GET /api/shares/shared-by-me` and `GET /api/shares/shared-with-me` accept the
+same bounded `page`, `limit`, `search`, `sort`, and `direction` contract as the
+administrative tables. The repository applies every control before pagination;
+sorting only the 25 rows already in the browser would give a convincing but
+incorrect order for a large account.
 
 The supported sorts are comic title, recipient, status, and creation date. The
 column filters are:
@@ -27,6 +23,12 @@ column filters are:
 | `filterRecipient` | current username/name or U-code, saved alias, or an address the owner already knew |
 | `filterStatus` | Accepted, Pending, Declined, or Revoked |
 | `filterCreatedAt` | an inclusive local-calendar date range |
+
+The recipient table substitutes `filterOwner` for `filterRecipient`, matching
+the sharer's current name, username or email and the durable owner-name snapshot
+kept for unavailable history. Its global search covers those owner fields plus
+comic title and author. Comic and owner sorting also fall back to snapshots when
+the original comic or account no longer exists.
 
 The global search covers comic title/author and the same recipient identity
 fields. A U-code match is limited to relationships whose address was already
@@ -51,7 +53,7 @@ The header checkbox selects the current page. Shift-click extends a range, and
 changing the page, query, filter, sort, or loaded result retires the selection.
 Nothing off screen can be acted on accidentally.
 
-Two confirmed bulk actions are available:
+Two confirmed bulk actions are available on **Shared by me**:
 
 - **Revoke selected** acts only on pending or accepted grants. Recipients lose
   access immediately; the owner's comics and files are untouched.
@@ -67,18 +69,25 @@ server read.
 Each live row also retains **Stop sharing this comic with everyone** for the
 owner who wants to withdraw every grant on that comic in one confirmed action.
 
+On **Shared with me**, the confirmed bulk action removes selected unavailable
+entries from the recipient's history and skips every live grant. Row actions
+retain age confirmation, accepting or declining invitations, reading, removing
+or restoring a comic in the collection, and clearing one unavailable entry.
+Pending folder snapshots remain one decision in the table even though the
+underlying grants stay independently revocable by the owner.
+
 ## Responsive behaviour
 
-Search and bulk controls stack on narrow screens. The data table remains a real
-table and scrolls horizontally within its bordered region, keeping selection,
-column headings, and row actions aligned instead of collapsing grants into the
-old card layout.
+Search and bulk controls stack on narrow screens. Both data tables remain real
+tables and scroll horizontally within their bordered regions, keeping
+selection, column headings, and row actions aligned.
 
 ## Main implementation files
 
 | File | Responsibility |
 |---|---|
-| `backend/src/Repository/ComicShareRepository.php` | owner-scoped search, sort, filters, count, and page query |
-| `backend/src/Controller/ShareController.php` | validates query controls and serializes owner rows |
-| `frontend/src/hooks/use-sharing.jsx` | debounced search, paging, loading identity, and reloads |
-| `frontend/src/components/share/SharedByMeList.jsx` | table, row actions, selection, and bulk confirmations |
+| `backend/src/Repository/ComicShareRepository.php` | owner- and recipient-scoped search, sort, filters, counts, and page queries |
+| `backend/src/Controller/ShareController.php` | validates query controls and serializes both table views |
+| `frontend/src/hooks/use-sharing.jsx` | independent debounced search, paging, loading identity, and reloads for both tables |
+| `frontend/src/components/share/SharedByMeList.jsx` | owner table, row actions, selection, and bulk confirmations |
+| `frontend/src/components/share/SharedWithMeList.jsx` | recipient table, invitation and collection actions, selection, and history cleanup |
