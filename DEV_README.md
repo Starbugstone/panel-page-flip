@@ -23,6 +23,7 @@ lives in [`docs/`](docs/):
 | [mobile-interface.md](docs/mobile-interface.md) | Responsive layout contract for signed-in user pages |
 | [interface-patterns.md](docs/interface-patterns.md) | Shared visual system, page layouts, keyboard navigation, account recovery, and session ordering |
 | [codebase-review-2026-09.md](docs/codebase-review-2026-09.md) | Main-baseline architecture/security review, refactoring decisions and validation |
+| [performance-review-2026-09.md](docs/performance-review-2026-09.md) | Release comparison, image scheduling, upload improvements and verification |
 | [metadata-enrichment.md](docs/metadata-enrichment.md) | ComicInfo.xml, Metron, Comic Vine |
 | [storage-quota.md](docs/storage-quota.md) | Storage accounting and the per-user quota |
 | [security-logging.md](docs/security-logging.md) | Security/audit channels, retention, alerts |
@@ -58,7 +59,7 @@ lives in [`docs/`](docs/):
 - **Comic Controllers**: `ComicController.php` owns listing and single-entry CRUD, `ComicBulkController.php` owns all-or-nothing multi-comic mutations, and `ComicProgressController.php` owns per-reader progress. Upload, metadata, page delivery, and cover routes retain their own focused controllers under the same `/api/comics` prefix.
 - **File Storage**: Comics are stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
 - **Cover Images**: Stored under `backend/public/uploads/comics/{user_id}/covers/{comic_id}/{cover_image}` and served only through `GET /api/comics/cover/{userId}/{comicId}/{filename}`
-- **Chunked Upload**: Implemented chunked file upload system to handle large comic files (1MB chunks)
+- **Chunked Upload**: Bounded parallel upload requests with server-advertised chunks up to 2 MiB (1 MiB fallback for older servers)
   - Initialization endpoint: `/api/comics/upload/init`
   - Chunk upload endpoint: `/api/comics/upload/chunk`
   - Completion endpoint: `/api/comics/upload/complete`

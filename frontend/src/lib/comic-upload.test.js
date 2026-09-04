@@ -4,8 +4,8 @@ import {
   DEFAULT_CONCURRENT_CHUNKS,
   DEFAULT_PARALLEL_FILES,
   configuredComicFormats,
+  configuredChunkSize,
   configuredConcurrentChunks,
-  formatFileSize,
   generateTitleFromFilename,
   isComicFile,
   resolveParallelFiles,
@@ -37,13 +37,6 @@ describe("comic upload helpers", () => {
     expect(isComicFile(null)).toBe(false);
   });
 
-  it.each([
-    [100, "100 B"],
-    [1536, "1.5 KB"],
-    [1572864, "1.5 MB"],
-  ])("formats %d bytes", (bytes, expected) => {
-    expect(formatFileSize(bytes)).toBe(expected);
-  });
 });
 
 describe("resolving how many comics upload at once", () => {
@@ -72,14 +65,19 @@ describe("resolving how many comics upload at once", () => {
 
 describe("shared upload configuration", () => {
   it("uses server upload limits and formats", () => {
-    const config = { upload: { maxConcurrentUploads: 7, comicFormats: ["cbz", "pdf"] } };
+    const config = { upload: { maxConcurrentUploads: 7, maxChunkBytes: 2097152, comicFormats: ["cbz", "pdf"] } };
 
     expect(configuredConcurrentChunks(config)).toBe(7);
     expect(configuredComicFormats(config)).toEqual(["cbz", "pdf"]);
+    expect(configuredChunkSize(config)).toBe(2097152);
   });
 
   it("uses the client fallbacks when the server omits values", () => {
     expect(configuredConcurrentChunks({ upload: {} })).toBe(DEFAULT_CONCURRENT_CHUNKS);
     expect(configuredComicFormats({ upload: {} })).toBe(DEFAULT_COMIC_FORMATS);
+    expect(configuredChunkSize({})).toBe(1048576);
+    expect(configuredChunkSize({ upload: { maxChunkBytes: -1 } })).toBe(1048576);
+    expect(configuredChunkSize({ upload: { maxChunkBytes: 524288 } })).toBe(524288);
+    expect(configuredChunkSize({ upload: { maxChunkBytes: 8388608 } })).toBe(2097152);
   });
 });

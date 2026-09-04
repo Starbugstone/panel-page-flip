@@ -172,7 +172,10 @@ screens, so visible thumbnails cannot sit behind the bar or lose pointer input
 to it.
 
 Thumbnails load around wherever you are rather than all at once, so opening the
-navigator on a long book does not fetch hundreds of images.
+navigator on a long book does not fetch hundreds of images. They share the
+four-request cover budget, request low browser priority, and unmount outside
+the scroll margin and the three-page window around the reading position.
+Revisiting a thumbnail uses its stable browser-cache URL.
 
 ## How far ahead it reads
 
@@ -182,6 +185,22 @@ a tablet, two on a phone, halved again where the browser reports little memory,
 and cut to the next page alone when the connection is slow or the user has asked
 to save data. There is no setting; the same window decides both what is fetched
 early and what is released.
+
+The visible page requests high browser priority; sequential preloads request
+low priority. A page turn clears the old queue before cancelling its current
+request, preventing cancellation from starting obsolete work. Replacement
+queues retain their own requested image variant and comic loader.
+
+The reader waits for its first container measurement before assigning image
+URLs. In particular, revealing a continuous page must not start downloading a
+default desktop rendition and then replace it with the measured mobile size.
+
+Single-page reading does not request a geometry manifest. Spread reading
+waits for the visible image before inspecting neighbouring pages, while
+continuous reading retains its geometry-assisted scroll layout. Abandoned
+geometry requests are aborted. The full catalog used for next-comic ranking
+is fetched only within three pages of the end, keeping it off the initial
+loading path for long comics.
 
 Continuous mode instead follows the scroll viewport: visible and nearby pages
 hold images, while pages outside the proximity margin return to stable

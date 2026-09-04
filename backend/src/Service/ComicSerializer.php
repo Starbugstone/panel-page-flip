@@ -91,7 +91,8 @@ class ComicSerializer
             return null;
         }
 
-        return sprintf('/api/comics/cover/%d/%d/%s', $ownerId, $comic->getId(), basename($coverPath));
+        // A new URL bypasses year-long browser entries containing original scans.
+        return sprintf('/api/comics/cover/%d/%d/%s?size=800&v=%d', $ownerId, $comic->getId(), basename($coverPath), PageDerivativeService::RENDER_VERSION);
     }
 
     /**

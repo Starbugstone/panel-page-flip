@@ -19,9 +19,18 @@ describe("how much page to ask the server for", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("measures the room a page has rather than guessing from a breakpoint", () => {
-    const { result } = renderHook(() => usePageVariant(container(1600)));
+    const rendered = [];
+    const ref = container(1600);
+    const { result } = renderHook(() => {
+      const variant = usePageVariant(ref);
+      rendered.push(variant);
+      return variant;
+    });
 
     expect(result.current).toBe("reader-large");
+    // An img starts fetching before effects can correct an initial default.
+    // Hold the request until measured, then ask only for the correct size.
+    expect(new Set(rendered)).toEqual(new Set([null, "reader-large"]));
   });
 
   it("requests the smallest sufficient rung as the rendered size changes", () => {

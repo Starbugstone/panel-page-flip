@@ -33,8 +33,8 @@ final class ComicPageCache
 
     public function read(int $comicId, int $page, string $fingerprint, PageVariant $variant): ?string
     {
-        $path = $this->path($comicId, $page, $fingerprint, $variant, false);
-        if ($path === null || !is_file($path)) return null;
+        $path = $this->find($comicId, $page, $fingerprint, $variant);
+        if ($path === null) return null;
 
         $contents = @file_get_contents($path);
         if (!is_string($contents) || $contents === '') {
@@ -43,6 +43,14 @@ final class ComicPageCache
         }
 
         return $contents;
+    }
+
+    /** A cached file can be streamed without copying its bytes into PHP memory. */
+    public function find(int $comicId, int $page, string $fingerprint, PageVariant $variant): ?string
+    {
+        $path = $this->path($comicId, $page, $fingerprint, $variant, false);
+
+        return $path !== null && is_file($path) && filesize($path) > 0 ? $path : null;
     }
 
     /**

@@ -8,6 +8,7 @@ use App\ComicSource\ComicPageProviderFactory;
 use App\ComicSource\PageResult;
 use App\Entity\Comic;
 use App\Enum\ComicSourceType;
+use App\Enum\PageVariant;
 use App\Metadata\ComicInfo;
 use App\Entity\Tag;
 use App\Entity\User;
@@ -30,7 +31,8 @@ class ComicService
         private readonly ComicPageProviderFactory $pageProviderFactory,
         private readonly ComicFormatService $comicFormatService,
         private readonly ComicPageCache $pageCache,
-        private readonly ComicMetadataReader $metadataReader
+        private readonly ComicMetadataReader $metadataReader,
+        private readonly ComicPageDelivery $pageDelivery
     ) {
     }
 
@@ -100,7 +102,7 @@ class ComicService
             if ($sourceInfo->pageCount < 1) {
                 throw new ComicUploadRejectedException('Comic source contains no pages.');
             }
-            $cover = $provider->readPage($absolutePath, $sourceType, 1);
+            $cover = $provider->readPage($absolutePath, $sourceType, 1, PageVariant::Small->maxWidth());
         } catch (\Throwable $e) {
             if (file_exists($absolutePath)) {
                 unlink($absolutePath);
@@ -307,6 +309,7 @@ class ComicService
 
     private function storeCover(PageResult $cover, User $user, int $comicId, string $base): string
     {
+        $cover = $this->pageDelivery->encode($cover, PageVariant::Small->maxWidth(), PageVariant::Small->quality()) ?? $cover;
         $extension = match ($cover->mimeType) { 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', default => 'jpg' };
         $directory = $this->comicsDirectory . '/' . $user->getId() . '/covers/' . $comicId;
         $this->ensureDirectory($directory);

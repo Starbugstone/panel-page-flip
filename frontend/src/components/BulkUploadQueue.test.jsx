@@ -59,6 +59,20 @@ describe("taking a file back out of the bulk queue", () => {
     expect(screen.getByText("two.cbz")).toBeInTheDocument();
   });
 
+  it("locks the queue before checking the session and unlocks it on rejection", async () => {
+    const user = userEvent.setup();
+    let resolveSession;
+    mocks.refreshSession.mockImplementation(() => new Promise((resolve) => { resolveSession = resolve; }));
+    renderQueue();
+    await addFiles(user, ["one.cbz"]);
+
+    await user.dblClick(screen.getByRole("button", { name: "Start all" }));
+    expect(mocks.refreshSession).toHaveBeenCalledTimes(1);
+    await act(async () => resolveSession(false));
+    expect(uploadComicInChunks).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Start all" })).toBeEnabled();
+  });
+
   /**
    * The regression this exists for. Removal used to be disabled for the whole
    * run, which is exactly when it is wanted: a folder is dropped in, three of

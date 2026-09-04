@@ -60,7 +60,7 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
 
     public function testStoredCoverIsCachedImmutablyByTheOwnersBrowser(): void
     {
-        [$owner, $url] = $this->createComicWithCoverFile();
+        [$owner, $url] = $this->createComicWithCoverFile(1600, 2400);
         $this->loginAs($owner);
 
         $this->browser()->request('GET', $url);
@@ -76,6 +76,12 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
         self::assertStringNotContainsString('no-cache', $cacheControl);
         self::assertNotNull($headers->get('etag'));
         self::assertNotNull($headers->get('last-modified'));
+        $response = $this->browser()->getResponse();
+        self::assertInstanceOf(\Symfony\Component\HttpFoundation\BinaryFileResponse::class, $response);
+        $dimensions = getimagesize($response->getFile()->getPathname());
+        self::assertIsArray($dimensions);
+        self::assertSame([800, 1200], [$dimensions[0], $dimensions[1]]);
+        self::assertSame('image/webp', $headers->get('content-type'));
     }
 
     public function testCachedCoversAreKeyedByTheSessionCookie(): void
@@ -176,7 +182,7 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
      *
      * @return array{0: \App\Entity\User, 1: string}
      */
-    private function createComicWithCoverFile(): array
+    private function createComicWithCoverFile(int $width = 1, int $height = 1): array
     {
         $owner = UserFactory::createOne();
         $filename = 'cover-' . uniqid('', false) . '.png';
@@ -190,10 +196,10 @@ final class ComicCoverSecurityTest extends AbstractApiTestCase
         if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
             self::fail('Could not create the test cover directory.');
         }
-        // A one-pixel PNG: the bytes only need to be a real, stable file.
-        file_put_contents($directory . '/' . $filename, base64_decode(
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
-        ));
+        $image = imagecreatetruecolor($width, $height);
+        self::assertNotFalse($image);
+        imagepng($image, $directory . '/' . $filename);
+        imagedestroy($image);
         // Track the file, never its directory: cleanup must not be able to reach
         // anything this test did not put there.
         $this->temporaryCoverFiles[] = $directory . '/' . $filename;

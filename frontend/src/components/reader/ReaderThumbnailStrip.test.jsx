@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReaderThumbnailStrip } from "./ReaderThumbnailStrip";
+import { FakeIntersectionObserver, scrollTo } from "@/test/fake-intersection-observer";
 
 const renderStrip = (props = {}) => render(
   <ReaderThumbnailStrip
@@ -15,33 +16,45 @@ const renderStrip = (props = {}) => render(
 );
 
 describe("ReaderThumbnailStrip", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-  it("does not ask for four hundred thumbnails to show the first page", () => {
+  it("observes slots on first mount, loads scrolled-to thumbnails and releases off-screen ones", async () => {
+    FakeIntersectionObserver.reset();
+    vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+    renderStrip();
+    expect(FakeIntersectionObserver.instances.some(({ nodes }) => nodes.length === 400)).toBe(true);
+
+    const distant = screen.getByRole("button", { name: "Go to page 101" });
+    expect(distant.querySelector("img")).toBeNull();
+    await scrollTo('[data-page-index="100"]');
+    document.querySelectorAll('img').forEach((image) => fireEvent.load(image));
+    await waitFor(() => expect(distant.querySelector("img")).not.toBeNull());
+    await scrollTo('[data-page-index="100"]', false);
+    expect(distant.querySelector("img")).toBeNull();
+  });
+
+  it("paces small thumbnails instead of fetching four hundred pages at once", async () => {
     renderStrip();
 
+    await waitFor(() => expect(document.querySelectorAll("img").length).toBeGreaterThan(0));
     const thumbnails = document.querySelectorAll("img");
-    expect(thumbnails.length).toBeGreaterThan(0);
-    expect(thumbnails.length).toBeLessThan(30);
+    expect(thumbnails.length).toBeLessThanOrEqual(4);
+    thumbnails.forEach((image) => {
+      expect(image.getAttribute("src")).toMatch(/variant=thumb$/);
+      expect(image.getAttribute("loading")).toBe("lazy");
+      expect(image.getAttribute("fetchpriority")).toBe("low");
+    });
     expect(screen.getAllByRole("button")).toHaveLength(400);
   });
 
-  it("loads thumbnails around wherever the reader currently is", () => {
+  it("loads thumbnails around wherever the reader currently is", async () => {
     renderStrip({ currentPage: 199 });
 
+    await waitFor(() => expect(document.querySelectorAll("img")).toHaveLength(4));
     const sources = [...document.querySelectorAll("img")].map((image) => image.getAttribute("src"));
 
     expect(sources).toContain("/api/comics/42/pages/200?variant=thumb");
     expect(sources).not.toContain("/api/comics/42/pages/1?variant=thumb");
-  });
-
-  it("asks for thumbnails, not full pages", () => {
-    renderStrip({ pageCount: 3 });
-
-    [...document.querySelectorAll("img")].forEach((image) => {
-      expect(image.getAttribute("src")).toMatch(/variant=thumb$/);
-      expect(image.getAttribute("loading")).toBe("lazy");
-    });
   });
 
   it("turns to the logical page that was clicked", async () => {

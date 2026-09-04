@@ -30,6 +30,7 @@ import { useReaderZoomedWheel } from "@/hooks/use-reader-zoomed-wheel";
 import { useToast } from "@/hooks/use-toast.js";
 import { useViewportProfile } from "@/hooks/use-viewport-profile";
 import { libraryPathToComic } from "@/lib/library-view";
+import { isUsableImage } from "@/lib/reader-pages";
 import { effectiveReaderSettings, hasReaderOverride } from "@/lib/reader-preferences";
 
 export default function ComicReader() {
@@ -81,9 +82,16 @@ export default function ComicReader() {
   }, [resetPage]);
   const { comic, loadError, isFetching } = useComicReaderData({ comicId, navigate, toast, onStart, onLoaded });
   useReaderProgress({ comic, comicId, pageCount, currentPage, toast, onSaved: updateComicProgress });
-  const nextComic = useReaderNextComic(comic);
+  // Recommendations are only displayed at the end. Loading the full catalog
+  // at entry competes with the first image in a large library.
+  const nextComic = useReaderNextComic(comic, pageCount > 0 && currentPage >= pageCount - 3);
 
-  const { geometry: pageGeometry } = usePageGeometry(comicId, pageCount, currentPage);
+  const { geometry: pageGeometry } = usePageGeometry(comicId, pageCount, currentPage, {
+    // Single-page layout learns its shape from the displayed image. A spread
+    // may inspect neighbouring pages after the visible page has arrived.
+    enabled: isLoaded && (settings.mode === "continuous"
+      || (settings.mode === "double" && isUsableImage(imageCache[currentPage]))),
+  });
   const layout = useReaderLayout({ settings, profile, pageCount, pageGeometry, currentPage });
   const { effectiveMode, readingUnits, currentUnit } = layout;
 

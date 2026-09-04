@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { DEFAULT_READER_VARIANT, selectPageVariant } from "@/lib/reader-pages";
+import { selectPageVariant } from "@/lib/reader-pages";
 
 /**
  * Which bounded page size this reader should be asking for, from how much room
@@ -11,20 +11,17 @@ import { DEFAULT_READER_VARIANT, selectPageVariant } from "@/lib/reader-pages";
  * a desktop, and only one of those needs the larger image.
  */
 export function usePageVariant(containerRef, { zoomLevel = 1 } = {}) {
-  const [variant, setVariant] = useState(DEFAULT_READER_VARIANT);
+  // An img starts fetching before effects run. Wait for the first measurement
+  // or every newly revealed scroll page downloads a default size first.
+  const [variant, setVariant] = useState(null);
   const zoomRef = useRef(zoomLevel);
 
   const measure = useCallback(() => {
-    // The viewport stands in until the container has been laid out, so the
-    // first page of a session is not fetched at the smallest size available.
-    const cssWidth = containerRef?.current?.clientWidth || window.innerWidth || 0;
-    const next = selectPageVariant({
-      cssWidth,
+    setVariant(selectPageVariant({
+      cssWidth: containerRef?.current?.clientWidth || window.innerWidth || 0,
       pixelRatio: window.devicePixelRatio,
       zoomLevel: zoomRef.current,
-    });
-
-    setVariant(next);
+    }));
   }, [containerRef]);
 
   // A pinch moves the zoom on every frame it lasts. Measuring again is cheap;

@@ -87,6 +87,10 @@ it inherits the same authorization — a thumbnail is a page. Slots for every pa
 exist from the start, because they are what gives the strip its scroll length and
 the browser its tab order, but images are fetched only near the current page and
 for slots actually scrolled to: opening a 400-page book is not 400 requests.
+The observer attaches after the slot nodes mount and removes off-screen slots
+from its active set. Images share the cover request budget, with low browser
+priority; leaving the margin releases the image element and any queued ticket.
+The three-page window around the reading position remains available for turns.
 
 Each slot is a button labelled with its logical page number, and selecting one
 goes through the reader's shared `goToPage`. There is no separate navigation

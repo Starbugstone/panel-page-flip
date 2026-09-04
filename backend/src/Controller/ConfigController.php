@@ -28,6 +28,7 @@ class ConfigController extends AbstractController
             'upload' => [
                 'maxConcurrentUploads' => (int)$params->get('max_concurrent_uploads'),
                 'maxParallelFileUploads' => (int)$params->get('max_parallel_file_uploads'),
+                'maxChunkBytes' => (int)$params->get('upload_max_chunk_bytes'),
                 'comicFormats' => array_map(
                     static fn ($type): string => $type->value,
                     array_values(array_filter($comicFormats->enabled(), $comicFormats->isEnabled(...)))

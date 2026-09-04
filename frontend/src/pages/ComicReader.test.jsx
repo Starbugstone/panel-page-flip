@@ -303,7 +303,23 @@ describe("ComicReader", () => {
       renderReader();
 
       await page(1);
-      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics"));
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics", expect.objectContaining({ signal: expect.any(AbortSignal) })));
+    });
+
+    it("defers the full catalog until the reader approaches the end", async () => {
+      api.get.mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: PAGED_PREFERENCES }
+          : path === "/api/comics" ? { comics: [] } : comic(40)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+      expect(api.get.mock.calls.some(([path]) => path === "/api/comics")).toBe(false);
+
+      await user.clear(pageBox());
+      await user.type(pageBox(), "39");
+      await user.click(screen.getByRole("button", { name: "Go to typed page" }));
+      await waitFor(() => expect(api.get.mock.calls.some(([path]) => path === "/api/comics")).toBe(true));
     });
 
     it("uses the same next and previous operations for keyboard navigation", async () => {
@@ -723,7 +739,7 @@ describe("ComicReader", () => {
       const user = userEvent.setup();
       renderReader();
       await page(1);
-      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics/42/pages?from=1"));
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics/42/pages?from=1", expect.objectContaining({ signal: expect.any(AbortSignal) })));
       await user.click(screen.getByRole("button", { name: /^next/i }));
 
       expect(await page(2)).toBeInTheDocument();
@@ -828,17 +844,16 @@ describe("ComicReader", () => {
   });
 
   describe("page geometry", () => {
-    it("asks the server what shape the pages are, without downloading them", async () => {
+    it("does not inspect unrelated source pages to display a single page", async () => {
       renderReader();
       await page(1);
 
-      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics/42/pages?from=1"));
-      expect(FakeImage.instances.map(({ src }) => src)).not.toContain("/api/comics/42/pages?from=1");
+      expect(api.get.mock.calls.some(([path]) => path.includes("/pages?"))).toBe(false);
     });
 
     it("reads perfectly well when the server cannot say", async () => {
       vi.mocked(api.get).mockImplementation((path) => {
-        if (path === "/api/reader/preferences") return Promise.resolve({ preferences: PAGED_PREFERENCES });
+        if (path === "/api/reader/preferences") return Promise.resolve({ preferences: savedPreferences({ mode: "double" }) });
         if (path.includes("/pages?")) return Promise.reject(new Error("no manifest here"));
         return Promise.resolve(comic());
       });
