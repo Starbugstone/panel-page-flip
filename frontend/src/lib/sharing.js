@@ -94,53 +94,6 @@ export function describeReceivedShare(share) {
 }
 
 /**
- * Split "Shared with me" into the three groups the page renders.
- *
- * A dead entry is one nothing can be done with any more. The server already
- * decides that — `isDead` — so the two sides cannot disagree about what a
- * bulk clear is about to remove.
- */
-export function groupReceivedShares(shares = []) {
-  const invitations = [];
-  const collection = [];
-  const dead = [];
-
-  shares.forEach((share) => {
-    if (share.isDead) {
-      dead.push(share);
-    } else if (share.status === SHARE_STATUS.PENDING) {
-      invitations.push(share);
-    } else if (share.status === SHARE_STATUS.ACCEPTED) {
-      collection.push(share);
-    }
-  });
-
-  return { invitations, collection, dead };
-}
-
-/**
- * Count each state within one comic's recipients, for the summary line under a
- * "Shared by me" card.
- */
-export function summariseRecipients(recipients = []) {
-  const counts = {
-    [SHARE_STATUS.PENDING]: 0,
-    [SHARE_STATUS.ACCEPTED]: 0,
-    [SHARE_STATUS.DECLINED]: 0,
-    [SHARE_STATUS.REVOKED]: 0,
-    total: recipients.length,
-  };
-
-  recipients.forEach((recipient) => {
-    if (counts[recipient.status] !== undefined) {
-      counts[recipient.status] += 1;
-    }
-  });
-
-  return counts;
-}
-
-/**
  * The confirmation text for "Remove all dead shares".
  *
  * Says how many records are going and, explicitly, that live shares are not
@@ -216,8 +169,8 @@ export function isValidShareEmail(email) {
  * — and this exists so the registration form can say "too short" before it asks
  * anybody to wait for a round trip.
  */
-export const USERNAME_MIN_LENGTH = 3;
-export const USERNAME_MAX_LENGTH = 32;
+const USERNAME_MIN_LENGTH = 3;
+const USERNAME_MAX_LENGTH = 32;
 
 /** How a username is written wherever it stands for a person. */
 export function usernameHandle(username) {
@@ -257,7 +210,7 @@ export function isValidUsername(value) {
  * characters from Crockford's alphabet shown in threes. No I, L, O or U, so a
  * code read off one screen and typed into another survives the trip.
  */
-export const SHARING_CODE_LENGTH = 12;
+const SHARING_CODE_LENGTH = 12;
 
 const SHARING_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -276,7 +229,7 @@ export const SHARE_CODE_TYPES = {
 };
 
 /** Where a code of each type actually belongs, for when one is in the wrong box. */
-export const SHARE_CODE_MISUSE = {
+const SHARE_CODE_MISUSE = {
   [SHARE_CODE_TYPES.USER]: "This is a user code. Use it when sharing directly with another user.",
   [SHARE_CODE_TYPES.COMIC]: "This is a comic code. Redeem it under Shared with me.",
   [SHARE_CODE_TYPES.GROUP]: "This is a group code. Redeem it under Shared with me.",

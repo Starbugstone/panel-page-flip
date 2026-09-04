@@ -26,10 +26,20 @@ the ceiling; this keeps the single-responsibility audit as a permanent gate.
 including files a test never imports. The checked-in thresholds ratchet the
 current statement, branch, function and line totals, and the follow-up policy
 check rejects any coverable production file with zero executed lines. Lowering
-a threshold requires an explicitly reviewed policy change. `check:dead-code` uses Knip to reject
-unreachable source files, unused dependencies, unlisted imports and duplicate
-exports. Test-only access to an internal helper is not treated as a dead
-production file.
+a threshold requires an explicitly reviewed policy change.
+
+`check:dead-code` runs Knip twice. The complete project check rejects unused
+exports, duplicate exports, unreachable files, unused dependencies, unlisted
+imports and unresolved imports. The production check follows the application
+and build-script entry points without test files or test helpers, so a test
+cannot keep a retired component reachable. Internal helpers may still be
+exported for focused tests when their implementation is used by production.
+Keep private constants and helpers private when no other file imports them.
+
+Remove tests alongside obsolete behavior only after tracing its production
+callers. Consolidate duplicate assertions in the owning feature suite; retain
+regressions for active security boundaries and workflows. Test age or a green
+suite alone does not establish that a test is redundant.
 
 `check:duplication` scans production PHP, JavaScript, JSX and operational
 scripts for repeated blocks of at least 15 lines and 100 tokens. The threshold

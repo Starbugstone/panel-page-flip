@@ -12,7 +12,7 @@ export const IDENTITY_TRANSFORM = Object.freeze({ scale: 1, x: 0, y: 0 });
 
 // Below 1 the page would be smaller than the fit the reader chose, which is a
 // different setting, not a zoom. Above 5 a comic page is pixels.
-export const MIN_SCALE = 1;
+const MIN_SCALE = 1;
 export const MAX_SCALE = 5;
 
 // The trailing + 0 turns -0 into 0. Clamping to a zero-width range keeps the
@@ -119,7 +119,7 @@ export function doubleTapTransform(transform, focal, geometry) {
 }
 
 /** Back to the fitted page, holding whatever part of it is in the middle of the screen. */
-export function zoomOut(transform, geometry) {
+function zoomOut(transform, geometry) {
   return stepZoom(transform, 1 / transform.scale, geometry);
 }
 

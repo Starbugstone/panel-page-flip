@@ -6,7 +6,7 @@ import {
   planComicTitleRenames,
 } from "@/lib/comic-title-renaming";
 
-export const MAX_FOLDER_TITLE_RENAMES = 5000;
+const MAX_FOLDER_TITLE_RENAMES = 5000;
 
 const renamePayload = (renames, reverse = false) => ({
   updates: renames.map((rename) => ({

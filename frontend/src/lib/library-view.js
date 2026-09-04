@@ -1,7 +1,7 @@
 import { getComicProgressState } from "@/lib/comic-progress";
 
 /** The views the sidebar offers. Anything else in the URL falls back to "all". */
-export const LIBRARY_VIEWS = new Set(["all", "mine", "shared", "reading", "unread", "dropbox"]);
+const LIBRARY_VIEWS = new Set(["all", "mine", "shared", "reading", "unread", "dropbox"]);
 
 const NUMERIC_ID = /^\d+$/;
 

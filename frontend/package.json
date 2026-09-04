@@ -16,7 +16,7 @@
     "check:routes": "node ../scripts/generate-nginx-routes.mjs --index-html ./index.html --check",
     "check:seo": "node scripts/check-seo-build.mjs",
     "check:csp": "node ../scripts/generate-csp.mjs --check",
-    "check:dead-code": "knip --include files,dependencies,unlisted,unresolved,duplicates",
+    "check:dead-code": "knip --include files,dependencies,unlisted,unresolved,duplicates,exports && knip --production --include files,dependencies,unlisted,unresolved",
     "check:duplication": "jscpd ../backend/src src ../scripts --min-lines 15 --min-tokens 100 --ignore '**/*.test.*,**/tests/**' --threshold 0",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",

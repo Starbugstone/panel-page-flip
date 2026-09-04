@@ -4,7 +4,7 @@ import { isReaderControl } from "@/lib/reader-controls";
 
 // Below this, a "drag" was a click with a shaky hand and the reader should
 // still treat it as one.
-export const DRAG_SLOP_PX = 4;
+const DRAG_SLOP_PX = 4;
 
 /**
  * Dragging a zoomed page with a mouse.

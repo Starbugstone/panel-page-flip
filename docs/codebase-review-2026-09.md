@@ -3,8 +3,10 @@
 ## Baseline and scope
 
 The review started from production `main` at `8d6da79` in a dedicated worktree.
-Implementation is based on `develop` at `5672d08`, as requested, so the PR
-preserves the newer consent, sharing tables, admin filters and local fixtures.
+Implementation started from `develop` at `5672d08` and now incorporates
+`develop` at `156c43c`, including the security/stability review in PR #218 and
+the updated agent guide in PR #220. It preserves the newer consent, sharing
+tables, admin filters and local fixtures.
 This is an architectural, security-boundary and user-journey review, supported
 by static checks and regression tests; it is not a penetration-test certification.
 
@@ -38,7 +40,9 @@ admin form test timed out under the full run and passed on its isolated rerun.
 ## Refactoring boundaries
 
 Shared components own presentation; feature hooks and services retain their
-business decisions. Existing public APIs and database schema remain compatible.
+business decisions. Existing public APIs remain compatible. The integrated
+develop migration removes only the unused derived audit payload column and
+its full-text index; the original JSON audit records remain intact.
 An abstraction is introduced only when it removes an actual repeated rule or
 creates a testable boundary. Large domain services are not split mechanically:
 moving transaction-sensitive sharing methods purely to reduce line counts would
@@ -65,11 +69,11 @@ tests; committed route/CSP/conversion-tool checks; production build and SEO usin
 the same `APP_URL=https://comics.starbugstone.com`. Additional coverage,
 dead-code and zero-duplication checks passed.
 
-- Backend: 1,546 tests, 6,082 assertions, one existing conditional skip.
-- Frontend: 1,543 tests across 182 files, all passing.
-- Backend coverage: 86.64% lines, 76.73% methods.
-- Frontend coverage: 84.31% lines, 82.50% statements, 79.72% functions,
-  76.55% branches. Every executable production file was reached.
+- Backend: 1,550 tests, 6,123 assertions, one existing conditional skip.
+- Frontend: 1,547 tests across 183 files, all passing.
+- Backend coverage: 86.66% lines, 76.79% methods.
+- Frontend coverage: 84.37% lines, 82.53% statements, 79.98% functions,
+  76.78% branches. Every executable production file was reached.
 - ShellCheck passed; Unix conversion tests passed 14 cases and Windows
   conversion tests passed 11 cases.
 - Fresh development migrations plus additive demo loading passed with the
@@ -80,8 +84,8 @@ The first integration run exposed the existing slow admin form test under load;
 it now enters field values through realistic paste interactions while retaining
 all required-field and password-policy assertions. The local check runner also
 initially passed production `APP_URL` into tests expecting the local origin;
-the final runner scopes it to build/SEO. No test, threshold or gate was removed
-or weakened.
+the final runner scopes it to build/SEO. Coverage thresholds and gates remain
+intact; the later obsolete-test removals are described below.
 
 The registration regression waits for the router's visible tab update and still
 fails with the original uncontrolled tabs. An admin bulk-delete test timed out
@@ -98,17 +102,51 @@ controls stayed available and return-to-library worked. Desktop user-list and
 account-detail navigation retained the active admin section. Automated tests
 also cover route-crash recovery, private-title handling and keyboard focus.
 
+After integrating the latest develop and removing retired UI, browser checks
+reconfirmed the active sharing tables, navigation menu and keyboard pagination
+selector at 320 pixels. The sharing dialog measured 276 pixels for both content
+and scroll width, and the page had no horizontal overflow. Navigation from
+sharing to privacy and back loaded the required fresh documents, returned to
+the signed-in library, and produced no browser warnings or errors. The local
+stack has no live Google credentials, so this checks document navigation rather
+than a live consent-provider response.
+
 Live Google OAuth, consent/ad inventory and Dropbox credentials were not used;
 those integrations remain subject to their existing tests and deployment
 verification. This review did not perform a production penetration test or
 mutate production data.
 
-## Coordination with the review already in progress
+## Latest develop integration and cleanup
 
-[PR #218](https://github.com/Starbugstone/panel-page-flip/pull/218) separately
-addresses develop's sharing-search privacy, consent/CSP transitions, stale
-selection and audit-storage findings. Those fixes remain necessary before a
-release. This PR does not supersede that review. The overlapping fixture
-transaction and shared `ShareStatusColumns` implementation are aligned with
-#218, while this PR adds migration-tag reuse and the site-wide interface/session
-work. Reconcile and rerun CI after both PRs are incorporated into develop.
+[PR #218](https://github.com/Starbugstone/panel-page-flip/pull/218) is merged into
+develop and incorporated here. The update review covered sharing-search
+redaction and age gates, consent/CSP document transitions, cross-tab consent
+withdrawal, late CMP listener cleanup, stale table selection, admin filter
+input handling, fixture transactions, the audit-storage migration and their
+tests/documentation. Integration retains route recovery/accessibility and
+preserves the one-use privacy-panel query through the signed-in root redirect.
+
+The previous dead-code gate did not check unused exports, and tests made
+retired sharing components look reachable. The strengthened gate failed on
+five obsolete component files and 59 unused exports before cleanup. It now
+passes both the full-project export check and the production-only reachability
+check without exemptions for those files.
+
+- Removed the retired invitation/received-share cards, their shell and cover
+  components, and the unused grouping/recipient-summary helpers. The active
+  sent/received tables remain the sharing interface.
+- Removed 20 unused UI primitive definitions and the unused toast re-export;
+  kept implementation details private where their code is still used.
+- Removed eight tests exclusively covering retired cards/helpers and
+  consolidated the duplicate mobile table assertion into `SharedByMeList`'s
+  suite. All current table, redaction, age-confirmation and selection tests remain.
+- Moved progress tests into the progress-helper suite and session-monitor
+  tests beside their component, retaining their assertions.
+- Reviewed backend reference candidates against Symfony/Doctrine entry points.
+  Framework methods remain; a method without an explicit application caller
+  is not sufficient evidence of dead code.
+
+Fresh test-database migrations and the existing demo-database upgrade passed,
+including `Version20260904214000`. The first migration attempt against the
+test database found tables rebuilt by Foundry without migration history; a
+fresh disposable test database then applied all 51 migrations successfully.

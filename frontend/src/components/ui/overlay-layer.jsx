@@ -12,7 +12,7 @@ import { overlayLayerClass } from "@/lib/overlay-layers";
  */
 const OverlayDepthContext = React.createContext(0);
 
-export function useOverlayDepth() {
+function useOverlayDepth() {
   return React.useContext(OverlayDepthContext);
 }
 

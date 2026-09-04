@@ -49,7 +49,7 @@ export function analyticsPageFor(pathname) {
   return title ? { path: normalized, title } : null;
 }
 
-export function analyticsScriptSrc(measurementId) {
+function analyticsScriptSrc(measurementId) {
   return `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(measurementId)}`;
 }
 
@@ -179,7 +179,7 @@ function cookieDomains(hostname) {
   return [null, ...parents];
 }
 
-export function removeGoogleAnalyticsCookies(doc = typeof document === "undefined" ? null : document) {
+function removeGoogleAnalyticsCookies(doc = typeof document === "undefined" ? null : document) {
   if (!doc) return;
   const names = analyticsCookieNames(doc);
 

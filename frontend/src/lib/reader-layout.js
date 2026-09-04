@@ -1,6 +1,6 @@
 const DEFAULT_WIDE_ASPECT_RATIO = 1.35;
 
-export function isWideComicPage(pageNumber, geometry = {}, threshold = DEFAULT_WIDE_ASPECT_RATIO) {
+function isWideComicPage(pageNumber, geometry = {}, threshold = DEFAULT_WIDE_ASPECT_RATIO) {
   const ratio = geometry?.[pageNumber]?.aspectRatio;
   return Number.isFinite(ratio) && ratio >= threshold;
 }
