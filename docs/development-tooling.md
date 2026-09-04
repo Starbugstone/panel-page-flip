@@ -151,6 +151,11 @@ and is not part of the workflow.
 
 `.github/workflows/build-frontend.yml` ("Validate Application") runs every command on this page — both halves — on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**` and `ci/**`, and on pushes to `main` and `develop`. It validates and does not deploy.
 
-The pre-push list in `AGENTS.md` names the mandatory release checks, while CI
-also applies the coverage, dead-code and duplication ratchets described here.
-This page explains the gates; CI is what enforces them.
+Follow [AGENTS.md](../AGENTS.md) for verification scope: run relevant checks
+locally, expand them when the change could affect other areas, and require
+all CI gates to pass before merge. Documentation-only changes need content
+and link checks rather than local application suites. Report checks as passed,
+failed, or not run, with reasons for failures or missing verification.
+
+This page explains the commands and prerequisites; the workflow defines the
+complete CI gate set, including the coverage, dead-code and duplication ratchets.

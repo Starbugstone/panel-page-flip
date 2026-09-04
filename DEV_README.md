@@ -1981,9 +1981,13 @@ These are decisions that keep being rediscovered, not a backlog.
    No endpoint reimplements ownership; see
    [docs/comic-access.md](docs/comic-access.md).
 
-5. **Every change ships with tests.** See `AGENTS.md` — this is a hard rule, and
-   the suites under [Automated Test Suites](#automated-test-suites) plus the CI
-   gates in [README.md](README.md#continuous-integration) are what enforce it.
+5. **Verify the behaviour that changes.** New or changed behaviour needs
+   meaningful automated coverage, and bug fixes need regression coverage.
+   Existing tests may cover behaviour-preserving edits; documentation-only
+   changes need content and link checks. Run relevant checks locally and
+   require all CI gates to pass before merge. See [AGENTS.md](AGENTS.md) for
+   the working policy and [Development tooling](docs/development-tooling.md)
+   for the checks, including coverage, dead-code, and duplication ratchets.
 
 ## Troubleshooting
 
