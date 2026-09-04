@@ -19,7 +19,11 @@ lives in [`docs/`](docs/):
 | [comic-access.md](docs/comic-access.md) | Who may reach a comic, and how the voter decides |
 | [library-covers.md](docs/library-covers.md) | Pacing cover requests, and recovering broken ones |
 | [library-folders.md](docs/library-folders.md) | Private folder tree over the library |
+| [sharing-management.md](docs/sharing-management.md) | Server-paged incoming and outgoing share tables, filters, selection, and bulk actions |
 | [mobile-interface.md](docs/mobile-interface.md) | Responsive layout contract for signed-in user pages |
+| [interface-patterns.md](docs/interface-patterns.md) | Shared visual system, page layouts, keyboard navigation, account recovery, and session ordering |
+| [codebase-review-2026-09.md](docs/codebase-review-2026-09.md) | Main-baseline architecture/security review, refactoring decisions and validation |
+| [performance-review-2026-09.md](docs/performance-review-2026-09.md) | Release comparison, image scheduling, upload improvements and verification |
 | [metadata-enrichment.md](docs/metadata-enrichment.md) | ComicInfo.xml, Metron, Comic Vine |
 | [storage-quota.md](docs/storage-quota.md) | Storage accounting and the per-user quota |
 | [security-logging.md](docs/security-logging.md) | Security/audit channels, retention, alerts |
@@ -28,10 +32,12 @@ lives in [`docs/`](docs/):
 | [admin-bulk-actions.md](docs/admin-bulk-actions.md) | Tick-box selection and bulk actions across the admin tables |
 | [admin-table-controls.md](docs/admin-table-controls.md) | Per-column sorting and filtering across the admin tables |
 | [advertising.md](docs/advertising.md) | Optional AdSense, consent, AdSense Offerwall, strict CSP |
-| [analytics.md](docs/analytics.md) | Optional privacy-first GA4, basic consent mode, route minimisation |
+| [analytics.md](docs/analytics.md) | Optional privacy-first GA4, Consent Mode v2, consent ownership, route minimisation |
 | [social-sign-in.md](docs/social-sign-in.md) | Optional Google OAuth, account linking, passwordless accounts |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
+| [develop-review-2026-09-04.md](docs/develop-review-2026-09-04.md) | Review scope, confirmed regressions, simplifications, and validation evidence |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
+| [demo-fixtures.md](docs/demo-fixtures.md) | Repeatable local multi-user data, credentials, generated demo comics, loading and reset behavior |
 | [local-docker-environment.md](docs/local-docker-environment.md) | Per-checkout Compose project, ports, container UID, worktree teardown |
 
 ## Current Implementation Status
@@ -53,7 +59,7 @@ lives in [`docs/`](docs/):
 - **Comic Controllers**: `ComicController.php` owns listing and single-entry CRUD, `ComicBulkController.php` owns all-or-nothing multi-comic mutations, and `ComicProgressController.php` owns per-reader progress. Upload, metadata, page delivery, and cover routes retain their own focused controllers under the same `/api/comics` prefix.
 - **File Storage**: Comics are stored in user-specific directories at `/uploads/comics/{user_id}/{comic_file.cbz}`
 - **Cover Images**: Stored under `backend/public/uploads/comics/{user_id}/covers/{comic_id}/{cover_image}` and served only through `GET /api/comics/cover/{userId}/{comicId}/{filename}`
-- **Chunked Upload**: Implemented chunked file upload system to handle large comic files (1MB chunks)
+- **Chunked Upload**: Bounded parallel upload requests with server-advertised chunks up to 2 MiB (1 MiB fallback for older servers)
   - Initialization endpoint: `/api/comics/upload/init`
   - Chunk upload endpoint: `/api/comics/upload/chunk`
   - Completion endpoint: `/api/comics/upload/complete`
@@ -71,11 +77,11 @@ lives in [`docs/`](docs/):
 - **ComicShare Entity**: Defined in `ComicShare.php`. A durable, revocable grant of read access to the owner's single copy — sharing never creates a second `Comic` row or a second file
 - **ShareInvitationToken Entity**: Defined in `ShareInvitationToken.php`. Only a SHA-256 hash of each invitation link is stored. One link per invitation, good for a single claim within two months; accepting spends it and revokes every other token for that share, and resending mints a new one and retires the old link
 - **ComicVoter**: `Security/Voter/ComicVoter.php` answers `COMIC_VIEW`, `COMIC_EDIT`, `COMIC_DELETE` and `COMIC_SHARE` for every endpoint that touches a comic
-- **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup. `GET /shared-by-me` is paged by comic with the same query parameters and `pagination` block as the admin tables, and `DELETE /{id}` lets the owner clear the record of a finished share (revoked, declined or lapsed — a live one is refused with a 409 so deleting can never stand in for revoking)
+- **Share Controller**: `ShareController.php` under `/api/shares` — invite, resend, revoke, stop sharing, preview, accept, decline, remove, restore and tombstone cleanup. `GET /shared-by-me` and `GET /shared-with-me` are server-paged, searchable, sortable and filterable lists of individual comic-recipient grants, and `DELETE /{id}` lets the owner clear the record of a finished share (revoked, declined or lapsed — a live one is refused with a 409 so deleting can never stand in for revoking). See [sharing-management.md](docs/sharing-management.md)
 - **Public Identity**: Every account has a required, case-insensitively unique `username` and a rotatable `U-` user code. `UsernamePolicy.php` is the one definition of what a username may be, `UsernameGenerator.php` invents friendly ones, `UsernameService.php` claims and changes them, and `UserIdentityListener.php` issues both identifiers on `prePersist` so no account can exist without them. See [Public identity: username and `U-` code](#public-identity-username-and-u--code)
 - **Sharing Codes**: `SharingCodeFormat.php` and `ShareCodeType.php` define one wire format in three flavours — `U-` identifies a person, `C-` carries exactly one comic, `G-` carries a package of 2–20. `SharingCodeService.php` issues and resolves user codes; `ShareClaimCodeService.php` mints and redeems content codes. See [Sharing codes](#sharing-codes)
 - **Content Code Lifetime**: `ShareContentCodeLifetime.php` turns `SHARE_CONTENT_CODE_TTL_DAYS` (default 7) into an absolute expiry stamped on each code at minting time, and refuses to construct on a nonsense value so a bad deployment fails on the way up
-- **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients`, `GET /api/shares/folders/{id}/comics` and `POST /api/shares/invitations/bulk` — the one path that opens a direct share. Recipients come only from the caller's own share history and never from a user directory; bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
+- **Sharing Workflow**: `SharingWorkflowController.php` and `SharingWorkflowService.php` add `GET /api/shares/recent-recipients`, `GET /api/shares/folders/{id}/comics` and `POST /api/shares/invitations/bulk` — the one path that opens a direct share. Recent recipients come only from registered accounts linked to the caller's own share history, once per account, and never from a user directory; unresolved email invitations are not suggestions. Bulk sharing is a permission gate in front of `ComicShareService::inviteMany()` and creates one ordinary `ComicShare` per comic. See [Privacy: registered users are never discoverable](#privacy-registered-users-are-never-discoverable)
 - **Explicit Promotion**: `ExplicitContentPromoter.php` marks selected comics 18+ from inside the share flow, in the same unit of work as the share. It only ever promotes — an unticked box is the absence of a claim, not a claim that the comic is fine. It returns its audit records rather than writing them, so the service owning the transaction emits them only once the commit has made them true
 - **Lookup Flood Guard**: `IdentifierLookupGuard.php` charges every attempt to turn an identifier into a person *before* the repository is asked, so an exhausted caller cannot still resolve the identifiers that happen to be real. See [Why this is not a user directory](#why-this-is-not-a-user-directory)
 - **Tombstones**: Deleting a comic nulls the relationship and records `unavailableAt` plus a `tombstoneReason`, so recipients are told why a comic disappeared. They are recipient-only — the owner caused the deletion, has no comic left to manage, and the comic leaves their sharing list entirely
@@ -134,6 +140,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Authentication Pages**: Login and registration implemented in `Login.jsx`
 - **Password Reset**: Forgot password and reset password pages implemented in `ForgotPassword.jsx` and `ResetPassword.jsx`
 - **Dashboard**: Comic library view implemented in `Dashboard.jsx`
+- **Scroll Surfaces**: Native scroll areas use slim, rounded, theme-aware scrollbars with transparent tracks and a clearer hover state. See [mobile-interface.md](docs/mobile-interface.md).
 - **Library Request Ownership**: `useLibrarySearch` reloads only when the active library location changes; completion of an unrelated folder-tree request cannot duplicate the main collection request. `TagProvider` owns one account-scoped cache and one in-flight request per tag context, so dashboard controls share the prefetch instead of issuing the same request twice and a previous account's tags are never exposed during an account change.
 - **Settings Boundaries**: `UserSettings.jsx` only composes the page. Personal-tag CRUD, conversion-tool downloads, OAuth callback notices, and privacy/account deletion each live in their own focused component or hook with direct behavior tests.
 
@@ -147,15 +154,16 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 
 #### ✅ Admin Interface
 - **Admin Dashboard**: Implemented in `AdminDashboard.jsx`, now includes a loading indicator during user authentication.
-- **Admin Users Management**: Enhanced UI in `AdminUsersList.jsx` for managing user roles (e.g., ensuring `ROLE_USER` persistence, clearer role assignment).
+- **Admin Users Management**: Enhanced UI in `AdminUsersList.jsx` for managing user roles (e.g., ensuring `ROLE_USER` persistence, clearer role assignment). Pending-account verification actions stay icon-sized so the complete actions column remains visible in the desktop table.
 - **Admin Comics List**: Improved tag display in `AdminComicsList.jsx` to correctly handle various tag data formats.
 - **Admin Tags List**: UI refinements in `AdminTagsList.jsx` for tag creation and editing dialogs.
+- **Admin Table Filters**: Free-text column filters on server-paged tables fetch fuzzy suggestions from the full database after three characters, abort stale keyup requests, and query only indexed, allow-listed fields. See [admin-table-controls.md](docs/admin-table-controls.md).
 
 #### ✅ Comic Upload
 - **Upload Comic**: Comic upload interface implemented in `UploadComic.jsx` with chunked upload support, progress tracking, and tag management
 
 #### ✅ Comic Sharing
-- **Sharing Page**: `Sharing.jsx` at `/sharing` — where shares are both started and managed, with "Shared with me" and "Shared by me" tabs for invitations, access and tombstones. "Shared by me" is paged by comic with the same pager the admin tables use, and each finished share (revoked, declined or lapsed) offers a **Delete** to clear its record before the retention sweep would
+- **Sharing Page**: `Sharing.jsx` at `/sharing` — where shares are both started and managed through matching server-backed **Shared with me** and **Shared by me** tables. Each table searches and filters the full history, sorts by its data columns, and supports current-page or shift-range selection. Recipients retain invitation, age-gate, reading, collection and unavailable-history actions; owners can bulk-revoke live grants and bulk-delete finished records. See [sharing-management.md](docs/sharing-management.md)
 - **Share Comics Dialog**: `ShareComicsDialog.jsx` is the *one* share workflow, opened from a grid card, from a table selection and from the Sharing page alike. It offers **Direct** (name a person by username, `U-` code, address, or somebody shared with before) or **Code** (a `C-` for one comic, a `G-` for two to twenty, decided from the selection rather than asked), carries the 18+ decision inline, and lists no registered users and searches none. What differs between entry points is only what is already chosen when it opens
 - **Sharing Codes Card**: `SharingCodesCard.jsx` on `/sharing` — the account's username and `U-` code with copy and **Replace** actions (the latter behind a confirmation, since the old code breaks everywhere at once), one redeem field that dispatches on the prefix, and the list of content codes handed out with the server's own `expiresAt` and a **Withdraw** action on each live one
 - **Admin User Code Rotation**: `AdminUserDetails.jsx` can replace a user's `U-` code on their behalf, behind a confirmation. The new code is never shown to the administrator — the user reads it off their own Sharing page
@@ -163,7 +171,7 @@ Full guide, including retention, alert thresholds and the rules for adding an ev
 - **Registration**: `Login.jsx` proposes a generated username with a **Generate another** button, because a public handle is the one field nobody arrives at a signup form having decided on. It can be edited, and the unique index rather than the availability check is what finally rules
 - **Invitation Preview**: `ShareInvitation.jsx` at `/share/invitation/:token` loads the invitation through a safe `GET` and only accepts or declines on a button press
 - **Pending Shares Alert**: `PendingSharesAlert.jsx`, now a one-line prompt on the dashboard rather than a card per invitation
-- **Sharing Hooks**: `use-sharing.jsx` — `SharingProvider` holds the pending count for the header badge and the dashboard alert; `useSharingLists` loads both halves of the Sharing page and owns which page of "Shared by me" is being looked at, falling back to the last page that exists when the one on screen is deleted out from under it
+- **Sharing Hooks**: `use-sharing.jsx` — `SharingProvider` holds the pending count for the header badge and the dashboard alert; `useSharingLists` loads both halves of the Sharing page and owns the paged owner table's debounced search and request identity, falling back to the last page that exists when the one on screen is deleted out from under it
 - **Sharing Helpers**: `lib/sharing.js` holds the classification and wording rules, covered by `lib/sharing.test.js`
 - **Collection Integration**: Accepted shares appear in the normal collection with a "Shared by …" badge, an `All | Mine | Shared with me` filter, and owner actions hidden
 
@@ -452,7 +460,7 @@ The dialog picks owned comics (`GET /api/comics?ownership=mine`, filtered again 
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/shares/recent-recipients` | up to 20 recipients this owner has shared with before, most recent first — registered ones by username |
+| `GET /api/shares/recent-recipients` | up to 20 registered accounts linked to this owner's prior shares, ordered by the latest time the owner shared with each account (including a reopened relationship) and once per account, by current username; unresolved email invitations are omitted |
 | `POST /api/shares/invitations/bulk` | a per-comic result for up to 20 comics — `created`, `skipped`, `rate_limited` or `failed`. A comic the caller cannot share refuses the **whole batch** before this point |
 
 `SharingWorkflowService` is only the permission gate: it resolves each id, asks
@@ -1752,10 +1760,18 @@ If emails aren't appearing in Mailpit:
 ### Testing the Current Implementation
 
 ### Test Users
+
 Test users are created for development and testing purposes. Their credentials are stored in `passwords.txt` (which is in `.gitignore`):
+
 - Admin user: `testadmin@example.com` with password `AdminPass123!`
 - Regular user: `testuser1@example.com` with password `UserPass123!`
 - Regular user: `testuser2@example.com` with password `UserPass123!`
+
+### Demo fixtures
+
+The repeatable development fixtures provide six documented accounts and a
+multi-user library. See [Local demo fixtures](docs/demo-fixtures.md) for the
+load command, credentials, and the states represented in the dataset.
 
 ### Automated Test Suites
 
@@ -1969,9 +1985,13 @@ These are decisions that keep being rediscovered, not a backlog.
    No endpoint reimplements ownership; see
    [docs/comic-access.md](docs/comic-access.md).
 
-5. **Every change ships with tests.** See `AGENTS.md` — this is a hard rule, and
-   the suites under [Automated Test Suites](#automated-test-suites) plus the CI
-   gates in [README.md](README.md#continuous-integration) are what enforce it.
+5. **Verify the behaviour that changes.** New or changed behaviour needs
+   meaningful automated coverage, and bug fixes need regression coverage.
+   Existing tests may cover behaviour-preserving edits; documentation-only
+   changes need content and link checks. Run relevant checks locally and
+   require all CI gates to pass before merge. See [AGENTS.md](AGENTS.md) for
+   the working policy and [Development tooling](docs/development-tooling.md)
+   for the checks, including coverage, dead-code, and duplication ratchets.
 
 ## Troubleshooting
 

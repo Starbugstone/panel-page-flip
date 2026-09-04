@@ -13,6 +13,7 @@ const MOBILE_DIALOG_CLASSES = [
   "w-[calc(100%-2rem)]",
   "max-h-[calc(100dvh-2rem)]",
   "overflow-y-auto",
+  "grid-cols-[minmax(0,1fr)]",
   "rounded-lg",
   "p-4",
   "sm:p-6",

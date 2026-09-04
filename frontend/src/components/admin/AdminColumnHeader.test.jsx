@@ -2,7 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { api } from "@/lib/api";
 import { AdminColumnHeader } from "./AdminColumnHeader";
+
+vi.mock("@/lib/api", () => ({ api: { get: vi.fn() } }));
 
 describe("AdminColumnHeader", () => {
   it("sorts and applies a filter from the column dropdown", async () => {
@@ -62,6 +65,42 @@ describe("AdminColumnHeader", () => {
     await user.click(screen.getByRole("option", { name: "Selina Kyle" }));
 
     expect(onFilter).toHaveBeenCalledWith("filterOwner", "Selina Kyle");
+  });
+
+  it("searches database-wide suggestions after three input characters, including pasted text and aborts the stale request", async () => {
+    const pending = [];
+    vi.mocked(api.get).mockImplementation((path, options) => new Promise((resolve) => {
+      pending.push({ path, options, resolve });
+    }));
+    render(
+      <AdminColumnHeader
+        label="Owner"
+        filterField="filterOwner"
+        suggestionSource="comics/owner"
+        onFilter={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Owner sort and filter" }));
+    const input = screen.getByRole("searchbox", { name: "Filter Owner" });
+    fireEvent.change(input, { target: { value: "se" } });
+    fireEvent.keyUp(input, { key: "e" });
+    expect(api.get).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "sel" } });
+    expect(api.get).toHaveBeenCalledOnce();
+    expect(pending[0].path).toBe("/api/admin/table-filter-suggestions/comics/owner?query=sel");
+    expect(pending[0].options.signal).toBeInstanceOf(AbortSignal);
+    expect(pending[0].options.signal.aborted).toBe(false);
+    fireEvent.keyUp(input, { key: "ArrowLeft" });
+    expect(api.get).toHaveBeenCalledOnce();
+
+    fireEvent.change(input, { target: { value: "seli" } });
+    expect(pending[0].options.signal.aborted).toBe(true);
+    expect(api.get).toHaveBeenCalledTimes(2);
+
+    pending[1].resolve({ suggestions: ["Selina Kyle", "selina@example.test"] });
+    expect(await screen.findByRole("option", { name: "Selina Kyle" })).toBeInTheDocument();
   });
 
   it("uses a dropdown for a filter with defined values", async () => {

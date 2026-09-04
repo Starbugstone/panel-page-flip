@@ -14,6 +14,8 @@ use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: ComicRepository::class)]
+#[ORM\Index(name: 'IDX_comic_title', columns: ['title'])]
+#[ORM\Index(name: 'IDX_comic_author', columns: ['author'])]
 #[ORM\Index(name: 'IDX_comic_owner_dropbox_path', columns: ['owner_id', 'dropbox_path'])]
 #[ORM\Index(name: 'IDX_comic_owner_series', columns: ['owner_id', 'series'])]
 #[ORM\HasLifecycleCallbacks]

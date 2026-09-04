@@ -12,11 +12,22 @@ const lists = {
   sharedByMe: [],
   sharedWithMe: [],
   byMePagination: emptyPagination(),
+  byMeListKey: "sharing-list-1",
+  byMeIsLoading: false,
+  withMePagination: emptyPagination(),
+  withMeListKey: "received-list-1",
+  withMeIsLoading: false,
+  byMeSearchInput: "",
+  withMeSearchInput: "",
   isLoading: false,
   error: null,
   reload: vi.fn(),
+  setByMeSearchInput: vi.fn(),
   setByMePage: vi.fn(),
   setByMeLimit: vi.fn(),
+  setWithMeSearchInput: vi.fn(),
+  setWithMePage: vi.fn(),
+  setWithMeLimit: vi.fn(),
 };
 
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
@@ -41,7 +52,7 @@ const stubGets = (overrides = {}) => {
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock("@/hooks/use-sharing", () => ({
-  useSharing: () => ({ refreshSummary: vi.fn() }),
+  useSharing: () => ({ summary: { pendingInvitations: 0, deadShares: 0 }, refreshSummary: vi.fn() }),
   useSharingLists: () => lists,
 }));
 vi.mock("@/hooks/use-comic-library", () => ({
@@ -72,6 +83,26 @@ const receivedShare = (overrides = {}) => ({
   ...overrides,
 });
 
+const ownerShare = (overrides = {}) => ({
+  id: 1,
+  comicId: 5,
+  comicTitle: "Sandman",
+  comicAuthor: "Neil Gaiman",
+  coverImagePath: null,
+  explicitContent: false,
+  recipientEmail: "jane@example.com",
+  recipientLabel: "jane@example.com",
+  recipientName: null,
+  recipientUsername: null,
+  recipientUserCode: null,
+  status: "pending",
+  createdAt: "2026-08-01T12:00:00+00:00",
+  canResend: true,
+  canRevoke: true,
+  canDelete: false,
+  ...overrides,
+});
+
 const renderPage = () => render(<MemoryRouter><Sharing /></MemoryRouter>);
 const settleSharingCard = () => screen.findByText("U-AAAA-BBBB-CCCC");
 
@@ -87,6 +118,13 @@ describe("Sharing page", () => {
     lists.sharedByMe = [];
     lists.sharedWithMe = [];
     lists.byMePagination = emptyPagination();
+    lists.byMeListKey = "sharing-list-1";
+    lists.byMeIsLoading = false;
+    lists.withMePagination = emptyPagination();
+    lists.withMeListKey = "received-list-1";
+    lists.withMeIsLoading = false;
+    lists.byMeSearchInput = "";
+    lists.withMeSearchInput = "";
     lists.isLoading = false;
     lists.error = null;
   });
@@ -103,14 +141,7 @@ describe("Sharing page", () => {
 
   it("reminds the sender that shared content is their responsibility", async () => {
     const user = userEvent.setup();
-    lists.sharedByMe = [{
-      comicId: 5,
-      title: "Sandman",
-      author: "Neil Gaiman",
-      coverImagePath: null,
-      explicitContent: false,
-      recipients: [{ id: 1, recipientEmail: "jane@example.com", status: "pending" }],
-    }];
+    lists.sharedByMe = [ownerShare()];
 
     renderPage();
     await openSharedByMe(user);
@@ -129,14 +160,11 @@ describe("Sharing page", () => {
 
   it("badges the owner's own explicit comics without hiding them", async () => {
     const user = userEvent.setup();
-    lists.sharedByMe = [{
-      comicId: 5,
-      title: "Owner Can See This",
-      author: "Someone",
-      coverImagePath: null,
+    lists.sharedByMe = [ownerShare({
+      comicTitle: "Owner Can See This",
+      comicAuthor: "Someone",
       explicitContent: true,
-      recipients: [{ id: 1, recipientEmail: "jane@example.com", status: "pending" }],
-    }];
+    })];
 
     renderPage();
     await openSharedByMe(user);
@@ -240,14 +268,7 @@ describe("Sharing page", () => {
 
   it("preselects the recipient when sharing another comic with someone", async () => {
     const user = userEvent.setup();
-    lists.sharedByMe = [{
-      comicId: 5,
-      title: "Sandman",
-      author: "Neil Gaiman",
-      coverImagePath: null,
-      explicitContent: false,
-      recipients: [{ id: 1, recipientEmail: "jane@example.com", status: "accepted" }],
-    }];
+    lists.sharedByMe = [ownerShare({ status: "accepted", canResend: false })];
     renderPage();
     await openSharedByMe(user);
     await user.click(screen.getByRole("button", { name: /share another comic with jane@example.com/i }));
@@ -263,22 +284,15 @@ describe("Sharing page", () => {
 
   it("names a code recipient instead of showing an address the sender never had", async () => {
     const user = userEvent.setup();
-    lists.sharedByMe = [{
-      comicId: 5,
-      title: "Sandman",
-      author: "Neil Gaiman",
-      coverImagePath: null,
-      explicitContent: false,
-      recipients: [{
-        id: 1,
-        // What the server sends for somebody reached by their code: no address,
-        // because withholding it was the whole point.
-        recipientEmail: null,
-        recipientLabel: "Jane Reader",
-        recipientUserCode: "U-7RFX-KP3M-Q82D",
-        status: "accepted",
-      }],
-    }];
+    lists.sharedByMe = [ownerShare({
+      // What the server sends for somebody reached by their code: no address,
+      // because withholding it was the whole point.
+      recipientEmail: null,
+      recipientLabel: "Jane Reader",
+      recipientUserCode: "U-7RFX-KP3M-Q82D",
+      status: "accepted",
+      canResend: false,
+    })];
 
     renderPage();
     await openSharedByMe(user);
@@ -294,18 +308,17 @@ describe("Sharing page", () => {
 
   it("offers delete only on a share that is already over, and deletes its record", async () => {
     const user = userEvent.setup();
-    lists.sharedByMe = [{
-      comicId: 5,
-      title: "Sandman",
-      author: "Neil Gaiman",
-      coverImagePath: null,
-      explicitContent: false,
-      recipients: [
-        { id: 1, recipientEmail: "jane@example.com", status: "revoked", canDelete: true },
-        { id: 2, recipientEmail: "bob@example.com", status: "accepted", canRevoke: true, canDelete: false },
-      ],
-    }];
-    lists.byMePagination = { ...emptyPagination(), totalItems: 1 };
+    lists.sharedByMe = [
+      ownerShare({ id: 1, status: "revoked", canResend: false, canRevoke: false, canDelete: true }),
+      ownerShare({
+        id: 2,
+        recipientEmail: "bob@example.com",
+        recipientLabel: "bob@example.com",
+        status: "accepted",
+        canResend: false,
+      }),
+    ];
+    lists.byMePagination = { ...emptyPagination(), totalItems: 2 };
     vi.mocked(api.delete).mockResolvedValue({ message: "Share record deleted." });
 
     renderPage();
@@ -324,14 +337,7 @@ describe("Sharing page", () => {
 
   it("pages the shared-by-me list the way the admin tables do", async () => {
     const user = userEvent.setup();
-    lists.sharedByMe = [{
-      comicId: 5,
-      title: "Sandman",
-      author: "Neil Gaiman",
-      coverImagePath: null,
-      explicitContent: false,
-      recipients: [{ id: 1, recipientEmail: "jane@example.com", status: "pending" }],
-    }];
+    lists.sharedByMe = [ownerShare()];
     lists.byMePagination = { page: 1, limit: 25, totalItems: 30, totalPages: 2 };
 
     renderPage();
@@ -340,7 +346,7 @@ describe("Sharing page", () => {
     expect(screen.getByRole("tab", { name: "Shared by me (30)" })).toBeInTheDocument();
 
     await openSharedByMe(user);
-    expect(screen.getByText("Showing 1–1 of 30 shared comics")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–1 of 30 shares")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /next page/i }));
     expect(lists.setByMePage).toHaveBeenCalledWith(2);
@@ -365,8 +371,8 @@ describe("Sharing page", () => {
     renderPage();
     await settleSharingCard();
 
-    const card = screen.getByText("Ordinary Comic").closest("li");
-    expect(within(card).getByRole("button", { name: /add to my collection/i })).toBeInTheDocument();
+    const row = screen.getByText("Ordinary Comic").closest("tr");
+    expect(within(row).getByRole("button", { name: /add to my collection/i })).toBeInTheDocument();
     expect(screen.queryByText(EXPLICIT_GATE_TITLE)).not.toBeInTheDocument();
   });
 });

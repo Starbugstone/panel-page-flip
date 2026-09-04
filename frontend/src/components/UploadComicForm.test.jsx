@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,6 +45,18 @@ vi.mock("@/components/TagCombobox", () => ({
 }));
 
 describe("UploadComicForm", () => {
+  it("offers a keyboard-operable file chooser without submitting the form", async () => {
+    render(<MemoryRouter><UploadComicForm /></MemoryRouter>);
+    const input = screen.getByLabelText("Comic File (CBZ)");
+    const click = vi.spyOn(input, "click").mockImplementation(() => {});
+    const choose = screen.getByRole("button", { name: "Choose file" });
+    choose.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { level: 1, name: "Upload New Comic" })).toBeInTheDocument();
+    click.mockRestore();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.refreshSession.mockResolvedValue(true);
@@ -95,6 +107,21 @@ describe("UploadComicForm", () => {
       description: "Archive is malformed",
       variant: "destructive",
     }));
+  });
+
+  it("admits only one submission while the session check is pending", async () => {
+    const user = userEvent.setup();
+    let resolveSession;
+    mocks.refreshSession.mockImplementation(() => new Promise((resolve) => { resolveSession = resolve; }));
+    mocks.start.mockRejectedValue(new Error("Archive is malformed"));
+    render(<MemoryRouter><UploadComicForm /></MemoryRouter>);
+    await user.upload(screen.getByLabelText("Comic File (CBZ)"), new File(["comic"], "issue.cbz"));
+
+    await user.dblClick(screen.getByRole("button", { name: "Upload Comic" }));
+    expect(mocks.refreshSession).toHaveBeenCalledTimes(1);
+    await act(async () => resolveSession(true));
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Upload Comic" })).toBeEnabled();
   });
 
   it("wraps a long selected filename and uses compact card padding on a phone", async () => {

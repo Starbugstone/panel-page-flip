@@ -20,13 +20,13 @@ const NOTHING_KNOWN = { geometry: {}, isComplete: false };
  *
  * @returns {{geometry: Record<number, {width: number, height: number, aspectRatio: number}>, isComplete: boolean}}
  */
-export function usePageGeometry(comicId, pageCount, currentPage) {
+export function usePageGeometry(comicId, pageCount, currentPage, { enabled = true } = {}) {
   const [known, setKnown] = useState({ comicId: null, ...NOTHING_KNOWN });
   const requestedRef = useRef(new Set());
   const current = known.comicId === comicId ? known : NOTHING_KNOWN;
 
   useEffect(() => {
-    if (!comicId || !pageCount || current.isComplete) return undefined;
+    if (!enabled || !comicId || !pageCount || current.isComplete) return undefined;
 
     // One request per comic and starting point, ever. A page the server cannot
     // measure would otherwise be asked about on every render for as long as the
@@ -35,14 +35,17 @@ export function usePageGeometry(comicId, pageCount, currentPage) {
     if (current.geometry[from]) return undefined;
 
     const request = `${comicId}:${from}`;
-    if (requestedRef.current.has(request)) return undefined;
-    requestedRef.current.add(request);
+    const requested = requestedRef.current;
+    if (requested.has(request)) return undefined;
+    requested.add(request);
 
-    let active = true;
+    const controller = new AbortController();
+    let settled = false;
     api
-      .get(createPageManifestUrl(comicId, from))
+      .get(createPageManifestUrl(comicId, from), { signal: controller.signal })
       .then((data) => {
-        if (!active || !Array.isArray(data?.pages)) return;
+        settled = true;
+        if (controller.signal.aborted || !Array.isArray(data?.pages)) return;
 
         setKnown((previous) => {
           const geometry = previous.comicId === comicId ? { ...previous.geometry } : {};
@@ -55,14 +58,17 @@ export function usePageGeometry(comicId, pageCount, currentPage) {
         });
       })
       .catch(() => {
+        settled = true;
         // Geometry is an optimisation. A reader without it lays pages out from
         // the images themselves, exactly as it did before this existed.
       });
 
     return () => {
-      active = false;
+      controller.abort();
+      // An abandoned request was never learned from and can be tried again.
+      if (!settled) requested.delete(request);
     };
-  }, [comicId, pageCount, currentPage, current]);
+  }, [comicId, pageCount, currentPage, current, enabled]);
 
   return current;
 }

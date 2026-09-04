@@ -7,7 +7,7 @@
  * has enough to do arranging them.
  */
 
-export const FIELD_LABELS = {
+const FIELD_LABELS = {
   title: "Title",
   series: "Series",
   issueNumber: "Issue",
@@ -21,14 +21,14 @@ export const FIELD_LABELS = {
   creators: "Credits",
 };
 
-export const SOURCE_LABELS = {
+const SOURCE_LABELS = {
   comicinfo: "from the file",
   filename: "from the filename",
   provider: "from a provider",
   user: "yours",
 };
 
-export const CLASSIFICATION_LABELS = {
+const CLASSIFICATION_LABELS = {
   characters: "Characters",
   teams: "Teams",
   locations: "Locations",

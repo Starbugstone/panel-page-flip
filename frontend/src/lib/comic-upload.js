@@ -7,13 +7,21 @@ export const DEFAULT_COMIC_FORMATS = ["cbz"];
 // accepts is narrower and comes from the server, since an optional format needs
 // a runtime the admin has to have installed and enabled; this list is only the
 // fallback for stripping an extension off a title.
-export const COMIC_EXTENSIONS = ["cbz", "cbr", "cb7", "cbt", "pdf"];
+const COMIC_EXTENSIONS = ["cbz", "cbr", "cb7", "cbt", "pdf"];
 export const comicFileAccept = (extensions) => extensions.map((extension) => `.${extension}`).join(",");
 
 export const DEFAULT_PARALLEL_FILES = 2;
 
 export function configuredConcurrentChunks(config) {
   return config.upload?.maxConcurrentUploads || DEFAULT_CONCURRENT_CHUNKS;
+}
+
+/** Respect older servers and keep each in-memory slice bounded to 2 MiB. */
+export function configuredChunkSize(config) {
+  const limit = config.upload?.maxChunkBytes;
+  return Number.isSafeInteger(limit) && limit > 0
+    ? Math.min(limit, 2 * CHUNK_SIZE_BYTES)
+    : CHUNK_SIZE_BYTES;
 }
 
 export function configuredComicFormats(config) {

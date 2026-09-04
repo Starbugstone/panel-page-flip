@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { PageLayout, PageHeader, PageLoading } from "@/components/layout/PageLayout";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Share2Icon, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AdminPagination } from "@/components/AdminPagination";
 import { ShareComicsDialog } from "@/components/ShareComicsDialog";
 import { SharingCodesCard } from "@/components/SharingCodesCard";
 import { SharedByMeList } from "@/components/share/SharedByMeList";
@@ -12,9 +12,10 @@ import { SharedWithMeList } from "@/components/share/SharedWithMeList";
 import { SharingConfirmDialogs } from "@/components/share/SharingConfirmDialogs";
 import { useComicLibrary } from "@/hooks/use-comic-library";
 import { useSharingActions } from "@/hooks/use-sharing-actions";
-import { useSharingLists } from "@/hooks/use-sharing";
+import { useAdminTableControls } from "@/hooks/use-admin-table-controls";
+import { useSharing, useSharingLists } from "@/hooks/use-sharing";
 import { useSharingPageFocus } from "@/hooks/use-sharing-page-focus";
-import { describeDeadShareCleanup, groupReceivedShares } from "@/lib/sharing";
+import { describeDeadShareCleanup } from "@/lib/sharing";
 
 const EMPTY_TARGET = { email: "", username: "", userCode: "", comicIds: [] };
 
@@ -26,9 +27,16 @@ const EMPTY_TARGET = { email: "", username: "", userCode: "", comicIds: [] };
  * be put through lives in `useSharingActions`.
  */
 export default function Sharing() {
+  const byMeTableControls = useAdminTableControls({ defaultSort: "createdAt" });
+  const withMeTableControls = useAdminTableControls({ defaultSort: "createdAt" });
   const {
-    sharedByMe, sharedWithMe, byMePagination, isLoading, error, reload, setByMePage, setByMeLimit,
-  } = useSharingLists();
+    sharedByMe, sharedWithMe, byMePagination, byMeListKey, byMeIsLoading,
+    withMePagination, withMeListKey, withMeIsLoading,
+    byMeSearchInput, withMeSearchInput, isLoading, error, reload,
+    setByMeSearchInput, setByMePage, setByMeLimit,
+    setWithMeSearchInput, setWithMePage, setWithMeLimit,
+  } = useSharingLists(byMeTableControls.query, withMeTableControls.query);
+  const { summary } = useSharing();
   const { loadLibrary } = useComicLibrary();
   const navigate = useNavigate();
   const actions = useSharingActions({ reload, loadLibrary });
@@ -43,7 +51,6 @@ export default function Sharing() {
   const [shareDialog, setShareDialog] = useState(null);
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const [stopSharingTarget, setStopSharingTarget] = useState(null);
-  const groups = useMemo(() => groupReceivedShares(sharedWithMe), [sharedWithMe]);
 
   const confirmThen = (action, close) => async () => {
     setIsDialogBusy(true);
@@ -53,22 +60,12 @@ export default function Sharing() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Share2Icon className="h-6 w-6 text-comic-purple" />
-          <h1 className="font-comic text-3xl">Sharing</h1>
-        </div>
-        <Button onClick={() => setShareDialog(EMPTY_TARGET)}>
-          <UserPlus className="mr-2 h-4 w-4" />
-          Share comics
-        </Button>
-      </div>
-
-      <p className="mb-6 max-w-3xl text-sm text-muted-foreground">
-        Sharing gives someone permission to read your comic. The file stays yours — nothing is
-        copied — and you can withdraw access at any time.
-      </p>
+    <PageLayout>
+      <PageHeader
+        title="Sharing"
+        description="Sharing gives someone permission to read your comic. The file stays yours — nothing is copied — and you can withdraw access at any time."
+        actions={<Button onClick={() => setShareDialog(EMPTY_TARGET)}><UserPlus aria-hidden="true" className="mr-2 h-4 w-4" />Share comics</Button>}
+      />
 
       {/* Above the tabs, because neither half of the page owns it: your own
           code is how people reach you, and redeeming one is how a comic arrives
@@ -76,10 +73,7 @@ export default function Sharing() {
       <SharingCodesCard onRedeemed={focus.afterReceiving} reloadKey={focus.codesReloadKey} />
 
       {isLoading ? (
-        <div className="flex items-center gap-2 py-12 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          Loading your shared comics…
-        </div>
+        <PageLoading label="Loading your shared comics…" />
       ) : error ? (
         <Alert variant="destructive">
           <AlertTitle>Could not load sharing</AlertTitle>
@@ -90,42 +84,47 @@ export default function Sharing() {
         </Alert>
       ) : (
         <Tabs value={focus.activeTab} onValueChange={focus.setActiveTab} className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="with-me">Shared with me ({sharedWithMe.length})</TabsTrigger>
+          <TabsList className="flex h-auto w-full flex-wrap justify-start sm:w-fit">
+            <TabsTrigger value="with-me">Shared with me ({withMePagination.totalItems})</TabsTrigger>
             <TabsTrigger value="by-me">Shared by me ({byMePagination.totalItems})</TabsTrigger>
           </TabsList>
           <TabsContent value="with-me">
             <SharedWithMeList
               sharedWithMe={sharedWithMe}
-              groups={groups}
+              pagination={withMePagination}
+              listKey={withMeListKey}
+              isLoading={withMeIsLoading}
+              searchInput={withMeSearchInput}
+              tableControls={withMeTableControls}
               actions={actions}
+              onSearch={setWithMeSearchInput}
+              onPageChange={setWithMePage}
+              onLimitChange={setWithMeLimit}
               onRead={(share) => navigate(`/read/${share.comicId}`)}
               onCleanupDead={() => setConfirmingCleanup(true)}
+              deadShareCount={summary.deadShares}
+              reload={reload}
             />
           </TabsContent>
           <TabsContent value="by-me">
             <SharedByMeList
               sharedByMe={sharedByMe}
+              byMePagination={byMePagination}
+              byMeListKey={byMeListKey}
+              byMeIsLoading={byMeIsLoading}
+              searchInput={byMeSearchInput}
+              tableControls={byMeTableControls}
               busyShareId={actions.busyShareId}
+              onSearch={setByMeSearchInput}
+              onPageChange={setByMePage}
+              onLimitChange={setByMeLimit}
               onShare={setShareDialog}
               onStopSharing={setStopSharingTarget}
               onResend={actions.resend}
               onRevoke={actions.revoke}
               onDelete={actions.deleteRecord}
+              reload={reload}
             />
-            {/* The same pager as the admin tables, for the same reason: this
-                list is every share ever handed out, and it only grows. */}
-            {byMePagination.totalItems > 0 && (
-              <div className="mt-4">
-                <AdminPagination
-                  pagination={byMePagination}
-                  itemCount={sharedByMe.length}
-                  onPageChange={setByMePage}
-                  onLimitChange={setByMeLimit}
-                  label="shared comics"
-                />
-              </div>
-            )}
           </TabsContent>
         </Tabs>
       )}
@@ -153,7 +152,7 @@ export default function Sharing() {
         cleanup={{
           open: confirmingCleanup,
           onOpenChange: setConfirmingCleanup,
-          copy: describeDeadShareCleanup(groups.dead.length),
+          copy: describeDeadShareCleanup(summary.deadShares),
           onConfirm: confirmThen(actions.removeAllDead, () => setConfirmingCleanup(false)),
         }}
         stopSharing={{
@@ -165,6 +164,6 @@ export default function Sharing() {
           ),
         }}
       />
-    </div>
+    </PageLayout>
   );
 }

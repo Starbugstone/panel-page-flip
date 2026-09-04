@@ -4,6 +4,8 @@ namespace App\Tests\Functional\Controller;
 
 use App\Service\AdvertisingConfiguration;
 use App\Service\ContentSecurityPolicy;
+use App\Service\FrontendRouteRegistry;
+use App\Service\GoogleAnalyticsConfiguration;
 use Psr\Log\NullLogger;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 
@@ -19,9 +21,15 @@ class FrontendControllerTest extends WebTestCase
 
         self::assertResponseIsSuccessful();
         self::assertResponseHeaderSame('Content-Type', 'text/html; charset=UTF-8');
+        // The Google origins stay in the non-script directives even with both
+        // integrations off, because they are what the policy would need the
+        // moment an operator switches one on — except on the legal routes,
+        // where the header must never name Google whatever is configured.
         self::assertResponseHeaderSame(
             'Content-Security-Policy',
-            "default-src 'self'; object-src 'none'; base-uri 'none'; img-src 'self' data: blob: https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://www.googletagmanager.com https://*.google-analytics.com; style-src 'self' 'unsafe-inline'; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://fundingchoicesmessages.google.com https://challenges.cloudflare.com; connect-src 'self' https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://fundingchoicesmessages.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com; frame-ancestors 'none'; script-src 'self' https://challenges.cloudflare.com"
+            self::googleFreeRoute($path)
+                ? "default-src 'self'; object-src 'none'; base-uri 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-src 'self' https://challenges.cloudflare.com; connect-src 'self'; frame-ancestors 'none'; script-src 'self' https://challenges.cloudflare.com"
+                : "default-src 'self'; object-src 'none'; base-uri 'none'; img-src 'self' data: blob: https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://www.googletagmanager.com https://*.google-analytics.com; style-src 'self' 'unsafe-inline'; frame-src 'self' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://fundingchoicesmessages.google.com https://challenges.cloudflare.com; connect-src 'self' https://pagead2.googlesyndication.com https://googleads.g.doubleclick.net https://fundingchoicesmessages.google.com https://ep1.adtrafficquality.google https://ep2.adtrafficquality.google https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com; frame-ancestors 'none'; script-src 'self' https://challenges.cloudflare.com"
         );
 
         if ($shouldBeIndexed) {
@@ -53,7 +61,7 @@ class FrontendControllerTest extends WebTestCase
         static::getContainer()->set(AdvertisingConfiguration::class, $advertising);
         static::getContainer()->set(
             ContentSecurityPolicy::class,
-            new ContentSecurityPolicy($advertising, dirname(__DIR__, 3).'/config/csp.json')
+            self::policy($advertising)
         );
 
         $client->request('GET', '/');
@@ -64,6 +72,81 @@ class FrontendControllerTest extends WebTestCase
         $content = (string) $client->getResponse()->getContent();
         self::assertStringContainsString('<script nonce="'.$match[1].'"', $content);
         self::assertSame(substr_count(strtolower($content), '<script'), substr_count($content, '<script nonce="'.$match[1].'"'));
+    }
+
+    /**
+     * @dataProvider googleFreeRouteProvider
+     */
+    public function testLegalRoutesAreServedGoogleFreeEvenWithBothIntegrationsOn(string $path): void
+    {
+        $client = static::createClient();
+        $advertising = new AdvertisingConfiguration(true, 'ca-pub-1234567890123456', new NullLogger());
+        $analytics = new GoogleAnalyticsConfiguration(true, 'G-PSW1MY7HB4', new NullLogger());
+        static::getContainer()->set(AdvertisingConfiguration::class, $advertising);
+        static::getContainer()->set(GoogleAnalyticsConfiguration::class, $analytics);
+        static::getContainer()->set(ContentSecurityPolicy::class, self::policy($advertising, $analytics));
+
+        $client->request('GET', $path);
+
+        self::assertResponseIsSuccessful();
+        $header = (string) $client->getResponse()->headers->get('Content-Security-Policy');
+        self::assertStringContainsString("script-src 'self' https://challenges.cloudflare.com", $header);
+        self::assertStringNotContainsString('strict-dynamic', $header);
+        self::assertStringNotContainsString('nonce-', $header);
+        // Not only script-src: an ad or measurement tag that somehow ran here
+        // still could not reach Google over any directive.
+        self::assertStringNotContainsString('google', $header);
+        self::assertStringNotContainsString('doubleclick', $header);
+        self::assertStringNotContainsString('adtrafficquality', $header);
+        // The shell is not nonced either, because a nonce is what would let a
+        // trusted module pull descendants in under strict-dynamic.
+        self::assertStringNotContainsString('<script nonce=', (string) $client->getResponse()->getContent());
+    }
+
+    private static function googleFreeRoute(string $path): bool
+    {
+        return in_array($path, ['/privacy', '/cookies', '/terms'], true);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function googleFreeRouteProvider(): iterable
+    {
+        yield '/privacy' => ['/privacy'];
+        yield '/cookies' => ['/cookies'];
+        yield '/terms' => ['/terms'];
+        yield 'privacy with trailing slash' => ['/privacy/'];
+        yield 'cookies with repeated trailing slashes' => ['/cookies///'];
+        yield 'case-insensitive legal route' => ['/TeRmS/?from=footer'];
+    }
+
+    public function testAnOrdinaryRouteStillGetsTheGoogleCapablePolicyOnTheSameInstallation(): void
+    {
+        $client = static::createClient();
+        $advertising = new AdvertisingConfiguration(true, 'ca-pub-1234567890123456', new NullLogger());
+        $analytics = new GoogleAnalyticsConfiguration(true, 'G-PSW1MY7HB4', new NullLogger());
+        static::getContainer()->set(AdvertisingConfiguration::class, $advertising);
+        static::getContainer()->set(GoogleAnalyticsConfiguration::class, $analytics);
+        static::getContainer()->set(ContentSecurityPolicy::class, self::policy($advertising, $analytics));
+
+        $client->request('GET', '/');
+
+        $header = (string) $client->getResponse()->headers->get('Content-Security-Policy');
+        self::assertStringContainsString('strict-dynamic', $header);
+        self::assertStringContainsString('https://www.googletagmanager.com', $header);
+    }
+
+    private static function policy(
+        AdvertisingConfiguration $advertising,
+        ?GoogleAnalyticsConfiguration $analytics = null,
+    ): ContentSecurityPolicy {
+        $backend = dirname(__DIR__, 3);
+
+        return new ContentSecurityPolicy(
+            $advertising,
+            $backend.'/config/csp.json',
+            $analytics,
+            new FrontendRouteRegistry($backend.'/config/frontend-routes.json'),
+        );
     }
 
     public function testRegexMetacharactersInThePathAreNotExpandedIntoTheCanonical(): void

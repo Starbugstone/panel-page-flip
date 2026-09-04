@@ -138,18 +138,30 @@ describe("usePageImageCache", () => {
    * concurrent download per turn — all of them competing with the page being
    * waited on.
    */
-  it("replaces the queue without starting a second drain", async () => {
+  it("replaces the queue without a second drain and uses the replacement variant", async () => {
     FakeImage.policy = () => "hold";
     const { result } = setup();
 
     act(() => { result.current.queuePages([4, 2], "reader-small"); });
     await waitFor(() => expect(FakeImage.instances).toHaveLength(1));
 
-    act(() => { result.current.queuePages([7, 8], "reader-small"); });
+    act(() => { result.current.queuePages([7, 8], "reader-large"); });
 
     // Still just the one outstanding request, not one per queuePages call.
-    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(FakeImage.instances).toHaveLength(1);
+    await act(async () => { FakeImage.instances[0].onload?.(); });
+    expect(FakeImage.requestedUrls().at(-1)).toContain("/pages/8?variant=reader-large");
+  });
+
+  it("clears obsolete queued pages before cancelling a background request", async () => {
+    FakeImage.policy = () => "hold";
+    const { result } = setup();
+
+    act(() => { result.current.queuePages([1, 2, 3], "reader-small"); });
+    await act(async () => { result.current.cancelLoadsExcept([7]); });
+
+    expect(FakeImage.instances).toHaveLength(1);
+    expect(FakeImage.instances[0].src).toBe("");
   });
 
   it("does not queue a page it already holds at that variant", async () => {

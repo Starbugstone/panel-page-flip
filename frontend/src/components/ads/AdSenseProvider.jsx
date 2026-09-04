@@ -1,13 +1,9 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-import {
-  usePublicConfig,
-  ADVERTISING_OFF,
-  ANALYTICS_OFF,
-  GOOGLE_CONSENT_OFF,
-} from "@/components/config/PublicConfigProvider.jsx";
+import { usePublicConfig, ADVERTISING_OFF } from "@/components/config/PublicConfigProvider.jsx";
 import { isAdSafeRoute, isAdvertisingActive } from "@/lib/advertising";
+import { isGoogleFreeRoute } from "@/lib/google-free-routes";
 import { keepRouteAdFree, loadAdSenseScript } from "@/lib/adsense-loader";
 
 /**
@@ -30,13 +26,14 @@ import { keepRouteAdFree, loadAdSenseScript } from "@/lib/adsense-loader";
  *
  * Consent is Google's certified CMP's business, installed by the same site code.
  * Nothing here reads, stores or synthesises a consent state; a second opinion
- * about consent is worse than none.
+ * about consent is worse than none. What the rest of the application needs to
+ * know about consent it asks {@link useConsent} — this context carries
+ * advertising and nothing else, so that Analytics never has to reach through an
+ * advertising-named hook to find out whether it may run.
  */
 
 const AdSenseContext = createContext({
   config: ADVERTISING_OFF,
-  analytics: ANALYTICS_OFF,
-  consent: GOOGLE_CONSENT_OFF,
   isLoading: false,
   /** Whether this installation shows advertising at all. */
   isActive: false,
@@ -45,14 +42,19 @@ const AdSenseContext = createContext({
 });
 
 export function AdSenseProvider({ children }) {
-  const { adsense: config, analytics, consent, isLoading } = usePublicConfig();
+  const { adsense: config, isLoading } = usePublicConfig();
   const { pathname } = useLocation();
   // Null until an attempt settles. "loading" is derived rather than stored, so
   // the effect below never has to write state just to say it has started.
   const [settledStatus, setSettledStatus] = useState(null);
 
   const active = isAdvertisingActive(config);
-  const adSafe = isAdSafeRoute(pathname);
+  // The Google-free set is checked as well as the ad-safe allowlist even though
+  // no legal route is on that allowlist today. The two lists are maintained for
+  // different reasons, and the cost of one edit accidentally putting the
+  // AdSense site code on the page Google requires to be free of it is a policy
+  // breach rather than a misplaced advertisement.
+  const adSafe = isAdSafeRoute(pathname) && !isGoogleFreeRoute(pathname);
   const scriptStatus = settledStatus ?? (active && adSafe ? "loading" : "idle");
 
   useEffect(() => {
@@ -81,7 +83,7 @@ export function AdSenseProvider({ children }) {
   }, [adSafe, pathname]);
 
   return (
-    <AdSenseContext.Provider value={{ config, analytics, consent, isLoading, isActive: active, scriptStatus }}>
+    <AdSenseContext.Provider value={{ config, isLoading, isActive: active, scriptStatus }}>
       {children}
     </AdSenseContext.Provider>
   );

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  acquireConsentPlatform,
   ADSENSE_SCRIPT_ID,
   CMP_SCRIPT_ID,
   keepRouteAdFree,
@@ -150,6 +151,34 @@ describe("loading the consent platform by itself", () => {
   it("asks for nothing without a publisher id", async () => {
     await expect(loadConsentPlatform(null)).resolves.toBe("unavailable");
     expect(document.getElementById(CMP_SCRIPT_ID)).toBeNull();
+  });
+});
+
+describe("choosing one consent-platform loader", () => {
+  it("awaits an in-flight AdSense request instead of loading a standalone CMP", async () => {
+    const win = {};
+    const adSense = loadAdSenseScript(CLIENT);
+    const platform = acquireConsentPlatform(CLIENT, { win });
+
+    expect(document.getElementById(CMP_SCRIPT_ID)).toBeNull();
+    win.googlefc = { callbackQueue: [] };
+    injectedScript().dispatchEvent(new Event("load"));
+
+    await expect(adSense).resolves.toBe("ready");
+    await expect(platform).resolves.toBe("ready");
+    expect(document.getElementById(CMP_SCRIPT_ID)).toBeNull();
+  });
+
+  it("falls back to the standalone CMP after AdSense settles unavailable", async () => {
+    const adSense = loadAdSenseScript(CLIENT);
+    const platform = acquireConsentPlatform(CLIENT, { win: {} });
+
+    injectedScript().dispatchEvent(new Event("error"));
+    await expect(adSense).resolves.toBe("unavailable");
+    await vi.waitFor(() => expect(document.getElementById(CMP_SCRIPT_ID)).not.toBeNull());
+
+    document.getElementById(CMP_SCRIPT_ID).dispatchEvent(new Event("load"));
+    await expect(platform).resolves.toBe("ready");
   });
 });
 

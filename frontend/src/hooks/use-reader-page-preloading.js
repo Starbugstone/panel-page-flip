@@ -35,7 +35,7 @@ export function useReaderPagePreloading({
   }, [basePageVariant, currentPageRef, currentUnit, effectiveMode, pageCount, preloadWindow, queuePages, readingUnits]);
 
   useEffect(() => {
-    if (effectiveMode === "continuous" || pageCount <= 0) return undefined;
+    if (effectiveMode === "continuous" || pageCount <= 0 || !basePageVariant) return undefined;
     cancelLoadsExcept(currentUnit);
 
     let cancelled = false;
@@ -51,7 +51,7 @@ export function useReaderPagePreloading({
       cancelled = true;
       clearTimeout(cleanupTimer);
     };
-  }, [cancelLoadsExcept, currentPageRef, currentUnit, effectiveMode, evictOutside, loadPage, pageCount, preloadWindow, queueBackgroundPages, variantFor]);
+  }, [basePageVariant, cancelLoadsExcept, currentPageRef, currentUnit, effectiveMode, evictOutside, loadPage, pageCount, preloadWindow, queueBackgroundPages, variantFor]);
 
   // Continuous mode renders its own <img> per page, so nothing this cache holds
   // is on screen and holding it would be a second copy of the whole comic.

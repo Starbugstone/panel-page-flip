@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\AdvertisingConfiguration;
+use App\Service\ConsentConfiguration;
 use App\Service\GoogleAnalyticsConfiguration;
 use App\Service\TurnstileConfiguration;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -34,6 +35,7 @@ final class PublicConfigController extends AbstractController
     public function __construct(
         private readonly AdvertisingConfiguration $advertising,
         private readonly GoogleAnalyticsConfiguration $analytics,
+        private readonly ConsentConfiguration $consent,
         private readonly TurnstileConfiguration $turnstile,
         #[Autowire('%privacy_operator%')]
         private readonly string $privacyOperator,
@@ -50,12 +52,7 @@ final class PublicConfigController extends AbstractController
         return $this->json([
             'adsense' => $this->advertising->publicConfiguration(),
             'analytics' => $this->analytics->publicConfiguration(),
-            'googleConsent' => [
-                'enabled' => $this->advertising->isEnabled() || $this->analytics->isEnabled(),
-                'client' => $this->advertising->isEnabled()
-                    ? $this->advertising->consentClient()
-                    : $this->analytics->consentClient(),
-            ],
+            'consent' => $this->consent->publicConfiguration(),
             'turnstile' => $this->turnstile->publicConfiguration(),
             'operator' => $this->privacyOperator,
             'privacyEmail' => $this->privacyEmail,

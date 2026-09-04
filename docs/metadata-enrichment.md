@@ -19,6 +19,12 @@ stays visible.
 Read the close-out section before touching this area. The four slices below
 describe how the foundation was built; they no longer describe how it behaves.
 
+Numeric ComicInfo values are validated as decimal strings before conversion.
+Volume, count and page dimensions are capped at the signed database integer
+maximum (2,147,483,647); page image indexes must be below the parser's 20,000-page
+limit. Leading zeroes remain valid. Invalid or oversized fields are ignored
+without losing the remaining title, creators or valid page information.
+
 ## Why this comes before the reader work
 
 The obvious reading of #74 is that it is a library feature: series, issue,

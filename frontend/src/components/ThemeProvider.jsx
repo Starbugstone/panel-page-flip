@@ -1,12 +1,30 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { getCookie, setCookie } from "@/lib/cookies";
 
-const initialState = {
-  theme: "light",
-  setTheme: () => null,
-};
+const isTheme = (value) => value === "light" || value === "dark";
 
-const ThemeProviderContext = createContext(initialState);
+const ThemeProviderContext = createContext(undefined);
+
+function readTheme(storageKey, fallback) {
+  try {
+    const saved = getCookie(storageKey);
+    if (isTheme(saved)) return saved;
+  } catch {
+    // Site-data access may be disabled independently for cookies and storage.
+  }
+
+  try {
+    const legacy = localStorage.getItem(storageKey);
+    if (isTheme(legacy)) {
+      try { setCookie(storageKey, legacy); } catch { /* Migration is optional. */ }
+      return legacy;
+    }
+  } catch {
+    // The selected theme still works for this session without persistence.
+  }
+
+  return isTheme(fallback) ? fallback : "light";
+}
 
 export function ThemeProvider({
   children,
@@ -14,44 +32,19 @@ export function ThemeProvider({
   storageKey = "comic-reader-theme",
   ...props
 }) {
-  const [theme, setTheme] = useState(() => {
-    try {
-      // Try to get theme from cookie first
-      const cookieTheme = getCookie(storageKey);
-      
-      // If cookie exists, use it
-      if (cookieTheme) {
-        return cookieTheme;
-      }
-      
-      // Otherwise, check localStorage for backward compatibility
-      const localTheme = localStorage.getItem(storageKey);
-      if (localTheme) {
-        // Migrate from localStorage to cookie
-        setCookie(storageKey, localTheme);
-        return localTheme;
-      }
-      
-      // Default theme if nothing is found
-      return defaultTheme;
-    } catch {
-      return defaultTheme;
-    }
-  });
+  const [theme, setTheme] = useState(() => readTheme(storageKey, defaultTheme));
 
   useEffect(() => {
-    try {
-      const root = window.document.documentElement;
-      root.classList.remove("light", "dark");
-      root.classList.add(theme);
-    } catch {
-      // The next render will retry when the document becomes available.
-    }
+    const root = window.document.documentElement;
+    root.classList.remove("light", "dark");
+    root.classList.add(theme);
+    root.style.colorScheme = theme;
   }, [theme]);
 
   const value = {
     theme,
     setTheme: (newTheme) => {
+      if (!isTheme(newTheme)) return;
       // Applied first, and outside the try: persistence is a convenience, but
       // the user asking for a theme is the whole request. A browser that
       // refuses site data — a private window, blocked cookies — throws on the

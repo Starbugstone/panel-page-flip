@@ -1,4 +1,7 @@
 import { lazy, Suspense } from "react";
+import { PageLoading } from "@/components/layout/PageLayout";
+import { RouteErrorBoundary } from "@/components/layout/RouteErrorBoundary";
+import { RouteAccessibility } from "@/components/layout/RouteAccessibility";
 import { Toaster as Sonner } from "@/components/ui/sonner.jsx";
 import { TooltipProvider } from "@/components/ui/tooltip.jsx";
 import SessionMonitor from "@/components/SessionMonitor.jsx";
@@ -10,6 +13,9 @@ import { Header } from "@/components/Header.jsx";
 import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { AdSenseProvider } from "@/components/ads/AdSenseProvider.jsx";
 import { PublicConfigProvider } from "@/components/config/PublicConfigProvider.jsx";
+import { GooglePolicyBoundary } from "@/components/consent/GooglePolicyBoundary.jsx";
+import { ConsentProvider } from "@/components/consent/ConsentProvider.jsx";
+import { AnalyticsConsentDialog } from "@/components/consent/AnalyticsConsentDialog.jsx";
 import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
 import { Footer } from "@/components/Footer.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
@@ -42,7 +48,6 @@ const CookieNoticePage = lazy(() => import("./pages/LegalPages.jsx").then((modul
 const ReportContent = lazy(() => import("./pages/ReportContent.jsx"));
 
 const queryClient = new QueryClient();
-const PageLoading = () => <div className="flex h-screen items-center justify-center">Loading...</div>;
 
 const SignedOutRedirect = () => {
   const location = useLocation();
@@ -96,9 +101,12 @@ const AdminRoute = ({ children }) => {
 
 const AppRoutes = () => {
   const { isAuthenticated, logout, isAdmin } = useAuth();
+  const location = useLocation();
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="flex min-h-dvh min-w-0 flex-col">
+      <a href="#main-content" className="skip-link">Skip to content</a>
+      <RouteAccessibility />
       <Header
         isLoggedIn={isAuthenticated}
         onLogout={logout}
@@ -108,10 +116,11 @@ const AppRoutes = () => {
           comic has to be readable from wherever the reader is, and the comic
           it is about may already be gone. */}
       <AdminNoticeBanner isLoggedIn={isAuthenticated} />
-      <main className="flex-1">
+      <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
+        <RouteErrorBoundary key={location.pathname}>
         <Suspense fallback={<PageLoading />}>
           <Routes>
-          <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Landing />} />
+          <Route path="/" element={isAuthenticated ? <Navigate to={{ pathname: "/dashboard", search: location.search, hash: location.hash }} /> : <Landing />} />
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/complete-social-signup" element={isAuthenticated ? <Navigate to="/dashboard" /> : <CompleteSocialSignup />} />
           <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ForgotPassword />} />
@@ -140,8 +149,10 @@ const AppRoutes = () => {
           <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
+        </RouteErrorBoundary>
       </main>
       <Footer />
+      <AnalyticsConsentDialog />
       <CookieNotice />
     </div>
   );
@@ -163,17 +174,32 @@ const App = () => {
                   <Sonner />
                   <SessionMonitor />
                   <BrowserRouter>
-                    {/* Inside the router because the current route is what
-                        decides where advertising may run at all; outside the
-                        routed pages because Google's site code is loaded once
-                        for the whole application, never per page. */}
-                    <PublicConfigProvider>
-                      <AdSenseProvider>
-                        <GoogleAnalyticsProvider>
-                          <AppRoutes />
-                        </GoogleAnalyticsProvider>
-                      </AdSenseProvider>
-                    </PublicConfigProvider>
+                    <GooglePolicyBoundary>
+                      {/* Inside the router because the current route is what
+                          decides where advertising may run at all, and which
+                          routes must stay free of Google entirely; outside the
+                          routed pages because Google's site code is loaded once
+                          for the whole application, never per page.
+
+                          Consent wraps both integrations because it is the thing
+                          they share — advertising does not own the consent
+                          question, and Analytics must not have to ask an
+                          advertising context whether it may run.
+
+                          AdSense sits inside it and Analytics inside that, so
+                          that on an ad-safe route the advertising site code has
+                          already installed Google's CMP by the time the consent
+                          layer decides whether to fetch a standalone copy. */}
+                      <PublicConfigProvider>
+                        <ConsentProvider>
+                          <AdSenseProvider>
+                            <GoogleAnalyticsProvider>
+                              <AppRoutes />
+                            </GoogleAnalyticsProvider>
+                          </AdSenseProvider>
+                        </ConsentProvider>
+                      </PublicConfigProvider>
+                    </GooglePolicyBoundary>
                   </BrowserRouter>
                 </TooltipProvider>
               </SharingProvider>

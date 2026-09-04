@@ -38,7 +38,7 @@ describe("DropboxSyncPage", () => {
     expect(screen.getByText("Manage your Dropbox connection and imports")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import new comics" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "How to organize files" }).parentElement)
-      .toHaveClass("flex-col", "sm:flex-row");
+      .toHaveClass("page-actions");
 
     fireEvent.click(screen.getByRole("button", { name: "How to organize files" }));
 

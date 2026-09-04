@@ -103,3 +103,20 @@ form data is a 400 response and never reaches storage or format inspection.
 Upload size and per-user storage quota continue to apply to the original canonical source. Generated pages, including rendered PDF ones, are rebuildable server cache and count towards nobody's quota.
 
 A chunked upload ID identifies one active staging area and cannot be initialized a second time while that upload exists. Chunk indices must be canonical unsigned decimal strings; malformed values are rejected instead of being coerced to chunk zero.
+
+`/api/config` advertises `upload.maxChunkBytes`. Both upload forms use the
+smaller of that limit and 2 MiB, falling back to 1 MiB for older servers. This
+halves the chunk-request count at the current server limit without raising
+concurrency or changing admission checks. Progress counts acknowledged bytes
+and only publishes changed percentages, so a short final chunk cannot distort
+progress and large queues avoid redundant renders.
+
+Both forms disable submission while checking the session, preventing repeated
+clicks from starting duplicate uploads. An expired session unlocks the form;
+once transfer starts, the existing cancel action remains available.
+
+The first failed chunk aborts its sibling workers and queued requests, retains
+the original server error, and never calls completion. Cancelled uploads remain
+subject to the existing staging cleanup; there is no automatic retry of
+initialization or finalization. Bulk rows with unchanged data skip rendering
+while another file progresses.

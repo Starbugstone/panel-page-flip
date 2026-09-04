@@ -20,7 +20,6 @@ import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import { formatDate } from "@/lib/format";
 import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
-import { adminFilterSuggestions } from "@/lib/admin-table-filters";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -302,11 +301,11 @@ export function AdminTagsList({ creatorId, embedded = false }) {
                       label="Select all tags"
                     />
                   </TableHead>
-                  <TableHead><AdminColumnHeader label="Tag name" sortField="name" filterField="filterName" filterSuggestions={adminFilterSuggestions(tags, (tag) => tag.name)} filterValue={tableControls.columnFilters.filterName} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Tag name" sortField="name" filterField="filterName" suggestionSource="tags/name" filterValue={tableControls.columnFilters.filterName} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Scope" sortField="isGlobal" filterField="filterScope" filterType="select" filterOptions={["Global", "Personal"]} filterValue={tableControls.columnFilters.filterScope} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Default library" sortField="hideFromLibrary" filterField="filterVisibility" filterType="select" filterOptions={["Visible", "Hidden"]} filterValue={tableControls.columnFilters.filterVisibility} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Comics using" sortField="comicCount" filterField="filterComicCount" filterType="range" filterMax={payload?.comicCountMax ?? 0} filterValue={tableControls.columnFilters.filterComicCount} {...tableControls.headerProps} /></TableHead>
-                  <TableHead><AdminColumnHeader label="Created by" sortField="creator" filterField="filterCreator" filterSuggestions={["System", ...adminFilterSuggestions(tags, (tag) => [tag.creator?.name, tag.creator?.email])]} filterValue={tableControls.columnFilters.filterCreator} {...tableControls.headerProps} /></TableHead>
+                  <TableHead><AdminColumnHeader label="Created by" sortField="creator" filterField="filterCreator" suggestionSource="tags/creator" filterValue={tableControls.columnFilters.filterCreator} {...tableControls.headerProps} /></TableHead>
                   <TableHead><AdminColumnHeader label="Created date" sortField="createdAt" filterField="filterCreatedAt" filterType="date" filterValue={tableControls.columnFilters.filterCreatedAt} {...tableControls.headerProps} /></TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>

@@ -1,220 +1,138 @@
-# Panel Page Flip — working rules
+# Panel Page Flip — agent guide
 
-## Read these rules first
+## Working approach
 
-Every agent must read this `AGENTS.md` in full as its first repository action
-for every task, follow-up call, resumed turn, or compacted-context continuation.
-Do not rely on a prompt copy, memory, or another agent's summary. Read it again
-after switching branches or worktrees, and read any more-specific `AGENTS.md`
-that applies to a path before changing files below it.
+Complete the requested task, verify the result, and keep changes focused.
+Make reasonable implementation decisions without asking for routine approval.
+Ask when missing information materially affects scope, correctness, or an
+irreversible action.
 
-## Tests are not optional
+Use git worktrees for isolated analysis, review, and implementation. Match
+file edits, commits, pushes, and PRs to the requested outcome and any explicit
+limits from the user. Worktree setup is part of the workflow for these tasks.
 
-**Every code change ships with tests in the same PR.** This is a hard rule, not
-a preference.
+Read applicable AGENTS.md instructions before editing. Refresh them when
+changing branches or worktrees, when instructions change, or when they are
+no longer available in context. Continue existing work on follow-up requests.
 
-- New behaviour gets tests that fail without it. Write the test, watch it fail,
-  then make it pass — a test that never failed has proved nothing.
-- Bug fixes get a regression test reproducing the bug. Verify it fails against
-  the unfixed code before committing.
-- Changed behaviour gets its existing tests updated to describe the new
-  behaviour, not deleted.
-- Untestable code is a design problem. Extract the logic into something that can
-  be tested directly rather than leaving it uncovered.
+## Project context
 
-The only work that ships without tests is documentation and comments.
+- Backend: `backend/` — PHP 8.2, Symfony 6.4, Doctrine, MySQL.
+- Frontend: `frontend/` — React 19, Vite, Tailwind, Radix; Node >= 22.12.
+- Use npm and the committed `frontend/package-lock.json`.
+- `DEV_README.md` indexes feature documentation and development workflows.
+- `docs/development-tooling.md` explains checks and generated artefacts.
+- `docs/local-docker-environment.md` covers checkout setup and troubleshooting.
+- `.github/workflows/build-frontend.yml` defines the application CI gates.
 
-For a normal code change, run the tests that cover what you touched. Run the
-full list below only before a requested push — all of it, not a subset — unless
-the change could break a gate you are not already exercising.
+Read documentation relevant to the task rather than loading every guide.
 
-```bash
-docker compose exec -T php composer validate --strict
-docker compose exec -T php composer audit --locked --no-dev
-docker compose exec -T php php bin/console lint:container --env=test
-docker compose exec -T php php bin/console lint:twig templates   # all Twig; currently mail
-docker compose exec -T php php bin/console doctrine:schema:validate --env=test
-docker compose exec -T php composer analyse         # PHPStan
-docker compose exec -T php composer cs:check        # PHP-CS-Fixer
-docker compose exec -T php php bin/phpunit          # backend
-npm run audit:production --prefix frontend
-npm run lint --prefix frontend                      # --max-warnings=0
-npm test --prefix frontend                          # host; see below
-npm run check:routes --prefix frontend              # committed artefacts
-npm run check:csp --prefix frontend                 # host only; CSP across nginx targets
-npm run check:tools --prefix frontend               # host only; conversion-tool zips
-APP_URL=https://comics.starbugstone.com npm run build --prefix frontend
-APP_URL=https://comics.starbugstone.com npm run check:seo --prefix frontend
-```
+## Implementation
 
-CI gates on all of these. `lint` fails on a single warning, and the `check:`
-scripts guard generated files that are committed rather than rebuilt on the way
-to production — see `docs/development-tooling.md`. `check:seo` reads `APP_URL`
-and inspects a build, so the two must use the same value; CI uses
+Follow existing architecture and nearby conventions. Prefer clear names,
+small cohesive functions, and existing abstractions. Explain non-obvious
+constraints in comments; avoid narrating the code.
+
+Update affected feature documentation when behaviour or operational steps
+change. Add new documentation pages to `DEV_README.md`.
+
+New migrations use `VersionYYYYMMDDHHMMSS` and guard for MySQL with `abortIf`.
+Do not modify unrelated historical migrations.
+
+## Security
+
+Comic uploads and everything extracted from them are untrusted.
+
+- Enforce size, entry-count, nesting, and expansion limits before allocating.
+- Validate extracted values against an allowlist or enum before using them
+  in filesystem paths or subprocess arguments.
+- Disable XML external entities and DTDs.
+- Handle malformed sources gracefully without exposing stack traces.
+- Preserve existing authentication, authorization, and ownership checks.
+
+Never commit secrets, local environment files, credentials, or deploy keys.
+
+## Development environment
+
+Each checkout must own its Docker Compose stack.
+
+Run `scripts/dev-env.sh` before the first Compose command in a new checkout
+or worktree. Confirm containers mount the current checkout before trusting
+test results, especially when results disagree with the source.
+
+Run frontend tests, `check:csp`, and `check:tools` on the host; the
+`frontend_dev` container lacks required repository mounts.
+
+Use `scripts/fix-ownership.sh` for legacy ownership problems.
+Run `scripts/dev-down.sh` in the disposable worktree before removing it;
+this deletes that stack's volumes as well as its containers.
+
+## Verification
+
+New or changed behaviour needs meaningful automated coverage.
+Bug fixes need regression coverage; demonstrate that the test detects the
+original bug when feasible, and explain any limitation.
+
+Existing tests may be sufficient for behaviour-preserving changes.
+Do not add tests that merely restate the implementation. For visual changes,
+inspect the rendered result as well as running applicable automated checks.
+Documentation-only changes need content and link checks, not application tests.
+
+Run relevant tests and lint, analysis, or build checks locally. Expand
+verification when shared code, dependencies, configuration, security, or
+deployment changes could affect other areas.
+
+Use the tooling guide and CI workflow for exact commands and prerequisites.
+Run the matching `check:*` command when changing generated artefacts.
+Build and run `check:seo` with the same `APP_URL`; CI uses
 `https://comics.starbugstone.com`.
 
-`check:tools`, `check:csp`, and `frontend/src/lib/conversion-tools.test.js` only
-work from the host. `frontend_dev` mounts `./frontend` and only
-`scripts/generate-nginx-routes.mjs` out of `scripts/`, because that directory
-can hold deploy credentials. `check:tools` needs `scripts/comic-conversion/`
-and `check:csp` needs `scripts/generate-csp.mjs`, so inside the container they
-report a missing source file. That failure is the mount, not the repository.
+All required CI checks must pass before merge. Do not weaken tests,
+thresholds, or checks to make a task pass. Avoid repeating successful checks
+unless subsequent changes or new evidence justify it.
 
-Every `docker compose` command above assumes this checkout owns its own stack —
-see "One checkout, one stack" below. Running them against another checkout's
-containers produces results about that checkout's code.
+Report checks as passed, failed, or not run, with reasons and relevant
+failure output. Incomplete verification must remain explicit.
 
-On a requested push, report failures honestly, with the output. A gate you did
-not run is a gate that failed.
+## Git and delivery
 
-## One checkout, one stack
+Before starting any task or resuming follow-up work, verify the current branch,
+its upstream, and the working tree. Always fetch `origin`, inspect the matching
+remote branch, and run `git pull --ff-only` on the existing tracking checkout
+before using it as a baseline. Do not assume a local branch or an earlier fetch
+is current. Preserve local changes and investigate divergence or an unexpected
+upstream before pulling; never use a merge, rebase, or reset to hide it.
 
-**Run `scripts/dev-env.sh` before the first `docker compose` command in a new
-clone or worktree.** It writes `.env` — untracked — with a Compose project name,
-a port block and the UID/GID this checkout's containers run as.
+For a new task, create an isolated worktree with a task-specific branch from
+the freshly fetched `origin/develop`; implementation PRs target `develop`.
+For a PR review, verify the fetched head against GitHub's current PR head and
+record the commit being reviewed. Continue the same worktree and branch for
+follow-up work on that task, checking its own remote branch before proceeding.
 
-`.env` used to be tracked, pinning every checkout to
-`COMPOSE_PROJECT_NAME=cbz_reader` and ports 8080/8081/3001/1025/8025. Compose
-keys containers by project name, so the main repo and every worktree resolved to
-one set of containers, and a container keeps the bind mounts it was created
-with. Whichever checkout started the stack first owned it; the rest ran
-`docker compose exec -T php php bin/phpunit` against *that* checkout's source
-while reading their own diff. The failures look like flaky tests, phantom
-regressions, or a fix that "doesn't take" — never like the mount they are.
+Urgent production hotfixes start from `origin/main` and target `main`;
+bring the fix into `develop` through a separate PR. Releases promote
+`develop` to `main` through one deliberate release merge.
 
-If a result does not match the code in front of you, check what you are actually
-testing before believing it:
+Treat local `main` and `develop` as protected tracking branches.
+Do not commit or rewrite history on them. If either has unexpected local
+commits, investigate and preserve the work before repairing its tracking
+state. Do not merge the branches merely to align their histories.
 
-```bash
-docker compose ps --format '{{.Name}}\t{{.Service}}'
-docker inspect "$(docker compose ps -q php)" --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}'
-```
+Preserve unrelated changes. Use separate worktrees for concurrent tasks
+and avoid changing another task's checkout or branch.
 
-The source path must be the checkout you are working in.
+Before committing, verify the branch and review the staged diff.
+Stage task-owned paths explicitly. Exclude caches, logs, coverage, and build
+output unless documented as committed artefacts.
 
-**Destroy the stack before deleting a worktree.** `git worktree remove` knows
-nothing about Docker and leaves containers running, ports held and volumes
-orphaned:
+When implementation is complete, commit, push the task branch, and create
+or update its PR unless the user requested otherwise. Fetch before pushing
+and inspect upstream changes before reconciling them; do not force-push.
 
-```bash
-scripts/dev-down.sh      # this checkout: containers, network, volumes
-scripts/dev-gc.sh        # list stacks whose checkout is already gone
-scripts/dev-gc.sh --prune
-```
+If verification is blocked, preserve the work in a draft PR and explain
+the blocker. Do not present it as ready to merge.
 
-Containers run as your host UID/GID, so anything they write into the checkout —
-`vendor/`, `var/`, `public/uploads/`, `.phpunit.cache/` — belongs to you. If you
-meet a root-owned file left over from before this change, `scripts/fix-ownership.sh`
-repairs a checkout without needing sudo. Do not `chown` inside a container to
-work around a permission error: that is what created the problem.
+Merging, releasing, and deploying require authorization for those actions.
 
-## Code should read without commentary
-
-Prefer code that explains itself: precise names, small functions, early returns,
-types that make illegal states unrepresentable.
-
-Comment **why**, never **what**. A comment restating the line above it is noise;
-a comment recording a constraint, a hazard, or the reason an obvious approach was
-rejected is worth its space. If a block needs a comment to be understood at all,
-try naming it as a function first.
-
-Match the surrounding file's density and idiom rather than importing a different
-house style.
-
-## Untrusted input
-
-Comic sources arrive through an upload form. Anything read out of one — archive
-entries, PDF objects, XML, filenames — is attacker-controlled.
-
-- Bound it before allocating: sizes, entry counts, nesting depth, expansion
-  ratios.
-- Never let a value out of a file reach a filesystem path or a subprocess
-  argument without passing through a whitelist or an enum.
-- XML parsing must disable external entities and DTDs.
-- Failing to read a source is normal. Degrade to a working page, never to a
-  stack trace.
-
-## Conventions
-
-- Backend: PHP 8.2 / Symfony 6.4 / Doctrine. New migrations are
-  `VersionYYYYMMDDHHMMSS`, MySQL-only, and guard with `abortIf` on the platform.
-  Older migrations may omit the guard; do not backfill them unless you are
-  already changing that file.
-- Frontend: React 19 / Vite / Tailwind / Radix. Node >= 22.12.
-- Per-feature documentation lives in `docs/`; `DEV_README.md` indexes every page.
-  A behaviour change updates its page in the same PR.
-- `develop` is the source of truth for active development. Branch from it and
-  target it with normal pull requests; never commit to it directly. `main` is
-  the production source of truth and only receives deliberate release or
-  production-hotfix pull requests. The two branches are expected to differ as
-  ongoing tasks move through development and production. A release reaches
-  `main` from `develop` as one merge. Always keep the documentation up to date
-  with the latest modifications.
-
-## Branch hygiene — prevent divergence
-
-Local `main` and `develop` are protected tracking branches. Each must stay at
-its matching fetched `origin/*` ref. Never commit, amend, rebase, cherry-pick,
-or merge while either protected branch is checked out.
-
-Start every task from fetched remote state, not from whichever local branch was
-left checked out. other onprotected branches we are working on do not need extra PR's and can be pushed to directly.
-
-```bash
-git fetch --prune origin
-git status --short --branch
-git switch -c <type>/<short-task-name> origin/develop
-```
-
-Use a new, task-specific branch name; do not reuse another agent's branch or a
-branch from an earlier task. Choose the base and pull-request target from the
-task's destination: ongoing feature, fix, and documentation work uses
-`origin/develop`; an urgent fix for the currently deployed production state
-uses `origin/main`; a release promotes `develop` to `main`. Bring a production
-hotfix back into `develop` through its own pull request so the development
-source of truth retains the fix.
-
-Before every commit, verify the branch and review the exact staged content:
-
-```bash
-git branch --show-current
-git status --short
-git diff --cached --stat
-git diff --cached
-```
-
-If the branch is `main` or `develop`, stop and move the work to a task branch
-before committing. Stage task-owned paths explicitly; do not use `git add .` or
-`git add -A`. Never stage transient output such as coverage reports, caches,
-logs, build output, or editor files. Generated files belong in a commit only
-when repository documentation identifies them as committed artefacts and their
-corresponding `check:*` command passes.
-
-Before pushing, fetch again and inspect `git status --short --branch`. Push a
-new task branch with `git push -u origin HEAD`. If its upstream has changed,
-inspect the left/right log before reconciling it; never use a blind pull or a
-force push:
-
-```bash
-git log --oneline --left-right HEAD...@{upstream}
-```
-
-If local `main` or `develop` is ever ahead of or diverged from its remote, do
-not add a merge commit to make the warning disappear. Inspect the unexpected
-commits, preserve them on a clearly named backup branch when they may contain
-work, and restore the protected branch to its fetched `origin/*` ref only after
-the unexpected content is understood. Compare each protected branch with its
-own upstream; the pull-request workflow can legitimately make `main` and
-`develop` non-linear relative to each other. Do not merge `main` into `develop`
-merely to make their histories look aligned: `develop` tracks development and
-`main` tracks production, so their difference reflects the tasks currently in
-flight.
-
-## Always commit
-
-GitHub is the source of truth: several agents may be working at once, and
-uncommitted work is invisible to them. When a task is finished, commit and push and create PR if necessary
-the files that task changed. Do not wait for a separate "please commit" — this
-section is that request.
-
-Never commit secrets (`.env`, credentials, deploy keys). That exception is absolute.
+Finish with a concise account of the result, verification, remaining
+limitations, and the commit or PR.

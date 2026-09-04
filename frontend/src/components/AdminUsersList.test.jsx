@@ -94,6 +94,16 @@ describe("AdminUsersList storage column", () => {
     expect(screen.getByText(/Showing/)).toBeInTheDocument();
   });
 
+  it("keeps pending-account actions compact without hiding their purpose", async () => {
+    const row = await renderList([user({ isEmailVerified: false })]);
+
+    expect(row.getByRole("button", { name: "Email Alice a new verification link" }))
+      .toBeInTheDocument();
+    expect(row.getByRole("button", { name: "Verify Alice" })).toBeInTheDocument();
+    expect(row.queryByText("Resend")).not.toBeInTheDocument();
+    expect(row.queryByText("Verify")).not.toBeInTheDocument();
+  });
+
   it("enables user creation only after every required field meets the password policy", async () => {
     const actor = userEvent.setup();
     await renderList([user()]);
@@ -107,13 +117,17 @@ describe("AdminUsersList storage column", () => {
     expect(dialog.getByLabelText("Email")).toBeRequired();
     expect(dialog.getByLabelText("Password")).toBeRequired();
 
-    await actor.type(dialog.getByLabelText("Name"), "New Reader");
-    await actor.type(dialog.getByLabelText("Email"), "reader@example.com");
-    await actor.type(dialog.getByLabelText("Password"), "too-short");
+    await actor.click(dialog.getByLabelText("Name"));
+    await actor.paste("New Reader");
+    await actor.click(dialog.getByLabelText("Email"));
+    await actor.paste("reader@example.com");
+    await actor.click(dialog.getByLabelText("Password"));
+    await actor.paste("too-short");
     expect(create).toBeDisabled();
 
     await actor.clear(dialog.getByLabelText("Password"));
-    await actor.type(dialog.getByLabelText("Password"), "StrongPass123!");
+    await actor.click(dialog.getByLabelText("Password"));
+    await actor.paste("StrongPass123!");
     expect(create).toBeEnabled();
   });
 

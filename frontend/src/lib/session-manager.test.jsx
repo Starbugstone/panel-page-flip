@@ -63,4 +63,33 @@ describe("sessionManager", () => {
     await expect(sessionManager.checkSession()).resolves.toBe(true);
     expect(api.get).not.toHaveBeenCalled();
   });
+
+  it("cannot expire a new session from a previous session's pending check", async () => {
+    let reject;
+    api.get.mockReturnValue(new Promise((_, rejectRequest) => { reject = rejectRequest; }));
+    sessionManager.start({ onSessionExpired: vi.fn() });
+    const check = sessionManager.checkSession();
+    const onSessionExpired = vi.fn();
+    sessionManager.start({ onSessionExpired });
+    reject({ status: 401 });
+    await check;
+    expect(onSessionExpired).not.toHaveBeenCalled();
+  });
+
+  it("allows a new session check without an older completion unlocking it", async () => {
+    let resolveOld, resolveNew;
+    api.get.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveNew = resolve; }));
+    sessionManager.start();
+    const oldCheck = sessionManager.checkSession();
+    sessionManager.start();
+    const newCheck = sessionManager.checkSession();
+    expect(api.get).toHaveBeenCalledTimes(2);
+    resolveOld({ user: null });
+    await oldCheck;
+    expect(sessionManager.checkInProgress).toBe(true);
+    resolveNew({ user: { id: 2 } });
+    await expect(newCheck).resolves.toBe(true);
+    expect(sessionManager.checkInProgress).toBe(false);
+  });
 });

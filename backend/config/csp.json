@@ -1,6 +1,18 @@
 {
-  "_comment": "Shared CSP inputs. Advertising-enabled HTML receives a fresh nonce from Symfony (Apache) or nginx's request id (container), and script-src follows Google's supported strict-CSP shape. Non-script directives stay on audited origins rather than broad wildcards.",
+  "_comment": "Shared CSP inputs. Google-enabled HTML receives a fresh nonce from Symfony (Apache) or nginx's request id (container), and script-src follows Google's supported strict-CSP shape. Non-script directives stay on audited origins rather than broad wildcards. googleFreeOrigins names every Google origin below so the legal-policy routes can be served without any of them.",
   "turnstileScriptOrigin": "https://challenges.cloudflare.com",
+  "googleOrigins": [
+    "https://pagead2.googlesyndication.com",
+    "https://googleads.g.doubleclick.net",
+    "https://tpc.googlesyndication.com",
+    "https://www.google.com",
+    "https://www.googletagmanager.com",
+    "https://*.google-analytics.com",
+    "https://*.analytics.google.com",
+    "https://fundingchoicesmessages.google.com",
+    "https://ep1.adtrafficquality.google",
+    "https://ep2.adtrafficquality.google"
+  ],
   "directives": {
     "default-src": ["'self'"],
     "object-src": ["'none'"],
@@ -38,8 +50,8 @@
     ],
     "frame-ancestors": ["'none'"]
   },
-  "scriptSrcWithoutAdvertising": ["'self'", "https://challenges.cloudflare.com"],
-  "scriptSrcWithAdvertising": [
+  "scriptSrcWithoutGoogle": ["'self'", "https://challenges.cloudflare.com"],
+  "scriptSrcWithGoogle": [
     "'nonce-{nonce}'",
     "'unsafe-inline'",
     "'unsafe-eval'",

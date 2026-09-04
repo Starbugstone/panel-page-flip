@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, UNAUTHORIZED_EVENT } from "@/lib/api";
 import { logger } from "@/lib/logger";
 import sessionManager from "@/lib/session-manager";
@@ -9,18 +9,23 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const sessionRevision = useRef(0);
 
   const clearClientSession = useCallback(() => {
+    sessionRevision.current += 1;
     setUser(null);
   }, []);
 
   const checkAuth = useCallback(async () => {
+    const revision = ++sessionRevision.current;
     try {
       const data = await api.get("/api/me", { notifyUnauthorized: false });
+      if (revision !== sessionRevision.current) return false;
       const authenticatedUser = data?.user ?? null;
       setUser(authenticatedUser);
       return Boolean(authenticatedUser);
     } catch (error) {
+      if (revision !== sessionRevision.current) return false;
       logger.warn("Authentication check failed:", error.message);
       clearClientSession();
       return false;
@@ -34,7 +39,7 @@ export function AuthProvider({ children }) {
       if (active) setLoading(false);
     };
     validateSession();
-    return () => { active = false; };
+    return () => { active = false; sessionRevision.current += 1; };
   }, [checkAuth]);
 
   useEffect(() => {
@@ -47,10 +52,13 @@ export function AuthProvider({ children }) {
   }, [clearClientSession]);
 
   const login = useCallback(async (email, password) => {
+    const revision = ++sessionRevision.current;
     try {
       const data = await api.post("/api/login", { email, password }, { notifyUnauthorized: false });
-      setUser(data.user);
-      setSessionExpired(false);
+      if (revision === sessionRevision.current) {
+        setUser(data.user);
+        setSessionExpired(false);
+      }
       return data;
     } catch (error) {
       if (error.status === 403 && error.data?.requiresVerification) {
@@ -97,7 +105,9 @@ export function AuthProvider({ children }) {
   }, [clearClientSession, user]);
 
   const refreshSession = useCallback(async () => {
+    const revision = sessionRevision.current;
     const valid = await sessionManager.forceSessionCheck();
+    if (revision !== sessionRevision.current) return false;
     if (!valid) clearClientSession();
     return valid;
   }, [clearClientSession]);

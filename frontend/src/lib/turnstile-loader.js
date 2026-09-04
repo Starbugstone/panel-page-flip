@@ -1,4 +1,4 @@
-export const TURNSTILE_SCRIPT_ORIGIN = "https://challenges.cloudflare.com";
+const TURNSTILE_SCRIPT_ORIGIN = "https://challenges.cloudflare.com";
 export const TURNSTILE_SCRIPT_URL = `${TURNSTILE_SCRIPT_ORIGIN}/turnstile/v0/api.js?render=explicit`;
 
 let loadingPromise = null;

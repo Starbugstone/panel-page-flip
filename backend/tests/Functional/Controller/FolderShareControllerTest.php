@@ -106,11 +106,11 @@ final class FolderShareControllerTest extends AbstractApiTestCase
             [$first->getId(), $second->getId()],
             array_column($sharedByMe, 'comicId')
         );
-        foreach ($sharedByMe as $group) {
-            self::assertSame(ComicShare::STATUS_PENDING, $group['recipients'][0]['status']);
-            self::assertNotNull($group['recipients'][0]['invitationBatchId']);
-            self::assertSame('DragonBall', $group['recipients'][0]['invitationBatchName']);
-            self::assertSame(2, $group['recipients'][0]['invitationBatchSize']);
+        foreach ($sharedByMe as $share) {
+            self::assertSame(ComicShare::STATUS_PENDING, $share['status']);
+            self::assertNotNull($share['invitationBatchId']);
+            self::assertSame('DragonBall', $share['invitationBatchName']);
+            self::assertSame(2, $share['invitationBatchSize']);
         }
 
         $this->loginAs($recipient);
@@ -194,6 +194,14 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         self::assertTrue($preview['requiresAdultConfirmation']);
         self::assertNull($preview['comicTitle']);
 
+        // The table may show only the ordinary member. Its one-click folder
+        // acceptance still includes the explicit member outside this page/filter.
+        $filtered = $this->getJson('/api/shares/shared-with-me?limit=1&filterComic=All%20ages')['sharedWithMe'];
+        self::assertCount(1, $filtered);
+        self::assertSame('All ages', $filtered[0]['comicTitle']);
+        self::assertFalse($filtered[0]['requiresAdultConfirmation']);
+        self::assertTrue($filtered[0]['invitationBatchRequiresAdultConfirmation']);
+
         $this->postJson('/api/shares/invitations/'.$token.'/accept');
         self::assertResponseStatusCodeSame(403);
         self::assertSame(
@@ -204,6 +212,8 @@ final class FolderShareControllerTest extends AbstractApiTestCase
         $this->postJson('/api/shares/invitations/'.$token.'/confirm-adult', ['adultConfirmed' => true]);
         self::assertResponseIsSuccessful();
         self::assertFalse($this->getJson('/api/shares/invitations/'.$token)['invitation']['requiresAdultConfirmation']);
+        $filtered = $this->getJson('/api/shares/shared-with-me?limit=1&filterComic=All%20ages')['sharedWithMe'];
+        self::assertFalse($filtered[0]['invitationBatchRequiresAdultConfirmation']);
 
         $accepted = $this->postJson('/api/shares/invitations/'.$token.'/accept');
         self::assertResponseIsSuccessful();

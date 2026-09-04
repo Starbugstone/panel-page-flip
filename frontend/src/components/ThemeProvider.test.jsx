@@ -46,6 +46,29 @@ afterEach(() => {
 });
 
 describe("ThemeProvider", () => {
+  it("requires the provider instead of silently offering a non-working toggle", () => {
+    expect(() => render(<Probe />)).toThrow("useTheme must be used within a ThemeProvider");
+  });
+  it.each(["system", "unknown", "dark extra-class"])("ignores unsupported stored theme %s", (value) => {
+    getCookie.mockReturnValue(value);
+    renderProvider();
+    expect(screen.getByRole("button")).toHaveTextContent("current:light");
+    expect(document.documentElement.className).toBe("light");
+  });
+
+  it("retains the legacy theme when its cookie migration fails", () => {
+    store.set("comic-reader-theme", "dark");
+    setCookie.mockImplementation(() => { throw new Error("Cookies blocked"); });
+    renderProvider();
+    expect(screen.getByRole("button")).toHaveTextContent("current:dark");
+  });
+
+  it("makes native controls follow the selected theme", async () => {
+    renderProvider();
+    await userEvent.click(screen.getByRole("button"));
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+  });
+
   it("starts on the default theme and puts it on the root element", () => {
     renderProvider();
 

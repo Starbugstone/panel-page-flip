@@ -1,22 +1,22 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { BulkUploadEntryLink } from "@/components/BulkUploadEntryLink.jsx";
-import { Loader2, Upload, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useChunkedUpload } from "@/hooks/use-chunked-upload";
 import { useConfig } from "@/hooks/use-config.jsx";
 import { useTags } from "@/hooks/use-tags.jsx";
 import { useToast } from "@/hooks/use-toast";
 import {
-  comicFileAccept,
   configuredComicFormats,
+  configuredChunkSize,
   configuredConcurrentChunks,
   generateTitleFromFilename,
   isComicFile,
 } from "@/lib/comic-upload";
 import { describeTagSubmission } from "@/lib/tag-suggestions";
-import { cn } from "@/lib/utils.js";
+import { ComicFilePicker } from "@/components/upload/ComicFilePicker";
 import { TagBadge } from "@/components/TagBadge";
 import { TagCombobox } from "@/components/TagCombobox";
 import { Button } from "@/components/ui/button";
@@ -39,60 +39,18 @@ function folderSearch(folderId) {
   return `?folder=${folderId == null ? "root" : folderId}`;
 }
 
-function UploadFileDropZone({
-  file, uploading, dragging, inputRef, comicFormats, onDraggingChange, onChoose, onRemove,
-}) {
+function UploadFileDropZone({ file, uploading, comicFormats, onChoose, onRemove }) {
   return (
     <div className="space-y-2">
       <Label htmlFor="comic-file">Comic File ({comicFormats.join(", ").toUpperCase()})</Label>
-      <div
-        className={cn(
-          "rounded-lg border-2 border-dashed p-4 text-center sm:p-6",
-          !uploading && "cursor-pointer hover:border-gray-400",
-          dragging ? "border-primary bg-primary/5" : "border-gray-300 dark:border-gray-600",
-        )}
-        onClick={() => !uploading && inputRef.current?.click()}
-        onDragEnter={(event) => { event.preventDefault(); if (!uploading) onDraggingChange(true); }}
-        onDragOver={(event) => event.preventDefault()}
-        onDragLeave={(event) => { if (event.currentTarget === event.target) onDraggingChange(false); }}
-        onDrop={(event) => {
-          event.preventDefault();
-          onDraggingChange(false);
-          if (!uploading) onChoose(event.dataTransfer.files[0]);
-        }}
-      >
-        <input
-          ref={inputRef}
-          id="comic-file"
-          type="file"
-          accept={comicFileAccept(comicFormats)}
-          className="hidden"
-          disabled={uploading}
-          onChange={(event) => onChoose(event.target.files[0])}
-        />
+      <ComicFilePicker id="comic-file" formats={comicFormats} disabled={uploading} onFiles={(files) => onChoose(files[0])}>
         {file ? (
           <div className="flex min-w-0 items-center justify-center gap-2">
             <span className="min-w-0 break-all text-sm font-medium">{file.name}</span>
-            {!uploading && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-auto p-0"
-                onClick={(event) => { event.stopPropagation(); onRemove(); }}
-                aria-label="Remove file"
-              >
-                <X size={16} />
-              </Button>
-            )}
+            {!uploading && <Button type="button" variant="ghost" size="icon" onClick={onRemove} aria-label="Remove file"><X aria-hidden="true" /></Button>}
           </div>
-        ) : (
-          <div className="flex flex-col items-center">
-            <Upload className="mb-2 h-10 w-10 text-gray-400" />
-            <span className="text-sm font-medium">Drag and drop or select a supported comic file</span>
-          </div>
-        )}
-      </div>
+        ) : <p className="text-sm text-muted-foreground">Drag and drop or select a supported comic file</p>}
+      </ComicFilePicker>
     </div>
   );
 }
@@ -145,11 +103,11 @@ function UploadTags({
   );
 }
 
-function UploadActions({ file, title, uploading, foldersLoading, onCancel, onBack }) {
+function UploadActions({ file, title, uploading, canCancel, foldersLoading, onCancel, onBack }) {
   return (
     <CardFooter className="justify-between px-4 pb-4 sm:px-6 sm:pb-6">
-      <Button variant="outline" type="button" onClick={uploading ? onCancel : onBack}>
-        {uploading ? "Cancel upload" : "Back"}
+      <Button variant="outline" type="button" disabled={uploading && !canCancel} onClick={canCancel ? onCancel : onBack}>
+        {canCancel ? "Cancel upload" : "Back"}
       </Button>
       <Button type="submit" form="upload-form" disabled={!file || !title.trim() || uploading || foldersLoading}>
         {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</> : "Upload Comic"}
@@ -167,17 +125,17 @@ export default function UploadComicForm() {
   const { folders, isLoading: foldersLoading, createFolder } = useLibraryFolders();
   const concurrentChunks = configuredConcurrentChunks(config);
   const comicFormats = configuredComicFormats(config);
-  const { start, cancel, status, progress, error } = useChunkedUpload({ concurrentChunks });
-  const uploading = ["initialising", "uploading", "completing"].includes(status);
+  const { start, cancel, status, progress, error } = useChunkedUpload({ concurrentChunks, chunkSize: configuredChunkSize(config) });
+  const [submitting, setSubmitting] = useState(false);
+  const canCancel = ["initialising", "uploading", "completing"].includes(status);
+  const uploading = submitting || canCancel || status === "done";
 
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState("");
-  const [dragging, setDragging] = useState(false);
   const { selectedFolderId, setFolderId } = useUploadFolderDestination(folders, foldersLoading);
-  const inputRef = useRef(null);
 
   const chooseFile = useCallback((candidate) => {
     if (!isComicFile(candidate, comicFormats)) {
@@ -201,16 +159,17 @@ export default function UploadComicForm() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (uploading) return;
     if (!file) {
       toast({ title: "No file selected", description: "Select a comic before uploading.", variant: "destructive" });
       return;
     }
-    if (!await refreshSession()) {
-      toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
-      return;
-    }
-
+    setSubmitting(true);
     try {
+      if (!await refreshSession()) {
+        toast({ title: "Session expired", description: "Please log in again.", variant: "destructive" });
+        return;
+      }
       const result = await start(file, { title, author, tags, folderId: selectedFolderId });
       result.comic?.tags?.forEach((tag) => {
         if (tag?.id && tag?.name) addTagToCache(tag);
@@ -223,15 +182,17 @@ export default function UploadComicForm() {
         description: error.message,
         variant: error.message === "Upload cancelled" ? "default" : "destructive",
       });
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
     <Card className="w-full max-w-xl">
       <CardHeader className="p-4 sm:p-6">
-        <CardTitle className="text-2xl font-comic">Upload New Comic</CardTitle>
+        <CardTitle as="h1" className="page-title">Upload New Comic</CardTitle>
         <CardDescription>
-          Upload one comic here, or <BulkUploadEntryLink className="text-comic-purple underline" search={folderSearch(selectedFolderId)}>upload several at once</BulkUploadEntryLink>.
+          Upload one comic here, or <BulkUploadEntryLink className="text-primary underline" search={folderSearch(selectedFolderId)}>upload several at once</BulkUploadEntryLink>.
         </CardDescription>
       </CardHeader>
       <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
@@ -239,10 +200,7 @@ export default function UploadComicForm() {
           <UploadFileDropZone
             file={file}
             uploading={uploading}
-            dragging={dragging}
-            inputRef={inputRef}
             comicFormats={comicFormats}
-            onDraggingChange={setDragging}
             onChoose={chooseFile}
             onRemove={() => setFile(null)}
           />
@@ -280,6 +238,7 @@ export default function UploadComicForm() {
         file={file}
         title={title}
         uploading={uploading}
+        canCancel={canCancel}
         foldersLoading={foldersLoading}
         onCancel={cancel}
         onBack={() => navigate(-1)}

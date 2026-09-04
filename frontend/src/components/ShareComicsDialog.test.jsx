@@ -25,7 +25,6 @@ const recipients = [
     name: "Jane Reader",
     label: "Jane Reader (@SilverOtter4821)",
   },
-  { email: "nobody@example.com", username: null, userCode: null, name: null, label: "nobody@example.com" },
 ];
 
 const loadPicker = () => {
@@ -116,8 +115,11 @@ describe("ShareComicsDialog", () => {
     open({
       initialRecipient: "jane@example.com",
       sharedByMe: [{
+        id: 10,
         comicId: 1,
-        recipients: [{ id: 10, recipientEmail: "jane@example.com", status: "accepted", isExpired: false }],
+        recipientEmail: "jane@example.com",
+        status: "accepted",
+        isExpired: false,
       }],
     });
 

@@ -1,5 +1,6 @@
+import { PageLayout, PageHeader, PageLoading } from "@/components/layout/PageLayout";
 import { Link } from "react-router-dom";
-import { Cloud, Info, Loader2 } from "lucide-react";
+import { Cloud, Info } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card.jsx";
 import { DropboxConnectionPanel } from "@/components/dropbox/DropboxConnectionPanel";
 import { DropboxOrganizationGuide } from "@/components/dropbox/DropboxOrganizationGuide";
@@ -12,35 +13,19 @@ const inlineCode = "rounded bg-amber-100 px-1 py-0.5 text-xs dark:bg-amber-900";
 function DropboxSyncPage() {
   const dropbox = useDropboxSync();
 
-  if (dropbox.loading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          <span className="ml-2">Loading Dropbox status...</span>
-        </div>
-      </div>
-    );
-  }
+  if (dropbox.loading) return <PageLayout width="settings"><PageLoading label="Loading Dropbox status..." /></PageLayout>;
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <div className="mb-4 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="mb-2 text-3xl font-bold">Dropbox Import</h1>
-            <p className="text-muted-foreground">
-              Import comics from your Dropbox app folder into Panel Page Flip.
-            </p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Connecting authorizes Panel Page Flip to read file names and import files in enabled comic formats
-              from its Dropbox app folder. Tokens are encrypted locally and can
-              be disconnected at any time.{" "}
-              <Link className="underline" to="/privacy">Privacy information</Link>
-            </p>
-          </div>
-          {dropbox.isConfigured && <DropboxOrganizationGuide />}
-        </div>
+    <PageLayout width="settings" className="space-y-6">
+      <PageHeader title="Dropbox Import" description="Import comics from your Dropbox app folder into Panel Page Flip."
+        actions={dropbox.isConfigured && <DropboxOrganizationGuide />}
+      >
+        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+          Connecting authorizes Panel Page Flip to read file names and import files in enabled comic formats
+          from its Dropbox app folder. Tokens are encrypted locally and can be disconnected at any time.{" "}
+          <Link className="text-primary underline" to="/privacy">Privacy information</Link>
+        </p>
+      </PageHeader>
 
         {dropbox.isConfigured && <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
           <div className="flex items-start gap-2">
@@ -67,8 +52,7 @@ function DropboxSyncPage() {
             <DropboxConnectionPanel dropbox={dropbox} />
           </CardContent>
         </Card>
-      </div>
-    </div>
+    </PageLayout>
   );
 }
 

@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { analyticsConsentDecision, observeAnalyticsConsent } from "@/lib/google-consent";
-import { loadConsentPlatform } from "@/lib/adsense-loader";
+import { acquireConsentPlatform } from "@/lib/adsense-loader";
 
 vi.mock("@/lib/adsense-loader", () => ({
-  loadConsentPlatform: vi.fn(() => Promise.resolve("ready")),
+  acquireConsentPlatform: vi.fn(() => Promise.resolve("ready")),
 }));
 
 describe("the basic-consent decision", () => {
@@ -23,7 +23,10 @@ describe("observing Google's certified CMP", () => {
     const win = { googlefc: { callbackQueue: [] } };
 
     observeAnalyticsConsent("ca-pub-1234567890123456", { win, doc: document, onChange });
-    expect(loadConsentPlatform).toHaveBeenCalledWith("ca-pub-1234567890123456", { doc: document });
+    expect(acquireConsentPlatform).toHaveBeenCalledWith("ca-pub-1234567890123456", {
+      doc: document,
+      win,
+    });
 
     win.googlefc.getGoogleConsentModeValues = () => ({ analyticsStoragePurposeConsentStatus: 1 });
     const ready = win.googlefc.callbackQueue.find((entry) => entry.CONSENT_MODE_DATA_READY);
@@ -33,7 +36,7 @@ describe("observing Google's certified CMP", () => {
   });
 
   it("does not unblock analytics when the CMP is blocked", async () => {
-    vi.mocked(loadConsentPlatform).mockResolvedValueOnce("unavailable");
+    vi.mocked(acquireConsentPlatform).mockResolvedValueOnce("unavailable");
     const onChange = vi.fn();
 
     observeAnalyticsConsent("ca-pub-1234567890123456", {
@@ -42,6 +45,31 @@ describe("observing Google's certified CMP", () => {
       onChange,
     });
     await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith("denied"));
+  });
+
+  it("does not register a listener after observation has stopped", () => {
+    const win = { googlefc: { callbackQueue: [] }, __tcfapi: vi.fn() };
+    const stop = observeAnalyticsConsent("ca-pub-1234567890123456", { win, doc: document });
+    stop();
+    win.googlefc.callbackQueue.find((entry) => entry.CONSENT_API_READY).CONSENT_API_READY();
+    expect(win.__tcfapi).not.toHaveBeenCalled();
+  });
+
+  it("removes a listener whose registration completes after cleanup", () => {
+    let registered;
+    const win = {
+      googlefc: { callbackQueue: [] },
+      __tcfapi: vi.fn((command, _version, callback) => {
+        if (command === "addEventListener") registered = callback;
+      }),
+    };
+    const stop = observeAnalyticsConsent("ca-pub-1234567890123456", { win, doc: document });
+    win.googlefc.callbackQueue.find((entry) => entry.CONSENT_API_READY).CONSENT_API_READY();
+    const queued = win.googlefc.callbackQueue.length;
+    stop();
+    registered({ listenerId: 42 }, true);
+    expect(win.__tcfapi).toHaveBeenCalledWith("removeEventListener", 2, expect.any(Function), 42);
+    expect(win.googlefc.callbackQueue).toHaveLength(queued);
   });
 
   it("follows later consent changes through the TCF v2 listener", () => {
@@ -57,7 +85,6 @@ describe("observing Google's certified CMP", () => {
       win,
       doc: document,
       onChange,
-      loadPlatform: false,
     });
 
     const apiReady = win.googlefc.callbackQueue.find((entry) => entry.CONSENT_API_READY);

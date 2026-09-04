@@ -1,10 +1,12 @@
-import { loadConsentPlatform } from "@/lib/adsense-loader";
+import { acquireConsentPlatform } from "@/lib/adsense-loader";
 import { logger } from "@/lib/logger";
 import { PRIVACY_CHOICES_OPENING_EVENT } from "@/lib/google-consent";
 
-function showRevocationMessage(win) {
-  win.dispatchEvent?.(new Event(PRIVACY_CHOICES_OPENING_EVENT));
-  win.googlefc.showRevocationMessage();
+function queueRevocationMessage(googlefc) {
+  // Called through the object rather than pushed as a bare reference: what the
+  // queue invokes is Google's own method, and handing it over detached would
+  // run it with whatever `this` the queue happens to use.
+  googlefc.callbackQueue.push(() => googlefc.showRevocationMessage());
 }
 
 /**
@@ -34,10 +36,9 @@ export async function reopenPrivacyChoices({
   doc = typeof document === "undefined" ? null : document,
 } = {}) {
   if (!win) return false;
+  win.dispatchEvent?.(new Event(PRIVACY_CHOICES_OPENING_EVENT));
 
-  if (!win.googlefc) {
-    await loadConsentPlatform(client, { doc });
-  }
+  await acquireConsentPlatform(client, { win, doc });
 
   const googlefc = win.googlefc;
   if (!googlefc) {
@@ -49,15 +50,15 @@ export async function reopenPrivacyChoices({
   }
 
   try {
+    googlefc.callbackQueue = googlefc.callbackQueue || [];
     if (typeof googlefc.showRevocationMessage === "function") {
-      showRevocationMessage(win);
+      queueRevocationMessage(googlefc);
 
       return true;
     }
 
-    googlefc.callbackQueue = googlefc.callbackQueue || [];
     googlefc.callbackQueue.push({
-      CONSENT_API_READY: () => showRevocationMessage(win),
+      CONSENT_API_READY: () => queueRevocationMessage(googlefc),
     });
 
     return true;

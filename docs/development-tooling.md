@@ -26,10 +26,20 @@ the ceiling; this keeps the single-responsibility audit as a permanent gate.
 including files a test never imports. The checked-in thresholds ratchet the
 current statement, branch, function and line totals, and the follow-up policy
 check rejects any coverable production file with zero executed lines. Lowering
-a threshold requires an explicitly reviewed policy change. `check:dead-code` uses Knip to reject
-unreachable source files, unused dependencies, unlisted imports and duplicate
-exports. Test-only access to an internal helper is not treated as a dead
-production file.
+a threshold requires an explicitly reviewed policy change.
+
+`check:dead-code` runs Knip twice. The complete project check rejects unused
+exports, duplicate exports, unreachable files, unused dependencies, unlisted
+imports and unresolved imports. The production check follows the application
+and build-script entry points without test files or test helpers, so a test
+cannot keep a retired component reachable. Internal helpers may still be
+exported for focused tests when their implementation is used by production.
+Keep private constants and helpers private when no other file imports them.
+
+Remove tests alongside obsolete behavior only after tracing its production
+callers. Consolidate duplicate assertions in the owning feature suite; retain
+regressions for active security boundaries and workflows. Test age or a green
+suite alone does not establish that a test is redundant.
 
 `check:duplication` scans production PHP, JavaScript, JSX and operational
 scripts for repeated blocks of at least 15 lines and 100 tokens. The threshold
@@ -59,12 +69,18 @@ cleans up correctly.
 
 `backend/config/csp.json` contains the shared policy inputs. Symfony reads it to
 build Apache responses with a cryptographic per-response nonce.
-`scripts/generate-csp.mjs` emits the equivalent `$request_id` nonce policy into
-the production nginx header include:
+`scripts/generate-csp.mjs` emits both nginx profiles from it:
 
 | File | Form |
 | --- | --- |
-| `docker/nginx_frontend/security-headers.conf` | nginx `add_header`, production |
+| `docker/nginx_frontend/base-headers.conf` | the headers that never vary by route |
+| `docker/nginx_frontend/security-headers.conf` | base headers + the Google-capable `$request_id` nonce policy |
+| `docker/nginx_frontend/security-headers-google-free.conf` | base headers + the strict policy for the legal routes |
+
+The Google-free profile is derived by removing every origin in the manifest's
+`googleOrigins` from every directive, so an origin added above cannot survive
+here by being forgotten; the generator refuses to run if a Google-shaped source
+appears in a directive without being declared there.
 
 Run `node scripts/generate-csp.mjs` after editing the manifest, and
 `npm run check:csp --prefix frontend` to verify — CI runs the check.
@@ -73,9 +89,18 @@ nginx also substitutes that request id into every initial script tag. Exact
 indexable route blocks rewrite canonical metadata with their own `sub_filter`
 directives; because nginx then stops inheriting the server-level filters,
 `scripts/generate-nginx-routes.mjs` repeats the nonce substitution inside each
-such block. The deployment-artefact tests execute the generator and require the
-nonce filter on every indexable route so a direct legal-page request cannot be
-left at the non-interactive SEO fallback by CSP.
+such block. The exception is the `googleFree` routes in
+`backend/config/frontend-routes.json`, which instead include the strict header
+snippet and are deliberately not nonced — a nonce is what would let a trusted
+module pull descendants in under `strict-dynamic`, and Google requires the
+privacy-policy URL to carry no consent-requiring script. The
+deployment-artefact tests execute the generator and require the nonce filter on
+every other indexable route, so a direct legal-page request cannot be left at
+the non-interactive SEO fallback by CSP.
+
+The router also reloads the document when crossing between the two CSP profiles;
+otherwise a direct legal-page visit would keep blocking Google after navigation
+to the library, and the reverse direction would retain already-loaded Google code.
 
 Local development is served directly by the Node 22 Vite container declared in
 `docker-compose.yml`. There is no second Node/nginx development image to keep in
@@ -140,6 +165,11 @@ and is not part of the workflow.
 
 `.github/workflows/build-frontend.yml` ("Validate Application") runs every command on this page — both halves — on pull requests into `main`, `develop`, `feature/**`, `docs/**`, `fix/**` and `ci/**`, and on pushes to `main` and `develop`. It validates and does not deploy.
 
-The pre-push list in `AGENTS.md` names the mandatory release checks, while CI
-also applies the coverage, dead-code and duplication ratchets described here.
-This page explains the gates; CI is what enforces them.
+Follow [AGENTS.md](../AGENTS.md) for verification scope: run relevant checks
+locally, expand them when the change could affect other areas, and require
+all CI gates to pass before merge. Documentation-only changes need content
+and link checks rather than local application suites. Report checks as passed,
+failed, or not run, with reasons for failures or missing verification.
+
+This page explains the commands and prerequisites; the workflow defines the
+complete CI gate set, including the coverage, dead-code and duplication ratchets.

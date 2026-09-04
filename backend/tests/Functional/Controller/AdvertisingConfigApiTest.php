@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Functional\Controller;
 
 use App\Service\AdvertisingConfiguration;
+use App\Service\ConsentConfiguration;
 use App\Service\GoogleAnalyticsConfiguration;
 use App\Service\TurnstileConfiguration;
 use App\Tests\Functional\AbstractApiTestCase;
@@ -27,7 +28,7 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
         self::assertArrayHasKey('adsense', $payload);
         self::assertArrayHasKey('analytics', $payload);
-        self::assertArrayHasKey('googleConsent', $payload);
+        self::assertArrayHasKey('consent', $payload);
         self::assertArrayHasKey('turnstile', $payload);
     }
 
@@ -36,7 +37,10 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
         $payload = $this->getJson('/api/public-config');
 
         self::assertSame(['enabled' => false, 'measurementId' => null], $payload['analytics']);
-        self::assertSame(['enabled' => false, 'client' => null], $payload['googleConsent']);
+        self::assertSame(
+            ['provider' => null, 'analytics' => false, 'googleClient' => null],
+            $payload['consent']
+        );
     }
 
     public function testAdvertisingIsOffAndNoPublisherIdIsPublishedByDefault(): void
@@ -58,10 +62,10 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
     {
         $payload = $this->getJson('/api/public-config');
 
-        self::assertSame(['adsense', 'analytics', 'googleConsent', 'turnstile', 'operator', 'privacyEmail', 'legalEmail'], array_keys($payload));
+        self::assertSame(['adsense', 'analytics', 'consent', 'turnstile', 'operator', 'privacyEmail', 'legalEmail'], array_keys($payload));
         self::assertSame(['enabled', 'client'], array_keys($payload['adsense']));
         self::assertSame(['enabled', 'measurementId'], array_keys($payload['analytics']));
-        self::assertSame(['enabled', 'client'], array_keys($payload['googleConsent']));
+        self::assertSame(['provider', 'analytics', 'googleClient'], array_keys($payload['consent']));
         self::assertSame(['enabled', 'siteKey'], array_keys($payload['turnstile']));
         self::assertSame(['enabled' => false, 'siteKey' => null], $payload['turnstile']);
         self::assertStringNotContainsString('secret', strtolower(json_encode($payload, JSON_THROW_ON_ERROR)));
@@ -83,23 +87,99 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
         self::assertStringNotContainsString('private-secret-key', json_encode($payload, JSON_THROW_ON_ERROR));
     }
 
-    public function testAnalyticsCanUseTheCertifiedCmpWithoutEnablingAdvertising(): void
-    {
-        $advertising = new AdvertisingConfiguration(false, 'ca-pub-1234567890123456', new NullLogger());
-        static::getContainer()->set(AdvertisingConfiguration::class, $advertising);
-        static::getContainer()->set(
-            GoogleAnalyticsConfiguration::class,
-            new GoogleAnalyticsConfiguration(true, 'G-PSW1MY7HB4', $advertising, new NullLogger())
-        );
+    /**
+     * The four effective states, as the browser is told them.
+     *
+     * `/api/public-config` is the contract the whole frontend consent story is
+     * built on, so each state is asserted whole rather than field by field: a
+     * key that quietly changes shape here changes what a provider believes
+     * about consent.
+     *
+     * @dataProvider effectiveStateProvider
+     *
+     * @param array{enabled: bool, client: string|null}               $expectedAdsense
+     * @param array{enabled: bool, measurementId: string|null}        $expectedAnalytics
+     * @param array{provider: string|null, analytics: bool, googleClient: string|null} $expectedConsent
+     */
+    public function testEachEffectiveStateIsPublishedIndependently(
+        bool $adsEnabled,
+        string $client,
+        bool $analyticsEnabled,
+        string $measurementId,
+        array $expectedAdsense,
+        array $expectedAnalytics,
+        array $expectedConsent,
+    ): void {
+        $this->configure($adsEnabled, $client, $analyticsEnabled, $measurementId);
 
         $payload = $this->getJson('/api/public-config');
 
-        self::assertSame(['enabled' => false, 'client' => null], $payload['adsense']);
-        self::assertSame(['enabled' => true, 'measurementId' => 'G-PSW1MY7HB4'], $payload['analytics']);
-        self::assertSame(
+        self::assertSame($expectedAdsense, $payload['adsense']);
+        self::assertSame($expectedAnalytics, $payload['analytics']);
+        self::assertSame($expectedConsent, $payload['consent']);
+    }
+
+    /** @return iterable<string, array<int, mixed>> */
+    public static function effectiveStateProvider(): iterable
+    {
+        yield 'A: neither' => [
+            false, '', false, '',
+            ['enabled' => false, 'client' => null],
+            ['enabled' => false, 'measurementId' => null],
+            ['provider' => null, 'analytics' => false, 'googleClient' => null],
+        ];
+        yield 'B: AdSense only' => [
+            true, 'ca-pub-1234567890123456', false, '',
             ['enabled' => true, 'client' => 'ca-pub-1234567890123456'],
-            $payload['googleConsent']
-        );
+            ['enabled' => false, 'measurementId' => null],
+            ['provider' => 'google', 'analytics' => false, 'googleClient' => 'ca-pub-1234567890123456'],
+        ];
+        yield 'C: Analytics only, no publisher id at all' => [
+            false, '', true, 'G-PSW1MY7HB4',
+            ['enabled' => false, 'client' => null],
+            ['enabled' => true, 'measurementId' => 'G-PSW1MY7HB4'],
+            ['provider' => 'local', 'analytics' => true, 'googleClient' => null],
+        ];
+        yield 'C: Analytics only, with a stray publisher id' => [
+            false, 'ca-pub-1234567890123456', true, 'G-PSW1MY7HB4',
+            ['enabled' => false, 'client' => null],
+            ['enabled' => true, 'measurementId' => 'G-PSW1MY7HB4'],
+            ['provider' => 'local', 'analytics' => true, 'googleClient' => null],
+        ];
+        yield 'D: both' => [
+            true, 'ca-pub-1234567890123456', true, 'G-PSW1MY7HB4',
+            ['enabled' => true, 'client' => 'ca-pub-1234567890123456'],
+            ['enabled' => true, 'measurementId' => 'G-PSW1MY7HB4'],
+            ['provider' => 'google', 'analytics' => true, 'googleClient' => 'ca-pub-1234567890123456'],
+        ];
+        yield 'invalid publisher id cannot disable valid Analytics' => [
+            true, 'ca-pub-nope', true, 'G-PSW1MY7HB4',
+            ['enabled' => false, 'client' => null],
+            ['enabled' => true, 'measurementId' => 'G-PSW1MY7HB4'],
+            ['provider' => 'local', 'analytics' => true, 'googleClient' => null],
+        ];
+        yield 'invalid measurement id cannot disable valid advertising' => [
+            true, 'ca-pub-1234567890123456', true, 'UA-123456-1',
+            ['enabled' => true, 'client' => 'ca-pub-1234567890123456'],
+            ['enabled' => false, 'measurementId' => null],
+            ['provider' => 'google', 'analytics' => false, 'googleClient' => 'ca-pub-1234567890123456'],
+        ];
+    }
+
+    /**
+     * Analytics used to require a valid `ADSENSE_CLIENT` even with advertising
+     * switched off, because Privacy & Messaging was the only consent provider
+     * wired up. This is the configuration that used to silently measure nothing.
+     */
+    public function testAnalyticsOnlyNeedsNoAdSenseAccountAtAll(): void
+    {
+        $this->configure(false, '', true, 'G-PSW1MY7HB4');
+
+        $payload = $this->getJson('/api/public-config');
+
+        self::assertTrue($payload['analytics']['enabled']);
+        self::assertSame('local', $payload['consent']['provider']);
+        self::assertStringNotContainsString('ca-pub', json_encode($payload, JSON_THROW_ON_ERROR));
     }
 
     public function testAdsTxtIsAbsentWhereThereIsNoAuthorisedSeller(): void
@@ -136,10 +216,17 @@ final class AdvertisingConfigApiTest extends AbstractApiTestCase
 
     private function enableAdvertising(string $client): void
     {
-        static::getContainer()->set(
-            AdvertisingConfiguration::class,
-            new AdvertisingConfiguration(true, $client, new NullLogger())
-        );
+        $this->configure(true, $client, false, '');
+    }
+
+    private function configure(bool $adsEnabled, string $client, bool $analyticsEnabled, string $measurementId): void
+    {
+        $advertising = new AdvertisingConfiguration($adsEnabled, $client, new NullLogger());
+        $analytics = new GoogleAnalyticsConfiguration($analyticsEnabled, $measurementId, new NullLogger());
+        $container = static::getContainer();
+        $container->set(AdvertisingConfiguration::class, $advertising);
+        $container->set(GoogleAnalyticsConfiguration::class, $analytics);
+        $container->set(ConsentConfiguration::class, new ConsentConfiguration($advertising, $analytics));
     }
 
     /**

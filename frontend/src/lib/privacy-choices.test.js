@@ -1,14 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { reopenPrivacyChoices } from "@/lib/privacy-choices";
-import { loadConsentPlatform } from "@/lib/adsense-loader";
+import { acquireConsentPlatform } from "@/lib/adsense-loader";
 
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), log: vi.fn() } }));
-vi.mock("@/lib/adsense-loader", () => ({ loadConsentPlatform: vi.fn(() => Promise.resolve("unavailable")) }));
+vi.mock("@/lib/adsense-loader", () => ({
+  acquireConsentPlatform: vi.fn(() => Promise.resolve("unavailable")),
+}));
 
 const CLIENT = "ca-pub-1234567890123456";
 
 beforeEach(() => vi.clearAllMocks());
+
+/**
+ * Run what was queued, the way Funding Choices would.
+ *
+ * The queue is checked by what it does rather than by which reference is in it:
+ * the entry is a call *through* `googlefc`, so that Google's own method is not
+ * invoked detached from the object it belongs to.
+ */
+const drain = (callbackQueue, index = callbackQueue.length - 1) => callbackQueue[index]();
 
 /**
  * Consent lives entirely in Google's certified platform. What matters here is
@@ -17,14 +28,20 @@ beforeEach(() => vi.clearAllMocks());
  * exception.
  */
 describe("reopening the privacy choices", () => {
-  it("asks the consent platform to show its message again", async () => {
+  it("queues the supported consent-platform revocation function", async () => {
     const showRevocationMessage = vi.fn();
+    const callbackQueue = [];
+    const win = { googlefc: { callbackQueue, showRevocationMessage } };
 
-    await expect(reopenPrivacyChoices({ client: CLIENT, win: { googlefc: { showRevocationMessage } } }))
-      .resolves.toBe(true);
-    expect(showRevocationMessage).toHaveBeenCalledOnce();
+    await expect(reopenPrivacyChoices({ client: CLIENT, win })).resolves.toBe(true);
+    expect(showRevocationMessage).not.toHaveBeenCalled();
+    expect(callbackQueue).toHaveLength(1);
+
+    drain(callbackQueue);
+    expect(showRevocationMessage).toHaveBeenCalledTimes(1);
+    expect(showRevocationMessage.mock.contexts[0]).toBe(win.googlefc);
     // Already there — no reason to fetch it again.
-    expect(loadConsentPlatform).not.toHaveBeenCalled();
+    expect(acquireConsentPlatform).toHaveBeenCalledWith(CLIENT, expect.anything());
   });
 
   /**
@@ -39,15 +56,17 @@ describe("reopening the privacy choices", () => {
   it("fetches the consent platform on a page that never loaded advertising", async () => {
     const win = {};
     const showRevocationMessage = vi.fn();
-    vi.mocked(loadConsentPlatform).mockImplementation(() => {
-      win.googlefc = { showRevocationMessage };
+    vi.mocked(acquireConsentPlatform).mockImplementation(() => {
+      win.googlefc = { callbackQueue: [], showRevocationMessage };
 
       return Promise.resolve("ready");
     });
 
     await expect(reopenPrivacyChoices({ client: CLIENT, win })).resolves.toBe(true);
-    expect(loadConsentPlatform).toHaveBeenCalledWith(CLIENT, expect.anything());
-    expect(showRevocationMessage).toHaveBeenCalledOnce();
+    expect(acquireConsentPlatform).toHaveBeenCalledWith(CLIENT, expect.anything());
+
+    drain(win.googlefc.callbackQueue);
+    expect(showRevocationMessage).toHaveBeenCalledTimes(1);
   });
 
   /** Clicked before the platform finished initialising. */
@@ -61,7 +80,9 @@ describe("reopening the privacy choices", () => {
     win.googlefc.showRevocationMessage = showRevocationMessage;
     win.googlefc.callbackQueue[0].CONSENT_API_READY();
 
-    expect(showRevocationMessage).toHaveBeenCalledOnce();
+    expect(win.googlefc.callbackQueue).toHaveLength(2);
+    drain(win.googlefc.callbackQueue);
+    expect(showRevocationMessage).toHaveBeenCalledTimes(1);
   });
 
   it("creates the queue when the platform has not made one", async () => {
@@ -77,11 +98,13 @@ describe("reopening the privacy choices", () => {
   });
 
   it("survives a consent platform that throws", async () => {
+    const showRevocationMessage = () => {
+      throw new Error("iframe removed");
+    };
     const win = {
       googlefc: {
-        showRevocationMessage: () => {
-          throw new Error("iframe removed");
-        },
+        callbackQueue: { push: (callback) => callback() },
+        showRevocationMessage,
       },
     };
 

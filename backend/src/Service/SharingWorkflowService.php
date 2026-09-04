@@ -15,8 +15,9 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
  * Convenience workflows built on top of the existing one-comic sharing model.
  *
  * This service deliberately does not search User. Reusable recipients come only
- * from addresses this owner previously supplied themselves, and bulk sharing is
- * only the permission gate in front of ComicShareService::inviteMany().
+ * from registered accounts already linked to this owner's shares, and bulk
+ * sharing is only the permission gate in front of
+ * ComicShareService::inviteMany().
  */
 final class SharingWorkflowService
 {
@@ -99,19 +100,20 @@ final class SharingWorkflowService
     }
 
     /**
-     * People this owner has already shared with, newest relationship first.
+     * Registered people this owner has already shared with, latest share first.
      *
      * No directory and no search: the rows are restricted to people this owner
      * already has a sharing relationship with, so nothing is learned that
      * sharing with them did not already establish. It is an address book of
      * known correspondents, not a lookup of who exists.
      *
-     * Registered recipients are offered by username, because that is their
-     * public identity and it is the one that survives them changing anything
-     * else. Recipients the owner reached without seeing their address are never
-     * listed by address — that is the one thing being withheld.
+     * A pending email invitation is only an address, not a person, until its
+     * recipient accepts or declines it from an account. Once linked, every
+     * share route points to the same User and therefore yields one suggestion,
+     * offered by the account's current username rather than by an old address
+     * or code.
      *
-     * @return list<array{email: string|null, username: string|null, userCode: string|null,
+     * @return list<array{email: null, username: string, userCode: string,
      *                    name: string|null, label: string}>
      */
     public function recentRecipients(User $owner, int $limit = self::RECENT_RECIPIENT_LIMIT): array
@@ -119,74 +121,41 @@ final class SharingWorkflowService
         $safeLimit = max(1, min($limit, self::RECENT_RECIPIENT_LIMIT));
 
         $rows = $this->entityManager->createQueryBuilder()
-            ->select('s.recipientEmailNormalized AS email')
-            // Whether the owner was kept from this address, not which code did
-            // it. The stored one is a note about how the relationship began and
-            // goes stale the moment the recipient rotates; offering it back
-            // would put a retired code straight into the picker.
-            ->addSelect('s.recipientUserCode AS historicalCode')
+            ->select('ru.id AS HIDDEN recipientId')
             ->addSelect('ru.username AS username')
             ->addSelect('ru.userCode AS currentCode')
             ->addSelect('ru.name AS currentName')
+            ->addSelect('MAX(s.lastSharedAt) AS HIDDEN latestSharedAt')
             ->addSelect('MAX(s.id) AS HIDDEN lastShareId')
             ->from(ComicShare::class, 's')
-            ->leftJoin('s.recipientUser', 'ru')
+            ->innerJoin('s.recipientUser', 'ru')
             ->andWhere('s.owner = :owner')
-            ->andWhere('s.recipientEmailNormalized <> :empty')
             ->setParameter('owner', $owner)
-            ->setParameter('empty', '')
-            // Grouped so a person the owner has reached both ways appears once
-            // per way of reaching them, rather than one entry silently carrying
-            // the other's label.
-            ->groupBy('s.recipientEmailNormalized')
-            ->addGroupBy('s.recipientUserCode')
+            ->groupBy('ru.id')
             ->addGroupBy('ru.username')
             ->addGroupBy('ru.userCode')
             ->addGroupBy('ru.name')
-            ->orderBy('lastShareId', 'DESC')
+            ->orderBy('latestSharedAt', 'DESC')
+            ->addOrderBy('lastShareId', 'DESC')
             ->setMaxResults($safeLimit)
             ->getQuery()
             ->getArrayResult();
 
         $recipients = [];
         foreach ($rows as $row) {
-            $hidden = $row['historicalCode'] !== null;
-            $username = ($row['username'] ?? null) === null ? null : (string) $row['username'];
-            $currentCode = ($row['currentCode'] ?? null) === null ? null : (string) $row['currentCode'];
+            $username = (string) $row['username'];
+            $currentCode = (string) $row['currentCode'];
             $name = $row['currentName'] === null ? null : (string) $row['currentName'];
 
-            if ($username !== null) {
-                $recipients[] = [
-                    // Withheld for a recipient the owner was never shown, and
-                    // kept for one whose address they typed themselves — where
-                    // hiding it now would withhold something they already have.
-                    'email' => $hidden ? null : (string) $row['email'],
-                    'username' => $username,
-                    'userCode' => $currentCode === null
-                        ? null
-                        : SharingCodeFormat::forDisplay(ShareCodeType::USER, $currentCode),
-                    'name' => $name,
-                    // The same rule the shared-by-me list uses, so the label a
-                    // sender picks from and the label they read afterwards
-                    // cannot describe one person two ways.
-                    'label' => UsernamePolicy::describe($username, $name) ?? $username,
-                ];
-                continue;
-            }
-
-            // No account behind this row. A hidden recipient whose account has
-            // gone is simply not offered: the alternative — falling back to the
-            // address — would hand over the one thing that was being withheld.
-            if ($hidden) {
-                continue;
-            }
-
             $recipients[] = [
-                'email' => (string) $row['email'],
-                'username' => null,
-                'userCode' => null,
-                'name' => null,
-                'label' => (string) $row['email'],
+                'email' => null,
+                'username' => $username,
+                'userCode' => SharingCodeFormat::forDisplay(ShareCodeType::USER, $currentCode),
+                'name' => $name,
+                // The same rule the shared-by-me list uses, so the label a
+                // sender picks from and the label they read afterwards cannot
+                // describe one person two ways.
+                'label' => UsernamePolicy::describe($username, $name) ?? $username,
             ];
         }
 

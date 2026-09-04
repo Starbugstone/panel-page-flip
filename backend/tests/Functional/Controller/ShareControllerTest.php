@@ -313,9 +313,9 @@ final class ShareControllerTest extends AbstractApiTestCase
         // The tombstone belongs to the recipient, as the record of a comic that
         // went away. The owner caused it, has no comic left to manage, and sees
         // nothing of it.
-        $groups = $this->getJson('/api/shares/shared-by-me')['sharedByMe'];
-        self::assertCount(1, $groups);
-        self::assertSame('Kept', $groups[0]['title']);
+        $shares = $this->getJson('/api/shares/shared-by-me')['sharedByMe'];
+        self::assertCount(1, $shares);
+        self::assertSame('Kept', $shares[0]['comicTitle']);
 
         // The recipient still gets their explanation.
         $this->loginAs($recipient);
@@ -626,17 +626,16 @@ final class ShareControllerTest extends AbstractApiTestCase
             self::assertResponseStatusCodeSame(201);
         }
 
-        $groups = $this->getJson('/api/shares/shared-by-me')['sharedByMe'];
-        self::assertCount(1, $groups);
-        self::assertSame('Batman: Year One', $groups[0]['title']);
-        self::assertCount(2, $groups[0]['recipients']);
+        $shares = $this->getJson('/api/shares/shared-by-me')['sharedByMe'];
+        self::assertCount(2, $shares);
+        self::assertSame(['Batman: Year One'], array_values(array_unique(array_column($shares, 'comicTitle'))));
         self::assertEqualsCanonicalizing(
             ['jane@example.com', 'bob@example.com'],
-            array_column($groups[0]['recipients'], 'recipientEmail')
+            array_column($shares, 'recipientEmail')
         );
         self::assertSame(
             [ComicShare::STATUS_PENDING, ComicShare::STATUS_PENDING],
-            array_column($groups[0]['recipients'], 'status')
+            array_column($shares, 'status')
         );
     }
 
@@ -654,9 +653,9 @@ final class ShareControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
 
         // The revoked row offers deletion, not another revocation.
-        $recipients = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'];
-        self::assertTrue($recipients[0]['canDelete']);
-        self::assertFalse($recipients[0]['canRevoke']);
+        $shareRow = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
+        self::assertTrue($shareRow['canDelete']);
+        self::assertFalse($shareRow['canRevoke']);
 
         $this->deleteJson('/api/shares/' . $share->getId());
         self::assertResponseIsSuccessful();
@@ -709,7 +708,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
     }
 
-    public function testTheSharingListIsPagedByComic(): void
+    public function testTheSharingListIsPagedByIndividualGrant(): void
     {
         $owner = $this->createAndLoginUser(['email' => 'prolific@test.local']);
 
@@ -724,18 +723,178 @@ final class ShareControllerTest extends AbstractApiTestCase
 
         $first = $this->getJson('/api/shares/shared-by-me?page=1&limit=2');
         self::assertSame(
-            ['page' => 1, 'limit' => 2, 'totalItems' => 3, 'totalPages' => 2],
+            ['page' => 1, 'limit' => 2, 'totalItems' => 4, 'totalPages' => 2],
             $first['pagination']
         );
-        self::assertSame(['Newest', 'Middle'], array_column($first['sharedByMe'], 'title'));
-        // Paged by comic, so a boundary never splits a comic's recipients.
-        self::assertCount(2, $first['sharedByMe'][1]['recipients']);
+        self::assertSame(['Newest', 'Middle'], array_column($first['sharedByMe'], 'comicTitle'));
 
         $second = $this->getJson('/api/shares/shared-by-me?page=2&limit=2');
-        self::assertSame(['Oldest'], array_column($second['sharedByMe'], 'title'));
+        self::assertSame(['Middle', 'Oldest'], array_column($second['sharedByMe'], 'comicTitle'));
 
         // Beyond the end is an empty page, not an error.
         self::assertSame([], $this->getJson('/api/shares/shared-by-me?page=9&limit=2')['sharedByMe']);
+    }
+
+    public function testTheOwnerSharingTablePagesSortsSearchesAndFiltersIndividualShares(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'table-owner@test.local']);
+        $alpha = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Alpha Book']);
+        $zeta = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Zeta Book']);
+
+        $this->persistShare($alpha, $owner, 'charlie@test.local');
+        $this->persistShare($alpha, $owner, 'alice@test.local');
+        $this->persistShare($zeta, $owner, 'bob@test.local');
+
+        $firstPage = $this->getJson('/api/shares/shared-by-me?page=1&limit=2&sort=comicTitle&direction=ASC');
+        self::assertSame(
+            ['page' => 1, 'limit' => 2, 'totalItems' => 3, 'totalPages' => 2],
+            $firstPage['pagination']
+        );
+        self::assertSame(['Alpha Book', 'Alpha Book'], array_column($firstPage['sharedByMe'], 'comicTitle'));
+        self::assertSame(
+            ['alice@test.local', 'charlie@test.local'],
+            array_column($firstPage['sharedByMe'], 'recipientEmail')
+        );
+
+        $search = $this->getJson('/api/shares/shared-by-me?search=bob%40test.local');
+        self::assertSame(['Zeta Book'], array_column($search['sharedByMe'], 'comicTitle'));
+
+        $filtered = $this->getJson(
+            '/api/shares/shared-by-me?filterComic=alpha&filterRecipient=charlie&filterStatus=Pending'
+        );
+        self::assertSame(['charlie@test.local'], array_column($filtered['sharedByMe'], 'recipientEmail'));
+    }
+
+    public function testTheOwnerSharingTableFindsARecipientByTheDisplayedUserCode(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'code-filter-owner@test.local']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Private Route']);
+        $visibleComic = ComicFactory::new()->ownedBy($owner)->create(['title' => 'Known Address Route']);
+        $recipient = UserFactory::createOne(['email' => 'hidden-recipient@test.local']);
+        $recipient->replaceUserCode('23DFTC956NTS');
+
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->flush();
+
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
+        $share
+            ->hideRecipientBehindSharingCode('23DFTC956NTS', $recipient->getName())
+            ->linkRecipientUser($this->managed(User::class, (int) $recipient->getId()));
+        $entityManager->flush();
+
+        // The same account also has an ordinary email share. Matching its
+        // current code must not reveal that this otherwise address-only row is
+        // connected to the code.
+        $visibleShare = $this->persistShare($visibleComic, $owner, (string) $recipient->getEmail());
+        $visibleShare->linkRecipientUser($this->managed(User::class, (int) $recipient->getId()));
+        $entityManager->flush();
+
+        foreach (['filterRecipient', 'search'] as $parameter) {
+            $payload = $this->getJson(sprintf(
+                '/api/shares/shared-by-me?%s=U-23DF-TC95-6NTS',
+                $parameter
+            ));
+
+            self::assertSame([$share->getId()], array_column($payload['sharedByMe'], 'id'), $parameter);
+            self::assertSame('U-23DF-TC95-6NTS', $payload['sharedByMe'][0]['recipientUserCode']);
+            self::assertNull($payload['sharedByMe'][0]['recipientEmail']);
+        }
+    }
+
+    public function testOwnerSearchCannotDiscoverAHiddenRecipientEmail(): void
+    {
+        $owner = $this->createAndLoginUser();
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $recipient = UserFactory::createOne(['email' => 'private-address@example.test', 'username' => 'public_reader']);
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
+        $share->hideRecipientBehindSharingCode((string) $recipient->getUserCode(), 'Public Reader')
+            ->linkRecipientUser($this->managed(User::class, (int) $recipient->getId()));
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
+
+        foreach (['search', 'filterRecipient'] as $parameter) {
+            $hidden = $this->getJson('/api/shares/shared-by-me?'.$parameter.'=private-address');
+            self::assertResponseIsSuccessful();
+            self::assertSame(0, $hidden['pagination']['totalItems'], $parameter);
+            $visible = $this->getJson('/api/shares/shared-by-me?'.$parameter.'=public_reader');
+            self::assertSame([$share->getId()], array_column($visible['sharedByMe'], 'id'));
+        }
+    }
+
+    public function testRecipientSearchCannotDiscoverTheOwnerEmail(): void
+    {
+        $recipient = $this->createAndLoginUser();
+        $owner = UserFactory::createOne(['email' => 'private-owner@example.test', 'username' => 'public_owner']);
+        $comic = ComicFactory::new()->ownedBy($owner)->create();
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
+
+        foreach (['search', 'filterOwner'] as $parameter) {
+            $hidden = $this->getJson('/api/shares/shared-with-me?'.$parameter.'=private-owner');
+            self::assertResponseIsSuccessful();
+            self::assertSame(0, $hidden['pagination']['totalItems'], $parameter);
+            $visible = $this->getJson('/api/shares/shared-with-me?'.$parameter.'=public_owner');
+            self::assertSame([$share->getId()], array_column($visible['sharedWithMe'], 'id'));
+        }
+    }
+
+    public function testRecipientSearchRespectsTheComicAgeGateIncludingTombstones(): void
+    {
+        $recipient = $this->createAndLoginUser();
+        $owner = UserFactory::createOne();
+        $comic = ComicFactory::new()->ownedBy($owner)->create([
+            'title' => 'HiddenTitle',
+            'author' => 'HiddenAuthor',
+            'explicitContent' => true,
+        ]);
+        $share = $this->persistShare($comic, $owner, (string) $recipient->getEmail());
+
+        foreach ([false, true] as $tombstone) {
+            if ($tombstone) {
+                $share = $this->managed(ComicShare::class, (int) $share->getId());
+                $share->markUnavailable('comic_deleted')->setComic(null);
+                static::getContainer()->get(EntityManagerInterface::class)->flush();
+            }
+            foreach (['search', 'filterComic'] as $parameter) {
+                foreach (['HiddenTitle', 'HiddenAuthor'] as $query) {
+                    $hidden = $this->getJson('/api/shares/shared-with-me?'.$parameter.'='.$query);
+                    self::assertResponseIsSuccessful();
+                    self::assertSame(0, $hidden['pagination']['totalItems'], $parameter.'='.$query);
+                }
+            }
+        }
+        $share = $this->managed(ComicShare::class, (int) $share->getId());
+        $share->confirmAdult();
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
+        $visible = $this->getJson('/api/shares/shared-with-me?filterComic=HiddenTitle');
+        self::assertSame([$share->getId()], array_column($visible['sharedWithMe'], 'id'));
+    }
+
+    public function testTheRecipientSharingTablePagesSortsSearchesAndFiltersIndividualShares(): void
+    {
+        $recipient = $this->createAndLoginUser(['email' => 'table-recipient@test.local']);
+        $alex = UserFactory::createOne(['email' => 'alex-owner@test.local', 'name' => 'Alex Owner']);
+        $blair = UserFactory::createOne(['email' => 'blair-owner@test.local', 'name' => 'Blair Owner']);
+        $alpha = ComicFactory::new()->ownedBy($alex)->create(['title' => 'Alpha Book']);
+        $middle = ComicFactory::new()->ownedBy($blair)->create(['title' => 'Middle Book']);
+        $zeta = ComicFactory::new()->ownedBy($alex)->create(['title' => 'Zeta Book']);
+
+        $this->persistShare($zeta, $alex, (string) $recipient->getEmail());
+        $this->persistShare($middle, $blair, (string) $recipient->getEmail());
+        $this->createAcceptedShare($alpha, $alex, $recipient);
+
+        $firstPage = $this->getJson('/api/shares/shared-with-me?page=1&limit=2&sort=comicTitle&direction=ASC');
+        self::assertSame(
+            ['page' => 1, 'limit' => 2, 'totalItems' => 3, 'totalPages' => 2],
+            $firstPage['pagination']
+        );
+        self::assertSame(['Alpha Book', 'Middle Book'], array_column($firstPage['sharedWithMe'], 'comicTitle'));
+
+        $search = $this->getJson('/api/shares/shared-with-me?search=blair');
+        self::assertSame(['Middle Book'], array_column($search['sharedWithMe'], 'comicTitle'));
+
+        $filtered = $this->getJson(
+            '/api/shares/shared-with-me?filterComic=zeta&filterOwner=alex&filterStatus=Pending'
+        );
+        self::assertSame(['Zeta Book'], array_column($filtered['sharedWithMe'], 'comicTitle'));
     }
 
     /**
@@ -814,7 +973,7 @@ final class ShareControllerTest extends AbstractApiTestCase
 
         // The window is two months, and the link and the relationship share it,
         // so neither can outlive the other.
-        $share = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $share = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         $expiresAt = new \DateTimeImmutable($share['expiresAt']);
         self::assertGreaterThan(new \DateTimeImmutable('+59 days'), $expiresAt);
         self::assertLessThan(new \DateTimeImmutable('+62 days'), $expiresAt);
@@ -867,7 +1026,7 @@ final class ShareControllerTest extends AbstractApiTestCase
         // Read before the next request: the mailer collector holds what the
         // most recent one sent, so a lookup in between would clear it.
         $firstToken = $this->invitationTokenFromEmail();
-        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['id'];
 
         // Resending is the manual counterpart to the queued notice and is
         // synchronous, so the replacement email is on the collector as soon as

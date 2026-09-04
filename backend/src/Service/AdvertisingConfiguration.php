@@ -40,6 +40,8 @@ final class AdvertisingConfiguration
 
     private readonly bool $enabled;
 
+    private readonly bool $clientConfigured;
+
     public function __construct(
         #[Autowire('%adsense_enabled%')]
         bool $adsenseEnabled,
@@ -60,6 +62,7 @@ final class AdvertisingConfiguration
 
         $this->enabled = $adsenseEnabled && $isUsableClient;
         $this->client = $isUsableClient ? $client : null;
+        $this->clientConfigured = $client !== '';
     }
 
     public function isEnabled(): bool
@@ -73,22 +76,22 @@ final class AdvertisingConfiguration
         return $this->client !== null;
     }
 
+    /**
+     * Whether ADSENSE_CLIENT holds anything at all.
+     *
+     * Only the diagnostic needs this: "not configured" and "configured wrongly"
+     * are the same "off" to every caller that matters, and the difference is
+     * the whole answer to an operator wondering why.
+     */
+    public function hasConfiguredClient(): bool
+    {
+        return $this->clientConfigured;
+    }
+
     /** The publisher id, only once it is both configured and switched on. */
     public function client(): ?string
     {
         return $this->enabled ? $this->client : null;
-    }
-
-    /**
-     * The valid publisher id used by Google's certified consent platform.
-     *
-     * Analytics may reuse Privacy & Messaging while advertising itself remains
-     * off. This deliberately differs from client(), which must never make an
-     * ad-disabled installation look enabled to the browser.
-     */
-    public function consentClient(): ?string
-    {
-        return $this->client;
     }
 
     /**

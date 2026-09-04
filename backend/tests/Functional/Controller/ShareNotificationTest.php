@@ -154,7 +154,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
 
         // The relationship exists, and the owner can see both that and the fact
         // that nobody was told about it.
-        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         self::assertSame(ComicShare::STATUS_PENDING, $recipient['status']);
         self::assertSame(ComicShare::NOTIFICATION_FAILED, $recipient['notificationState']);
         self::assertNull($recipient['notifiedAt']);
@@ -172,7 +172,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
             'senderResponsibilityAccepted' => true,
         ]);
 
-        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         self::assertSame(ComicShare::NOTIFICATION_SENT, $recipient['notificationState']);
         self::assertNotNull($recipient['notifiedAt']);
     }
@@ -194,7 +194,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
             'senderResponsibilityAccepted' => true,
         ]);
 
-        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['id'];
 
         // The mail server comes back, and the owner presses resend.
         SwitchableMailer::reset();
@@ -205,7 +205,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
         self::assertArrayNotHasKey('invitationUrl', $resent);
         self::assertStringContainsString('/share/invitation/', $this->invitationUrlFromEmail());
 
-        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         self::assertSame(ComicShare::NOTIFICATION_SENT, $recipient['notificationState']);
     }
 
@@ -219,7 +219,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
             'email' => 'gone-away@example.com',
             'senderResponsibilityAccepted' => true,
         ]);
-        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['id'];
 
         $this->breakTheMailer();
         $payload = $this->postJson('/api/shares/' . $shareId . '/resend');
@@ -229,7 +229,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
         self::assertStringContainsString('Sharing page', $payload['message']);
         self::assertStringNotContainsString('copy the link', $payload['message']);
 
-        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         self::assertSame(ComicShare::STATUS_PENDING, $recipient['status']);
         self::assertSame(ComicShare::NOTIFICATION_FAILED, $recipient['notificationState']);
     }
@@ -248,7 +248,7 @@ final class ShareNotificationTest extends AbstractApiTestCase
             'email' => 'never-mind@example.com',
             'senderResponsibilityAccepted' => true,
         ]);
-        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0]['id'];
+        $shareId = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['id'];
         $this->postJson('/api/shares/' . $shareId . '/revoke', []);
 
         $handler = static::getContainer()->get(\App\MessageHandler\ShareInvitationNotificationHandler::class);
@@ -322,14 +322,14 @@ final class ShareNotificationTest extends AbstractApiTestCase
 
         // And the state survived the request, so the owner is told about it on
         // the Sharing page rather than only in the response they have closed.
-        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $recipient = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         self::assertSame(ComicShare::NOTIFICATION_FAILED, $recipient['notificationState']);
 
         // Recoverable by hand, which is what the failed state is for.
         $this->postJson('/api/shares/' . $recipient['id'] . '/resend');
         self::assertResponseIsSuccessful();
 
-        $afterResend = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0]['recipients'][0];
+        $afterResend = $this->getJson('/api/shares/shared-by-me')['sharedByMe'][0];
         self::assertSame(ComicShare::NOTIFICATION_SENT, $afterResend['notificationState']);
     }
 }

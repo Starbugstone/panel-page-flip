@@ -6,7 +6,7 @@
  * panel: the admin and the user settings pages report the same statuses, and two
  * copies of the same map are two things that stop agreeing.
  */
-export const PROVIDER_STATUS_STYLES = {
+const PROVIDER_STATUS_STYLES = {
   ok: "text-green-600",
   unconfigured: "text-muted-foreground",
   disabled: "text-muted-foreground",

@@ -239,6 +239,36 @@ final class ComicInfoParserTest extends TestCase
         return '<?xml version="1.0" encoding="utf-8"?><ComicInfo>'.$body.'</ComicInfo>';
     }
 
+    public function testIgnoresOverflowingNumbersWithoutLosingUsableMetadata(): void
+    {
+        $info = $this->parser->parse($this->comicInfo(
+            '<Title>Still readable</Title><Count>2147483648</Count><Volume>'.PHP_INT_MAX.'</Volume>'
+            .'<Pages><Page Image="'.PHP_INT_MAX.'" /><Page Image="99999999999999999999999" />'
+            .'<Page Image="20000" /><Page Image="0" ImageWidth="2147483648" ImageHeight="1800" /></Pages>'
+        ));
+
+        self::assertSame('Still readable', $info?->title);
+        self::assertNull($info?->issueCount);
+        self::assertNull($info?->volume);
+        self::assertCount(1, $info?->pages ?? []);
+        self::assertSame(1, $info?->pages[0]->page);
+        self::assertNull($info?->pages[0]->width);
+        self::assertSame(1800, $info?->pages[0]->height);
+    }
+
+    public function testAcceptsBoundariesAndLeadingZeroes(): void
+    {
+        $info = $this->parser->parse($this->comicInfo(
+            '<Count>00012</Count><Volume>2147483647</Volume>'
+            .'<Pages><Page Image="19999" ImageWidth="001200" /></Pages>'
+        ));
+
+        self::assertSame(12, $info?->issueCount);
+        self::assertSame(2_147_483_647, $info?->volume);
+        self::assertSame(20_000, $info?->pages[0]->page);
+        self::assertSame(1200, $info?->pages[0]->width);
+    }
+
     /**
      * Genre and the free-text Tags list are read, but only as suggestions.
      * Neither is trusted enough to reorganise a library on import.

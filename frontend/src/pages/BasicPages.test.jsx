@@ -37,6 +37,9 @@ describe("basic route pages", () => {
     const user = userEvent.setup();
     renderAt("/forgot-password", <ForgotPassword />);
 
+    expect(screen.getByRole("heading", { level: 1, name: "Reset Password" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toHaveAttribute("autocomplete", "email");
+
     await user.type(screen.getByLabelText("Email"), "reader@example.test");
     await user.click(screen.getByRole("button", { name: "Send Reset Link" }));
 
@@ -46,6 +49,26 @@ describe("basic route pages", () => {
       { notifyUnauthorized: false },
     ));
     expect(screen.getByText(/If an account exists with the email/)).toBeInTheDocument();
+  });
+
+  it("keeps reset responses non-enumerating after a server failure", async () => {
+    vi.mocked(api.post).mockRejectedValue(new Error("Account does not exist"));
+    renderAt("/forgot-password", <ForgotPassword />);
+    await userEvent.type(screen.getByLabelText("Email"), "missing@example.test");
+    await userEvent.click(screen.getByRole("button", { name: "Send Reset Link" }));
+    expect(await screen.findByText(/If an account exists with the email/)).toBeInTheDocument();
+    expect(screen.queryByText("Account does not exist")).not.toBeInTheDocument();
+  });
+
+  it.each(["", "?status=verification-failed"])("submits verification from the keyboard on %s", async (query) => {
+    vi.mocked(api.post).mockResolvedValue({});
+    renderAt(`/email-verification${query}`, <EmailVerification />);
+    expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Your Email Address"), "reader@example.test{Enter}");
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/api/email-verification/resend", { email: "reader@example.test" }, { notifyUnauthorized: false },
+    ));
+    expect(await screen.findByRole("status")).toHaveTextContent(/check your inbox/i);
   });
 
   it("renders the verification result carried by the redirect URL", () => {

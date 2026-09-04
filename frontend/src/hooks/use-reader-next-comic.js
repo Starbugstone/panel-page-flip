@@ -11,18 +11,21 @@ import { logger } from "@/lib/logger";
  * may represent one folder, a search, or an ownership filter, while ranking a
  * fallback by tags needs to see the rest of the library too.
  */
-export function useReaderNextComic(comic) {
+export function useReaderNextComic(comic, enabled) {
   const [catalog, setCatalog] = useState(null);
 
   useEffect(() => {
-    let active = true;
+    if (!enabled || catalog !== null) return undefined;
+    const controller = new AbortController();
 
-    api.get("/api/comics")
-      .then((data) => { if (active) setCatalog(data.comics || []); })
-      .catch((error) => logger.warn("Could not load the comic catalog for reader navigation:", error));
+    api.get("/api/comics", { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setCatalog(data.comics || []); })
+      .catch((error) => {
+        if (!controller.signal.aborted) logger.warn("Could not load the comic catalog for reader navigation:", error);
+      });
 
-    return () => { active = false; };
-  }, []);
+    return () => controller.abort();
+  }, [catalog, enabled]);
 
   return useMemo(
     () => nextComicForReader(catalog, comic),

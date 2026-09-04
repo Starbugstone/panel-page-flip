@@ -74,18 +74,22 @@ export async function uploadComicInChunks({
   file,
   metadata,
   concurrentChunks = 4,
+  chunkSize = CHUNK_SIZE_BYTES,
   requestPool,
-  signal,
+  signal: callerSignal,
   onProgress = () => {},
   onStatus = () => {},
 }) {
   if (!file) throw new Error("A comic file is required");
 
+  const controller = new AbortController();
+  const signal = callerSignal ? AbortSignal.any([callerSignal, controller.signal]) : controller.signal;
   const fileId = createFileId();
-  const totalChunks = Math.ceil(file.size / CHUNK_SIZE_BYTES);
+  const totalChunks = Math.ceil(file.size / chunkSize);
   const workerCount = Math.max(1, Math.min(Number(concurrentChunks) || 1, totalChunks));
   const runRequest = requestPool || createUploadRequestPool(concurrentChunks);
   let uploaded = 0;
+  let lastProgress = 0;
 
   onStatus("initialising");
   onProgress(0);
@@ -110,16 +114,22 @@ export async function uploadComicInChunks({
       if (signal?.aborted) throw new DOMException("Upload cancelled", "AbortError");
       const chunkIndex = nextChunk;
       nextChunk += 1;
-      const start = chunkIndex * CHUNK_SIZE_BYTES;
+      const start = chunkIndex * chunkSize;
+      const end = Math.min(file.size, start + chunkSize);
       const formData = new FormData();
       formData.append("fileId", fileId);
       formData.append("chunkIndex", String(chunkIndex));
       formData.append("totalChunks", String(totalChunks));
-      formData.append("chunk", file.slice(start, Math.min(file.size, start + CHUNK_SIZE_BYTES)), file.name);
+      formData.append("chunk", file.slice(start, end), file.name);
 
       await runRequest(() => api.post("/api/comics/upload/chunk", formData, { signal }), { signal });
-      uploaded += 1;
-      onProgress(Math.round((uploaded / totalChunks) * 90));
+      signal.throwIfAborted();
+      uploaded += end - start;
+      const progress = Math.round((uploaded / file.size) * 90);
+      if (progress !== lastProgress) {
+        lastProgress = progress;
+        onProgress(progress);
+      }
     }
   };
 
@@ -138,12 +148,17 @@ export async function uploadComicInChunks({
     onProgress(100);
     onStatus("done");
     return result;
+  } catch (error) {
+    // Stop the other workers and queued requests as soon as one chunk fails.
+    // Preserve the original error so the UI can explain why this file failed.
+    controller.abort();
+    throw error;
   } finally {
     clearInterval(keepAlive);
   }
 }
 
-export function useChunkedUpload({ concurrentChunks = 4 } = {}) {
+export function useChunkedUpload({ concurrentChunks = 4, chunkSize = CHUNK_SIZE_BYTES } = {}) {
   const [status, setStatus] = useState("idle");
   const [progress, setProgress] = useState(0);
   const [comic, setComic] = useState(null);
@@ -161,6 +176,7 @@ export function useChunkedUpload({ concurrentChunks = 4 } = {}) {
         file,
         metadata,
         concurrentChunks,
+        chunkSize,
         signal: controller.signal,
         onProgress: (value) => {
           setProgress(value);
@@ -183,7 +199,7 @@ export function useChunkedUpload({ concurrentChunks = 4 } = {}) {
     } finally {
       controllerRef.current = null;
     }
-  }, [concurrentChunks]);
+  }, [concurrentChunks, chunkSize]);
 
   const cancel = useCallback(() => controllerRef.current?.abort(), []);
 

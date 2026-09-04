@@ -12,10 +12,10 @@ const READER_LADDER = [
   { name: "reader-large", width: 2200 },
 ];
 
-export const THUMBNAIL_VARIANT = "thumb";
+const THUMBNAIL_VARIANT = "thumb";
 
-/** What the reader asks for before it has measured anything. */
-export const DEFAULT_READER_VARIANT = "reader-medium";
+/** A fallback for environments without a measurable viewport. */
+const DEFAULT_READER_VARIANT = "reader-medium";
 
 /**
  * Beyond this, extra device pixels stop being visible on comic line art and
@@ -25,7 +25,7 @@ const MAX_PIXEL_RATIO = 3;
 
 const rungIndex = (variant) => READER_LADDER.findIndex((rung) => rung.name === variant);
 
-export function isPageVariantAtLeast(candidate, requested) {
+function isPageVariantAtLeast(candidate, requested) {
   const candidateIndex = rungIndex(candidate);
   const requestedIndex = rungIndex(requested);
   return candidateIndex >= 0 && requestedIndex >= 0 && candidateIndex >= requestedIndex;

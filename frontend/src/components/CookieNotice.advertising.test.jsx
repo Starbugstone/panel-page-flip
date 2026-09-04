@@ -4,18 +4,21 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CookieNotice } from "@/components/CookieNotice.jsx";
-import { isAdvertisingActive } from "@/lib/advertising";
 
-const { adSense } = vi.hoisted(() => ({
-  adSense: {
-    config: { enabled: false, client: null },
+const { publicConfig, consent } = vi.hoisted(() => ({
+  publicConfig: {
+    adsense: { enabled: false, client: null },
     analytics: { enabled: false, measurementId: null },
     isLoading: false,
   },
+  consent: { isAnalyticsDialogOpen: false },
 }));
 
-vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({
-  useAdSense: () => ({ config: adSense.config, analytics: adSense.analytics, isActive: isAdvertisingActive(adSense.config), isLoading: adSense.isLoading, scriptStatus: "idle" }),
+vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({
+  usePublicConfig: () => publicConfig,
+}));
+vi.mock("@/components/consent/ConsentProvider.jsx", () => ({
+  useConsent: () => consent,
 }));
 
 const CLIENT = "ca-pub-1234567890123456";
@@ -27,15 +30,17 @@ const renderNotice = () => render(
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
-  adSense.config = { enabled: false, client: null };
-  adSense.analytics = { enabled: false, measurementId: null };
-  adSense.isLoading = false;
+  publicConfig.adsense = { enabled: false, client: null };
+  publicConfig.analytics = { enabled: false, measurementId: null };
+  publicConfig.isLoading = false;
+  consent.isAnalyticsDialogOpen = false;
 });
 
 /**
- * Two banners asking about the same thing is how somebody accepts in one and
- * rejects in the other, so where advertising is on this notice describes and
- * defers rather than collecting a second answer.
+ * The notice describes; it never collects. "Got it" acknowledges and grants
+ * nothing, so each wording has to name the control that does decide — Google's
+ * panel where advertising is on, this application's Analytics preferences where
+ * only measurement is.
  */
 describe("what the cookie notice claims", () => {
   it("says no advertising storage is used where none is", async () => {
@@ -44,37 +49,63 @@ describe("what the cookie notice claims", () => {
     expect(await screen.findByText(/no advertising or analytics cookies are used/i)).toBeInTheDocument();
   });
 
-  it("points at the consent panel where advertising is on", async () => {
-    adSense.config = { enabled: true, client: CLIENT };
+  it("points at the Google panel where advertising is on", async () => {
+    publicConfig.adsense = { enabled: true, client: CLIENT };
 
     renderNotice();
 
-    expect(await screen.findByText(/you accept or reject in the privacy choices panel/i)).toBeInTheDocument();
+    expect(await screen.findByText(/you accept or reject in the google privacy choices panel/i)).toBeInTheDocument();
     expect(screen.queryByText(/no advertising or analytics cookies are used/i)).not.toBeInTheDocument();
   });
 
-  it("describes optional Analytics without claiming advertising is present", async () => {
-    adSense.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
+  it("names Analytics preferences where only measurement is on", async () => {
+    publicConfig.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
 
     renderNotice();
 
-    expect(await screen.findByText(/optional analytics uses additional storage only after you accept it/i)).toBeInTheDocument();
+    expect(await screen.findByText(/optional analytics uses additional storage only if you accept it/i)).toBeInTheDocument();
+    expect(await screen.findByText(/analytics preferences/i)).toBeInTheDocument();
     expect(screen.queryByText(/advertising on some pages/i)).not.toBeInTheDocument();
   });
 
+  it("describes both purposes as one Google panel where both are on", async () => {
+    publicConfig.adsense = { enabled: true, client: CLIENT };
+    publicConfig.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
+
+    renderNotice();
+
+    expect(
+      await screen.findByText(/advertising on some pages and optional analytics use additional storage/i)
+    ).toBeInTheDocument();
+  });
+
   /**
-   * The dismissal is permanent and the two wordings contradict each other, so
+   * The dismissal is permanent and the wordings contradict each other, so
    * saying the wrong one first is not a flicker — it is the only version a user
    * who pressed "Got it" during the round trip will ever have been shown.
    */
   it("says nothing at all until the server has answered", () => {
-    adSense.config = { enabled: true, client: CLIENT };
-    adSense.isLoading = true;
+    publicConfig.adsense = { enabled: true, client: CLIENT };
+    publicConfig.isLoading = true;
 
     renderNotice();
 
     expect(screen.queryByRole("complementary", { name: "Cookie notice" })).not.toBeInTheDocument();
     expect(screen.queryByText(/no advertising or analytics cookies are used/i)).not.toBeInTheDocument();
+  });
+
+  /**
+   * Both occupy the same corner, and only one of them is a question. A notice
+   * overlapping the consent request would make the choice harder to reach than
+   * the acknowledgement beside it.
+   */
+  it("stands aside while the analytics consent request is on screen", () => {
+    publicConfig.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
+    consent.isAnalyticsDialogOpen = true;
+
+    renderNotice();
+
+    expect(screen.queryByRole("complementary", { name: "Cookie notice" })).not.toBeInTheDocument();
   });
 
   it("stays dismissed once it has been dismissed", async () => {

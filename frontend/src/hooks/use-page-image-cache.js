@@ -46,13 +46,13 @@ function usePageCacheMaintenance({
   const queuePages = useCallback((orderedPageIndexes, variant) => {
     loadQueueRef.current = orderedPageIndexes.filter((pageIndex) => (
       !isPageReady(pageIndex, variant) && !loadingPagesRef.current[pageIndex]
-    ));
+    )).map((pageIndex) => () => loadPage(pageIndex, variant, { priority: "low" }));
 
     const drain = () => {
       if (isDrainingRef.current || loadQueueRef.current.length === 0) return;
       isDrainingRef.current = true;
-      const pageIndex = loadQueueRef.current.shift();
-      loadPage(pageIndex, variant).finally(() => {
+      const next = loadQueueRef.current.shift();
+      next().finally(() => {
         isDrainingRef.current = false;
         drain();
       });
@@ -140,13 +140,16 @@ export function usePageImageCache({ comicId, pageCount }) {
   ), []);
 
   const cancelLoadsExcept = useCallback((keepPages) => {
+    // Cancelling settles the old drain. Empty its queue first so its finally
+    // callback cannot start a stale preload ahead of the new visible page.
+    loadQueueRef.current = [];
     const keep = new Set(keepPages);
     Object.entries(loadingPagesRef.current).forEach(([key, entry]) => {
       if (!keep.has(Number(key))) entry.cancel?.();
     });
   }, []);
 
-  const loadPage = useCallback((pageIndex, variant, { force = false } = {}) => {
+  const loadPage = useCallback((pageIndex, variant, { force = false, priority = "high" } = {}) => {
     if (pageIndex < 0 || pageIndex >= pageCount) return Promise.resolve(null);
     if (!force && isPageReady(pageIndex, variant)) return Promise.resolve(imageCacheRef.current[pageIndex]);
     const existing = loadingPagesRef.current[pageIndex];
@@ -155,6 +158,8 @@ export function usePageImageCache({ comicId, pageCount }) {
 
     let settle = () => {};
     const img = new Image();
+    img.decoding = "async";
+    img.fetchPriority = priority;
     const entry = {
       variant,
       img,

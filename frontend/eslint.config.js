@@ -32,6 +32,7 @@ export default [
       "src/components/ThemeProvider.jsx",
       "src/components/ads/AdSenseProvider.jsx",
       "src/components/config/PublicConfigProvider.jsx",
+      "src/components/consent/ConsentProvider.jsx",
       "src/hooks/**/*.{js,jsx}",
     ],
     rules: { "react-refresh/only-export-components": "off" },

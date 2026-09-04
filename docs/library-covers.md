@@ -16,8 +16,27 @@ moment of load left a lasting hole in the grid.
 
 ## The cap
 
+Stored covers are served through `ComicCoverService` as WebP at up to 800 pixels
+wide, using the existing page encoder and private derivative cache. Old uploads
+gain the same rendition without reopening their archive or modifying their
+stored cover. New uploads store a bounded cover immediately, and rendered PDFs
+receive the same width hint when producing it.
+
+The cover fingerprint includes its source path, size, modification time and
+render version, with a separate namespace from numbered pages. Generated files
+are streamed with `BinaryFileResponse`; warm requests do not load the whole
+original scan into PHP memory. They are purged with the comic's page cache.
+The public cover URL carries the size and render version to bypass old immutable
+browser entries containing full scans. Authentication, comic access, owner and
+filename checks still happen before cache access.
+
+Generation is guarded by a per-cover lock and the existing image byte and pixel
+limits. A busy generator, unsupported image or unavailable cache falls back to
+streaming the original with a short revalidation period. A transient fallback
+therefore cannot leave a full scan in the browser's cache for a year.
+
 `src/lib/cover-loading.js` hands out a fixed number of tickets
-(`COVER_REQUEST_LIMIT`, four) for the whole application. A card asks for one
+(`COVER_REQUEST_LIMIT`, four) for library covers and reader thumbnails. A card asks for one
 when it comes on screen and holds it until its image has either decoded or
 failed; no `src` is set until it is granted.
 
@@ -36,9 +55,12 @@ browser so its normal image cache remains in use rather than routing every
 cover through fetched blobs and object URLs.
 
 The browser still does the fetching. This decides who may start, not how — so
-HTTP caching, decoding and `alt` text on failure all behave normally. Covers are
-served `private, immutable` with a long max-age, so returning to the library
-re-displays them without asking again at all.
+HTTP caching, decoding and `alt` text on failure all behave normally. Successfully
+generated optimized covers use `private, immutable` with a one-year max-age,
+so returning to the library re-displays them without another request. Original
+image fallbacks and missing-file placeholders use private caching with a
+five-minute max-age and no `immutable` directive; they revalidate after that
+short period.
 
 ## Recovery
 

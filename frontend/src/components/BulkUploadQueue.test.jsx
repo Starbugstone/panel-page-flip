@@ -33,6 +33,16 @@ const addFiles = async (user, names) => {
 };
 
 describe("taking a file back out of the bulk queue", () => {
+  it("offers a keyboard-operable file chooser", async () => {
+    renderQueue();
+    const input = document.querySelector('input[type="file"]');
+    const click = vi.spyOn(input, "click").mockImplementation(() => {});
+    screen.getByRole("button", { name: "Choose files" }).focus();
+    await userEvent.keyboard(" ");
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Bulk upload comics" })).toBeInTheDocument();
+    click.mockRestore();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.refreshSession.mockResolvedValue(true);
@@ -47,6 +57,20 @@ describe("taking a file back out of the bulk queue", () => {
 
     expect(screen.queryByText("one.cbz")).not.toBeInTheDocument();
     expect(screen.getByText("two.cbz")).toBeInTheDocument();
+  });
+
+  it("locks the queue before checking the session and unlocks it on rejection", async () => {
+    const user = userEvent.setup();
+    let resolveSession;
+    mocks.refreshSession.mockImplementation(() => new Promise((resolve) => { resolveSession = resolve; }));
+    renderQueue();
+    await addFiles(user, ["one.cbz"]);
+
+    await user.dblClick(screen.getByRole("button", { name: "Start all" }));
+    expect(mocks.refreshSession).toHaveBeenCalledTimes(1);
+    await act(async () => resolveSession(false));
+    expect(uploadComicInChunks).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Start all" })).toBeEnabled();
   });
 
   /**
@@ -194,6 +218,6 @@ describe("taking a file back out of the bulk queue", () => {
       "sm:p-4",
     );
     expect(screen.getByText("Bulk upload comics").parentElement).toHaveClass("p-4", "sm:p-6");
-    expect(screen.getByText(/Drop supported comic files/).parentElement).toHaveClass("p-4", "sm:p-8");
+    expect(screen.getByRole("group", { name: "Comic file selection" })).toHaveClass("p-4", "sm:p-6");
   });
 });

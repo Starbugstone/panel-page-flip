@@ -39,12 +39,27 @@ final class AdvertisingConfigurationTest extends TestCase
         );
     }
 
-    public function testAValidPublisherIdCanStillBackTheConsentPlatformWhenAdsAreOff(): void
+    /**
+     * A credential is not a switch. The publisher id used to be readable while
+     * advertising was off, so that Analytics could borrow Privacy & Messaging —
+     * which made a leftover value in `.env.local` quietly select a consent
+     * platform for a deployment that had turned Google advertising off.
+     */
+    public function testAValidPublisherIdIsWithheldEntirelyWhileAdvertisingIsOff(): void
     {
         $configuration = $this->configuration(false, self::VALID_CLIENT);
 
+        self::assertFalse($configuration->isEnabled());
         self::assertNull($configuration->client());
-        self::assertSame(self::VALID_CLIENT, $configuration->consentClient());
+        self::assertTrue($configuration->hasValidClient());
+        self::assertFalse(method_exists($configuration, 'consentClient'));
+    }
+
+    public function testTheDiagnosticCanTellAnUnsetPublisherIdFromAMistypedOne(): void
+    {
+        self::assertFalse($this->configuration(true, '')->hasConfiguredClient());
+        self::assertTrue($this->configuration(true, 'ca-pub-nope')->hasConfiguredClient());
+        self::assertFalse($this->configuration(true, 'ca-pub-nope')->hasValidClient());
     }
 
     /**

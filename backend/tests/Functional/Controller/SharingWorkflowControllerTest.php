@@ -18,45 +18,58 @@ use Symfony\Bundle\FrameworkBundle\Test\MailerAssertionsTrait;
  * flow, and the privacy boundary they are built around.
  *
  * The boundary is the point of most of this file: reusable recipients are
- * addresses the sender previously supplied, never anything read out of the user
- * directory, and a bulk share is a convenience over the ordinary invitation
- * model rather than a second way in.
+ * registered accounts already linked to the sender's own shares, never
+ * anything read out of the user directory, and a bulk share is a convenience
+ * over the ordinary invitation model rather than a second way in.
  */
 final class SharingWorkflowControllerTest extends AbstractApiTestCase
 {
     use MailerAssertionsTrait;
 
 
-    public function testRecentRecipientsOnlyReturnsAddressesThisOwnerPreviouslyUsed(): void
+    public function testRecentRecipientsAreRegisteredUsersDeduplicatedAcrossInvitationMethods(): void
     {
         $owner = UserFactory::createOne(['email' => 'owner@example.com']);
         $other = UserFactory::createOne(['email' => 'other@example.com']);
 
-        $first = ComicFactory::new()->ownedBy($owner)->create();
-        $second = ComicFactory::new()->ownedBy($owner)->create();
-        $third = ComicFactory::new()->ownedBy($owner)->create();
-        $incoming = ComicFactory::new()->ownedBy($other)->create();
+        $emailed = ComicFactory::new()->ownedBy($owner)->create();
+        $sharedByUsername = ComicFactory::new()->ownedBy($owner)->create();
+        $unclaimed = ComicFactory::new()->ownedBy($owner)->create();
         $otherComic = ComicFactory::new()->ownedBy($other)->create();
 
-        $this->persistPendingShare($first, $owner, 'jane@example.com');
-        $this->persistPendingShare($second, $owner, 'bob@example.com');
-        // Reusing Jane on a newer comic must collapse to one recipient and put
-        // her first without looking her up in User.
-        $this->persistPendingShare($third, $owner, 'jane@example.com');
+        // The first invitation predates the recipient's account. Accepting it
+        // later connects that old email relationship to the registered user.
+        $oldInvitation = $this->persistPendingShare($emailed, $owner, 'jane@example.com');
+        $recipient = UserFactory::createOne([
+            'email' => 'jane@example.com',
+            'name' => 'Jane Reader',
+            'username' => 'JaneReader',
+        ]);
+        $oldInvitation->markAccepted($recipient);
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
 
-        // Neither direction of somebody else's relationship belongs in the
-        // owner's reusable address history.
-        $this->persistPendingShare($incoming, $other, 'owner@example.com');
-        $this->persistPendingShare($otherComic, $other, 'private@example.com');
+        // An email invitation nobody has connected to an account is not a
+        // user suggestion. Nor is another owner's recipient history.
+        $this->persistPendingShare($unclaimed, $owner, 'nobody@example.com');
+        $otherRecipient = UserFactory::createOne(['email' => 'private@example.com']);
+        $this->persistPendingShare($otherComic, $other, 'private@example.com')
+            ->markAccepted($otherRecipient);
+
+        // A later username share reaches the same account by its public
+        // identity and must not create a second suggestion for that person.
+        $this->persistPendingShare($sharedByUsername, $owner, 'jane@example.com')
+            ->hideRecipientBehindSharingCode($recipient->getUserCode(), $recipient->getName())
+            ->linkRecipientUser($recipient);
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
 
         $this->loginAs($owner);
         $payload = $this->getJson('/api/shares/recent-recipients');
 
         self::assertResponseIsSuccessful();
-        self::assertSame(
-            ['jane@example.com', 'bob@example.com'],
-            array_column($payload['recipients'], 'email')
-        );
+        self::assertCount(1, $payload['recipients']);
+        self::assertNull($payload['recipients'][0]['email']);
+        self::assertSame('JaneReader', $payload['recipients'][0]['username']);
+        self::assertSame('Jane Reader (@JaneReader)', $payload['recipients'][0]['label']);
     }
 
     public function testBulkShareCreatesIndependentNormalShareRelationships(): void
@@ -81,9 +94,9 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
             [$first->getId(), $second->getId()],
             array_column($sharedByMe, 'comicId')
         );
-        foreach ($sharedByMe as $group) {
-            self::assertSame('friend@example.com', $group['recipients'][0]['recipientEmail']);
-            self::assertSame(ComicShare::STATUS_PENDING, $group['recipients'][0]['status']);
+        foreach ($sharedByMe as $share) {
+            self::assertSame('friend@example.com', $share['recipientEmail']);
+            self::assertSame(ComicShare::STATUS_PENDING, $share['status']);
         }
     }
 
@@ -207,15 +220,91 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         $shared = SharingWorkflowService::RECENT_RECIPIENT_LIMIT + 5;
         for ($i = 0; $i < $shared; ++$i) {
             $comic = ComicFactory::new()->ownedBy($owner)->create();
-            $this->persistPendingShare($comic, $owner, sprintf('friend%d@example.com', $i));
+            $recipient = UserFactory::createOne([
+                'email' => sprintf('friend%d@example.com', $i),
+                'username' => sprintf('Friend%d', $i),
+            ]);
+            $this->persistPendingShare($comic, $owner, sprintf('friend%d@example.com', $i))
+                ->markAccepted($recipient);
         }
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
 
         $recipients = $this->getJson('/api/shares/recent-recipients')['recipients'];
 
         self::assertCount(SharingWorkflowService::RECENT_RECIPIENT_LIMIT, $recipients);
-        // Most recent first, so the cap keeps the addresses a sender is most
-        // likely to want rather than the ones they have finished with.
-        self::assertSame(sprintf('friend%d@example.com', $shared - 1), $recipients[0]['email']);
+        // Most recent first, so the cap keeps the people a sender is most
+        // likely to want rather than the oldest relationships.
+        self::assertSame(sprintf('Friend%d', $shared - 1), $recipients[0]['username']);
+    }
+
+    public function testRecentRecipientsAreOrderedByTheLatestShareWithEachPerson(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'repeat-sharer@example.com']);
+        $alice = UserFactory::createOne([
+            'email' => 'alice@example.com',
+            'username' => 'AliceReader',
+        ]);
+        $bob = UserFactory::createOne([
+            'email' => 'bob@example.com',
+            'username' => 'BobReader',
+        ]);
+
+        $aliceComic = ComicFactory::new()->ownedBy($owner)->create();
+        $bobComic = ComicFactory::new()->ownedBy($owner)->create();
+
+        $aliceShare = $this->persistPendingShare($aliceComic, $owner, (string) $alice->getEmail());
+        $aliceShare->markAccepted($alice)->markRevoked();
+        $this->persistPendingShare($bobComic, $owner, (string) $bob->getEmail())
+            ->markAccepted($bob);
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
+
+        // ComicShare is a durable relationship: reopening Alice's older row
+        // must make Alice recent even though Bob's row still has the higher id.
+        sleep(1);
+        $payload = $this->postJson('/api/shares/invitations/bulk', [
+            'comicIds' => [$aliceComic->getId()],
+            'username' => $alice->getUsername(),
+            'senderResponsibilityAccepted' => true,
+        ]);
+
+        self::assertResponseStatusCodeSame(201);
+        self::assertSame(1, $payload['created']);
+
+        $recipients = $this->getJson('/api/shares/recent-recipients')['recipients'];
+
+        self::assertSame(['AliceReader', 'BobReader'], array_column($recipients, 'username'));
+    }
+
+    public function testResendingAnInvitationMakesThatRecipientRecentAgain(): void
+    {
+        $owner = $this->createAndLoginUser(['email' => 'chaser@example.com']);
+        $alice = UserFactory::createOne(['email' => 'alice@example.com', 'username' => 'AliceReader']);
+        $bob = UserFactory::createOne(['email' => 'bob@example.com', 'username' => 'BobReader']);
+
+        $aliceComic = ComicFactory::new()->ownedBy($owner)->create();
+        $bobComic = ComicFactory::new()->ownedBy($owner)->create();
+
+        $aliceShare = $this->persistPendingShare($aliceComic, $owner, (string) $alice->getEmail());
+        $aliceShare->markAccepted($alice)->markRevoked();
+        $this->persistPendingShare($bobComic, $owner, (string) $bob->getEmail())
+            ->markAccepted($bob);
+        static::getContainer()->get(EntityManagerInterface::class)->flush();
+
+        self::assertSame(
+            ['BobReader', 'AliceReader'],
+            array_column($this->getJson('/api/shares/recent-recipients')['recipients'], 'username')
+        );
+
+        // Chasing somebody is a sharing action too: the person an owner
+        // followed up last week is a likelier next recipient than the one they
+        // invited a year ago and left alone.
+        sleep(1);
+        $this->postJson('/api/shares/'.$aliceShare->getId().'/resend');
+        self::assertResponseIsSuccessful();
+
+        $recipients = $this->getJson('/api/shares/recent-recipients')['recipients'];
+
+        self::assertSame(['AliceReader', 'BobReader'], array_column($recipients, 'username'));
     }
 
     /**
@@ -328,12 +417,7 @@ final class SharingWorkflowControllerTest extends AbstractApiTestCase
         // Refused before anything was created, so the eleventh recipient has no
         // half-made relationship waiting for them.
         $sharedByMe = $this->getJson('/api/shares/shared-by-me')['sharedByMe'];
-        $recipients = [];
-        foreach ($sharedByMe as $group) {
-            foreach ($group['recipients'] as $recipient) {
-                $recipients[] = $recipient['recipientEmail'];
-            }
-        }
+        $recipients = array_column($sharedByMe, 'recipientEmail');
         self::assertNotContains('one-too-many@example.com', $recipients);
     }
 
