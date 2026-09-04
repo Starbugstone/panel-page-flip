@@ -13,6 +13,7 @@ import { Header } from "@/components/Header.jsx";
 import { CookieNotice } from "@/components/CookieNotice.jsx";
 import { AdSenseProvider } from "@/components/ads/AdSenseProvider.jsx";
 import { PublicConfigProvider } from "@/components/config/PublicConfigProvider.jsx";
+import { GooglePolicyBoundary } from "@/components/consent/GooglePolicyBoundary.jsx";
 import { ConsentProvider } from "@/components/consent/ConsentProvider.jsx";
 import { AnalyticsConsentDialog } from "@/components/consent/AnalyticsConsentDialog.jsx";
 import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
@@ -119,7 +120,7 @@ const AppRoutes = () => {
         <RouteErrorBoundary key={location.pathname}>
         <Suspense fallback={<PageLoading />}>
           <Routes>
-          <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Landing />} />
+          <Route path="/" element={isAuthenticated ? <Navigate to={{ pathname: "/dashboard", search: location.search, hash: location.hash }} /> : <Landing />} />
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/complete-social-signup" element={isAuthenticated ? <Navigate to="/dashboard" /> : <CompleteSocialSignup />} />
           <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/dashboard" /> : <ForgotPassword />} />
@@ -173,30 +174,32 @@ const App = () => {
                   <Sonner />
                   <SessionMonitor />
                   <BrowserRouter>
-                    {/* Inside the router because the current route is what
-                        decides where advertising may run at all, and which
-                        routes must stay free of Google entirely; outside the
-                        routed pages because Google's site code is loaded once
-                        for the whole application, never per page.
+                    <GooglePolicyBoundary>
+                      {/* Inside the router because the current route is what
+                          decides where advertising may run at all, and which
+                          routes must stay free of Google entirely; outside the
+                          routed pages because Google's site code is loaded once
+                          for the whole application, never per page.
 
-                        Consent wraps both integrations because it is the thing
-                        they share — advertising does not own the consent
-                        question, and Analytics must not have to ask an
-                        advertising context whether it may run.
+                          Consent wraps both integrations because it is the thing
+                          they share — advertising does not own the consent
+                          question, and Analytics must not have to ask an
+                          advertising context whether it may run.
 
-                        AdSense sits inside it and Analytics inside that, so
-                        that on an ad-safe route the advertising site code has
-                        already installed Google's CMP by the time the consent
-                        layer decides whether to fetch a standalone copy. */}
-                    <PublicConfigProvider>
-                      <ConsentProvider>
-                        <AdSenseProvider>
-                          <GoogleAnalyticsProvider>
-                            <AppRoutes />
-                          </GoogleAnalyticsProvider>
-                        </AdSenseProvider>
-                      </ConsentProvider>
-                    </PublicConfigProvider>
+                          AdSense sits inside it and Analytics inside that, so
+                          that on an ad-safe route the advertising site code has
+                          already installed Google's CMP by the time the consent
+                          layer decides whether to fetch a standalone copy. */}
+                      <PublicConfigProvider>
+                        <ConsentProvider>
+                          <AdSenseProvider>
+                            <GoogleAnalyticsProvider>
+                              <AppRoutes />
+                            </GoogleAnalyticsProvider>
+                          </AdSenseProvider>
+                        </ConsentProvider>
+                      </PublicConfigProvider>
+                    </GooglePolicyBoundary>
                   </BrowserRouter>
                 </TooltipProvider>
               </SharingProvider>

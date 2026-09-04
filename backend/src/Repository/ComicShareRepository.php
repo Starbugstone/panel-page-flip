@@ -206,20 +206,23 @@ class ComicShareRepository extends ServiceEntityRepository
             ->leftJoin('s.comic', 'c')
             ->leftJoin('s.owner', 'o');
 
+        $visibleComic = '(COALESCE(c.explicitContent, s.explicitContentSnapshot) = false OR s.adultConfirmedAt IS NOT NULL)';
+        $title = "CASE WHEN $visibleComic THEN COALESCE(c.title, s.comicTitleSnapshot) ELSE '' END";
+        $author = "CASE WHEN $visibleComic THEN COALESCE(c.author, s.comicAuthorSnapshot) ELSE '' END";
+
         if ($pattern = $request->searchPattern()) {
             $qb->andWhere($qb->expr()->orX(
-                'LOWER(COALESCE(c.title, s.comicTitleSnapshot)) LIKE :search',
-                'LOWER(COALESCE(c.author, s.comicAuthorSnapshot)) LIKE :search',
+                "LOWER($title) LIKE :search",
+                "LOWER($author) LIKE :search",
                 'LOWER(COALESCE(o.name, s.ownerNameSnapshot)) LIKE :search',
                 "LOWER(CONCAT('@', o.username)) LIKE :search",
-                'LOWER(o.email) LIKE :search',
             ))->setParameter('search', $pattern);
         }
 
         if ($pattern = ColumnFilter::pattern($filters['comic'] ?? null)) {
             $qb->andWhere($qb->expr()->orX(
-                'LOWER(COALESCE(c.title, s.comicTitleSnapshot)) LIKE :recipientFilterComic',
-                'LOWER(COALESCE(c.author, s.comicAuthorSnapshot)) LIKE :recipientFilterComic',
+                "LOWER($title) LIKE :recipientFilterComic",
+                "LOWER($author) LIKE :recipientFilterComic",
             ))->setParameter('recipientFilterComic', $pattern);
         }
 
@@ -227,7 +230,6 @@ class ComicShareRepository extends ServiceEntityRepository
             $qb->andWhere($qb->expr()->orX(
                 'LOWER(COALESCE(o.name, s.ownerNameSnapshot)) LIKE :recipientFilterOwner',
                 "LOWER(CONCAT('@', o.username)) LIKE :recipientFilterOwner",
-                'LOWER(o.email) LIKE :recipientFilterOwner',
             ))->setParameter('recipientFilterOwner', $pattern);
         }
 
@@ -246,7 +248,7 @@ class ComicShareRepository extends ServiceEntityRepository
 
         $total = (int) (clone $qb)->select('COUNT(s.id)')->getQuery()->getSingleScalarResult();
 
-        $qb->addSelect('COALESCE(c.title, s.comicTitleSnapshot) AS HIDDEN comicTitleSort');
+        $qb->addSelect("$title AS HIDDEN comicTitleSort");
         $qb->addSelect('COALESCE(o.username, o.name, s.ownerNameSnapshot) AS HIDDEN ownerSort');
 
         $shares = $qb
@@ -295,7 +297,7 @@ class ComicShareRepository extends ServiceEntityRepository
                 'LOWER(r.name) LIKE :search',
                 "LOWER(CONCAT('@', r.username)) LIKE :search",
                 'LOWER(s.recipientAliasName) LIKE :search',
-                'LOWER(s.recipientEmailNormalized) LIKE :search',
+                '(s.recipientUserCode IS NULL AND LOWER(s.recipientEmailNormalized) LIKE :search)',
             ];
             if ($token = self::displayedUserCodeToken($request->search)) {
                 $expressions[] = '(s.recipientUserCode IS NOT NULL AND r.userCode = :searchRecipientCode)';
@@ -317,7 +319,7 @@ class ComicShareRepository extends ServiceEntityRepository
                 'LOWER(r.name) LIKE :filterRecipient',
                 "LOWER(CONCAT('@', r.username)) LIKE :filterRecipient",
                 'LOWER(s.recipientAliasName) LIKE :filterRecipient',
-                'LOWER(s.recipientEmailNormalized) LIKE :filterRecipient',
+                '(s.recipientUserCode IS NULL AND LOWER(s.recipientEmailNormalized) LIKE :filterRecipient)',
             ];
             if ($token = self::displayedUserCodeToken($filters['recipient'] ?? null)) {
                 $expressions[] = '(s.recipientUserCode IS NOT NULL AND r.userCode = :filterRecipientCode)';
@@ -344,7 +346,7 @@ class ComicShareRepository extends ServiceEntityRepository
 
         if ($request->sortField === 'recipient') {
             $qb->addSelect(
-                'COALESCE(r.username, r.name, s.recipientAliasName, s.recipientEmailNormalized) AS HIDDEN recipientSort'
+                "COALESCE(r.username, r.name, s.recipientAliasName, CASE WHEN s.recipientUserCode IS NULL THEN s.recipientEmailNormalized ELSE '' END) AS HIDDEN recipientSort"
             );
         }
 

@@ -132,6 +132,14 @@ describe("SharedByMeList", () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
+  it("cannot select stale grants while the next page is loading", async () => {
+    renderList({ byMeIsLoading: true, byMeListKey: "request-2" });
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select all shares" }));
+    expect(screen.getByRole("button", { name: "Revoke selected" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete records" })).toBeDisabled();
+    expect(screen.getByText("0 of 0 shares selected")).toBeInTheDocument();
+  });
+
   it("keeps the wide management table scrollable inside a narrow viewport", () => {
     renderList();
 

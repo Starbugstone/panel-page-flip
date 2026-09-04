@@ -34,6 +34,7 @@ lives in [`docs/`](docs/):
 | [analytics.md](docs/analytics.md) | Optional privacy-first GA4, Consent Mode v2, consent ownership, route minimisation |
 | [social-sign-in.md](docs/social-sign-in.md) | Optional Google OAuth, account linking, passwordless accounts |
 | [application-data-key.md](docs/application-data-key.md) | `APP_DATA_KEY` and credential encryption |
+| [develop-review-2026-09-04.md](docs/develop-review-2026-09-04.md) | Review scope, confirmed regressions, simplifications, and validation evidence |
 | [development-tooling.md](docs/development-tooling.md) | Package manager, quality gates, Content-Security-Policy manifest, crawlable landing copy |
 | [demo-fixtures.md](docs/demo-fixtures.md) | Repeatable local multi-user data, credentials, generated demo comics, loading and reset behavior |
 | [local-docker-environment.md](docs/local-docker-environment.md) | Per-checkout Compose project, ports, container UID, worktree teardown |
@@ -1983,9 +1984,13 @@ These are decisions that keep being rediscovered, not a backlog.
    No endpoint reimplements ownership; see
    [docs/comic-access.md](docs/comic-access.md).
 
-5. **Every change ships with tests.** See `AGENTS.md` — this is a hard rule, and
-   the suites under [Automated Test Suites](#automated-test-suites) plus the CI
-   gates in [README.md](README.md#continuous-integration) are what enforce it.
+5. **Verify the behaviour that changes.** New or changed behaviour needs
+   meaningful automated coverage, and bug fixes need regression coverage.
+   Existing tests may cover behaviour-preserving edits; documentation-only
+   changes need content and link checks. Run relevant checks locally and
+   require all CI gates to pass before merge. See [AGENTS.md](AGENTS.md) for
+   the working policy and [Development tooling](docs/development-tooling.md)
+   for the checks, including coverage, dead-code, and duplication ratchets.
 
 ## Troubleshooting
 

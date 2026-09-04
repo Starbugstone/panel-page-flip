@@ -12,8 +12,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AdminPagination } from "@/components/AdminPagination";
 import { AdminBulkActionsBar } from "@/components/admin/AdminBulkActionsBar";
-import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { ShareStatusColumns } from "@/components/share/ShareStatusColumns";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { ExplicitContentNotice } from "@/components/share/ExplicitContentNotice";
 import { SelectAllCheckbox, SelectionCheckbox } from "@/components/SelectionCheckbox";
 import { Badge } from "@/components/ui/badge";
@@ -61,7 +61,7 @@ export function SharedWithMeList({
   reload,
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const rows = receivedTableRows(sharedWithMe);
+  const rows = isLoading ? [] : receivedTableRows(sharedWithMe);
   const selection = useRowSelection({ rows, resetKey: listKey });
   const bulk = useAdminBulkAction({ reload });
   const deletable = selection.selectedRows.filter((share) => share.isDead);

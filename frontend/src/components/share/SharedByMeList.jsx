@@ -13,8 +13,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AdminPagination } from "@/components/AdminPagination";
 import { AdminBulkActionsBar } from "@/components/admin/AdminBulkActionsBar";
-import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { ShareStatusColumns } from "@/components/share/ShareStatusColumns";
+import { AdminColumnHeader } from "@/components/admin/AdminColumnHeader";
 import { SelectAllCheckbox, SelectionCheckbox } from "@/components/SelectionCheckbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -71,7 +71,8 @@ export function SharedByMeList({
   reload,
 }) {
   const [bulkAction, setBulkAction] = useState(null);
-  const selection = useRowSelection({ rows: sharedByMe, resetKey: byMeListKey });
+  const rows = byMeIsLoading ? [] : sharedByMe;
+  const selection = useRowSelection({ rows, resetKey: byMeListKey });
   const bulk = useAdminBulkAction({ reload });
   const selected = selection.selectedRows;
   const revocable = selected.filter((share) => share.canRevoke);
@@ -131,7 +132,7 @@ export function SharedByMeList({
 
       <AdminBulkActionsBar
         selectedCount={selection.selectedCount}
-        totalCount={sharedByMe.length}
+        totalCount={rows.length}
         noun="share"
         actions={[
           {

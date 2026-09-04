@@ -18,7 +18,7 @@ final class AdminTableFilterSuggestions
      * source and expressions are an internal allow-list; route input is never
      * interpolated into SQL.
      *
-     * @var array<string, list<array{expression: string, from: string, searchExpression?: string, condition?: string}>>
+     * @var array<string, list<array{expression: string, from: string, condition?: string}>>
      */
     private const SOURCES = [
         'users/identity' => [
@@ -70,7 +70,6 @@ final class AdminTableFilterSuggestions
         'audit-logs/details' => [
             [
                 'expression' => 'CAST(l.payload AS CHAR)',
-                'searchExpression' => 'l.payload_search',
                 'from' => 'admin_audit_log l',
             ],
         ],
@@ -98,13 +97,11 @@ final class AdminTableFilterSuggestions
         }
 
         $selects = array_map(static function (array $candidate): string {
-            $searchExpression = $candidate['searchExpression'] ?? $candidate['expression'];
-
             return sprintf(
                 'SELECT %1$s AS value FROM %2$s WHERE %3$s IS NOT NULL AND LOWER(%3$s) LIKE :pattern%4$s',
                 $candidate['expression'],
                 $candidate['from'],
-                $searchExpression,
+                $candidate['expression'],
                 isset($candidate['condition']) ? ' AND ' . $candidate['condition'] : '',
             );
         }, self::SOURCES[$source]);

@@ -22,9 +22,11 @@ error instead of guessing whether those accounts are safe to change.
 
 Global tags already supplied by migrations or the operator are reused by name,
 including case-insensitive matches, without changing their visibility settings.
-The command loads its database graph in one transaction: a failed load cannot
-leave six accounts that incorrectly make the next run appear complete. Generated
-demo files from a failed attempt are replaced by the next load.
+
+The database changes run in one transaction. If archive creation or a later
+fixture step fails, the command rolls back every new row so the next run cannot
+mistake six partially-created accounts for a complete dataset. Generated files
+from an interrupted attempt are replaced by the existing fixture cleanup on retry.
 
 The command refuses to run outside the `dev` and `test` environments. During a
 new load it only replaces generated files whose names begin with

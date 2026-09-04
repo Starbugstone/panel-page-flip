@@ -16,6 +16,7 @@ use App\Tests\Factory\ComicFactory;
 use App\Tests\Factory\TagFactory;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use Doctrine\DBAL\Logging\DebugStack;
 use Doctrine\ORM\EntityManagerInterface;
 
 final class AdminTableFilterSuggestionControllerTest extends AbstractApiTestCase
@@ -114,6 +115,33 @@ final class AdminTableFilterSuggestionControllerTest extends AbstractApiTestCase
         $details = $this->getJson('/api/admin/table-filter-suggestions/audit-logs/details?query=needle');
         self::assertResponseIsSuccessful();
         self::assertStringContainsString('Needle detail', $details['suggestions'][0]);
+    }
+
+    public function testAuditWritesDoNotReloadADuplicatePayload(): void
+    {
+        $this->createAndLoginAdmin();
+        $manager = static::getContainer()->get(EntityManagerInterface::class);
+        $log = (new AdminAuditLog())->setAction('review')->setTargetType('comic')
+            ->setPayload(['reason' => 'MiddleNeedleSuffix']);
+        $manager->persist($log);
+        $configuration = $manager->getConnection()->getConfiguration();
+        $previousLogger = $configuration->getSQLLogger();
+        $queries = new DebugStack();
+        $configuration->setSQLLogger($queries);
+        try {
+            $manager->flush();
+        } finally {
+            $configuration->setSQLLogger($previousLogger);
+        }
+
+        $auditQueries = array_filter($queries->queries, static fn (array $query): bool =>
+            str_contains(strtolower($query['sql']), 'admin_audit_log')
+        );
+        self::assertCount(1, $auditQueries, 'Writing an audit record should require only its INSERT.');
+
+        $details = $this->getJson('/api/admin/table-filter-suggestions/audit-logs/details?query=need');
+        self::assertResponseIsSuccessful();
+        self::assertStringContainsString('MiddleNeedleSuffix', $details['suggestions'][0]);
     }
 
     public function testUnknownSuggestionSourcesAreRejected(): void

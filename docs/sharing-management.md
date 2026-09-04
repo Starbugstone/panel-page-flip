@@ -25,7 +25,7 @@ column filters are:
 | `filterCreatedAt` | an inclusive local-calendar date range |
 
 The recipient table substitutes `filterOwner` for `filterRecipient`, matching
-the sharer's current name, username or email and the durable owner-name snapshot
+the sharer's current name or username and the durable owner-name snapshot
 kept for unavailable history. Its global search covers those owner fields plus
 comic title and author. Comic and owner sorting also fall back to snapshots when
 the original comic or account no longer exists.
@@ -39,7 +39,10 @@ shown on screen across timezone and daylight-saving boundaries.
 The endpoint never turns this into a user directory. It starts with
 `s.owner = :owner`, and recipient fields are searched only inside relationships
 that account already created. Addresses hidden by username or a `U-` code stay
-hidden in `ComicShareSerializer::forOwner()`.
+hidden in `ComicShareSerializer::forOwner()` and are excluded from search and
+filter predicates. The recipient table never searches the owner's private email.
+Titles and authors withheld by the age gate are also excluded from matching and
+title sorting, including snapshots on deleted comics.
 
 List responses are committed only while both the signed-in account and the
 requested table URL still match. A request revision orders overlapping reloads,
@@ -51,7 +54,8 @@ state and summary refresh.
 
 The header checkbox selects the current page. Shift-click extends a range, and
 changing the page, query, filter, sort, or loaded result retires the selection.
-Nothing off screen can be acted on accidentally.
+While a new page is loading, both tables expose no selectable rows; old results
+retained by the request hook cannot become bulk-action targets.
 
 Two confirmed bulk actions are available on **Shared by me**:
 
@@ -91,3 +95,6 @@ selection, column headings, and row actions aligned.
 | `frontend/src/hooks/use-sharing.jsx` | independent debounced search, paging, loading identity, and reloads for both tables |
 | `frontend/src/components/share/SharedByMeList.jsx` | owner table, row actions, selection, and bulk confirmations |
 | `frontend/src/components/share/SharedWithMeList.jsx` | recipient table, invitation and collection actions, selection, and history cleanup |
+
+The status/date/action headings are shared through `ShareStatusColumns.jsx`,
+so the sent and received tables use the same controls without duplicating them.

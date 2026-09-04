@@ -75,6 +75,14 @@ describe("application shell", () => {
     expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
   });
 
+  it("preserves a privacy-panel request when a signed-in landing page redirects", async () => {
+    auth.isAuthenticated = true;
+    window.history.pushState({}, "", "/?privacyChoices=open");
+    render(<App />);
+    expect(await screen.findByText("Dashboard route")).toBeInTheDocument();
+    expect(window.location.search).toBe("?privacyChoices=open");
+  });
+
   it("redirects a signed-out visitor away from a protected route", async () => {
     window.history.pushState({}, "", "/dashboard");
     render(<App />);
