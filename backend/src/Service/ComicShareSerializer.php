@@ -23,11 +23,15 @@ class ComicShareSerializer
 
     /**
      * @param list<ComicShare> $shares
+     * @param list<string> $batchesRequiringAdultConfirmation
      * @return list<array<string, mixed>>
      */
-    public function serializeManyForRecipient(array $shares): array
+    public function serializeManyForRecipient(array $shares, array $batchesRequiringAdultConfirmation = []): array
     {
-        return array_map(fn (ComicShare $share) => $this->forRecipient($share), $shares);
+        return array_map(fn (ComicShare $share) => $this->forRecipient($share) + [
+            'invitationBatchRequiresAdultConfirmation' => $share->getStatus() === ComicShare::STATUS_PENDING
+                && in_array($share->getInvitationBatchId(), $batchesRequiringAdultConfirmation, true),
+        ], $shares);
     }
 
     /**

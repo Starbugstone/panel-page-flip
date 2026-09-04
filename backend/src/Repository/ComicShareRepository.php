@@ -263,6 +263,38 @@ class ComicShareRepository extends ServiceEntityRepository
     }
 
     /**
+     * Pending folder decisions include members outside the current table page.
+     * Fetch only their gate status, without revealing hidden titles or IDs.
+     *
+     * @param list<ComicShare> $shares
+     * @return list<string>
+     */
+    public function findBatchesRequiringAdultConfirmation(User $user, array $shares): array
+    {
+        $batchIds = [];
+        foreach ($shares as $share) {
+            if ($share->getStatus() === ComicShare::STATUS_PENDING && $share->getInvitationBatchId() !== null) {
+                $batchIds[] = $share->getInvitationBatchId();
+            }
+        }
+        if ($batchIds === []) return [];
+
+        $rows = $this->recipientQueryBuilder($user)
+            ->select('DISTINCT s.invitationBatchId AS batchId')
+            ->innerJoin('s.comic', 'c')
+            ->andWhere('s.invitationBatchId IN (:batchIds)')
+            ->andWhere('s.status = :pending')
+            ->andWhere('s.unavailableAt IS NULL')
+            ->andWhere('c.explicitContent = true AND s.adultConfirmedAt IS NULL')
+            ->setParameter('batchIds', array_values(array_unique($batchIds)))
+            ->setParameter('pending', ComicShare::STATUS_PENDING)
+            ->getQuery()
+            ->getArrayResult();
+
+        return array_values(array_map(static fn (array $row): string => (string) $row['batchId'], $rows));
+    }
+
+    /**
      * One page of the owner's grants, with the same database-backed controls
      * as the administrative share table.
      *

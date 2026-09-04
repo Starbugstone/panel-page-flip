@@ -73,70 +73,46 @@ function currentSharingResult(result, user) {
  * calls `refreshSummary` after anything that changes a count.
  */
 export function SharingProvider({ children }) {
-  const [summary, setSummary] = useState(EMPTY_SUMMARY);
-  const { isAuthenticated } = useAuth();
-  // Every read of the counts takes a number, and only the newest is allowed to
-  // write. Without it a slow request started before an invitation was accepted
-  // — or before logging out — could land afterwards and restore counts that are
-  // no longer true.
+  const [result, setResult] = useState(null);
+  const { isAuthenticated, user } = useAuth();
+  const account = isAuthenticated ? user : null;
+  const activeAccount = useRef(null);
   const requestIdRef = useRef(0);
 
-  // Depends on authentication and nothing else, so its identity is stable while
-  // a session lasts. Callers put it in their own dependency lists; if it changed
-  // whenever the counts did, every one of them would refetch in a loop.
-  const refreshSummary = useCallback(async () => {
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
+  // Invalidate both in-flight requests and callbacks captured by an old action
+  // before effects from the next session can run.
+  useLayoutEffect(() => {
+    activeAccount.current = account;
+    return () => {
+      activeAccount.current = null;
+      requestIdRef.current += 1;
+    };
+  }, [account]);
 
-    if (!isAuthenticated) {
-      setSummary(EMPTY_SUMMARY);
-      return;
-    }
+  const refreshSummary = useCallback(() => {
+    if (!account || activeAccount.current !== account) return Promise.resolve();
+    const requestId = ++requestIdRef.current;
 
-    try {
-      const data = await api.get('/api/shares/summary');
-      if (requestIdRef.current !== requestId) return;
-
-      setSummary({
-        pendingInvitations: data.pendingInvitations || 0,
-        deadShares: data.deadShares || 0,
-      });
-    } catch (error) {
-      // A badge is not worth a toast. Keeping the last known counts is a better
-      // answer than replacing them with zeros the user would read as "nothing
-      // pending".
-      logger.error('Failed to load sharing summary:', error);
-    }
-  }, [isAuthenticated]);
-
-  // refreshSummary is what consumers call after an action, where clearing the
-  // counts synchronously is fine. Mounting issues the request directly instead,
-  // so the provider does not render twice before anything has been asked for,
-  // and the signed-out counts are derived below rather than written.
-  useEffect(() => {
-    if (!isAuthenticated) return undefined;
-
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-
-    let ignore = false;
-    api.get('/api/shares/summary')
+    return api.get('/api/shares/summary')
       .then((data) => {
-        if (ignore || requestIdRef.current !== requestId) return;
-        setSummary({
-          pendingInvitations: data.pendingInvitations || 0,
-          deadShares: data.deadShares || 0,
+        if (activeAccount.current !== account || requestIdRef.current !== requestId) return;
+        setResult({
+          forUser: account,
+          summary: {
+            pendingInvitations: data.pendingInvitations || 0,
+            deadShares: data.deadShares || 0,
+          },
         });
       })
       .catch((error) => {
-        // A badge is not worth a toast; see refreshSummary above.
+        // Preserve this account's last known counts during a temporary failure.
         logger.error('Failed to load sharing summary:', error);
       });
+  }, [account]);
 
-    return () => { ignore = true; };
-  }, [isAuthenticated]);
+  useEffect(() => { refreshSummary(); }, [refreshSummary]);
 
-  const visibleSummary = isAuthenticated ? summary : EMPTY_SUMMARY;
+  const visibleSummary = account && result?.forUser === account ? result.summary : EMPTY_SUMMARY;
 
   const value = useMemo(
     () => ({ summary: visibleSummary, refreshSummary }),

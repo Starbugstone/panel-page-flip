@@ -46,7 +46,10 @@ jumps retain their existing scroll behavior. Closing a mobile navigation menu
 after navigation must not return focus to its old trigger.
 
 Route rendering errors leave the header and footer available with a generic
-explanation and retry. Navigating to a different pathname resets the boundary.
+explanation and a **Reload page** link. Recovery loads a fresh document because
+React retains failed lazy imports after a deployment removes an old asset;
+resetting the boundary alone cannot fetch the new bundle. Navigating to a
+different pathname resets the boundary.
 Raw exception details and private invitation/reset tokens do not appear in the
 fallback or document titles. This boundary does not replace feature-specific
 API failure handling or handle failures above the routed page.

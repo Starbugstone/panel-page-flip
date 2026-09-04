@@ -90,7 +90,10 @@ class ShareController extends AbstractController
         ]);
 
         return $this->json([
-            'sharedWithMe' => $this->shareSerializer->serializeManyForRecipient($page->items),
+            'sharedWithMe' => $this->shareSerializer->serializeManyForRecipient(
+                $page->items,
+                $this->shareRepository->findBatchesRequiringAdultConfirmation($user, $page->items)
+            ),
             'pagination' => $page->toArray(),
         ]);
     }

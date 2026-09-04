@@ -25,5 +25,5 @@ export function isGoogleFreeRoute(pathname) {
   const [withoutQuery] = pathname.split(/[?#]/);
   const normalised = withoutQuery.length > 1 ? withoutQuery.replace(/\/+$/, "") : withoutQuery;
 
-  return GOOGLE_FREE_ROUTES.includes(normalised);
+  return GOOGLE_FREE_ROUTES.includes(normalised.toLowerCase());
 }
