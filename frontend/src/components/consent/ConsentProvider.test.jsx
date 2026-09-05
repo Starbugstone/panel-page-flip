@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
 import { ANALYTICS_SCRIPT_ID, resetGoogleAnalyticsForTesting } from "@/lib/google-analytics";
+import { ANALYTICS_CONSENT_STORAGE_KEY } from "@/lib/analytics-consent-storage";
 import { ConsentBanner } from "@/components/consent/ConsentBanner.jsx";
 import { ConsentProvider, useConsent } from "@/components/consent/ConsentProvider.jsx";
 import { observeAnalyticsConsent } from "@/lib/google-consent";
@@ -357,13 +358,18 @@ describe("Klaro customization", () => {
     expect(observed().analyticsConsent).toBe("granted");
   });
 
-  it("does not interpret closing customization as consent", async () => {
+  it.each(["Close", "Escape"])("returns focus to the notice without saving when customization closes with %s", async (action) => {
     renderProvider();
     await userEvent.click(screen.getByRole("link", { name: "Customize" }));
     await userEvent.click(screen.getByRole("checkbox", { name: "Google Analytics" }));
-    await userEvent.keyboard("{Escape}");
+    if (action === "Escape") await userEvent.keyboard("{Escape}");
+    else await userEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(await screen.findByRole("link", { name: "Customize" })).toBeVisible();
+    const notice = screen.getByRole("dialog", { name: "Analytics preferences" });
+    expect(notice).not.toHaveAttribute("aria-modal");
+    await waitFor(() => expect(notice).toHaveFocus());
     expect(observed().analyticsConsent).toBe("undecided");
+    expect(window.localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY)).toBeNull();
   });
 
   it("keeps keyboard focus within customization and restores the preferences trigger after deciding", async () => {

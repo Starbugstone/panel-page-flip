@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CookieNotice } from "@/components/CookieNotice.jsx";
+import { ANALYTICS_CONSENT_STORAGE_KEY, persistAnalyticsConsent } from "@/lib/analytics-consent-storage";
 
 const { publicConfig, consent } = vi.hoisted(() => ({
   publicConfig: {
@@ -11,7 +12,11 @@ const { publicConfig, consent } = vi.hoisted(() => ({
     analytics: { enabled: false, measurementId: null },
     isLoading: false,
   },
-  consent: { isAnalyticsDialogOpen: false, canOpenPreferences: false, provider: null, openPreferences: vi.fn() },
+  consent: {
+    isAnalyticsDialogOpen: false, canOpenPreferences: false, provider: null,
+    analyticsConsent: "denied", openPreferences: vi.fn(),
+    acceptAnalytics: vi.fn(), rejectAnalytics: vi.fn(),
+  },
 }));
 
 vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({
@@ -36,6 +41,7 @@ beforeEach(() => {
   consent.isAnalyticsDialogOpen = false;
   consent.canOpenPreferences = false;
   consent.provider = null;
+  consent.analyticsConsent = "denied";
 });
 
 /**
@@ -119,13 +125,22 @@ describe("what the cookie notice claims", () => {
   });
 });
 
-it("opens Google's actual choices directly from the notice without granting consent on dismissal", async () => {
-  publicConfig.adsense = { enabled: true, client: CLIENT };
+it.each(["google", "local"])("opens %s preferences while notice dismissal leaves consent unchanged", async (provider) => {
+  publicConfig.analytics = { enabled: true, measurementId: "G-PSW1MY7HB4" };
+  if (provider === "google") publicConfig.adsense = { enabled: true, client: CLIENT };
+  else persistAnalyticsConsent("denied");
+  const savedConsent = window.localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY);
   consent.canOpenPreferences = true;
-  consent.provider = "google";
+  consent.provider = provider;
   renderNotice();
-  await userEvent.click(screen.getByRole("button", { name: "Privacy choices" }));
+  const label = provider === "google" ? "Privacy choices" : "Analytics preferences";
+  await userEvent.click(screen.getByRole("button", { name: label }));
   expect(consent.openPreferences).toHaveBeenCalledTimes(1);
   await userEvent.click(screen.getByRole("button", { name: "Got it" }));
   expect(consent.openPreferences).toHaveBeenCalledTimes(1);
+  expect(consent.acceptAnalytics).not.toHaveBeenCalled();
+  expect(consent.rejectAnalytics).not.toHaveBeenCalled();
+  expect(consent.analyticsConsent).toBe("denied");
+  expect(window.localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY)).toBe(savedConsent);
+  expect(screen.queryByRole("complementary", { name: "Cookie notice" })).not.toBeInTheDocument();
 });
