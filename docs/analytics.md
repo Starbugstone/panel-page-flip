@@ -114,6 +114,14 @@ The observer removes its TCF listener on cleanup, including when registration
 finishes after the observer has stopped. Late callbacks cannot register new
 listeners or add stale consent work to the queue.
 
+Opening **Privacy choices**, including through Google's own UI, pauses Analytics
+until a successful `useractioncomplete` event supplies a fresh purpose decision.
+Readiness callbacks and `tcloaded` can still expose the previous grant while the
+panel opens; they must not restore measurement during reconsideration. Failed
+TCF callbacks also pause collection. Registration callbacks with incomplete data
+do not authorize it. The [IAB CMP API event definitions](https://github.com/InteractiveAdvertisingBureau/GDPR-Transparency-and-Consent-Framework/blob/master/TCFv2/IAB%20Tech%20Lab%20-%20CMP%20API%20v2.md)
+distinguish stored choices, an open UI, and a completed user action.
+
 ## GA4 account prerequisites
 
 For either consent path:
@@ -241,7 +249,21 @@ Confirm AdSense and the Google CMP behave as configured, and that no GA tag or
 ### Both
 
 Confirm there is exactly one consent flow — Google's — with no local analytics
-banner, and that GA starts only after the analytics purpose is granted.
+banner. In separate fresh EEA/UK/Swiss sessions, check:
+
+1. Before a choice and after **Do not consent**, no GA4 tag or measurement
+   request is sent. The AdSense/CMP script fetch is expected before its message.
+2. Grant advertising while refusing analytics: GA4 stays off. Grant analytics
+   while refusing advertising: measurement may start, but the application must
+   not overwrite Google's three advertising-purpose consent values.
+3. Grant analytics, reopen **Privacy choices**, and leave the panel open:
+   GA4 stays disabled. Reject and confirm its
+   cookies disappear and later navigation sends no measurements. Reopen and
+   accept again: one sanitized page view per allowed navigation resumes.
+4. Repeat with saved choices after reload and check GA4 network payloads or
+   DebugView for the same sanitized route context as the analytics-only flow.
+
+Record the results alongside the [AdSense account verification](advertising.md#account-verification-and-compliance-evidence).
 
 ### Neither
 

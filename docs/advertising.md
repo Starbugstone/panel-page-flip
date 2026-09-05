@@ -213,8 +213,10 @@ message. See the [Google messaging API](https://developers.google.com/funding-ch
 Open-source Klaro is used only for analytics-only installations. It does not
 replace Google's certified CMP when advertising is enabled, and the application
 does not manufacture advertising grants from a local choice. Google requires a
-certified TCF CMP for AdSense traffic in the EEA, UK and Switzerland; this also
-applies to AdSense, not just a separately integrated exchange. See [Google's
+certified TCF CMP for **personalized ads** in the EEA, UK and Switzerland.
+Non-certified traffic may qualify for non-personalized or limited ads where
+supported; that does not authorize storage without required consent. This
+application keeps the certified flow for AdSense. See [Google's
 publisher requirements](https://support.google.com/adsense/answer/13554116?hl=en).
 
 The AdSense script is fetched before Google's message can appear. A requirement
@@ -223,6 +225,45 @@ describe this existing certified flow. Analytics remains blocked until Google
 reports an analytics grant. Google owns ad storage, refusal and personalization;
 those outcomes need verification with the published account message. A missing
 or blocked CMP never authorizes the application's GA4 loader.
+
+### Account verification and compliance evidence
+
+Passing application tests does not establish compliance of a deployed account.
+Google explicitly says that adopting a certified CMP does not guarantee policy
+compliance: the implementation and published message matter. See [Google's
+consent-policy checklist](https://www.google.com/about/company/user-consent-policy-help/).
+Before enabling the integrations, retain dated results for these checks:
+
+- **Published message:** confirm the site, countries, languages, purposes,
+  vendors and refusal controls described above in the actual AdSense account.
+  The first layer must explain ads personalization and storage used for both
+  personalized and non-personalized advertising.
+  Retain the published wording and verify that CMP consent records include the
+  date and time of affirmative choices.
+- **Disclosures:** compare `/privacy` with the services, vendors, operator
+  contact and retention actually configured. Its introductory link to
+  [Google's data-use disclosure](https://business.safety.google/privacy/) must
+  remain visible when either Google integration is enabled. Identify other
+  advertising partners in the published CMP message and link their data use.
+- **Browser decisions:** perform the [four-mode verification](analytics.md#production-verification),
+  including mixed-purpose choices, saved choices, withdrawal and renewed consent.
+  Verify advertising storage and personalization against the CMP's actual
+  signals; a script loading successfully does not prove either outcome.
+- **GA4 settings:** complete the [account prerequisites](analytics.md#ga4-account-prerequisites),
+  especially disabling Enhanced measurement and checking that URLs, identifiers
+  and user-entered values never appear in outgoing payloads.
+- **Other served regions:** where US state regulations apply, configure Google's
+  corresponding message and verify its default **Do Not Sell or Share** link
+  and opt-out behavior. This application does not override that link or invent
+  GPP signals; the [Google messaging API](https://developers.google.com/funding-choices/fc-api-docs)
+  documents the regional flow and preview parameters.
+- **Publisher account:** check site approval, Policy Center findings, eligible
+  content and ad placements against the [AdSense Program policies](https://support.google.com/adsense/answer/48182?hl=en).
+  A consent implementation cannot establish content rights or account approval.
+
+The application has no access to these account settings. Mark any unperformed
+check as **not verified**, with the date and outstanding action; do not infer a
+pass from valid public IDs, a local mock CMP or a successful CI run.
 
 ## Strict Content Security Policy
 
