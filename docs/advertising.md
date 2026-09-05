@@ -197,6 +197,136 @@ typeof window.googlefc
 document.getElementById("google-cmp")?.src
 ```
 
+### Example consent messages (English and French)
+
+These examples describe this site's configuration with **both AdSense and GA4
+enabled** and the consent-only settings above. Adapt the introductory text in
+**AdSense → Privacy & messaging → European regulations → Manage → your message**.
+Keep Google's generated purpose descriptions, vendor list and required TCF
+disclosures. The examples supplement those details; they are not a replacement
+CMP or a certification of the published message. For advertising-only setups,
+remove the sentence about Google Analytics.
+
+**English title:** Your privacy choices
+
+> Panel Page Flip uses cookies and similar storage to operate the site. With
+> your consent, Google and the advertising partners listed in this message also
+> use cookies and personal data to deliver and measure personalised or
+> non-personalised ads. You can also choose whether to allow Google Analytics
+> for optional audience measurement.
+>
+> You can accept, reject or manage your choices. Refusing optional purposes does
+> not prevent you from using the site. Change or withdraw your choices at any
+> time through “Privacy choices” in the footer or reader settings.
+>
+> Read our [Privacy Policy](https://comics.starbugstone.com/privacy) and learn
+> [how Google uses your personal data](https://business.safety.google/privacy/).
+
+**French title:** Vos choix de confidentialité
+
+> Panel Page Flip utilise des cookies et un stockage similaire pour assurer le
+> fonctionnement du site. Avec votre consentement, Google et les partenaires
+> publicitaires indiqués dans ce message utilisent également des cookies et des
+> données personnelles pour diffuser des publicités personnalisées ou non
+> personnalisées et en mesurer les performances. Vous pouvez également choisir
+> d'autoriser ou non Google Analytics pour une mesure d'audience facultative.
+>
+> Vous pouvez accepter, refuser ou gérer vos choix. Refuser les finalités
+> facultatives ne vous empêche pas d'utiliser le site. Vous pouvez modifier ou
+> retirer votre consentement à tout moment via « Privacy choices » dans le pied
+> de page ou les paramètres du lecteur.
+>
+> Consultez notre [politique de confidentialité](https://comics.starbugstone.com/privacy)
+> et découvrez [comment Google utilise vos données personnelles](https://business.safety.google/privacy/).
+
+Keep all three first-layer actions available with equal prominence for consent
+and refusal. Suggested labels for the corresponding Google controls are:
+
+| Google control | English | French |
+|---|---|---|
+| Consent | Accept all | Tout accepter |
+| Do not consent | Reject all | Tout refuser |
+| Manage options | Manage options | Gérer les options |
+
+Configure the built-in privacy-policy URL as
+`https://comics.starbugstone.com/privacy` (replace the origin for another
+deployment). Preserve that link if an editor field does not accept hyperlinks;
+the policy's opening section also links to Google's data-use disclosure. Review
+each enabled language separately, including both English variants if selected.
+The application control is currently labelled **Privacy choices** even when
+Google's message is French, hence that label in the French example. Follow
+[Google's message creation guide](https://support.google.com/adsense/answer/10960768?hl=en)
+and check the [published-message evidence](#account-verification-and-compliance-evidence)
+before treating the setup as verified.
+
+### When the Google consent banner is missing
+
+The cookie notice includes **Privacy choices**, using the same control as the
+footer and reader settings. **Got it** only dismisses the informational notice;
+it never grants an advertising or analytics purpose.
+
+A valid `/api/public-config` response proves application enablement, not that a
+European-regulations message was published in the AdSense account. Check the
+published site, enabled countries and languages, first-layer refusal, and both
+Consent Mode purpose settings above. Use a fresh browser with blockers disabled
+and `/?fc=alwaysshow&fctype=gdpr`; Google's preview also requires a published
+message. See the [Google messaging API](https://developers.google.com/funding-choices/fc-api-docs).
+
+Open-source Klaro is used only for analytics-only installations. It does not
+replace Google's certified CMP when advertising is enabled, and the application
+does not manufacture advertising grants from a local choice. Google requires a
+certified TCF CMP for **personalized ads** in the EEA, UK and Switzerland.
+Non-certified traffic may qualify for non-personalized or limited ads where
+supported; that does not authorize storage without required consent. This
+application keeps the certified flow for AdSense. See [Google's
+publisher requirements](https://support.google.com/adsense/answer/13554116?hl=en).
+
+The AdSense script is fetched before Google's message can appear. A requirement
+for zero `googlesyndication.com` requests before a choice therefore does not
+describe this existing certified flow. Analytics remains blocked until Google
+reports an analytics grant. Google owns ad storage, refusal and personalization;
+those outcomes need verification with the published account message. A missing
+or blocked CMP never authorizes the application's GA4 loader.
+
+### Account verification and compliance evidence
+
+Passing application tests does not establish compliance of a deployed account.
+Google explicitly says that adopting a certified CMP does not guarantee policy
+compliance: the implementation and published message matter. See [Google's
+consent-policy checklist](https://www.google.com/about/company/user-consent-policy-help/).
+Before enabling the integrations, retain dated results for these checks:
+
+- **Published message:** confirm the site, countries, languages, purposes,
+  vendors and refusal controls described above in the actual AdSense account.
+  The first layer must explain ads personalization and storage used for both
+  personalized and non-personalized advertising.
+  Retain the published wording and verify that CMP consent records include the
+  date and time of affirmative choices.
+- **Disclosures:** compare `/privacy` with the services, vendors, operator
+  contact and retention actually configured. Its introductory link to
+  [Google's data-use disclosure](https://business.safety.google/privacy/) must
+  remain visible when either Google integration is enabled. Identify other
+  advertising partners in the published CMP message and link their data use.
+- **Browser decisions:** perform the [four-mode verification](analytics.md#production-verification),
+  including mixed-purpose choices, saved choices, withdrawal and renewed consent.
+  Verify advertising storage and personalization against the CMP's actual
+  signals; a script loading successfully does not prove either outcome.
+- **GA4 settings:** complete the [account prerequisites](analytics.md#ga4-account-prerequisites),
+  especially disabling Enhanced measurement and checking that URLs, identifiers
+  and user-entered values never appear in outgoing payloads.
+- **Other served regions:** where US state regulations apply, configure Google's
+  corresponding message and verify its default **Do Not Sell or Share** link
+  and opt-out behavior. This application does not override that link or invent
+  GPP signals; the [Google messaging API](https://developers.google.com/funding-choices/fc-api-docs)
+  documents the regional flow and preview parameters.
+- **Publisher account:** check site approval, Policy Center findings, eligible
+  content and ad placements against the [AdSense Program policies](https://support.google.com/adsense/answer/48182?hl=en).
+  A consent implementation cannot establish content rights or account approval.
+
+The application has no access to these account settings. Mark any unperformed
+check as **not verified**, with the date and outstanding action; do not infer a
+pass from valid public IDs, a local mock CMP or a successful CI run.
+
 ## Strict Content Security Policy
 
 Google supports AdSense with a strict nonce-based CSP because its resource

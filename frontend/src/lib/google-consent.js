@@ -42,6 +42,7 @@ export function observeAnalyticsConsent(
   let stopped = false;
   let listenerId = null;
   let lastDecision = null;
+  let awaitingUserAction = false;
 
   const removeListener = () => {
     if (listenerId !== null && typeof win.__tcfapi === "function") {
@@ -51,7 +52,7 @@ export function observeAnalyticsConsent(
   };
 
   const publish = () => {
-    if (stopped) return;
+    if (stopped || awaitingUserAction) return;
     let decision = "denied";
     try {
       decision = analyticsConsentDecision(googlefc.getGoogleConsentModeValues?.());
@@ -65,7 +66,8 @@ export function observeAnalyticsConsent(
   };
 
   /**
-   * Reopening the panel withdraws consent until the CMP says otherwise.
+   * Reopening the panel pauses collection until a new user decision. Google's
+   * readiness callbacks can still expose the previous grant while its UI opens.
    *
    * It also re-arms `lastDecision`, which is what makes a re-grant visible: the
    * CMP republishes `granted` after the user confirms, and a publish that
@@ -73,6 +75,7 @@ export function observeAnalyticsConsent(
    * opened the panel and accepted again would stay unmeasured until reload.
    */
   const withdraw = () => {
+    awaitingUserAction = true;
     lastDecision = "denied";
     onChange("denied");
   };
@@ -88,15 +91,25 @@ export function observeAnalyticsConsent(
           removeListener();
           return;
         }
+        if (!success || data?.eventStatus === "cmpuishown") {
+          withdraw();
+          return;
+        }
+        // A listener is also called during registration with incomplete data.
+        // Only completed decisions or a valid saved choice can authorize GA.
+        if (data?.eventStatus === "useractioncomplete") awaitingUserAction = false;
+        else if (data?.eventStatus !== "tcloaded") return;
+
         // Once consent-mode data is ready this executes synchronously. Before
-        // then it remains queued, so the TCF event can never race the values.
+        // then it remains queued. `publish` also checks for a reopened panel so
+        // a delayed callback cannot restore the grant being reconsidered.
         googlefc.callbackQueue.push({ CONSENT_MODE_DATA_READY: publish });
       });
     },
   });
 
   platform.then((status) => {
-    if (!stopped && status !== "ready") onChange("denied");
+    if (!stopped && status !== "ready") withdraw();
   });
 
   return () => {

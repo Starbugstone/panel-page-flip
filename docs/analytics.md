@@ -47,8 +47,24 @@ each Google-free route receives.
 
 ### Analytics only
 
-This application asks, with **Accept analytics** and **Reject analytics** side
-by side and equally easy to choose. Nothing Google-owned is loaded before a
+Klaro asks with **Accept all**, **Reject all**, and **Customize** on the first
+layer, in English or French according to the browser language. Accept and
+reject have equal styling. Customization keeps edits pending until **Save
+choices**; closing it grants nothing. Reopening **Analytics preferences** keeps
+one-click refusal available. The fixed overlay uses the application theme,
+respects reduced motion, and returns focus after a decision.
+
+`ConsentBanner` mounts once under the existing `ConsentProvider` in `App.jsx`.
+The pinned Klaro source components share React's renderer and lifecycle instead
+of auto-mounting a second renderer. `KlaroConfig` adapts its storage interface to
+the existing versioned record, so returning choices and cross-tab withdrawal
+still work. The separate `consent` build chunk contains Klaro. Its source icon
+requires the explicitly installed `prop-types` dependency, prebundled by Vite.
+Knip excludes that dependency from unused-dependency findings because its real
+import is in Klaro's package source rather than in this application.
+There are no new backend fields, environment settings, or CSP origins.
+
+Klaro controls only the analytics purpose. Nothing Google-owned is loaded before a
 grant — that is basic consent mode, so a visitor who rejects sends no cookieless
 pings either. On a grant, the application queues Consent Mode v2's
 `ad_storage`, `ad_user_data`, `ad_personalization`, and `analytics_storage`
@@ -98,21 +114,56 @@ The observer removes its TCF listener on cleanup, including when registration
 finishes after the observer has stopped. Late callbacks cannot register new
 listeners or add stale consent work to the queue.
 
+Opening **Privacy choices**, including through Google's own UI, pauses Analytics
+until a successful `useractioncomplete` event supplies a fresh purpose decision.
+Readiness callbacks and `tcloaded` can still expose the previous grant while the
+panel opens; they must not restore measurement during reconsideration. Failed
+TCF callbacks also pause collection. Registration callbacks with incomplete data
+do not authorize it. The [IAB CMP API event definitions](https://github.com/InteractiveAdvertisingBureau/GDPR-Transparency-and-Consent-Framework/blob/master/TCFv2/IAB%20Tech%20Lab%20-%20CMP%20API%20v2.md)
+distinguish stored choices, an open UI, and a completed user action.
+
 ## GA4 account prerequisites
 
-For either consent path:
+For either consent path, create a GA4 web data stream and copy its `G-`
+measurement id into the server settings at the top of this guide. Select that
+property in **Google Analytics → Admin**, using an Editor or Administrator
+account for configuration.
 
-1. Create a GA4 web data stream and copy its `G-` measurement id.
-2. Turn off the web stream's **Enhanced measurement** master switch. The
-   application sends only its own sanitized page views. History, scroll,
-   outbound-click, site-search, video, file-download and form events can expose
-   real application URLs or user-entered values and must all remain disabled.
-3. Disable Google Signals, granular location/device collection, and advertising
-   personalization unless a separately documented need and legal review justify
-   them. Do not link the property to Google Ads by default.
-4. Set user-level and event-level retention to two months and accept Google's
-   Data Processing Terms for the operator.
-5. Limit GA account access to named operators who need it.
+Use this project's minimal-measurement baseline below. These values support the
+application's stated privacy policy; they are not universal Google requirements
+or a compliance certificate. A different collection purpose needs corresponding
+implementation, disclosure and consent review.
+
+| Setting | Location in Google Analytics Admin | Value for this application |
+|---|---|---|
+| [Enhanced measurement](https://support.google.com/analytics/answer/9216061?hl=en) | Data collection and modification → Data streams → select the web stream | **Off**, using the master switch |
+| [Google signals data collection](https://support.google.com/analytics/answer/9445345?hl=en) | Data collection and modification → Data collection | **Off** |
+| [Granular location and device data](https://support.google.com/analytics/answer/12002752?hl=en) | Data collection and modification → Data collection → location/device settings | **Off for all regions**, then Apply |
+| [Advanced settings to allow for ads personalization](https://support.google.com/analytics/answer/9626162?hl=en) | Data collection and modification → Data collection → expand the advanced ads-personalization settings | **Off for all regions**, then Apply |
+| [User and event data retention](https://support.google.com/analytics/answer/7667196?hl=en) | Property's Data retention screen (Data Settings → Data Retention in the older Admin layout) | **2 months** for user and event data; **Reset user data on new activity: Off**, then Save |
+| Google Ads links | Product links → Google Ads links | **Do not create a Google Ads link** for this measurement-only setup |
+
+The application sends its own sanitized page views. Enhanced measurement's
+history, scroll, outbound-click, site-search, video, file-download and form
+events can expose real application URLs or user-entered values and must remain
+disabled. Disabling that switch does not replace the application's
+`send_page_view: false` and manual page-view handling. The two-month retention
+setting does not delete standard aggregated reports after two months.
+
+Accept Google's Data Processing Terms for the operator and limit account access
+to named operators who need it. Record the property, stream, settings and date
+checked with the release evidence.
+
+**When AdSense is also enabled**, configure the two consent switches in
+**AdSense**, separately from these GA4 settings: **Privacy & messaging → European
+regulations → Settings → Enable consent mode for advertising purposes: On**,
+then **Enable consent mode for analytics purposes: On**, and Save. The second
+switch appears only after enabling the first. Both are needed for Google's
+message to collect the analytics-purpose choice. See [Google's consent-mode
+settings](https://support.google.com/adsense/answer/16053245?hl=en) and the
+[English/French message examples](advertising.md#example-consent-messages-english-and-french).
+For analytics-only installations, Klaro handles consent and no AdSense settings
+are required.
 
 The application loads `gtag.js` directly; it does not install a Google Tag
 Manager container. Keep this single loader as the only GA4 deployment path so a
@@ -207,9 +258,9 @@ document.cookie
 1. Before choosing, confirm there is no request to `googletagmanager.com`,
    `google-analytics.com` or `fundingchoicesmessages.google.com`, no
    `google-analytics-tag` element, and no `_ga` cookie.
-2. Reject analytics and confirm the same remains true while application features
+2. Choose **Reject all** and confirm the same remains true while application features
    still work.
-3. Accept analytics and confirm exactly one sanitized `page_view` per allowed
+3. Choose **Accept all** and confirm exactly one sanitized `page_view` per allowed
    route in GA DebugView.
 4. Navigate through `/read/<id>`, `/admin`, a reset URL and an invitation URL;
    confirm none of their paths, ids, tokens, titles or query strings appear in
@@ -225,7 +276,21 @@ Confirm AdSense and the Google CMP behave as configured, and that no GA tag or
 ### Both
 
 Confirm there is exactly one consent flow — Google's — with no local analytics
-banner, and that GA starts only after the analytics purpose is granted.
+banner. In separate fresh EEA/UK/Swiss sessions, check:
+
+1. Before a choice and after **Do not consent**, no GA4 tag or measurement
+   request is sent. The AdSense/CMP script fetch is expected before its message.
+2. Grant advertising while refusing analytics: GA4 stays off. Grant analytics
+   while refusing advertising: measurement may start, but the application must
+   not overwrite Google's three advertising-purpose consent values.
+3. Grant analytics, reopen **Privacy choices**, and leave the panel open:
+   GA4 stays disabled. Reject and confirm its
+   cookies disappear and later navigation sends no measurements. Reopen and
+   accept again: one sanitized page view per allowed navigation resumes.
+4. Repeat with saved choices after reload and check GA4 network payloads or
+   DebugView for the same sanitized route context as the analytics-only flow.
+
+Record the results alongside the [AdSense account verification](advertising.md#account-verification-and-compliance-evidence).
 
 ### Neither
 

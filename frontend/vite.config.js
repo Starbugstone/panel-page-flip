@@ -73,6 +73,8 @@ export default defineConfig(({ mode }) => {
       }
     }
   },
+  // Klaro ships its React source without declaring the icon component's CommonJS dependency.
+  optimizeDeps: { include: ["prop-types"] },
   plugins: [
     react(),
     seoAssets(appUrl),
@@ -89,6 +91,7 @@ export default defineConfig(({ mode }) => {
       output: {
         codeSplitting: {
           groups: [
+            { name: "consent", test: /node_modules[\\/]klaro[\\/]/, priority: 4 },
             {
               name: "ui-vendor",
               test: /node_modules[\\/](@radix-ui|lucide-react)[\\/]/,
