@@ -197,6 +197,68 @@ typeof window.googlefc
 document.getElementById("google-cmp")?.src
 ```
 
+### Example consent messages (English and French)
+
+These examples describe this site's configuration with **both AdSense and GA4
+enabled** and the consent-only settings above. Adapt the introductory text in
+**AdSense → Privacy & messaging → European regulations → Manage → your message**.
+Keep Google's generated purpose descriptions, vendor list and required TCF
+disclosures. The examples supplement those details; they are not a replacement
+CMP or a certification of the published message. For advertising-only setups,
+remove the sentence about Google Analytics.
+
+**English title:** Your privacy choices
+
+> Panel Page Flip uses cookies and similar storage to operate the site. With
+> your consent, Google and the advertising partners listed in this message also
+> use cookies and personal data to deliver and measure personalised or
+> non-personalised ads. You can also choose whether to allow Google Analytics
+> for optional audience measurement.
+>
+> You can accept, reject or manage your choices. Refusing optional purposes does
+> not prevent you from using the site. Change or withdraw your choices at any
+> time through “Privacy choices” in the footer or reader settings.
+>
+> Read our [Privacy Policy](https://comics.starbugstone.com/privacy) and learn
+> [how Google uses your personal data](https://business.safety.google/privacy/).
+
+**French title:** Vos choix de confidentialité
+
+> Panel Page Flip utilise des cookies et un stockage similaire pour assurer le
+> fonctionnement du site. Avec votre consentement, Google et les partenaires
+> publicitaires indiqués dans ce message utilisent également des cookies et des
+> données personnelles pour diffuser des publicités personnalisées ou non
+> personnalisées et en mesurer les performances. Vous pouvez également choisir
+> d'autoriser ou non Google Analytics pour une mesure d'audience facultative.
+>
+> Vous pouvez accepter, refuser ou gérer vos choix. Refuser les finalités
+> facultatives ne vous empêche pas d'utiliser le site. Vous pouvez modifier ou
+> retirer votre consentement à tout moment via « Privacy choices » dans le pied
+> de page ou les paramètres du lecteur.
+>
+> Consultez notre [politique de confidentialité](https://comics.starbugstone.com/privacy)
+> et découvrez [comment Google utilise vos données personnelles](https://business.safety.google/privacy/).
+
+Keep all three first-layer actions available with equal prominence for consent
+and refusal. Suggested labels for the corresponding Google controls are:
+
+| Google control | English | French |
+|---|---|---|
+| Consent | Accept all | Tout accepter |
+| Do not consent | Reject all | Tout refuser |
+| Manage options | Manage options | Gérer les options |
+
+Configure the built-in privacy-policy URL as
+`https://comics.starbugstone.com/privacy` (replace the origin for another
+deployment). Preserve that link if an editor field does not accept hyperlinks;
+the policy's opening section also links to Google's data-use disclosure. Review
+each enabled language separately, including both English variants if selected.
+The application control is currently labelled **Privacy choices** even when
+Google's message is French, hence that label in the French example. Follow
+[Google's message creation guide](https://support.google.com/adsense/answer/10960768?hl=en)
+and check the [published-message evidence](#account-verification-and-compliance-evidence)
+before treating the setup as verified.
+
 ### When the Google consent banner is missing
 
 The cookie notice includes **Privacy choices**, using the same control as the

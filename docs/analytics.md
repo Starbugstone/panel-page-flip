@@ -124,19 +124,46 @@ distinguish stored choices, an open UI, and a completed user action.
 
 ## GA4 account prerequisites
 
-For either consent path:
+For either consent path, create a GA4 web data stream and copy its `G-`
+measurement id into the server settings at the top of this guide. Select that
+property in **Google Analytics → Admin**, using an Editor or Administrator
+account for configuration.
 
-1. Create a GA4 web data stream and copy its `G-` measurement id.
-2. Turn off the web stream's **Enhanced measurement** master switch. The
-   application sends only its own sanitized page views. History, scroll,
-   outbound-click, site-search, video, file-download and form events can expose
-   real application URLs or user-entered values and must all remain disabled.
-3. Disable Google Signals, granular location/device collection, and advertising
-   personalization unless a separately documented need and legal review justify
-   them. Do not link the property to Google Ads by default.
-4. Set user-level and event-level retention to two months and accept Google's
-   Data Processing Terms for the operator.
-5. Limit GA account access to named operators who need it.
+Use this project's minimal-measurement baseline below. These values support the
+application's stated privacy policy; they are not universal Google requirements
+or a compliance certificate. A different collection purpose needs corresponding
+implementation, disclosure and consent review.
+
+| Setting | Location in Google Analytics Admin | Value for this application |
+|---|---|---|
+| [Enhanced measurement](https://support.google.com/analytics/answer/9216061?hl=en) | Data collection and modification → Data streams → select the web stream | **Off**, using the master switch |
+| [Google signals data collection](https://support.google.com/analytics/answer/9445345?hl=en) | Data collection and modification → Data collection | **Off** |
+| [Granular location and device data](https://support.google.com/analytics/answer/12002752?hl=en) | Data collection and modification → Data collection → location/device settings | **Off for all regions**, then Apply |
+| [Advanced settings to allow for ads personalization](https://support.google.com/analytics/answer/9626162?hl=en) | Data collection and modification → Data collection → expand the advanced ads-personalization settings | **Off for all regions**, then Apply |
+| [User and event data retention](https://support.google.com/analytics/answer/7667196?hl=en) | Property's Data retention screen (Data Settings → Data Retention in the older Admin layout) | **2 months** for user and event data; **Reset user data on new activity: Off**, then Save |
+| Google Ads links | Product links → Google Ads links | **Do not create a Google Ads link** for this measurement-only setup |
+
+The application sends its own sanitized page views. Enhanced measurement's
+history, scroll, outbound-click, site-search, video, file-download and form
+events can expose real application URLs or user-entered values and must remain
+disabled. Disabling that switch does not replace the application's
+`send_page_view: false` and manual page-view handling. The two-month retention
+setting does not delete standard aggregated reports after two months.
+
+Accept Google's Data Processing Terms for the operator and limit account access
+to named operators who need it. Record the property, stream, settings and date
+checked with the release evidence.
+
+**When AdSense is also enabled**, configure the two consent switches in
+**AdSense**, separately from these GA4 settings: **Privacy & messaging → European
+regulations → Settings → Enable consent mode for advertising purposes: On**,
+then **Enable consent mode for analytics purposes: On**, and Save. The second
+switch appears only after enabling the first. Both are needed for Google's
+message to collect the analytics-purpose choice. See [Google's consent-mode
+settings](https://support.google.com/adsense/answer/16053245?hl=en) and the
+[English/French message examples](advertising.md#example-consent-messages-english-and-french).
+For analytics-only installations, Klaro handles consent and no AdSense settings
+are required.
 
 The application loads `gtag.js` directly; it does not install a Google Tag
 Manager container. Keep this single loader as the only GA4 deployment path so a
