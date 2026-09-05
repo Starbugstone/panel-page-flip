@@ -6,7 +6,7 @@ import { useConsent } from "@/components/consent/ConsentProvider.jsx";
 import { PrivacyChoicesButton } from "@/components/consent/PrivacyChoicesButton.jsx";
 import { adSafeRouteSentence, isAdvertisingActive } from "@/lib/advertising";
 
-const LAST_UPDATED = "3 September 2026";
+const LAST_UPDATED = "5 September 2026";
 
 /**
  * The operator's contact details, from the one public-config request the
@@ -265,6 +265,17 @@ export function PrivacyPolicy() {
         This policy explains how {operator} (“we”, “us”) processes personal data
         when you use Panel Page Flip.
       </p>
+
+      {(advertising || analytics) && (
+        <p>
+          This site uses optional Google services. Learn{" "}
+          <a className="underline" href="https://business.safety.google/privacy/" target="_blank" rel="noopener noreferrer">
+            how Google uses your personal data
+          </a>
+          , including information received from sites and apps that use its services.
+          Our uses and your choices are described below.
+        </p>
+      )}
 
       <h2>Data controller and contact</h2>
       <p>

@@ -23,7 +23,7 @@ vi.mock("./hooks/use-sharing.jsx", () => ({ SharingProvider: ({ children }) => c
 vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({ PublicConfigProvider: ({ children }) => children }));
 vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({ AdSenseProvider: ({ children }) => children }));
 vi.mock("@/components/consent/ConsentProvider.jsx", () => ({ ConsentProvider: ({ children }) => children }));
-vi.mock("@/components/consent/AnalyticsConsentDialog.jsx", () => ({ AnalyticsConsentDialog: () => null }));
+vi.mock("@/components/consent/ConsentBanner.jsx", () => ({ ConsentBanner: () => null }));
 vi.mock("@/components/analytics/GoogleAnalyticsProvider.jsx", () => ({ GoogleAnalyticsProvider: ({ children }) => children }));
 vi.mock("@/components/Header.jsx", () => ({ Header: () => <header>Application header<Link to="/admin">Administration</Link></header> }));
 vi.mock("@/components/AdminNoticeBanner.jsx", () => ({ AdminNoticeBanner: () => null }));

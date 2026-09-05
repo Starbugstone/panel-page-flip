@@ -66,6 +66,17 @@ beforeEach(() => {
  * they are indexable, and both directions are wrong on the other deployment.
  */
 describe("the privacy policy", () => {
+  it.each(["advertising", "analytics", "both"])("links to Google's data-use disclosure when %s is enabled", (mode) => {
+    if (mode !== "analytics") advertisingOn();
+    if (mode !== "advertising") analyticsOn();
+    renderPage(<PrivacyPolicy />);
+
+    const disclosure = screen.getByRole("link", { name: "how Google uses your personal data" });
+    expect(disclosure).toHaveAttribute("href", "https://business.safety.google/privacy/");
+    const firstSection = screen.getByRole("heading", { name: "Data controller and contact" });
+    expect(disclosure.compareDocumentPosition(firstSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("covers account identifiers and sharing-code records, not only email invitations", async () => {
     renderPage(<PrivacyPolicy />);
 
@@ -95,6 +106,7 @@ describe("the privacy policy", () => {
 
     expect(await screen.findByText(/we do not use advertising networks or third-party analytics/i))
       .toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "how Google uses your personal data" })).not.toBeInTheDocument();
   });
 
   it("documents privacy-minimised Analytics only when its env switch is active", async () => {
@@ -131,6 +143,7 @@ describe("the privacy policy", () => {
 
     expect(screen.queryByText(/we do not use advertising networks/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/google serves advertising/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "how Google uses your personal data" })).not.toBeInTheDocument();
   });
 
   /**

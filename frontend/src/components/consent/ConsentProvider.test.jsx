@@ -1,9 +1,12 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AnalyticsConsentDialog } from "@/components/consent/AnalyticsConsentDialog.jsx";
+import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
+import { ANALYTICS_SCRIPT_ID, resetGoogleAnalyticsForTesting } from "@/lib/google-analytics";
+import { ANALYTICS_CONSENT_STORAGE_KEY } from "@/lib/analytics-consent-storage";
+import { ConsentBanner } from "@/components/consent/ConsentBanner.jsx";
 import { ConsentProvider, useConsent } from "@/components/consent/ConsentProvider.jsx";
 import { observeAnalyticsConsent } from "@/lib/google-consent";
 import { reopenPrivacyChoices } from "@/lib/privacy-choices";
@@ -22,6 +25,7 @@ vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({
   usePublicConfig: () => state.publicConfig,
 }));
 vi.mock("@/lib/google-consent", () => ({
+  PRIVACY_CHOICES_OPENING_EVENT: "panel-page-flip:privacy-choices-opening",
   observeAnalyticsConsent: vi.fn((_client, { onChange }) => {
     state.consentCallback = onChange;
     return vi.fn();
@@ -83,7 +87,7 @@ function Probe() {
         canOpenPreferences: consent.canOpenPreferences,
       })}</span>
       <button onClick={consent.openPreferences}>Preferences</button>
-      <AnalyticsConsentDialog />
+      <ConsentBanner />
     </div>
   );
 }
@@ -99,6 +103,8 @@ const renderProvider = (path = "/dashboard") => render(
     </ConsentProvider>
   </MemoryRouter>
 );
+
+afterEach(() => resetGoogleAnalyticsForTesting());
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -191,18 +197,15 @@ describe("the Analytics-only consent flow", () => {
     expect(await screen.findByRole("dialog", { name: "Analytics preferences" })).toBeInTheDocument();
     expect(observed().analyticsConsent).toBe("undecided");
 
-    const accept = screen.getByRole("button", { name: "Accept analytics" });
-    const reject = screen.getByRole("button", { name: "Reject analytics" });
+    const accept = screen.getByRole("button", { name: "Accept all" });
+    const reject = screen.getByRole("button", { name: "Reject all" });
     // A reject that is harder to reach than accept is not a free choice. Both
     // are real buttons, the same size, side by side in the same row — not a
     // link, not smaller type, not a second click behind "more options".
     expect(reject.tagName).toBe("BUTTON");
     expect(reject).toBeEnabled();
     expect(reject.parentElement).toBe(accept.parentElement);
-    expect(reject.parentElement.className).toContain("sm:shrink-0");
-    expect(reject.className).toContain("h-9");
-    expect(accept.className).toContain("h-9");
-    expect(reject.className).toBe(accept.className);
+    expect(screen.getByRole("link", { name: "Customize" })).toBeVisible();
 
     await userEvent.click(reject);
 
@@ -212,7 +215,7 @@ describe("the Analytics-only consent flow", () => {
 
   it("remembers the answer so a returning visitor is not asked again", async () => {
     const first = renderProvider();
-    await userEvent.click(await screen.findByRole("button", { name: "Accept analytics" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Accept all" }));
     expect(observed().analyticsConsent).toBe("granted");
     first.unmount();
 
@@ -224,7 +227,7 @@ describe("the Analytics-only consent flow", () => {
 
   it("honours a withdrawal or cleared choice from another tab", async () => {
     renderProvider();
-    await userEvent.click(await screen.findByRole("button", { name: "Accept analytics" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Accept all" }));
     expect(observed().analyticsConsent).toBe("granted");
 
     window.localStorage.setItem("panel-page-flip:analytics-consent", JSON.stringify({
@@ -266,14 +269,14 @@ describe("the Analytics-only consent flow", () => {
 
   it("can be reopened to withdraw, from the permanent control", async () => {
     const first = renderProvider();
-    await userEvent.click(await screen.findByRole("button", { name: "Accept analytics" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Accept all" }));
     first.unmount();
 
     renderProvider();
     await userEvent.click(screen.getByRole("button", { name: "Preferences" }));
 
     expect(await screen.findByRole("dialog", { name: "Analytics preferences" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Reject analytics" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reject all" }));
 
     expect(observed().analyticsConsent).toBe("denied");
     expect(reopenPrivacyChoices).not.toHaveBeenCalled();
@@ -337,4 +340,97 @@ describe("the Google-free legal routes", () => {
     expect(reopenPrivacyChoices).toHaveBeenCalledWith({ client: CLIENT });
     expect(screen.getByTestId("path").textContent).toBe("/dashboard");
   });
+});
+
+describe("Klaro customization", () => {
+  beforeEach(() => configure("analyticsOnly"));
+
+  it("keeps an edited choice pending until saved", async () => {
+    renderProvider();
+    await userEvent.click(screen.getByRole("link", { name: "Customize" }));
+    const modal = await screen.findByRole("dialog", { name: "Analytics preferences" });
+    expect(modal).toHaveAttribute("aria-modal", "true");
+    const analytics = screen.getByRole("checkbox", { name: "Google Analytics" });
+    expect(analytics).not.toBeChecked();
+    await userEvent.click(analytics);
+    expect(observed().analyticsConsent).toBe("undecided");
+    await userEvent.click(screen.getByRole("button", { name: "Save choices" }));
+    expect(observed().analyticsConsent).toBe("granted");
+  });
+
+  it.each(["Close", "Escape"])("returns focus to the notice without saving when customization closes with %s", async (action) => {
+    renderProvider();
+    await userEvent.click(screen.getByRole("link", { name: "Customize" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Google Analytics" }));
+    if (action === "Escape") await userEvent.keyboard("{Escape}");
+    else await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(await screen.findByRole("link", { name: "Customize" })).toBeVisible();
+    const notice = screen.getByRole("dialog", { name: "Analytics preferences" });
+    expect(notice).not.toHaveAttribute("aria-modal");
+    await waitFor(() => expect(notice).toHaveFocus());
+    expect(observed().analyticsConsent).toBe("undecided");
+    expect(window.localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY)).toBeNull();
+  });
+
+  it("keeps keyboard focus within customization and restores the preferences trigger after deciding", async () => {
+    renderProvider();
+    await userEvent.click(screen.getByRole("button", { name: "Reject all" }));
+    const trigger = screen.getByRole("button", { name: "Preferences" });
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole("link", { name: "Customize" }));
+    const close = screen.getByRole("button", { name: "Close" });
+    close.focus();
+    await userEvent.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Accept all" })).toHaveFocus();
+    await userEvent.tab();
+    expect(close).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: "Reject all" }));
+    expect(trigger).toHaveFocus();
+  });
+
+  it("renders the whole choice in French for a French browser", async () => {
+    const language = vi.spyOn(navigator, "language", "get").mockReturnValue("fr-FR");
+    try {
+      renderProvider();
+      expect(screen.getByRole("dialog", { name: "Préférences de mesure d’audience" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Tout accepter" })).toBeEnabled();
+      await userEvent.click(screen.getByRole("link", { name: "Personnaliser" }));
+      expect(screen.getByRole("button", { name: "Enregistrer mes choix" })).toBeVisible();
+      await userEvent.click(screen.getByRole("button", { name: "Tout refuser" }));
+      expect(observed().analyticsConsent).toBe("denied");
+    } finally {
+      language.mockRestore();
+    }
+  });
+});
+
+it("gates the real GA4 loader and updates only the analytics purpose after a saved Klaro choice", async () => {
+  configure("analyticsOnly");
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <ConsentProvider>
+        <GoogleAnalyticsProvider><Probe /></GoogleAnalyticsProvider>
+      </ConsentProvider>
+    </MemoryRouter>
+  );
+  expect(document.getElementById(ANALYTICS_SCRIPT_ID)).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Reject all" }));
+  expect(document.getElementById(ANALYTICS_SCRIPT_ID)).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Preferences" }));
+  await userEvent.click(screen.getByRole("button", { name: "Accept all" }));
+  const tag = await waitFor(() => {
+    expect(document.getElementById(ANALYTICS_SCRIPT_ID)).not.toBeNull();
+    return document.getElementById(ANALYTICS_SCRIPT_ID);
+  });
+  act(() => tag.dispatchEvent(new Event("load")));
+  const updates = () => window.dataLayer.map((command) => [...command])
+    .filter(([command, action]) => command === "consent" && action === "update");
+  expect(updates().at(-1)[2]).toEqual({
+    analytics_storage: "granted", ad_storage: "denied",
+    ad_user_data: "denied", ad_personalization: "denied",
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Preferences" }));
+  await userEvent.click(screen.getByRole("button", { name: "Reject all" }));
+  expect(updates().at(-1)[2].analytics_storage).toBe("denied");
+  expect(window[`ga-disable-${MEASUREMENT_ID}`]).toBe(true);
 });

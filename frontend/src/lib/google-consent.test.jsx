@@ -1,11 +1,52 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { analyticsConsentDecision, observeAnalyticsConsent } from "@/lib/google-consent";
+import {
+  analyticsConsentDecision,
+  observeAnalyticsConsent,
+  PRIVACY_CHOICES_OPENING_EVENT,
+} from "@/lib/google-consent";
 import { acquireConsentPlatform } from "@/lib/adsense-loader";
 
 vi.mock("@/lib/adsense-loader", () => ({
   acquireConsentPlatform: vi.fn(() => Promise.resolve("ready")),
 }));
+
+// After readiness, Google runs newly queued callbacks synchronously, even when
+// its consent values still describe the choice made before reopening the UI.
+function liveConsentPlatform() {
+  const win = new EventTarget();
+  let consentReady = false;
+  let analyticsStatus = 1;
+  let listener;
+  const pending = [];
+  win.__tcfapi = (command, _version, callback) => {
+    if (command === "addEventListener") listener = callback;
+  };
+  win.googlefc = {
+    getGoogleConsentModeValues: () => ({ analyticsStoragePurposeConsentStatus: analyticsStatus }),
+    callbackQueue: {
+      push(entry) {
+        if (entry.CONSENT_API_READY) entry.CONSENT_API_READY();
+        if (entry.CONSENT_MODE_DATA_READY) {
+          if (consentReady) entry.CONSENT_MODE_DATA_READY();
+          else pending.push(entry.CONSENT_MODE_DATA_READY);
+        }
+      },
+    },
+  };
+
+  return {
+    win,
+    ready() {
+      consentReady = true;
+      pending.splice(0).forEach((callback) => callback());
+    },
+    change(eventStatus, status = analyticsStatus, success = true) {
+      analyticsStatus = status;
+      listener({ listenerId: 1, eventStatus }, success);
+    },
+  };
+}
 
 describe("the basic-consent decision", () => {
   it.each([1, 3])("allows analytics for Google status %s", (status) => {
@@ -92,11 +133,67 @@ describe("observing Google's certified CMP", () => {
     expect(win.__tcfapi).toHaveBeenCalledWith("addEventListener", 2, expect.any(Function));
 
     win.googlefc.getGoogleConsentModeValues = () => ({ analyticsStoragePurposeConsentStatus: 1 });
-    tcfListener({ listenerId: 0 }, true);
+    tcfListener({ listenerId: 0, eventStatus: "tcloaded" }, true);
     win.googlefc.callbackQueue.at(-1).CONSENT_MODE_DATA_READY();
     expect(onChange).toHaveBeenLastCalledWith("granted");
 
     stop();
     expect(win.__tcfapi).toHaveBeenCalledWith("removeEventListener", 2, expect.any(Function), 0);
+  });
+
+  it.each([1, 2])("suspends analytics while Google's UI is open, then applies purpose status %s", (status) => {
+    const platform = liveConsentPlatform();
+    const onChange = vi.fn();
+    const stop = observeAnalyticsConsent("ca-pub-1234567890123456", { win: platform.win, onChange });
+    platform.ready();
+    expect(onChange).toHaveBeenLastCalledWith("granted");
+
+    platform.change("cmpuishown");
+    expect(onChange).toHaveBeenLastCalledWith("denied");
+
+    platform.change("useractioncomplete", status);
+    expect(onChange).toHaveBeenLastCalledWith(status === 1 ? "granted" : "denied");
+    stop();
+  });
+
+  it("ignores stale stored-consent and delayed readiness callbacks after Privacy choices is clicked", () => {
+    const platform = liveConsentPlatform();
+    const onChange = vi.fn();
+    const stop = observeAnalyticsConsent("ca-pub-1234567890123456", { win: platform.win, onChange });
+    platform.change("tcloaded");
+
+    platform.win.dispatchEvent(new Event(PRIVACY_CHOICES_OPENING_EVENT));
+    expect(onChange).toHaveBeenLastCalledWith("denied");
+    platform.ready();
+    platform.change("tcloaded");
+    platform.change("cmpuishown");
+    expect(onChange).not.toHaveBeenCalledWith("granted");
+
+    platform.change("useractioncomplete", 1);
+    expect(onChange).toHaveBeenLastCalledWith("granted");
+    stop();
+  });
+
+  it("fails closed on a failed TCF callback even if Google still exposes a previous grant", () => {
+    const platform = liveConsentPlatform();
+    const onChange = vi.fn();
+    const stop = observeAnalyticsConsent("ca-pub-1234567890123456", { win: platform.win, onChange });
+    platform.ready();
+    expect(onChange).toHaveBeenLastCalledWith("granted");
+
+    platform.change("useractioncomplete", 1, false);
+    expect(onChange).toHaveBeenLastCalledWith("denied");
+    stop();
+  });
+
+  it("does not treat an incomplete TCF registration callback as a renewed decision", () => {
+    const platform = liveConsentPlatform();
+    const onChange = vi.fn();
+    const stop = observeAnalyticsConsent("ca-pub-1234567890123456", { win: platform.win, onChange });
+    platform.ready();
+    platform.win.dispatchEvent(new Event(PRIVACY_CHOICES_OPENING_EVENT));
+    platform.change(undefined);
+    expect(onChange).toHaveBeenLastCalledWith("denied");
+    stop();
   });
 });
