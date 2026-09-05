@@ -11,7 +11,7 @@ const { publicConfig, consent } = vi.hoisted(() => ({
     analytics: { enabled: false, measurementId: null },
     isLoading: false,
   },
-  consent: { isAnalyticsDialogOpen: false },
+  consent: { isAnalyticsDialogOpen: false, canOpenPreferences: false, provider: null, openPreferences: vi.fn() },
 }));
 
 vi.mock("@/components/config/PublicConfigProvider.jsx", () => ({
@@ -34,6 +34,8 @@ beforeEach(() => {
   publicConfig.analytics = { enabled: false, measurementId: null };
   publicConfig.isLoading = false;
   consent.isAnalyticsDialogOpen = false;
+  consent.canOpenPreferences = false;
+  consent.provider = null;
 });
 
 /**
@@ -115,4 +117,15 @@ describe("what the cookie notice claims", () => {
 
     expect(screen.queryByRole("complementary", { name: "Cookie notice" })).not.toBeInTheDocument();
   });
+});
+
+it("opens Google's actual choices directly from the notice without granting consent on dismissal", async () => {
+  publicConfig.adsense = { enabled: true, client: CLIENT };
+  consent.canOpenPreferences = true;
+  consent.provider = "google";
+  renderNotice();
+  await userEvent.click(screen.getByRole("button", { name: "Privacy choices" }));
+  expect(consent.openPreferences).toHaveBeenCalledTimes(1);
+  await userEvent.click(screen.getByRole("button", { name: "Got it" }));
+  expect(consent.openPreferences).toHaveBeenCalledTimes(1);
 });

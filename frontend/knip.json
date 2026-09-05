@@ -5,5 +5,6 @@
     "**/*.{js,jsx,mjs}!",
     "!src/**/*.test.{js,jsx}!",
     "!src/test/**!"
-  ]
+  ],
+  "ignoreDependencies": ["prop-types"]
 }

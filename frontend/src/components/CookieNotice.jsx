@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { usePublicConfig } from "@/components/config/PublicConfigProvider.jsx";
+import { PrivacyChoicesButton } from "@/components/consent/PrivacyChoicesButton.jsx";
 import { useConsent } from "@/components/consent/ConsentProvider.jsx";
 import { persistCookieNoticeDismissal, wasCookieNoticeDismissed } from "@/lib/cookie-notice-storage";
 import { isAdvertisingActive } from "@/lib/advertising";
@@ -70,7 +71,10 @@ export function CookieNotice() {
           {storageSentence(advertising, analyticsActive)}{" "}
           <Link className="font-medium text-foreground underline" to="/cookies">Learn more</Link>
         </p>
-        <Button className="shrink-0" size="sm" onClick={dismiss}>Got it</Button>
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          <PrivacyChoicesButton className="min-h-11 text-sm font-medium underline underline-offset-4" />
+          <Button className="shrink-0" size="sm" onClick={dismiss}>Got it</Button>
+        </div>
       </div>
     </aside>
   );

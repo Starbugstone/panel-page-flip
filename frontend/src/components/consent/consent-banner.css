@@ -1,0 +1,45 @@
+.klaro.ppf-consent {
+  --font-family: inherit;
+  --font-size: 14px;
+  --dark1: hsl(var(--background));
+  --light1: hsl(var(--foreground));
+  --light2: hsl(var(--foreground));
+  --light3: hsl(var(--muted-foreground));
+  --dark3: hsl(var(--muted-foreground));
+  --blue1: hsl(var(--primary));
+  --green1: hsl(var(--primary));
+  --red1: hsl(var(--primary));
+}
+
+.klaro.ppf-consent .cookie-notice:not(.cn-embedded) {
+  position: fixed;
+  inset: auto 1rem 1rem;
+  margin-inline: auto;
+  width: auto;
+  max-width: 48rem;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  z-index: 150;
+}
+
+.klaro.ppf-consent .cookie-modal { z-index: 150; }
+.klaro.ppf-consent .cm-modal { max-height: calc(100dvh - 2rem); }
+.klaro.ppf-consent .cm-btn {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  min-height: 44px;
+  font: inherit;
+}
+.klaro.ppf-consent a { color: hsl(var(--foreground)); text-decoration: underline; }
+.klaro.ppf-consent :is(button, a, input):focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+.klaro.ppf-consent .cn-ok { flex-wrap: wrap; gap: .75rem; }
+.klaro.ppf-consent .cn-buttons { display: flex; flex-wrap: wrap; gap: .5rem; }
+.klaro.ppf-consent .cm-footer-buttons { display: flex; flex-wrap: wrap; gap: .5rem; }
+.klaro.ppf-consent .cookie-modal .cm-list-input:focus-visible + .cm-list-label { outline: 2px solid hsl(var(--ring)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .klaro.ppf-consent *, .klaro.ppf-consent *::before, .klaro.ppf-consent *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

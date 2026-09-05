@@ -197,6 +197,33 @@ typeof window.googlefc
 document.getElementById("google-cmp")?.src
 ```
 
+### When the Google consent banner is missing
+
+The cookie notice includes **Privacy choices**, using the same control as the
+footer and reader settings. **Got it** only dismisses the informational notice;
+it never grants an advertising or analytics purpose.
+
+A valid `/api/public-config` response proves application enablement, not that a
+European-regulations message was published in the AdSense account. Check the
+published site, enabled countries and languages, first-layer refusal, and both
+Consent Mode purpose settings above. Use a fresh browser with blockers disabled
+and `/?fc=alwaysshow&fctype=gdpr`; Google's preview also requires a published
+message. See the [Google messaging API](https://developers.google.com/funding-choices/fc-api-docs).
+
+Open-source Klaro is used only for analytics-only installations. It does not
+replace Google's certified CMP when advertising is enabled, and the application
+does not manufacture advertising grants from a local choice. Google requires a
+certified TCF CMP for AdSense traffic in the EEA, UK and Switzerland; this also
+applies to AdSense, not just a separately integrated exchange. See [Google's
+publisher requirements](https://support.google.com/adsense/answer/13554116?hl=en).
+
+The AdSense script is fetched before Google's message can appear. A requirement
+for zero `googlesyndication.com` requests before a choice therefore does not
+describe this existing certified flow. Analytics remains blocked until Google
+reports an analytics grant. Google owns ad storage, refusal and personalization;
+those outcomes need verification with the published account message. A missing
+or blocked CMP never authorizes the application's GA4 loader.
+
 ## Strict Content Security Policy
 
 Google supports AdSense with a strict nonce-based CSP because its resource

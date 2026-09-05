@@ -15,7 +15,7 @@ import { AdSenseProvider } from "@/components/ads/AdSenseProvider.jsx";
 import { PublicConfigProvider } from "@/components/config/PublicConfigProvider.jsx";
 import { GooglePolicyBoundary } from "@/components/consent/GooglePolicyBoundary.jsx";
 import { ConsentProvider } from "@/components/consent/ConsentProvider.jsx";
-import { AnalyticsConsentDialog } from "@/components/consent/AnalyticsConsentDialog.jsx";
+import { ConsentBanner } from "@/components/consent/ConsentBanner.jsx";
 import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
 import { Footer } from "@/components/Footer.jsx";
 import { AuthProvider, useAuth } from "./hooks/use-auth.jsx";
@@ -152,7 +152,7 @@ const AppRoutes = () => {
         </RouteErrorBoundary>
       </main>
       <Footer />
-      <AnalyticsConsentDialog />
+      <ConsentBanner />
       <CookieNotice />
     </div>
   );

@@ -47,8 +47,24 @@ each Google-free route receives.
 
 ### Analytics only
 
-This application asks, with **Accept analytics** and **Reject analytics** side
-by side and equally easy to choose. Nothing Google-owned is loaded before a
+Klaro asks with **Accept all**, **Reject all**, and **Customize** on the first
+layer, in English or French according to the browser language. Accept and
+reject have equal styling. Customization keeps edits pending until **Save
+choices**; closing it grants nothing. Reopening **Analytics preferences** keeps
+one-click refusal available. The fixed overlay uses the application theme,
+respects reduced motion, and returns focus after a decision.
+
+`ConsentBanner` mounts once under the existing `ConsentProvider` in `App.jsx`.
+The pinned Klaro source components share React's renderer and lifecycle instead
+of auto-mounting a second renderer. `KlaroConfig` adapts its storage interface to
+the existing versioned record, so returning choices and cross-tab withdrawal
+still work. The separate `consent` build chunk contains Klaro. Its source icon
+requires the explicitly installed `prop-types` dependency, prebundled by Vite.
+Knip excludes that dependency from unused-dependency findings because its real
+import is in Klaro's package source rather than in this application.
+There are no new backend fields, environment settings, or CSP origins.
+
+Klaro controls only the analytics purpose. Nothing Google-owned is loaded before a
 grant — that is basic consent mode, so a visitor who rejects sends no cookieless
 pings either. On a grant, the application queues Consent Mode v2's
 `ad_storage`, `ad_user_data`, `ad_personalization`, and `analytics_storage`
@@ -207,9 +223,9 @@ document.cookie
 1. Before choosing, confirm there is no request to `googletagmanager.com`,
    `google-analytics.com` or `fundingchoicesmessages.google.com`, no
    `google-analytics-tag` element, and no `_ga` cookie.
-2. Reject analytics and confirm the same remains true while application features
+2. Choose **Reject all** and confirm the same remains true while application features
    still work.
-3. Accept analytics and confirm exactly one sanitized `page_view` per allowed
+3. Choose **Accept all** and confirm exactly one sanitized `page_view` per allowed
    route in GA DebugView.
 4. Navigate through `/read/<id>`, `/admin`, a reset URL and an invitation URL;
    confirm none of their paths, ids, tokens, titles or query strings appear in
