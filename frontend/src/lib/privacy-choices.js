@@ -2,11 +2,41 @@ import { acquireConsentPlatform } from "@/lib/adsense-loader";
 import { logger } from "@/lib/logger";
 import { PRIVACY_CHOICES_OPENING_EVENT } from "@/lib/google-consent";
 
-function queueRevocationMessage(googlefc) {
-  // Called through the object rather than pushed as a bare reference: what the
-  // queue invokes is Google's own method, and handing it over detached would
-  // run it with whatever `this` the queue happens to use.
-  googlefc.callbackQueue.push(() => googlefc.showRevocationMessage());
+/**
+ * Reopen the consent message through Google's certified CMP.
+ *
+ * Funding Choices drains `googlefc.callbackQueue` once during script
+ * initialisation and removes the property afterwards — a click on a private
+ * browsing tab leaves `googlefc.callbackQueue === null`. Pushing onto a fresh
+ * array we create here, or onto a queue the library has already drained,
+ * defers the call forever, which is exactly what was happening before this
+ * change: the click ran, the queue grew by one arrow function, and the
+ * consent panel never opened. Invoke the method directly when it exists; the
+ * dot-call keeps `this` bound to `googlefc`, which is what the library
+ * expects.
+ *
+ * The queue mechanism is still needed when the script is mid-init and
+ * `showRevocationMessage` is not yet defined — the `CONSENT_API_READY`
+ * fallback below covers that race. If the library has already drained by the
+ * time we land here, the fallback is a no-op and the panel will not open
+ * until the user reloads; that matches Funding Choices' own behaviour for
+ * late callers.
+ */
+function reopenConsentMessage(googlefc) {
+  if (typeof googlefc.showRevocationMessage === "function") {
+    googlefc.showRevocationMessage();
+
+    return;
+  }
+
+  // Library has not exposed `showRevocationMessage` yet. The callbackQueue
+  // may already be gone — recreate it before pushing so the CONSENT_API_READY
+  // handler has somewhere to live in case Funding Choices drains after this
+  // point.
+  googlefc.callbackQueue = googlefc.callbackQueue || [];
+  googlefc.callbackQueue.push({
+    CONSENT_API_READY: () => reopenConsentMessage(googlefc),
+  });
 }
 
 /**
@@ -23,10 +53,6 @@ function queueRevocationMessage(googlefc) {
  * given and not withdrawn is not consent, so the platform is fetched on demand
  * here. Funding Choices on its own is the consent half without the advertising
  * half, which is what makes it safe on a page rendering a comic.
- *
- * `googlefc.callbackQueue` is Google's own way of queueing a call made before
- * the API is ready, so pushing onto it works whether the script has finished
- * initialising or merely finished downloading.
  *
  * @returns {Promise<boolean>} whether the request reached the CMP at all
  */
@@ -50,16 +76,7 @@ export async function reopenPrivacyChoices({
   }
 
   try {
-    googlefc.callbackQueue = googlefc.callbackQueue || [];
-    if (typeof googlefc.showRevocationMessage === "function") {
-      queueRevocationMessage(googlefc);
-
-      return true;
-    }
-
-    googlefc.callbackQueue.push({
-      CONSENT_API_READY: () => queueRevocationMessage(googlefc),
-    });
+    reopenConsentMessage(googlefc);
 
     return true;
   } catch (error) {
