@@ -59,11 +59,13 @@ async function finishAdSenseRequest() {
   window.googlefc = { callbackQueue: [], showRevocationMessage };
   document.getElementById(ADSENSE_SCRIPT_ID).dispatchEvent(new Event("load"));
 
-  // Checked by what the queued entry does, not by which reference it is: it
-  // calls Google's method through `googlefc` rather than detached from it.
-  await waitFor(() => expect(window.googlefc.callbackQueue).toHaveLength(1));
-  window.googlefc.callbackQueue[0]();
-  expect(showRevocationMessage).toHaveBeenCalledTimes(1);
+  // The reopened call now invokes showRevocationMessage directly. Funding
+  // Choices drains `googlefc.callbackQueue` once at script init and removes
+  // the property afterwards (issue #235); pushing onto a freshly-created
+  // array would defer the call forever, so we wait for the direct invocation
+  // instead of polling queue length.
+  await waitFor(() => expect(showRevocationMessage).toHaveBeenCalledTimes(1));
+  expect(window.googlefc.callbackQueue).toHaveLength(0);
 }
 
 beforeEach(() => {
