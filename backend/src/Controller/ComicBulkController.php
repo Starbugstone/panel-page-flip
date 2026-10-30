@@ -13,6 +13,7 @@ use App\Repository\TagRepository;
 use App\Service\ComicService;
 use App\Service\ComicShareService;
 use App\Service\MetadataProviderRegistry;
+use App\Service\PendingFileDeletionService;
 use App\Service\SecurityAuditLogger;
 use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
@@ -240,7 +241,8 @@ final class ComicBulkController extends AbstractController
         EntityManagerInterface $entityManager,
         ComicService $comicService,
         ComicShareService $shareService,
-        SecurityAuditLogger $securityLogger
+        SecurityAuditLogger $securityLogger,
+        PendingFileDeletionService $pendingFileDeletion
     ): JsonResponse {
         $user = $this->requireUser();
 
@@ -279,6 +281,7 @@ final class ComicBulkController extends AbstractController
         }
 
         $quarantinedFiles = [];
+        $pendingFileDeletions = [];
         $tombstonedShares = 0;
         try {
             $entityManager->beginTransaction();
@@ -289,12 +292,17 @@ final class ComicBulkController extends AbstractController
                 array_push($quarantinedFiles, ...$comicService->quarantineComicFiles($comic));
                 $entityManager->remove($comic);
             }
+            // Committed with the removals, so a purge that fails below is retried
+            // by app:cleanup-personal-data rather than forgotten.
+            $pendingFileDeletions = $pendingFileDeletion->queue(array_column($quarantinedFiles, 'quarantinePath'));
             $entityManager->flush();
             $entityManager->commit();
         } catch (\Throwable $exception) {
             if ($entityManager->getConnection()->isTransactionActive()) {
                 $entityManager->rollback();
             }
+
+            $pendingFileDeletion->cancel($pendingFileDeletions);
 
             try {
                 $comicService->restoreQuarantinedFiles($quarantinedFiles);
@@ -321,6 +329,10 @@ final class ComicBulkController extends AbstractController
             );
 
             return $this->json(['message' => 'Bulk deletion failed. No database records were deleted.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        if ($pendingFileDeletions !== []) {
+            $pendingFileDeletion->purge($pendingFileDeletions);
         }
 
         // After the commit, so the record describes a deletion that actually

@@ -14,6 +14,7 @@ use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 use App\Tests\Functional\SecurityLogAssertions;
 use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
 {
@@ -64,6 +65,48 @@ final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
         $entityManager->clear();
         self::assertNull($entityManager->find(\App\Entity\User::class, $staleUserId));
         self::assertCount(1, $entityManager->getRepository(AdminAuditLog::class)->findAll());
+    }
+
+    /**
+     * The daily job is what makes both of these true, and it is the one a
+     * production instance is already required to have scheduled.
+     */
+    public function testTheCleanupEnforcesQuarantineRetentionAndExpiresAbandonedUploads(): void
+    {
+        $now = new \DateTimeImmutable();
+        $container = static::getContainer();
+        $filesystem = new Filesystem();
+
+        $quarantine = (string) $container->getParameter('quarantine_directory');
+        $batch = $now->modify('-30 days')->format('Y-m-d');
+        $quarantined = $quarantine . '/' . $batch . '/retention-test/7/comic.cbz';
+        $filesystem->dumpFile($quarantined, 'deleted long ago');
+
+        $user = UserFactory::createOne();
+        $staging = $container->getParameter('upload_staging_directory') . '/' . $user->getId();
+        $abandoned = $staging . '/upload-abandoned';
+        $active = $staging . '/upload-active';
+        $idleSeconds = (int) $container->getParameter('upload_staging_idle_seconds');
+        $filesystem->dumpFile($abandoned . '/metadata.json', '{}');
+        touch($abandoned . '/metadata.json', $now->getTimestamp() - $idleSeconds - 60);
+        touch($abandoned, $now->getTimestamp() - $idleSeconds - 60);
+        $filesystem->dumpFile($active . '/metadata.json', '{}');
+
+        try {
+            $counts = $container->get(PersonalDataRetentionService::class)->clean($now);
+
+            self::assertFileDoesNotExist($quarantined);
+            self::assertDirectoryDoesNotExist($quarantine . '/' . $batch);
+            self::assertGreaterThanOrEqual(1, $counts['quarantineFilesDeleted']);
+            self::assertSame(0, $counts['quarantineFilesRemaining']);
+            self::assertDirectoryDoesNotExist($abandoned);
+            self::assertDirectoryExists($active);
+            self::assertGreaterThanOrEqual(1, $counts['stagedUploadsExpired']);
+            self::assertSame(0, $counts['stagedUploadsRemaining']);
+            self::assertSame(0, $counts['errors']);
+        } finally {
+            $filesystem->remove([$quarantine . '/' . $batch, $staging]);
+        }
     }
 
     /**

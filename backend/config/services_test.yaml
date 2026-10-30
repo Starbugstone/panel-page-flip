@@ -5,6 +5,7 @@ parameters:
     comics_directory: '%kernel.project_dir%/var/test-uploads/comics'
     quarantine_directory: '%kernel.project_dir%/var/test-quarantine/comics'
     page_cache_directory: '%kernel.project_dir%/var/test-page-cache'
+    upload_staging_directory: '%kernel.project_dir%/var/test-upload-staging'
 
 services:
     _defaults:

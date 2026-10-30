@@ -50,7 +50,7 @@ export function ComicCardDialogs({ comic, actions }) {
         title={isOrphaned ? "Delete orphaned comic record?" : `Delete “${comic.title}”?`}
         description={isOrphaned
           ? `The source file for “${comic.title}” is no longer present. Do you want to remove only its orphaned library record?`
-          : `Delete “${comic.title}” from your library? Its existing files will be moved to recoverable quarantine storage.`}
+          : `Delete “${comic.title}” from your library? Its files will be permanently deleted. This cannot be undone.`}
         // A deletion that also cuts other people off is a bigger decision than
         // one that does not, and has to say so before the button is pressed.
         extra={!isOrphaned && shareImpact && (

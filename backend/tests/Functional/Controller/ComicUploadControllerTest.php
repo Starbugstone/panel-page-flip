@@ -2,13 +2,19 @@
 
 namespace App\Tests\Functional\Controller;
 
+use App\Entity\User;
+use App\Tests\Factory\ComicFactory;
 use App\Tests\Functional\AbstractApiTestCase;
+use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 final class ComicUploadControllerTest extends AbstractApiTestCase
 {
     /** @var list<string> */
     private array $temporaryUploadDirectories = [];
+
+    /** @var list<string> */
+    private array $temporaryComicDirectories = [];
 
     /**
      * @dataProvider validFilenameProvider
@@ -17,8 +23,8 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-filename-test';
-        $this->temporaryUploadDirectories[] = sys_get_temp_dir()
-            . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $this->temporaryUploadDirectories[] = self::getContainer()->getParameter('upload_staging_directory')
+            . '/' . $user->getId() . '/' . $fileId;
 
         $payload = $this->postJson('/api/comics/upload/init', [
             'fileId' => $fileId,
@@ -45,8 +51,8 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-invalid-test';
-        $this->temporaryUploadDirectories[] = sys_get_temp_dir()
-            . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $this->temporaryUploadDirectories[] = self::getContainer()->getParameter('upload_staging_directory')
+            . '/' . $user->getId() . '/' . $fileId;
 
         $payload = $this->postJson('/api/comics/upload/init', [
             'fileId' => $fileId,
@@ -73,8 +79,8 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-type-test';
-        $this->temporaryUploadDirectories[] = sys_get_temp_dir()
-            . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $this->temporaryUploadDirectories[] = self::getContainer()->getParameter('upload_staging_directory')
+            . '/' . $user->getId() . '/' . $fileId;
 
         $payload = $this->postJson('/api/comics/upload/init', array_replace([
             'fileId' => $fileId,
@@ -108,7 +114,7 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-oversize-test';
-        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $chunkDirectory = self::getContainer()->getParameter('upload_staging_directory') . '/' . $user->getId() . '/' . $fileId;
         $this->temporaryUploadDirectories[] = $chunkDirectory;
 
         $this->postJson('/api/comics/upload/init', [
@@ -135,7 +141,7 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-resend-test';
-        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $chunkDirectory = self::getContainer()->getParameter('upload_staging_directory') . '/' . $user->getId() . '/' . $fileId;
         $this->temporaryUploadDirectories[] = $chunkDirectory;
 
         $this->postJson('/api/comics/upload/init', [
@@ -157,6 +163,161 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
         self::assertResponseIsSuccessful();
     }
 
+    /** A fixed number of uploads at once, however many files are being offered. */
+    public function testInitializationIsRefusedPastTheActiveUploadLimit(): void
+    {
+        $user = $this->createAndLoginUser();
+        $limit = (int) self::getContainer()->getParameter('upload_max_active_uploads');
+
+        for ($i = 0; $i < $limit; ++$i) {
+            $this->initUpload($user, 'upload-active-' . $i);
+            self::assertResponseIsSuccessful();
+        }
+
+        $payload = $this->initUpload($user, 'upload-active-over');
+
+        self::assertResponseStatusCodeSame(429);
+        self::assertStringContainsString('Too many uploads', $payload['message']);
+        self::assertDirectoryDoesNotExist($this->stagingDirectory($user, 'upload-active-over'));
+    }
+
+    public function testAnotherAccountsUploadsDoNotCountAgainstTheLimit(): void
+    {
+        $user = $this->createAndLoginUser();
+        $limit = (int) self::getContainer()->getParameter('upload_max_active_uploads');
+        for ($i = 0; $i < $limit; ++$i) {
+            $this->initUpload($user, 'upload-other-' . $i);
+            self::assertResponseIsSuccessful();
+        }
+
+        $other = $this->createAndLoginUser();
+        $this->initUpload($other, 'upload-other-account');
+
+        self::assertResponseIsSuccessful();
+    }
+
+    /**
+     * Each of these fits on its own. It is the two together that would not, and
+     * until now neither looked at the other, or at the quota at all.
+     */
+    public function testParallelUploadsShareTheRemainingQuota(): void
+    {
+        $user = $this->createAndLoginUser(['storageQuotaOverrideBytes' => 100]);
+        $this->initUpload($user, 'upload-parallel-a', 3);
+        $this->initUpload($user, 'upload-parallel-b', 3);
+
+        $this->uploadChunk('upload-parallel-a', 0, str_repeat('A', 60));
+        self::assertResponseIsSuccessful();
+        $this->uploadChunk('upload-parallel-b', 0, str_repeat('B', 30));
+        self::assertResponseIsSuccessful();
+
+        $this->uploadChunk('upload-parallel-b', 1, str_repeat('B', 20));
+
+        self::assertResponseStatusCodeSame(413);
+        self::assertStringContainsString('quota exceeded', $this->json()['message']);
+        // The client gives up on a file at this point and cannot resume it, so its
+        // staged bytes must not go on counting against the upload that is left.
+        self::assertDirectoryDoesNotExist($this->stagingDirectory($user, 'upload-parallel-b'));
+
+        $this->uploadChunk('upload-parallel-a', 1, str_repeat('A', 40));
+        self::assertResponseIsSuccessful();
+    }
+
+    public function testResendingAChunkOnlyChargesTheDifferenceAgainstTheQuota(): void
+    {
+        $user = $this->createAndLoginUser(['storageQuotaOverrideBytes' => 64]);
+        $this->initUpload($user, 'upload-quota-resend', 2);
+
+        $this->uploadChunk('upload-quota-resend', 0, str_repeat('X', 64));
+        self::assertResponseIsSuccessful();
+
+        $this->uploadChunk('upload-quota-resend', 0, str_repeat('Y', 64));
+        self::assertResponseIsSuccessful();
+    }
+
+    public function testAnUploadIsRefusedAtInitializationWhenStagedBytesLeaveNoRoom(): void
+    {
+        $user = $this->createAndLoginUser(['storageQuotaOverrideBytes' => 64]);
+        $this->initUpload($user, 'upload-room-a', 2);
+        $this->uploadChunk('upload-room-a', 0, str_repeat('X', 64));
+        self::assertResponseIsSuccessful();
+
+        $payload = $this->initUpload($user, 'upload-room-b');
+
+        self::assertResponseStatusCodeSame(413);
+        self::assertStringContainsString('unfinished uploads', $payload['message']);
+    }
+
+    public function testAnAccountAlreadyAtItsQuotaIsRefusedBeforeSendingAnything(): void
+    {
+        $user = $this->createAndLoginUser(['storageQuotaOverrideBytes' => 64]);
+        ComicFactory::new()->ownedBy($user)->create(['fileSize' => 64]);
+
+        $payload = $this->initUpload($user, 'upload-at-quota');
+
+        self::assertResponseStatusCodeSame(413);
+        self::assertSame('User storage quota exceeded.', $payload['message']);
+    }
+
+    public function testUnlimitedAccountsAreOnlyHeldToTheStagingLimits(): void
+    {
+        $user = $this->createAndLoginUser(['storageQuotaOverrideBytes' => 0]);
+        $this->initUpload($user, 'upload-unlimited', 1);
+        self::assertResponseIsSuccessful();
+
+        $this->uploadChunk('upload-unlimited', 0, str_repeat('X', 64));
+
+        self::assertResponseIsSuccessful();
+    }
+
+    /** The whole journey, with two files in the air as bulk upload runs them. */
+    public function testTwoInterleavedUploadsBothBecomeComics(): void
+    {
+        $user = $this->createAndLoginUser();
+        $parts = str_split($this->comicArchive(), 256);
+        self::assertGreaterThan(1, count($parts));
+
+        foreach (['upload-both-a', 'upload-both-b'] as $fileId) {
+            $this->initUpload($user, $fileId, count($parts));
+            self::assertResponseIsSuccessful();
+        }
+        foreach ($parts as $index => $part) {
+            foreach (['upload-both-a', 'upload-both-b'] as $fileId) {
+                $this->uploadChunk($fileId, $index, $part);
+                self::assertResponseIsSuccessful();
+            }
+        }
+
+        foreach (['upload-both-a', 'upload-both-b'] as $fileId) {
+            $payload = $this->postJson('/api/comics/upload/complete', ['fileId' => $fileId]);
+
+            self::assertResponseIsSuccessful();
+            self::assertSame('Limit test', $payload['comic']['title']);
+            self::assertDirectoryDoesNotExist($this->stagingDirectory($user, $fileId));
+            $this->temporaryComicDirectories[] = self::getContainer()->getParameter('comics_directory') . '/' . $user->getId();
+        }
+
+        self::assertSame(2, ComicFactory::repository()->count(['owner' => $user]));
+    }
+
+    /**
+     * The next upload should not be refused over the bytes of one the server just
+     * turned down at completion, which the client will not try again.
+     */
+    public function testAnUploadRefusedAtCompletionReleasesItsStagedBytes(): void
+    {
+        $user = $this->createAndLoginUser(['storageQuotaOverrideBytes' => 64]);
+        $this->initUpload($user, 'upload-refused-complete', 1);
+        $this->uploadChunk('upload-refused-complete', 0, str_repeat('X', 64));
+        self::assertResponseIsSuccessful();
+        ComicFactory::new()->ownedBy($user)->create(['fileSize' => 1]);
+
+        $this->postJson('/api/comics/upload/complete', ['fileId' => 'upload-refused-complete']);
+
+        self::assertResponseStatusCodeSame(413);
+        self::assertDirectoryDoesNotExist($this->stagingDirectory($user, 'upload-refused-complete'));
+    }
+
     /**
      * An invalid form value must not become chunk zero through PHP's integer
      * cast. Otherwise a malformed or tampered request silently replaces a
@@ -166,7 +327,7 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-invalid-index-test';
-        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $chunkDirectory = self::getContainer()->getParameter('upload_staging_directory') . '/' . $user->getId() . '/' . $fileId;
         $this->temporaryUploadDirectories[] = $chunkDirectory;
 
         $this->postJson('/api/comics/upload/init', [
@@ -195,7 +356,7 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-reinitialize-test';
-        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $chunkDirectory = self::getContainer()->getParameter('upload_staging_directory') . '/' . $user->getId() . '/' . $fileId;
         $this->temporaryUploadDirectories[] = $chunkDirectory;
 
         $this->postJson('/api/comics/upload/init', [
@@ -234,7 +395,7 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-metadata-test';
-        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $chunkDirectory = self::getContainer()->getParameter('upload_staging_directory') . '/' . $user->getId() . '/' . $fileId;
         $this->temporaryUploadDirectories[] = $chunkDirectory;
 
         $this->postJson('/api/comics/upload/init', [
@@ -272,7 +433,7 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-lock-test';
-        $chunkDirectory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $chunkDirectory = self::getContainer()->getParameter('upload_staging_directory') . '/' . $user->getId() . '/' . $fileId;
         $this->temporaryUploadDirectories[] = $chunkDirectory;
 
         $this->postJson('/api/comics/upload/init', [
@@ -355,6 +516,44 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
         );
     }
 
+    /** @return array<string, mixed> */
+    private function initUpload(User $user, string $fileId, int $totalChunks = 1): array
+    {
+        $this->temporaryUploadDirectories[] = $this->stagingDirectory($user, $fileId);
+
+        return $this->postJson('/api/comics/upload/init', [
+            'fileId' => $fileId,
+            'filename' => 'limit.cbz',
+            'totalChunks' => $totalChunks,
+            'metadata' => ['title' => 'Limit test'],
+        ]);
+    }
+
+    private function stagingDirectory(User $user, string $fileId): string
+    {
+        return self::getContainer()->getParameter('upload_staging_directory') . '/' . $user->getId() . '/' . $fileId;
+    }
+
+    private function comicArchive(): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'comic-archive-');
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($path, \ZipArchive::OVERWRITE) === true);
+        $zip->addFromString('page-01.jpg', base64_decode(
+            '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a'
+            . 'HBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAHwAAAQUBAQEB'
+            . 'AQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1Fh'
+            . 'ByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZ'
+            . 'WmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXG'
+            . 'x8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/AP/Z'
+        ));
+        $zip->close();
+        $contents = (string) file_get_contents($path);
+        unlink($path);
+
+        return $contents;
+    }
+
     private function uploadChunk(string $fileId, int|string $chunkIndex, string $contents): void
     {
         $chunkPath = tempnam(sys_get_temp_dir(), 'chunk_');
@@ -410,6 +609,10 @@ final class ComicUploadControllerTest extends AbstractApiTestCase
                 }
             }
             rmdir($directory);
+        }
+
+        foreach (array_unique($this->temporaryComicDirectories) as $directory) {
+            (new Filesystem())->remove($directory);
         }
 
         parent::tearDown();

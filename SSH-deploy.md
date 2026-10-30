@@ -554,11 +554,11 @@ no cron keeps everything for ever and never notices.
 | Command | Suggested cadence | Required? | If it never runs |
 |---|---|---|---|
 | `app:cleanup-logs` | daily | **Yes** | `var/log/app`, `var/log/security` and `var/log/audit` grow without limit. `*_LOG_RETENTION_DAYS` has no effect |
-| `app:cleanup-personal-data` | daily | **Yes** | Audit rows past 12 months, spent verification and reset tokens, unverified accounts older than 30 days and pending export files are all kept indefinitely. This is a data-protection obligation, not housekeeping |
+| `app:cleanup-personal-data` | daily | **Yes** | Audit rows past 12 months, spent verification and reset tokens, unverified accounts older than 30 days and pending file deletions are all kept indefinitely. Quarantined comics are never removed past their 7 days, and abandoned chunked uploads are only reclaimed when their own account next uploads. This is a data-protection obligation, not housekeeping |
 | `app:cleanup-expired-shares` | daily | **Yes** | Unanswered invitations keep the email addresses of people who never had an account here. Dead sharing codes are never removed, so the admin table grows for ever |
 | `app:cleanup-content-reports` | daily | **Yes** | Closed and rejected reports past retention are kept indefinitely. Open cases and cases on legal hold are never selected |
 | `app:dropbox-sync` | every 2 hours | Only with Dropbox | Users import by hand from the Dropbox page. Nothing else is affected |
-| `app:cleanup-comics` | never | **No** | Nothing. It quarantines orphaned files and is a manual tool — run `--dry-run` first and look at the output |
+| `app:cleanup-comics` | never | **No** | Nothing. It quarantines orphaned files, which `app:cleanup-personal-data` deletes after 7 days, and is a manual tool — run `--dry-run` first and look at the output |
 
 The four required jobs are all idempotent, cheap when there is nothing to do,
 and safe to run more often than suggested. Stagger them by a few minutes rather

@@ -63,7 +63,7 @@ RUNTIME_DIRS="
   /var/www/html/var/page-cache
   /var/www/html/var/quarantine/comics
   /var/www/html/public/uploads
-  /tmp/comic_uploads
+  /var/www/html/var/upload-staging
 "
 
 mkdir -p $RUNTIME_DIRS

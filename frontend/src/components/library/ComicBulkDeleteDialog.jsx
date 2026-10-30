@@ -14,11 +14,9 @@ const plural = (count, one, many) => (count === 1 ? one : many);
 /**
  * Confirming a bulk deletion, in one of two situations.
  *
- * Normally the files survive in quarantine and the warning is about the people
- * who lose access. When the server has answered that some files are already
- * gone, the dialog changes to name those records instead: the only thing left
- * to delete is the library entry, and pretending otherwise would promise a
- * recovery that cannot happen.
+ * Normally the warning is about the files and the people who lose access. When
+ * the server has answered that some files are already gone, the dialog changes to
+ * name those records instead: the only thing left to delete is the library entry.
  */
 export function ComicBulkDeleteDialog({ open, onOpenChange, selection, onConfirm }) {
   const orphans = selection.orphanedComics;
@@ -53,7 +51,7 @@ export function ComicBulkDeleteDialog({ open, onOpenChange, selection, onConfirm
             ) : (
               <span className="space-y-2">
                 <span className="block">
-                  They will be removed from your library and their existing files moved to recoverable quarantine storage.
+                  They will be removed from your library and their files permanently deleted. This cannot be undone.
                 </span>
                 {/* A deletion that also cuts other people off is a bigger
                     decision than one that does not, and has to say so. */}

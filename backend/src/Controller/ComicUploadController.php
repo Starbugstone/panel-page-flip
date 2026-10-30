@@ -11,7 +11,9 @@ use App\Service\ComicSerializer;
 use App\Service\ComicService;
 use App\Service\ComicUploadRejectedException;
 use App\Service\ComicUploadFilenameValidator;
+use App\Service\ComicUploadStagingService;
 use App\Service\LibraryFolderService;
+use App\Service\StagedUploadRefusedException;
 use App\Service\StorageQuotaBusyException;
 use App\Service\StorageQuotaExceededException;
 use Psr\Log\LoggerInterface;
@@ -40,8 +42,6 @@ class ComicUploadController extends AbstractController
 
     private const FILE_ID_REGEX = '/^[A-Za-z0-9\-]{8,64}$/';
 
-    private string $tempUploadDir;
-
     public function __construct(
         private readonly LoggerInterface $logger,
         private readonly int $uploadMaxChunkBytes,
@@ -49,57 +49,9 @@ class ComicUploadController extends AbstractController
         private readonly int $uploadMaxTotalChunks,
         private readonly ComicUploadFilenameValidator $uploadFilenameValidator,
         private readonly ComicFormatService $comicFormatService,
-        private readonly ComicSerializer $comicSerializer
+        private readonly ComicSerializer $comicSerializer,
+        private readonly ComicUploadStagingService $staging
     ) {
-        $this->tempUploadDir = sys_get_temp_dir() . '/comic_uploads';
-    }
-
-    /**
-     * Chunk staging lives under the system temp dir; create it lazily so a
-     * filesystem write does not happen on every request that touches this
-     * controller.
-     */
-    private function ensureTempUploadDir(string $directory): void
-    {
-        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
-            throw new \RuntimeException('Failed to create the upload staging directory.');
-        }
-    }
-
-    /**
-     * Take the exclusive lock for one staged upload.
-     *
-     * A dedicated lock file rather than metadata.json itself: the metadata is
-     * rewritten with file_put_contents, which truncates, and a lock held on a
-     * handle to a file being replaced under it protects nothing.
-     *
-     * Blocking, not LOCK_NB. The chunks of one upload are meant to be admitted
-     * one at a time, so a request that arrives mid-write should wait its turn
-     * rather than be told to try again.
-     *
-     * @return resource
-     */
-    private function acquireUploadLock(string $userChunkDir)
-    {
-        $handle = fopen($userChunkDir . '/.chunk.lock', 'c');
-        if ($handle === false) {
-            throw new \RuntimeException('Failed to open the upload lock.');
-        }
-
-        if (!flock($handle, LOCK_EX)) {
-            fclose($handle);
-
-            throw new \RuntimeException('Failed to acquire the upload lock.');
-        }
-
-        return $handle;
-    }
-
-    /** @param resource $handle */
-    private function releaseUploadLock($handle): void
-    {
-        flock($handle, LOCK_UN);
-        fclose($handle);
     }
 
     /** @param array<string, mixed> $metadata */
@@ -230,7 +182,7 @@ class ComicUploadController extends AbstractController
      * Where this upload's chunks are staged, and the metadata file beside them.
      *
      * Both handlers below need the same two paths, built from the same three
-     * parts, and the middle part comes off the request — so it is assembled
+     * parts, and the last part comes off the request — so it is assembled
      * once, downstream of {@see safeFileId}, rather than spelled out at
      * each call site where one copy could later lose the guard.
      *
@@ -242,7 +194,7 @@ class ComicUploadController extends AbstractController
      */
     private function locateStagedUpload(User $user, string $fileId, string $missingMessage): array|JsonResponse
     {
-        $userChunkDir = $this->tempUploadDir . '/' . $user->getId() . '/' . $fileId;
+        $userChunkDir = $this->staging->uploadDirectory($user, $fileId);
         if (!file_exists($userChunkDir)) {
             return $this->json(['message' => $missingMessage], Response::HTTP_BAD_REQUEST);
         }
@@ -309,30 +261,43 @@ class ComicUploadController extends AbstractController
             }
 
             // Create user-specific directory for chunks
-            $userChunkDir = $this->tempUploadDir . '/' . $user->getId() . '/' . $fileId;
-            $this->ensureTempUploadDir($userChunkDir);
+            $userChunkDir = $this->staging->uploadDirectory($user, $fileId);
+            $this->staging->ensureDirectory($userChunkDir);
 
             // Serialise initialization with chunk and completion requests. A
             // client-generated file ID identifies one active staging area and
             // must never be allowed to reset another request's progress.
-            $lock = $this->acquireUploadLock($userChunkDir);
+            $lock = $this->staging->lockUpload($userChunkDir);
             try {
                 $metadataPath = $userChunkDir . '/metadata.json';
                 if (file_exists($metadataPath)) {
                     return $this->json(['message' => 'Upload already initialized'], Response::HTTP_CONFLICT);
                 }
 
-                $this->writeUploadMetadata($metadataPath, [
-                    'filename' => $filename,
-                    'totalChunks' => $totalChunks,
-                    'receivedChunks' => [],
-                    'chunkSizes' => [],
-                    'metadata' => $metadata,
-                    'userId' => $user->getId(),
-                    'timestamp' => time(),
-                ]);
+                $accountLock = $this->staging->lockAccount($user);
+                try {
+                    $this->staging->admitNewUpload($user, time());
+
+                    $this->writeUploadMetadata($metadataPath, [
+                        'filename' => $filename,
+                        'totalChunks' => $totalChunks,
+                        'receivedChunks' => [],
+                        'chunkSizes' => [],
+                        'metadata' => $metadata,
+                        'userId' => $user->getId(),
+                        'timestamp' => time(),
+                    ]);
+                } finally {
+                    $accountLock->release();
+                }
+            } catch (StagedUploadRefusedException $refused) {
+                // No metadata means this request made the directory, and an empty
+                // one left behind would only wait around to be swept.
+                $this->staging->remove($userChunkDir);
+
+                return $this->json(['message' => $refused->getMessage()], $refused->status);
             } finally {
-                $this->releaseUploadLock($lock);
+                $this->staging->unlockUpload($lock);
             }
 
             return $this->json([
@@ -392,10 +357,12 @@ class ComicUploadController extends AbstractController
             // staged total and lets the size limit below be walked past, and a
             // lost receivedChunks entry makes /upload/complete reject an upload
             // that did arrive in full.
-            $lock = $this->acquireUploadLock($userChunkDir);
+            $lock = $this->staging->lockUpload($userChunkDir);
 
             try {
-                $metadata = json_decode((string) file_get_contents($metadataPath), true);
+                // Checked again under the lock: a sibling chunk that was refused
+                // while this one waited takes the whole upload with it.
+                $metadata = is_file($metadataPath) ? json_decode((string) file_get_contents($metadataPath), true) : null;
                 if (!is_array($metadata)) {
                     return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
                 }
@@ -419,26 +386,39 @@ class ComicUploadController extends AbstractController
                 // maximum chunk count and every chunk sent at the maximum size,
                 // filling the disk with several times the permitted total, and
                 // only be rejected once the last chunk had already been written.
-                // Nothing here is charged against the user's quota either, so
-                // the files were free.
                 $stagedBytes = array_sum(array_map('intval', $metadata['chunkSizes'] ?? []));
                 $replacedBytes = (int) ($metadata['chunkSizes'][(string) $chunkIndex] ?? 0);
                 if ($stagedBytes - $replacedBytes + (int) $chunk->getSize() > $this->uploadMaxTotalBytes) {
                     return $this->json(['message' => 'File too large'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
                 }
 
-                // Save chunk
                 $chunkPath = $userChunkDir . '/chunk_' . $chunkIndex;
-                $chunk->move(dirname($chunkPath), basename($chunkPath));
 
-                // Update metadata
-                $metadata['receivedChunks'] = $metadata['receivedChunks'] ?? [];
-                if (!in_array($chunkIndex, $metadata['receivedChunks'], true)) {
-                    $metadata['receivedChunks'][] = $chunkIndex;
+                // That limit is per file. This one is everything the account has
+                // staged, held until the chunk is on disk so that two parallel
+                // uploads cannot both spend the same room.
+                $accountLock = $this->staging->lockAccount($user);
+                try {
+                    $this->staging->admitChunk(
+                        $user,
+                        (int) $chunk->getSize(),
+                        is_file($chunkPath) ? (int) filesize($chunkPath) : 0
+                    );
+
+                    // Save chunk
+                    $chunk->move(dirname($chunkPath), basename($chunkPath));
+
+                    // Update metadata
+                    $metadata['receivedChunks'] = $metadata['receivedChunks'] ?? [];
+                    if (!in_array($chunkIndex, $metadata['receivedChunks'], true)) {
+                        $metadata['receivedChunks'][] = $chunkIndex;
+                    }
+                    $metadata['chunkSizes'] = $metadata['chunkSizes'] ?? [];
+                    $metadata['chunkSizes'][(string) $chunkIndex] = (int) filesize($chunkPath);
+                    $this->writeUploadMetadata($metadataPath, $metadata);
+                } finally {
+                    $accountLock->release();
                 }
-                $metadata['chunkSizes'] = $metadata['chunkSizes'] ?? [];
-                $metadata['chunkSizes'][(string) $chunkIndex] = (int) filesize($chunkPath);
-                $this->writeUploadMetadata($metadataPath, $metadata);
 
                 return $this->json([
                     'message' => 'Chunk uploaded',
@@ -446,10 +426,17 @@ class ComicUploadController extends AbstractController
                     'chunksReceived' => count($metadata['receivedChunks']),
                     'chunksTotal' => $metadata['totalChunks']
                 ]);
+            } catch (StagedUploadRefusedException $refused) {
+                // The client abandons a file at its first refused chunk and has no
+                // way to resume it. Left in place, this upload's partial bytes
+                // would count against whatever the uploader tries next.
+                $this->staging->remove($userChunkDir);
+
+                return $this->json(['message' => $refused->getMessage()], $refused->status);
             } finally {
                 // Every path out, including the rejections above, which would
                 // otherwise wedge the rest of the upload behind a held lock.
-                $this->releaseUploadLock($lock);
+                $this->staging->unlockUpload($lock);
             }
         } catch (BadRequestHttpException $e) {
             return $this->json(['message' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
@@ -490,7 +477,7 @@ class ComicUploadController extends AbstractController
             // waits for every chunk before completing, so this is the case where
             // a client does not — but the staging area must be consistent
             // whatever the client does.
-            $lock = $this->acquireUploadLock($userChunkDir);
+            $lock = $this->staging->lockUpload($userChunkDir);
 
             try {
                 return $this->assembleUpload(
@@ -501,7 +488,7 @@ class ComicUploadController extends AbstractController
                     $folderService
                 );
             } finally {
-                $this->releaseUploadLock($lock);
+                $this->staging->unlockUpload($lock);
             }
         } catch (ComicUploadRejectedException $e) {
             $this->logger->warning('Chunked comic upload rejected.', ['user_id' => $user->getId(), 'exception' => $e]);
@@ -538,7 +525,7 @@ class ComicUploadController extends AbstractController
 
     private function cleanupFailedUpload(?string $directory): void
     {
-        if ($directory !== null) $this->cleanupTempDirectory($directory);
+        if ($directory !== null) $this->staging->remove($directory);
     }
 
     /**
@@ -551,7 +538,7 @@ class ComicUploadController extends AbstractController
         ComicService $comicService,
         LibraryFolderService $folderService
     ): JsonResponse {
-        $metadata = json_decode((string) file_get_contents($metadataPath), true);
+        $metadata = is_file($metadataPath) ? json_decode((string) file_get_contents($metadataPath), true) : null;
         if (!is_array($metadata) || !isset($metadata['totalChunks'], $metadata['filename'])) {
             return $this->json(['message' => 'Upload metadata not found'], Response::HTTP_BAD_REQUEST);
         }
@@ -576,6 +563,10 @@ class ComicUploadController extends AbstractController
         // Friendly preflight; ComicService repeats the authoritative check
         // while holding the per-user storage lock.
         if ($comicService->wouldExceedQuota($user, $totalSize)) {
+            // The same refusal the authoritative check cleans up after. Kept, these
+            // bytes would count against the next upload for no benefit.
+            $this->staging->remove($userChunkDir);
+
             return $this->json(['message' => 'User storage quota exceeded'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         }
 
@@ -586,7 +577,7 @@ class ComicUploadController extends AbstractController
         $comicMetadata = is_array($metadata['metadata'] ?? null) ? $metadata['metadata'] : [];
         $title = trim((string) ($comicMetadata['title'] ?? ''));
         if ($title === '') {
-            $this->cleanupTempDirectory($userChunkDir);
+            $this->staging->remove($userChunkDir);
 
             return $this->json(['message' => 'Title is required'], Response::HTTP_BAD_REQUEST);
         }
@@ -631,6 +622,8 @@ class ComicUploadController extends AbstractController
             true // Test mode to avoid moving the file
         );
 
+        $this->staging->markFinalizing($userChunkDir);
+
         // Create comic in database
         $comic = $comicService->uploadComic(
             $tempFile,
@@ -649,36 +642,11 @@ class ComicUploadController extends AbstractController
         );
 
         // Clean up temp directory
-        $this->cleanupTempDirectory($userChunkDir);
+        $this->staging->remove($userChunkDir);
 
         return $this->json([
             'message' => 'Upload completed successfully',
             'comic' => $this->comicSerializer->serialize($comic, $user, false),
         ]);
-    }
-
-    /**
-     * Helper method to clean up temporary directory after upload
-     */
-    private function cleanupTempDirectory(string $directory): void
-    {
-        if (!file_exists($directory)) {
-            return;
-        }
-
-        $files = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($directory, \RecursiveDirectoryIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST
-        );
-
-        foreach ($files as $file) {
-            if ($file->isDir()) {
-                rmdir($file->getRealPath());
-            } else {
-                unlink($file->getRealPath());
-            }
-        }
-
-        rmdir($directory);
     }
 }

@@ -67,6 +67,9 @@ function CleanupCard({ cleanup, isCleaning, onRun }) {
           <Button variant="outline" onClick={() => onRun(false)} disabled={isCleaning}>Dry run</Button>
           <Button onClick={() => onRun(true)} disabled={isCleaning || !cleanup}>Quarantine files</Button>
         </div>
+        <p className="text-sm text-muted-foreground">
+          Quarantined files can be restored by hand for 7 days, then they are permanently deleted.
+        </p>
         {cleanup && (
           <div className="text-sm text-muted-foreground">
             Found {cleanup.totals?.orphanedComics || 0} orphan comics and {cleanup.totals?.orphanedCovers || 0} orphan covers.

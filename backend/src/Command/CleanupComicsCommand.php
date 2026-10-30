@@ -3,6 +3,7 @@
 namespace App\Command;
 
 use App\Service\ComicCleanupService;
+use App\Service\FileQuarantineService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -12,7 +13,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand(
     name: 'app:cleanup-comics',
-    description: 'Finds orphaned comic files and moves them to recoverable quarantine storage.',
+    description: 'Finds orphaned comic files and moves them to quarantine, where app:cleanup-personal-data deletes them once they pass retention.',
 )]
 class CleanupComicsCommand extends Command
 {
@@ -61,7 +62,7 @@ class CleanupComicsCommand extends Command
             return Command::SUCCESS;
         }
 
-        if (!$input->getOption('force') && !$io->confirm('Move these files to recoverable quarantine storage?', false)) {
+        if (!$input->getOption('force') && !$io->confirm(sprintf('Move these files to quarantine? They can be restored by hand for %d days and are then permanently deleted.', FileQuarantineService::RETENTION_DAYS), false)) {
             $io->warning('Operation cancelled.');
             return Command::SUCCESS;
         }

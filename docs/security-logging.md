@@ -93,6 +93,8 @@ security and audit records. Decide which mode you are in and write it down;
 | `var/log/security/` | `SECURITY_LOG_RETENTION_DAYS` (default 365) | `app:cleanup-logs` |
 | `var/log/audit/` | `AUDIT_LOG_RETENTION_DAYS` (default 365) | `app:cleanup-logs` |
 | `admin_audit_log` table | 12 months | `app:cleanup-personal-data` |
+| `var/quarantine/comics/` | 7 days | `app:cleanup-personal-data` |
+| `var/upload-staging/` | 1 hour idle, then the next run | `app:cleanup-personal-data` |
 | Unanswered `ComicShare` invitations | Until `expiresAt` (2 months) | `app:cleanup-expired-shares` |
 | `share_claim_code` rows | 30 days past expiry | `app:cleanup-expired-shares` |
 | Revoked `ComicShare` rows | 30 days past `revokedAt` | `app:cleanup-expired-shares` |
