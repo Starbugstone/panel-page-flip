@@ -161,8 +161,14 @@ ssh_call() {
     : "${SSH_HOST:?SSH_HOST not set in .env.deploy}"
     : "${SSH_USER:?SSH_USER not set in .env.deploy}"
     local target="${SSH_USER}@${SSH_HOST}"
-    local remote_path="${SSH_REMOTE_PATH:-${FTP_REMOTE_ROOT}/backend}"
-    local remote_command
+    # SSH_REMOTE_PATH and FTP_REMOTE_ROOT both name the directory that contains
+    # backend/, and bin/console lives inside it.
+    local project_root="${SSH_REMOTE_PATH:-${FTP_REMOTE_ROOT:-}}"
+    [ -n "$project_root" ] || fail "SSH_REMOTE_PATH not set in .env.deploy"
+    local remote_path remote_command
+    remote_path="$(printf '%q' "${project_root%/}/backend")"
+    local ssh_opts=(-p "${SSH_PORT:-22}")
+    [ -z "${SSH_KEY:-}" ] || ssh_opts+=(-i "$SSH_KEY")
 
     case "$action" in
         health)
@@ -184,7 +190,7 @@ ssh_call() {
 
     # Values are expanded locally into SSH's single remote command argument.
     # shellcheck disable=SC2029
-    ssh "$target" "$remote_command"
+    ssh "${ssh_opts[@]}" "$target" "$remote_command"
 }
 
 # =============================================================================
