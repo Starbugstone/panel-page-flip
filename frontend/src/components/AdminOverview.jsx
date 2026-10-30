@@ -59,15 +59,20 @@ function RecentSignupsTable({ signups, rows, controls }) {
 }
 
 function CleanupCard({ cleanup, isCleaning, onRun }) {
+  // Quarantining acts on what a dry run showed, so it is on offer only straight
+  // after one that worked: not after a failure, and not twice on one result.
+  const hasCurrentDryRun = Boolean(cleanup) && !cleanup.error && !cleanup.quarantined;
+
   return (
     <Card>
       <CardHeader><CardTitle>Orphan File Cleanup</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => onRun(false)} disabled={isCleaning}>Dry run</Button>
-          <Button onClick={() => onRun(true)} disabled={isCleaning || !cleanup}>Quarantine files</Button>
+          <Button onClick={() => onRun(true)} disabled={isCleaning || !hasCurrentDryRun}>Quarantine files</Button>
         </div>
-        {cleanup && (
+        {cleanup?.error && <p role="alert" className="text-sm text-destructive">{cleanup.error}</p>}
+        {cleanup && !cleanup.error && (
           <div className="text-sm text-muted-foreground">
             Found {cleanup.totals?.orphanedComics || 0} orphan comics and {cleanup.totals?.orphanedCovers || 0} orphan covers.
             {cleanup.quarantined && ` Quarantined ${cleanup.quarantined.orphanedComics} comics and ${cleanup.quarantined.orphanedCovers} covers.`}
@@ -107,8 +112,15 @@ export function AdminOverview() {
     try {
       const data = await api.post(`/api/admin/cleanup/${apply ? "apply" : "dry-run"}`, {});
       setCleanup(data.cleanup);
-      toast({ title: apply ? "Cleanup completed" : "Cleanup dry-run completed" });
+      // A refused cleanup still answers 200, with the reason in the body.
+      if (data.cleanup?.error) {
+        toast({ title: "Cleanup failed", description: data.cleanup.error, variant: "destructive" });
+      } else {
+        toast({ title: apply ? "Cleanup completed" : "Cleanup dry-run completed" });
+      }
     } catch (error) {
+      // An earlier dry run no longer vouches for anything once this one failed.
+      setCleanup(null);
       toast({ title: "Cleanup failed", description: error.message, variant: "destructive" });
     } finally {
       setIsCleaning(false);
