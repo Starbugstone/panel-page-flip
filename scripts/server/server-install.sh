@@ -51,8 +51,12 @@ esac
 # Required PHP extensions for Symfony 6.4 + this project.
 # zip reads CBZ and zlib reads PDF; those two formats are the ones the
 # application promises on every host, so neither is optional.
-for ext in pdo_mysql intl mbstring zip zlib xsl gd opcache; do
-    php -m | grep -qi "^${ext}$" || fail "PHP extension '$ext' not loaded."
+# OPcache registers itself as "Zend OPcache"; neither php -m nor extension_loaded
+# knows it as plain "opcache".
+for ext in pdo_mysql intl mbstring zip zlib xsl gd "Zend OPcache"; do
+    # Single quotes on purpose: this is PHP source, not a shell expansion.
+    # shellcheck disable=SC2016
+    php -r 'exit(extension_loaded($argv[1]) ? 0 : 1);' -- "$ext" || fail "PHP extension '$ext' not loaded."
 done
 
 # GD being loaded is not the same as GD being useful. A build without JPEG
@@ -108,6 +112,10 @@ PRIVACY_EMAIL=privacy@yourdomain.com
 LEGAL_EMAIL=legal@yourdomain.com
 CONTENT_REPORT_RETENTION_DAYS=730
 
+# Brute-force protection on the login endpoint. Set to 0 only on a developer's
+# own machine, never on anything reachable from the internet.
+LOGIN_RATE_LIMIT_ENABLED=1
+
 # Optional Managed Turnstile widget for the APP_URL hostname.
 TURNSTILE_ENABLED=false
 TURNSTILE_SITE_KEY=
@@ -158,9 +166,17 @@ fi
 # =============================================================================
 # First build
 # =============================================================================
+# server-deploy.sh needs the public URL to build the frontend. The operator has
+# just written it into the env file, so asking again on the command line would
+# only stop the install a second time.
+if [ -z "${APP_URL:-}" ] && [ -f "$ENV_FILE" ]; then
+    APP_URL="$(sed -n 's/^APP_URL=//p' "$ENV_FILE" | tail -n 1 | tr -d '\r"'"'"'')"
+fi
+
 log "Running first build via server-deploy.sh"
 env \
     APP_DIR="$APP_DIR" \
+    APP_URL="${APP_URL:-}" \
     WEB_USER="$WEB_USER" \
     WEB_GROUP="$WEB_GROUP" \
     BACKUP_COMMAND=true \
@@ -178,7 +194,7 @@ Next steps (do them once):
 
 1. Web server config
    - Nginx example: see SSH-deploy.md section 6.
-   - Apache: drop scripts/deploy/htaccess.dist into backend/public/.htaccess.
+   - Apache: every deploy installs scripts/deploy/htaccess.dist as backend/public/.htaccess.
    - Document root must be: $APP_DIR/backend/public
 
 2. SSL certificate
