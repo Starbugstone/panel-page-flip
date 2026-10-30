@@ -124,7 +124,10 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
             if ($tooLarge) return;
 
             $chunkBytes = strlen($chunk);
-            if (ComicSourceLimits::wouldExceedByteLimit($receivedBytes, $chunkBytes, $limitBytes)) {
+            // Twice for the output: growing a large string can copy it while the
+            // old one lives. Running out of memory here could not be recovered from.
+            if (ComicSourceLimits::wouldExceedByteLimit($receivedBytes, $chunkBytes, $limitBytes)
+                || !MemoryBudget::fits(2 * ($receivedBytes + $chunkBytes))) {
                 $tooLarge = true;
                 $process->stop(0);
 

@@ -259,6 +259,206 @@ final class PdfPageProviderTest extends TestCase
         self::assertSame(hash('sha256', $jpeg), $result['sha'], 'The embedded JPEG should be served untouched.');
     }
 
+    /**
+     * A page with text over its image must reach the renderer, or the reader
+     * silently loses the text. The render is the proof: it comes back at the
+     * renderer's size rather than the embedded image's 24x32.
+     */
+    public function testRendersAPageThatIsMoreThanItsImage(): void
+    {
+        $finder = new ExecutableFinder();
+        if ($finder->find('pdfinfo') === null || $finder->find('pdftocairo') === null) {
+            self::markTestSkipped('Poppler is not installed.');
+        }
+
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        file_put_contents($this->pdfPath, $this->imagePdf([$this->tinyJpeg()], 'q 400 0 0 400 0 0 cm /Im0 Do Q 0 0 1 rg 10 10 100 100 re f'));
+
+        $page = (new PdfPageProvider(new LockFactory(new FlockStore(sys_get_temp_dir()))))
+            ->readPage($this->pdfPath, ComicSourceType::PDF, 1);
+
+        self::assertFalse($page->isSourceSized, 'The page should have been drawn.');
+        self::assertNotSame($this->tinyJpeg(), $page->content);
+    }
+
+    /**
+     * With no renderer, part of a page beats a comic that stops opening. It is
+     * also what such a page has always shown on such a host, so existing comics
+     * there keep working.
+     */
+    public function testServesThePagesImageWhenNothingCouldRenderTheRest(): void
+    {
+        $jpeg = $this->tinyJpeg();
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        file_put_contents($this->pdfPath, $this->imagePdf([$jpeg], 'q 400 0 0 400 0 0 cm /Im0 Do Q 0 0 1 rg 10 10 100 100 re f'));
+
+        $result = $this->readWithoutSubprocesses();
+
+        self::assertSame(hash('sha256', $jpeg), $result['sha'] ?? null, (string) ($result['error'] ?? ''));
+    }
+
+    /** No image to fall back to is still a clean refusal rather than a blank page. */
+    public function testRefusesAPageWithNoImageWhenNothingCouldRenderIt(): void
+    {
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        file_put_contents($this->pdfPath, $this->onePagePdf());
+
+        $result = $this->readWithoutSubprocesses();
+
+        self::assertStringContainsString('Poppler is needed', (string) ($result['error'] ?? ''));
+    }
+
+    /**
+     * The point of declining before the read: a PDF past the memory left used to
+     * die in the read, so the renderer it is supposed to fall back to never ran.
+     */
+    public function testRendersASourceTooLargeForTheMemoryLeft(): void
+    {
+        $finder = new ExecutableFinder();
+        if ($finder->find('pdfinfo') === null || $finder->find('pdftocairo') === null) {
+            self::markTestSkipped('Poppler is not installed.');
+        }
+
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        $this->writePaddedImagePdf($this->pdfPath, $this->tinyJpeg(), 100_000_000);
+
+        $result = $this->readInIsolation('64M');
+
+        self::assertSame('image/jpeg', $result['mime'] ?? null, (string) ($result['error'] ?? ''));
+        self::assertFalse($result['sourceSized'], 'The page should have come from the renderer.');
+    }
+
+    /**
+     * The page still has to get through GD after it is read. Keeping a large
+     * parsed document around for a next page that may never come is what would
+     * stop it, so it is given up when memory is tight.
+     */
+    public function testReleasesALargeDocumentSoThePageCanStillBeConverted(): void
+    {
+        if (!\function_exists('imagewebp')) self::markTestSkipped('GD has no WebP encoder.');
+
+        $canvas = imagecreatetruecolor(2500, 2000);
+        ob_start();
+        imagejpeg($canvas, null, 50);
+        $jpeg = (string) ob_get_clean();
+
+        $this->pdfPath = tempnam(sys_get_temp_dir(), 'comic-pdf-test-');
+        $this->writePaddedImagePdf($this->pdfPath, $jpeg, 60_000_000);
+
+        $result = $this->readInIsolation('100M');
+
+        self::assertSame('image/jpeg', $result['mime'] ?? null, (string) ($result['error'] ?? ''));
+        self::assertTrue($result['sourceSized'], 'The page should have been the embedded image.');
+        self::assertSame('image/webp', $result['encoded'] ?? null, 'The page should still have fitted through conversion.');
+    }
+
+    /** @return array<string, mixed> */
+    private function readWithoutSubprocesses(): array
+    {
+        return $this->runIsolated(['-d', 'disable_functions=proc_open']);
+    }
+
+    /** @return array<string, mixed> */
+    private function readInIsolation(string $memoryLimit): array
+    {
+        return $this->runIsolated(['-d', "memory_limit=$memoryLimit"]);
+    }
+
+    /**
+     * @param list<string> $ini
+     * @return array<string, mixed>
+     */
+    private function runIsolated(array $ini): array
+    {
+        $php = (new PhpExecutableFinder())->find();
+        if ($php === false) self::markTestSkipped('No PHP binary to run the isolated check with.');
+
+        $script = <<<'PHP'
+            require getenv('APP_AUTOLOAD');
+            $provider = new App\ComicSource\PdfPageProvider(
+                new Symfony\Component\Lock\LockFactory(new Symfony\Component\Lock\Store\FlockStore(sys_get_temp_dir()))
+            );
+            $result = [];
+            try {
+                $page = $provider->readPage(getenv('APP_PDF'), App\Enum\ComicSourceType::PDF, 1);
+                $encoded = (new App\Service\ComicPageDelivery())->encode($page, 800, 80);
+                $result = [
+                    'mime' => $page->mimeType,
+                    'sha' => hash('sha256', $page->content),
+                    'sourceSized' => $page->isSourceSized,
+                    'encoded' => $encoded?->mimeType,
+                ];
+            } catch (RuntimeException $exception) {
+                $result['error'] = $exception->getMessage();
+            }
+            echo json_encode($result);
+        PHP;
+
+        $process = new Process([$php, ...$ini, '-d', 'display_errors=1', '-d', 'log_errors=0', '-r', $script]);
+        $process->setEnv([
+            'APP_AUTOLOAD' => \dirname(__DIR__, 3).'/vendor/autoload.php',
+            'APP_PDF' => $this->pdfPath,
+        ]);
+        $process->setTimeout(120);
+        $process->run();
+
+        self::assertTrue($process->isSuccessful(), 'The reader died: '.$process->getOutput().$process->getErrorOutput());
+        $result = json_decode($process->getOutput(), true);
+        self::assertIsArray($result, 'Unexpected output: '.$process->getOutput());
+
+        return $result;
+    }
+
+    /**
+     * A real one-image document made large by an object nothing refers to, with
+     * the padding left as a hole in the file so that it costs no time to write.
+     */
+    private function writePaddedImagePdf(string $path, string $jpeg, int $padding): void
+    {
+        $size = getimagesizefromstring($jpeg);
+        $objects = [
+            1 => '<< /Type /Catalog /Pages 2 0 R >>',
+            2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            3 => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>',
+            4 => sprintf(
+                "<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
+                $size[0],
+                $size[1],
+                strlen($jpeg),
+                $jpeg
+            ),
+            5 => "<< /Length 30 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream",
+        ];
+
+        $handle = fopen($path, 'c+b');
+        self::assertIsResource($handle);
+
+        $position = 0;
+        $offsets = [];
+        $write = static function (string $bytes) use ($handle, &$position): void {
+            fwrite($handle, $bytes);
+            $position += strlen($bytes);
+        };
+
+        $write("%PDF-1.4\n");
+        foreach ($objects as $number => $body) {
+            $offsets[$number] = $position;
+            $write("$number 0 obj\n$body\nendobj\n");
+        }
+
+        $offsets[6] = $position;
+        $write("6 0 obj\n<< /Length $padding >>\nstream\n");
+        fseek($handle, $padding, SEEK_CUR);
+        $position += $padding;
+        $write("\nendstream\nendobj\n");
+
+        $xref = $position;
+        $write("xref\n0 7\n0000000000 65535 f \n");
+        foreach (range(1, 6) as $number) $write(sprintf("%010d 00000 n \n", $offsets[$number]));
+        $write("trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n");
+        fclose($handle);
+    }
+
     private function onePagePdf(): string
     {
         return $this->pdf([[200, 200]]);
@@ -275,7 +475,7 @@ final class PdfPageProviderTest extends TestCase
      *
      * @param list<string> $jpegs
      */
-    private function imagePdf(array $jpegs): string
+    private function imagePdf(array $jpegs, string $content = 'q 400 0 0 400 0 0 cm /Im0 Do Q'): string
     {
         $objects = [1 => '<< /Type /Catalog /Pages 2 0 R >>'];
         $next = 3;
@@ -304,7 +504,7 @@ final class PdfPageProviderTest extends TestCase
         }
 
         $objects[2] = sprintf('<< /Type /Pages /Kids [%s] /Count %d >>', implode(' ', $kids), count($jpegs));
-        $objects[$contents] = "<< /Length 30 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream";
+        $objects[$contents] = sprintf("<< /Length %d >>\nstream\n%s\nendstream", strlen($content), $content);
 
         ksort($objects);
         $pdf = "%PDF-1.4\n";

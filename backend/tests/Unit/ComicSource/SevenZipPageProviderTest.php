@@ -6,6 +6,7 @@ use App\ComicSource\SevenZipPageProvider;
 use App\Enum\ComicSourceType;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Process\ExecutableFinder;
+use Symfony\Component\Process\PhpExecutableFinder;
 use Symfony\Component\Process\Process;
 
 final class SevenZipPageProviderTest extends TestCase
@@ -34,6 +35,43 @@ final class SevenZipPageProviderTest extends TestCase
     {
         yield 'CB7' => [ComicSourceType::CB7, '7z'];
         yield 'CBT' => [ComicSourceType::CBT, 'tar'];
+    }
+
+    /**
+     * A page within the page limit can still be more than the memory left, and
+     * running out is fatal, so it has to come back as an error instead.
+     */
+    public function testRefusesAPageLargerThanTheMemoryLeft(): void
+    {
+        if ((new ExecutableFinder())->find('7z') === null) self::markTestSkipped('7z is not installed.');
+        $php = (new PhpExecutableFinder())->find();
+        if ($php === false) self::markTestSkipped('No PHP binary to run the isolated check with.');
+
+        $this->directory = sys_get_temp_dir().'/comic-7z-test-'.bin2hex(random_bytes(6));
+        self::assertTrue(mkdir($this->directory, 0700));
+        file_put_contents($this->directory.'/page.jpg', str_repeat('x', 40_000_000));
+        $archive = $this->directory.'/comic.cbt';
+        (new Process(['7z', 'a', '-ttar', $archive, 'page.jpg'], $this->directory))->mustRun();
+
+        $script = <<<'PHP'
+            require getenv('APP_AUTOLOAD');
+            try {
+                (new App\ComicSource\SevenZipPageProvider())->readPage(getenv('APP_ARCHIVE'), App\Enum\ComicSourceType::CBT, 1);
+                echo 'read';
+            } catch (RuntimeException $exception) {
+                echo $exception->getMessage();
+            }
+        PHP;
+
+        $process = new Process([$php, '-d', 'memory_limit=32M', '-d', 'display_errors=1', '-d', 'log_errors=0', '-r', $script]);
+        $process->setEnv([
+            'APP_AUTOLOAD' => \dirname(__DIR__, 3).'/vendor/autoload.php',
+            'APP_ARCHIVE' => $archive,
+        ]);
+        $process->run();
+
+        self::assertTrue($process->isSuccessful(), 'The reader died: '.$process->getOutput());
+        self::assertSame('Archive page exceeds the safety limit.', $process->getOutput());
     }
 
     public function testRejectsAnArchiveWithAnUnsafeExpansionRatio(): void
