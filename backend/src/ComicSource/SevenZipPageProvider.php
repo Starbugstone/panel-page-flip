@@ -137,7 +137,15 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
                 }
             }
 
-            $exitCode = proc_close($process);
+            // Closing output is not process exit. Keep the same deadline until
+            // the extractor stops, and retain the status before PHP 8.2 reaps it.
+            do {
+                if (microtime(true) > $deadline) throw new \RuntimeException('Archive command timed out.');
+                $status = proc_get_status($process);
+                if ($status['running']) usleep(10_000);
+            } while ($status['running']);
+            $exitCode = $status['exitcode'];
+            proc_close($process);
             $process = null;
             if ($exitCode !== 0) throw new \RuntimeException($failureMessage);
 

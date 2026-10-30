@@ -73,6 +73,46 @@ final class SevenZipPageProviderTest extends TestCase
         $this->assertMemoryLimitedReadIsRefused($archive, ['PATH' => $this->directory.':'.getenv('PATH')]);
     }
 
+    public function testTimesOutAnExtractorThatClosesItsPipesButKeepsRunning(): void
+    {
+        $php = (new PhpExecutableFinder())->find();
+        if ($php === false) self::markTestSkipped('No PHP binary to run the isolated check with.');
+        $this->directory = sys_get_temp_dir().'/comic-7z-test-'.bin2hex(random_bytes(6));
+        self::assertTrue(mkdir($this->directory, 0700));
+        $archive = $this->directory.'/comic.cbt';
+        file_put_contents($archive, 'x');
+        $extractor = $this->directory.'/7z';
+        file_put_contents($extractor, <<<'SH'
+            #!/bin/sh
+            printf 'Type = tar\n----------\nPath = page.jpg\nSize = 1\n'
+            exec 1>&- 2>&-
+            exec sleep 25
+            SH);
+        chmod($extractor, 0700);
+        $script = <<<'PHP'
+            require getenv('APP_AUTOLOAD');
+            try {
+                (new App\ComicSource\SevenZipPageProvider())->inspect(getenv('APP_ARCHIVE'), App\Enum\ComicSourceType::CBT);
+                echo 'completed';
+            } catch (RuntimeException $exception) {
+                echo $exception->getMessage();
+            }
+            PHP;
+        $process = new Process([$php, '-r', $script]);
+        $process->setEnv([
+            'APP_AUTOLOAD' => \dirname(__DIR__, 3).'/vendor/autoload.php',
+            'APP_ARCHIVE' => $archive,
+            'PATH' => $this->directory.':'.getenv('PATH'),
+        ]);
+        $process->setTimeout(30);
+        $started = microtime(true);
+        $process->run();
+
+        self::assertTrue($process->isSuccessful(), $process->getErrorOutput());
+        self::assertSame('Archive command timed out.', $process->getOutput());
+        self::assertLessThan(24.0, microtime(true) - $started, 'The extractor must stop before it finishes on its own.');
+    }
+
     /** @param array<string, string> $environment */
     private function assertMemoryLimitedReadIsRefused(string $archive, array $environment = []): void
     {
