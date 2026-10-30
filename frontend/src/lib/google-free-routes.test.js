@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { matchRoutes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import { GOOGLE_FREE_ROUTES, isGoogleFreeRoute } from "@/lib/google-free-routes";
@@ -37,6 +38,28 @@ describe("the Google-free legal routes", () => {
     expect(isGoogleFreeRoute("/privacy-policy")).toBe(false);
     expect(isGoogleFreeRoute("/")).toBe(false);
     expect(isGoogleFreeRoute(undefined)).toBe(false);
+  });
+
+  /**
+   * The check has to agree with the router: a path that renders a legal page but
+   * is not classified as one would load Google on it.
+   */
+  it.each([
+    ["/%70rivacy", true],
+    ["/%50RIVACY/", true],
+    ["/%63ookies", true],
+    ["/t%65rms?from=footer", true],
+    ["/privacy%2F", false],
+    ["/%2570rivacy", false],
+    ["/%70rivacy%3Ffrom", false],
+    ["/%E0%A4%A", false],
+    ["/privacy/%E0%A4%A", false],
+  ])("classifies %s the way the router routes it", (path, expected) => {
+    const routes = GOOGLE_FREE_ROUTES.map((route) => ({ path: route }));
+    const [pathname] = path.split("?");
+
+    expect(isGoogleFreeRoute(path)).toBe(expected);
+    expect(matchRoutes(routes, pathname) !== null).toBe(expected);
   });
 
   it("carries no advertising and produces no page view", () => {

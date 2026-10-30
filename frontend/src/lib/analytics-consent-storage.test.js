@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ANALYTICS_CONSENT_MAX_AGE_MS,
   ANALYTICS_CONSENT_VERSION,
+  analyticsConsentExpiresAt,
   persistAnalyticsConsent,
   readAnalyticsConsent,
 } from "@/lib/analytics-consent-storage";
@@ -54,6 +55,19 @@ describe("the stored analytics decision", () => {
       decision: "granted",
       decidedAt: expect.any(String),
     });
+  });
+
+  it("says when a stored answer lapses, and only for one that is still valid", () => {
+    const decidedAt = Date.parse("2026-01-01T00:00:00.000Z");
+    const expiresAt = decidedAt + ANALYTICS_CONSENT_MAX_AGE_MS;
+    expect(analyticsConsentExpiresAt(storage, decidedAt)).toBeNull();
+
+    persistAnalyticsConsent("denied", storage, decidedAt);
+
+    expect(analyticsConsentExpiresAt(storage, expiresAt)).toBe(expiresAt);
+    expect(readAnalyticsConsent(storage, expiresAt)).toBe("denied");
+    expect(analyticsConsentExpiresAt(storage, expiresAt + 1)).toBeNull();
+    expect(readAnalyticsConsent(storage, expiresAt + 1)).toBe("undecided");
   });
 
   it("asks again when either an acceptance or refusal is older than six months", () => {
