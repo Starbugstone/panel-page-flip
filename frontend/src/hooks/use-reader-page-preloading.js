@@ -42,9 +42,11 @@ export function useReaderPagePreloading({
     Promise.all(currentUnit.map((pageIndex) => loadPage(pageIndex, variantFor(pageIndex))))
       .then(() => { if (!cancelled) queueBackgroundPages(); });
 
+    // The window is measured from one page of the spread, and the other side of
+    // it is still on screen however narrow the window is.
     const cleanupTimer = setTimeout(() => evictOutside(
-      Math.max(0, currentPageRef.current - preloadWindow.backward),
-      Math.min(pageCount - 1, currentPageRef.current + preloadWindow.forward)
+      Math.min(Math.max(0, currentPageRef.current - preloadWindow.backward), ...currentUnit),
+      Math.max(Math.min(pageCount - 1, currentPageRef.current + preloadWindow.forward), ...currentUnit)
     ), 1500);
 
     return () => {
