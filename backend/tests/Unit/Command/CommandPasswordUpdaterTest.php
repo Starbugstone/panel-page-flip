@@ -6,6 +6,7 @@ namespace App\Tests\Unit\Command;
 
 use App\Command\CommandPasswordUpdater;
 use App\Entity\User;
+use App\Repository\ResetPasswordTokenRepository;
 use App\Service\PasswordValidator;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -20,7 +21,7 @@ final class CommandPasswordUpdaterTest extends TestCase
         $hasher = $this->createMock(UserPasswordHasherInterface::class);
         $hasher->expects(self::never())->method('hashPassword');
         $output = new BufferedOutput();
-        $updater = new CommandPasswordUpdater(new PasswordValidator(), $hasher);
+        $updater = new CommandPasswordUpdater(new PasswordValidator(), $hasher, $this->createMock(ResetPasswordTokenRepository::class));
 
         self::assertFalse($updater->update(new User(), 'short', new SymfonyStyle(new ArrayInput([]), $output)));
         self::assertStringContainsString('Password does not meet policy requirements', $output->fetch());
@@ -34,7 +35,7 @@ final class CommandPasswordUpdaterTest extends TestCase
             ->method('hashPassword')
             ->with($user, 'Valid-password1!')
             ->willReturn('hashed-password');
-        $updater = new CommandPasswordUpdater(new PasswordValidator(), $hasher);
+        $updater = new CommandPasswordUpdater(new PasswordValidator(), $hasher, $this->createMock(ResetPasswordTokenRepository::class));
 
         self::assertTrue($updater->update(
             $user,
