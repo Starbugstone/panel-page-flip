@@ -84,6 +84,20 @@ class ShareInvitationToken
         return $this->comicShare;
     }
 
+    /**
+     * Anchor this link to another grant of the same folder invitation.
+     *
+     * The old share's collection is deliberately left alone: orphan removal
+     * would delete the token the moment it was taken out of that collection.
+     */
+    public function moveTo(ComicShare $comicShare): self
+    {
+        $this->comicShare = $comicShare;
+        $comicShare->addInvitationToken($this);
+
+        return $this;
+    }
+
     public function getTokenHash(): string
     {
         return $this->tokenHash;

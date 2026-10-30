@@ -8,6 +8,7 @@ use App\Entity\ComicShare;
 use App\Entity\User;
 use App\Repository\ComicShareRepository;
 use App\Service\ComicShareSerializer;
+use App\Service\ComicShareService;
 use App\Service\Pagination\PaginationRequest;
 use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -40,6 +41,7 @@ final class AdminShareController extends AbstractController
         private readonly ComicShareSerializer $serializer,
         private readonly EntityManagerInterface $entityManager,
         private readonly SecurityAuditLogger $auditLogger,
+        private readonly ComicShareService $shareService,
     ) {
     }
 
@@ -94,6 +96,7 @@ final class AdminShareController extends AbstractController
 
         if ($share->getStatus() !== ComicShare::STATUS_REVOKED) {
             $share->markRevoked();
+            $this->shareService->passInvitationLinkOn($share);
             $this->entityManager->flush();
 
             $this->auditLogger->audit(SecurityAuditLogger::COMIC_SHARE_ADMIN_REVOKED, [

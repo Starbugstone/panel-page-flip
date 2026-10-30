@@ -52,7 +52,8 @@ final class ShareClaimCodeController extends AbstractController
      * "what have I given away?" wants one answer, and the prefix is what tells
      * a single comic from an arc at a glance.
      *
-     * Dead ones stay in the list until the cleanup removes them a month after
+     * Every code that still works is listed, so all of them can be withdrawn.
+     * The newest dead ones stay too until the cleanup removes them a month after
      * they expire, because "how many people took that one up?" is a question
      * the owner asks after a code has stopped working, not while it still does.
      */

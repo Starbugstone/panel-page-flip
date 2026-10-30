@@ -138,7 +138,7 @@ class ComicShareSerializer
         $owner = $share->getOwner();
         $snapshot = $share->getOwnerNameSnapshot();
 
-        return UsernamePolicy::describe($owner?->getUsername() ?: null, $owner?->getName() ?: $snapshot)
+        return UsernamePolicy::describe($owner?->getUsername() ?: null, $owner?->getName())
             ?? ($snapshot !== '' ? $snapshot : 'A former member');
     }
 

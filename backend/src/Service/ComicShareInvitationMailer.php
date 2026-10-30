@@ -49,7 +49,6 @@ final class ComicShareInvitationMailer
 
         $email = (new Email())
             ->from(new Address($this->mailerFromAddress, $this->mailerFromName))
-            ->replyTo((string) $owner->getEmail())
             ->to($share->getRecipientEmailNormalized())
             ->subject($ownerName.' shared a comic with you!')
             ->html($body);
@@ -116,7 +115,6 @@ final class ComicShareInvitationMailer
 
         $email = (new Email())
             ->from(new Address($this->mailerFromAddress, $this->mailerFromName))
-            ->replyTo((string) $owner->getEmail())
             ->to($recipient)
             ->subject($this->subject($ownerName, count($invitations), $folderName))
             ->html($body);

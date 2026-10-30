@@ -203,7 +203,9 @@ class ShareController extends AbstractController
 
         $share = $invitation->getComicShare();
         $comic = $share->getComic();
-        $members = $this->shareService->invitationMembers($share);
+        // The grants still on offer. One the owner withdrew is no longer part of
+        // this decision, and its age gate cannot stand in the way of the others.
+        $members = $this->shareService->invitationDecisionShares($share);
         $isFolderBatch = $share->getInvitationBatchId() !== null;
         // This endpoint is public, so anything it returns is readable by anyone
         // holding the link — a forwarded email, a link-preview bot, a proxy log.

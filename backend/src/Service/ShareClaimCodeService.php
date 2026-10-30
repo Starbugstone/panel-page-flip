@@ -306,7 +306,8 @@ final class ShareClaimCodeService
         // Exhaustion is different, and only for somebody who has no use of
         // their own. A one-use code that its single redeemer double-clicks must
         // replay rather than refuse — the alternative is a 404 for the person
-        // holding the very share the code created.
+        // holding the very share the code created. Replaying reports; it grants
+        // nothing, so it cannot undo a revocation that came after the first use.
         if (!$alreadyRedeemed && $code->getUsesRemaining() <= 0) {
             $this->rejectRedemption($redeemer, $code->getId());
         }
@@ -327,7 +328,10 @@ final class ShareClaimCodeService
         // spent: they took up nothing.
         $comics = [];
         foreach ($code->getComics() as $comic) {
-            if (!$this->shareService->isShareableBy($comic, $owner)) {
+            if (
+                !$this->shareService->isShareableBy($comic, $owner)
+                || (!$alreadyRedeemed && $this->shareService->wasRevokedSince($comic, $redeemer, $code->getCreatedAt()))
+            ) {
                 throw new ShareException(
                     $code->getType() === ShareCodeType::GROUP
                         ? 'Some of the comics in this group are no longer available, so nothing was added. Ask the owner for a new code.'
@@ -347,28 +351,30 @@ final class ShareClaimCodeService
             // The share lifecycle belongs to ComicShareService, wherever a
             // share comes from. A transport that grew its own copy of these
             // transitions would drift from the canonical rules.
-            $outcome = $this->shareService->claimFromCode(
-                $comic,
-                $owner,
-                $redeemer,
-                // The owner acknowledged responsibility when they created the
-                // code, not now — and the field this lands in is the canonical
-                // evidence of when they did.
-                $code->getSenderResponsibilityAcceptedAt()
-            );
+            $outcome = $alreadyRedeemed
+                ? $this->shareService->describeHeldClaim($comic, $redeemer)
+                : $this->shareService->claimFromCode(
+                    $comic,
+                    $owner,
+                    $redeemer,
+                    // The owner acknowledged responsibility when they created the
+                    // code, not now — and the field this lands in is the canonical
+                    // evidence of when they did.
+                    $code->getSenderResponsibilityAcceptedAt()
+                );
 
             $results[] = ['comicId' => (int) $comic->getId()] + $outcome;
 
             if ($outcome['status'] === 'already_yours') {
                 ++$alreadyHeld;
-            } else {
+            } elseif ($outcome['status'] !== ComicShareService::NO_LONGER_HELD) {
                 ++$claimed;
             }
         }
 
         // Spent only for an account that did not already hold a use. Repeating
-        // the same redemption is idempotent: it re-reports what they have and
-        // takes nothing from anybody else.
+        // the same redemption is idempotent: it re-reports what they have, never
+        // brings back what they lost, and takes nothing from anybody else.
         if (!$alreadyRedeemed) {
             $this->entityManager->persist(new ShareClaimCodeRedemption($code, $redeemer));
             $code->spendUse();

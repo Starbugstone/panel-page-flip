@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 import { logger } from "@/lib/logger";
@@ -50,8 +50,7 @@ function recipientLabel(target, recipientEmail, resolved, username, userCode) {
   if (target === TARGETS.EMAIL) return recipientEmail.trim() || "the recipient";
 
   return resolved?.label
-    || usernameHandle(stripUsernamePrefix(username))
-    || userCode
+    || (target === TARGETS.USERNAME ? usernameHandle(stripUsernamePrefix(username)) : userCode)
     || "the recipient";
 }
 
@@ -70,30 +69,54 @@ function recipientPayload(target, username, userCode, recipientEmail) {
  * username or a `U-` code is not — both name an account the sender cannot see,
  * and a code names one they cannot even read, so a typo reaches a real stranger
  * rather than failing. `resolved` is cleared the moment either field changes,
- * which is what makes the name on screen the identity being shared with.
+ * and a lookup still in flight is abandoned with it, which is what makes the
+ * name on screen the identity being shared with.
  */
 export function useShareRecipient({ initialRecipient, initialUsername, initialUserCode, initialResolved, mode, onError }) {
-  const [target, setTarget] = useState(() => initialTarget(initialRecipient, initialUserCode));
-  const [username, setUsername] = useState(initialUsername);
+  const [target, setTargetState] = useState(() => initialTarget(initialRecipient, initialUserCode));
+  const [username, setUsernameState] = useState(initialUsername);
   const [recipientEmail, setRecipientEmail] = useState(initialRecipient);
-  const [userCode, setUserCode] = useState(initialUserCode);
-  const [resolved, setResolved] = useState(initialResolved);
+  const [userCode, setUserCodeState] = useState(initialUserCode);
+  const [resolved, setResolvedState] = useState(initialResolved);
   const [isResolving, setIsResolving] = useState(false);
+  const latestLookup = useRef(0);
+
+  // A response describes the identifier it was asked about, which may no longer
+  // be the one Send would use. Everything that changes who is being named
+  // retires the lookup in flight, so its answer can never confirm somebody else.
+  const setResolved = (next) => {
+    latestLookup.current += 1;
+    setIsResolving(false);
+    setResolvedState(next);
+  };
+  const setTarget = (next) => {
+    setResolved(null);
+    setTargetState(next);
+  };
+  const setUsername = (next) => {
+    setResolved(null);
+    setUsernameState(next);
+  };
+  const setUserCode = (next) => {
+    setResolved(null);
+    setUserCodeState(next);
+  };
 
   /** Check the identifier names somebody, before anything is offered to them. */
   const resolveRecipient = async () => {
+    setResolved(null);
+    const lookup = latestLookup.current;
     setIsResolving(true);
     onError(null);
-    setResolved(null);
 
     try {
       const data = await recipientRequest(target, username, userCode);
-      setResolved(data.recipient);
+      if (lookup === latestLookup.current) setResolvedState(data.recipient);
     } catch (err) {
       logger.error("Resolving a recipient failed:", err);
-      onError(err.message || "That recipient could not be found.");
+      if (lookup === latestLookup.current) onError(err.message || "That recipient could not be found.");
     } finally {
-      setIsResolving(false);
+      if (lookup === latestLookup.current) setIsResolving(false);
     }
   };
 

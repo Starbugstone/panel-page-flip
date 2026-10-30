@@ -69,6 +69,40 @@ final class ReportedReferenceTypeTest extends TestCase
         self::assertSame('U-[masked-code]', ReportedReferenceType::UserCode->maskForReceipt('U-ABCD-EFGH-JKLM'));
     }
 
+    /**
+     * Masked from what the parser recognises. Anything {@see validate()} accepts
+     * would redeem if it reached the wrong inbox, however it was typed.
+     *
+     * @dataProvider typedCodeProvider
+     */
+    public function testACodeIsMaskedHoweverItWasTyped(ReportedReferenceType $type, string $reference, string $expected): void
+    {
+        self::assertNull($type->validate($reference, new PublicUrl(self::APP_URL)));
+
+        $masked = $type->maskForReceipt($reference);
+
+        self::assertSame($expected, $masked);
+        self::assertDoesNotMatchRegularExpression('/0123|4567|89AB/i', $masked);
+    }
+
+    /** @return iterable<string, array{ReportedReferenceType, string, string}> */
+    public static function typedCodeProvider(): iterable
+    {
+        yield 'spaces instead of dashes' => [ReportedReferenceType::SharingCode, 'C 0123 4567 89AB', 'C-[masked-code]'];
+        yield 'no separators at all' => [ReportedReferenceType::SharingCode, 'G0123456789AB', 'G-[masked-code]'];
+        yield 'surrounding space' => [ReportedReferenceType::SharingCode, '  C-0123-4567-89AB  ', 'C-[masked-code]'];
+        yield 'an em dash from a chat client' => [ReportedReferenceType::SharingCode, 'C—0123—4567—89AB', 'C-[masked-code]'];
+        yield 'smart quotes' => [ReportedReferenceType::SharingCode, '“C-0123-4567-89AB”', 'C-[masked-code]'];
+        yield 'lowercase' => [ReportedReferenceType::SharingCode, 'g-0123-4567-89ab', 'G-[masked-code]'];
+        yield 'a spaced user code' => [ReportedReferenceType::UserCode, 'u 0123 4567 89ab', 'U-[masked-code]'];
+    }
+
+    /** Fails closed. Text that is no code at all still has no business being echoed. */
+    public function testAnUnrecognisableCodeIsNotEchoed(): void
+    {
+        self::assertSame('[masked sharing code]', ReportedReferenceType::SharingCode->maskForReceipt('C-0123-4567'));
+    }
+
     /** @dataProvider unmaskedProvider */
     public function testReferencesThatCarryNoCapabilityComeBackUnchanged(ReportedReferenceType $type): void
     {
