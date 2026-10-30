@@ -28,6 +28,26 @@ final class AdminMetadataApiAccessTest extends AbstractApiTestCase
         self::assertFalse($this->reload($target)->isMetadataApiEnabled());
     }
 
+    /**
+     * The admin page compares its form with the account it last heard about, so
+     * a reply without this field leaves it believing access is still on, and
+     * turning it back on then looks like nothing to save.
+     */
+    public function testTheUpdateReplyCarriesThePermissionSoItCanBeReversed(): void
+    {
+        $target = UserFactory::createOne();
+        $this->createAndLoginAdmin();
+
+        $disabled = $this->patchJson(sprintf('/api/users/%d', $target->getId()), ['metadataApiEnabled' => false]);
+        self::assertResponseIsSuccessful();
+        self::assertFalse($disabled['user']['metadataApiEnabled']);
+
+        $enabled = $this->patchJson(sprintf('/api/users/%d', $target->getId()), ['metadataApiEnabled' => true]);
+        self::assertResponseIsSuccessful();
+        self::assertTrue($enabled['user']['metadataApiEnabled']);
+        self::assertTrue($this->reload($target)->isMetadataApiEnabled());
+    }
+
     public function testAccessIsOnByDefault(): void
     {
         $target = UserFactory::createOne();

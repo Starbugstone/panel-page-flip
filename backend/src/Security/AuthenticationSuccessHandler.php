@@ -54,7 +54,11 @@ class AuthenticationSuccessHandler implements AuthenticationSuccessHandlerInterf
                 'id' => $user->getId(),
                 'email' => $user->getUserIdentifier(),
                 'name' => $user->getName(),
+                // Everything /api/me returns: the client keeps this object as
+                // the signed-in user until the next page load.
+                'username' => $user->getUsername(),
                 'roles' => $user->getRoles(),
+                'isAdmin' => $user->isAdmin(),
                 'hasPassword' => $user->hasPassword(),
             ],
             'message' => 'Login successful',
