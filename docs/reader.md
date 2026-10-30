@@ -274,6 +274,16 @@ Navigation and progress always use the source comic's one-based logical page
 numbers. Spread and continuous renderers present those pages differently, but
 never persist a synthetic spread, viewport number or scroll percentage.
 
+A comic is completed once the final page is on screen. A closing two-page spread
+saves its first page with an explicit completion flag, because its saved page
+number never reaches the last page. The first page never sets that flag, so a
+comic short enough to fit one opening spread is not finished by opening it. A
+two-page comic read that way stays in progress unless the reader jumps to page 2.
+
+A save the server overrules, because another tab or device holds an equal or
+newer revision with a different position, is sent once more above that revision.
+There is no second retry, so two savers cannot keep overruling each other.
+
 Page URLs are created in one source-neutral helper and retain the protected
 `/api/comics/{id}/pages/{page}` endpoint, with the requested size as a query
 parameter. Backend source-provider factories can therefore change how a page is

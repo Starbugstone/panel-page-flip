@@ -7,6 +7,7 @@ import {
   ANALYTICS_CONSENT_GRANTED,
   ANALYTICS_CONSENT_UNDECIDED,
   ANALYTICS_CONSENT_STORAGE_KEY,
+  analyticsConsentExpiresAt,
   persistAnalyticsConsent,
   readAnalyticsConsent,
 } from "@/lib/analytics-consent-storage";
@@ -58,6 +59,14 @@ const ConsentContext = createContext(CONSENT_DEFAULTS);
 /** Where the Google CMP is reopened from when the user is on a Google-free page. */
 const PREFERENCES_FALLBACK_ROUTE = "/";
 
+/**
+ * The longest wait before looking at a stored decision's expiry again. The
+ * 180-day window is too long for `setTimeout`, which overflows past about 24.8
+ * days and fires at once. Waiting in short steps also limits how late a timer
+ * suspended by a sleeping device can notice.
+ */
+const CONSENT_EXPIRY_CHECK_MS = 60 * 60 * 1000;
+
 export function ConsentProvider({ children }) {
   const { consent, isLoading } = usePublicConfig();
   const { pathname, search, hash } = useLocation();
@@ -97,6 +106,26 @@ export function ConsentProvider({ children }) {
     window.addEventListener("storage", syncDecision);
     return () => window.removeEventListener("storage", syncDecision);
   }, []);
+
+  // Asking again once the answer lapses, for a tab open that long. A choice that
+  // could not be stored has no expiry here: it lasts for this page load only.
+  useEffect(() => {
+    if (provider !== "local") return undefined;
+
+    let timer;
+    const watchExpiry = () => {
+      const expiresAt = analyticsConsentExpiresAt();
+      if (expiresAt === null) return;
+
+      timer = setTimeout(() => {
+        if (Date.now() > expiresAt) setLocalDecision(readAnalyticsConsent());
+        watchExpiry();
+      }, Math.min(expiresAt - Date.now() + 1, CONSENT_EXPIRY_CHECK_MS));
+    };
+    watchExpiry();
+
+    return () => clearTimeout(timer);
+  }, [localDecision, provider]);
 
   const openGooglePanel = useCallback(() => {
     reopenPrivacyChoices({ client: googleClient });

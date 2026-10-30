@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GoogleAnalyticsProvider } from "@/components/analytics/GoogleAnalyticsProvider.jsx";
 import { ANALYTICS_SCRIPT_ID, resetGoogleAnalyticsForTesting } from "@/lib/google-analytics";
-import { ANALYTICS_CONSENT_STORAGE_KEY } from "@/lib/analytics-consent-storage";
+import { ANALYTICS_CONSENT_MAX_AGE_MS, ANALYTICS_CONSENT_STORAGE_KEY } from "@/lib/analytics-consent-storage";
 import { ConsentBanner } from "@/components/consent/ConsentBanner.jsx";
 import { ConsentProvider, useConsent } from "@/components/consent/ConsentProvider.jsx";
 import { observeAnalyticsConsent } from "@/lib/google-consent";
@@ -291,6 +291,113 @@ describe("the Analytics-only consent flow", () => {
 
     expect(await screen.findByRole("dialog", { name: "Analytics preferences" })).toBeInTheDocument();
     expect(observeAnalyticsConsent).not.toHaveBeenCalled();
+  });
+});
+
+describe("a tab left open past the stored decision's expiry", () => {
+  const HOUR_MS = 60 * 60 * 1000;
+  const DAY_MS = 24 * HOUR_MS;
+
+  const storeDecision = (decision, decidedAt) => window.localStorage.setItem(
+    ANALYTICS_CONSENT_STORAGE_KEY,
+    JSON.stringify({ version: 1, decision, decidedAt: new Date(decidedAt).toISOString() }),
+  );
+  const advance = (ms) => act(() => { vi.advanceTimersByTime(ms); });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: Date.parse("2026-10-30T12:00:00.000Z") });
+    configure("analyticsOnly");
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it("stops measuring and asks again once a grant lapses", () => {
+    storeDecision("granted", Date.now() - ANALYTICS_CONSENT_MAX_AGE_MS + 2 * HOUR_MS);
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <ConsentProvider>
+          <GoogleAnalyticsProvider><Probe /></GoogleAnalyticsProvider>
+        </ConsentProvider>
+      </MemoryRouter>
+    );
+    expect(observed()).toMatchObject({ analyticsConsent: "granted", isAnalyticsDialogOpen: false });
+    expect(window[`ga-disable-${MEASUREMENT_ID}`]).toBe(false);
+
+    advance(2 * HOUR_MS);
+    expect(observed().analyticsConsent).toBe("granted");
+
+    advance(1);
+    expect(observed()).toMatchObject({ analyticsConsent: "undecided", isAnalyticsDialogOpen: true });
+    expect(window[`ga-disable-${MEASUREMENT_ID}`]).toBe(true);
+  });
+
+  it("asks again once a refusal lapses", () => {
+    storeDecision("denied", Date.now() - ANALYTICS_CONSENT_MAX_AGE_MS + HOUR_MS);
+    renderProvider();
+    expect(observed().isAnalyticsDialogOpen).toBe(false);
+
+    advance(HOUR_MS + 1);
+
+    expect(observed()).toMatchObject({ analyticsConsent: "undecided", isAnalyticsDialogOpen: true });
+  });
+
+  // 180 days is past what setTimeout can hold, and an overflowing delay fires at once.
+  it("holds a fresh decision for the whole window, not just what one timer can reach", () => {
+    storeDecision("granted", Date.now());
+    renderProvider();
+
+    advance(1000);
+    expect(observed().analyticsConsent).toBe("granted");
+
+    advance(179 * DAY_MS);
+    expect(observed().analyticsConsent).toBe("granted");
+
+    advance(DAY_MS);
+    expect(observed().analyticsConsent).toBe("undecided");
+  });
+
+  it("follows a decision renewed in another tab rather than the one it started with", () => {
+    storeDecision("granted", Date.now() - ANALYTICS_CONSENT_MAX_AGE_MS + HOUR_MS);
+    renderProvider();
+
+    storeDecision("granted", Date.now());
+    advance(2 * HOUR_MS);
+
+    expect(observed().analyticsConsent).toBe("granted");
+  });
+
+  it("leaves a choice that could not be stored alone for this page load", () => {
+    renderProvider();
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    act(() => screen.getByRole("button", { name: "Accept all" }).click());
+    setItem.mockRestore();
+
+    advance(ANALYTICS_CONSENT_MAX_AGE_MS + DAY_MS);
+
+    expect(observed().analyticsConsent).toBe("granted");
+  });
+
+  it("stops checking on unmount, and once the decision has lapsed", () => {
+    const storageReads = vi.spyOn(Storage.prototype, "getItem");
+    const stopsChecking = () => {
+      storageReads.mockClear();
+      advance(ANALYTICS_CONSENT_MAX_AGE_MS);
+      expect(storageReads).not.toHaveBeenCalled();
+    };
+
+    storeDecision("granted", Date.now() - ANALYTICS_CONSENT_MAX_AGE_MS + HOUR_MS);
+    renderProvider().unmount();
+    stopsChecking();
+
+    storeDecision("granted", Date.now() - ANALYTICS_CONSENT_MAX_AGE_MS + HOUR_MS);
+    renderProvider();
+    advance(HOUR_MS + 1);
+    expect(observed().analyticsConsent).toBe("undecided");
+    stopsChecking();
+
+    storageReads.mockRestore();
   });
 });
 

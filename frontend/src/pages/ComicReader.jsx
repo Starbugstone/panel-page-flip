@@ -81,7 +81,6 @@ export default function ComicReader() {
     resetPage(loaded?.readingProgress?.currentPage ? loaded.readingProgress.currentPage - 1 : 0, count);
   }, [resetPage]);
   const { comic, loadError, isFetching } = useComicReaderData({ comicId, navigate, toast, onStart, onLoaded });
-  useReaderProgress({ comic, comicId, pageCount, currentPage, toast, onSaved: updateComicProgress });
   // Recommendations are only displayed at the end. Loading the full catalog
   // at entry competes with the first image in a large library.
   const nextComic = useReaderNextComic(comic, pageCount > 0 && currentPage >= pageCount - 3);
@@ -94,6 +93,7 @@ export default function ComicReader() {
   });
   const layout = useReaderLayout({ settings, profile, pageCount, pageGeometry, currentPage });
   const { effectiveMode, readingUnits, currentUnit } = layout;
+  useReaderProgress({ comic, comicId, pageCount, currentPage, currentUnit, toast, onSaved: updateComicProgress });
 
   // Continuous mode scrolls natively and only borrows the zoom number to widen
   // its pages, so the transform is switched off there rather than handed a

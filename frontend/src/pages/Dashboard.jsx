@@ -39,7 +39,7 @@ function FolderWorkspaceHeader({
   setCreatingFolder,
   setSharingFolder,
   setMovingFolder,
-  isSearchActive,
+  canAutoRename,
   titleRenamer,
   lastReadComic,
 }) {
@@ -56,7 +56,7 @@ function FolderWorkspaceHeader({
         onMove={() => setMovingFolder(true)}
         onRename={folderActions.renameCurrentFolder}
         onDelete={folderActions.deleteCurrentFolder}
-        onAutoRename={!isSearchActive && !titleRenamer.session ? titleRenamer.startPreview : null}
+        onAutoRename={canAutoRename && !titleRenamer.session ? titleRenamer.startPreview : null}
         onJumpToLastRead={lastReadComic && (() => jumpToComicCard(lastReadComic.id))}
       />
       <ComicTitleRenameBar
@@ -104,7 +104,7 @@ export default function Dashboard() {
   const { isFolderView, activeFolderId, activeView, jumpComicId, ownership, invalidFolder, navigateFolder, navigateView } = location;
   const { sort, setSort } = useLibrarySorts(activeView);
 
-  const { isSearching, isSearchActive, search, loadComics, refreshCurrent } = useLibrarySearch({
+  const { isSearching, isSearchActive, isLocationListLoaded, search, loadComics, refreshCurrent } = useLibrarySearch({
     loadLibrary, ownership, isFolderView, activeFolderId, foldersLoading, invalidFolder,
   });
 
@@ -183,7 +183,7 @@ export default function Dashboard() {
             setCreatingFolder={setCreatingFolder}
             setSharingFolder={setSharingFolder}
             setMovingFolder={setMovingFolder}
-            isSearchActive={isSearchActive}
+            canAutoRename={isLocationListLoaded}
             titleRenamer={titleRenamer}
             lastReadComic={lastReadComic}
           />
@@ -232,7 +232,7 @@ export default function Dashboard() {
         folderActions={folderActions}
         onMoveComics={comicActions.moveComicsToFolder}
         onSaveComic={comicActions.saveComic}
-        onShared={() => loadLibrary()}
+        onShared={refreshCurrent}
       />
     </PageLayout>
   );
