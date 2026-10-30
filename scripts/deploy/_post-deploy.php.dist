@@ -31,7 +31,9 @@ set_time_limit(300);
 
 $projectRoot = dirname(__DIR__);
 
-require_once $projectRoot.'/vendor/autoload_runtime.php';
+// Not autoload_runtime.php: that one requires the calling script a second time
+// and expects it to return an application, which this runner does not.
+require_once $projectRoot.'/vendor/autoload.php';
 
 // Load env (Symfony Runtime usually does this for index.php; we replicate it here).
 if (file_exists($projectRoot.'/.env.local.php')) {
