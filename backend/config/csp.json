@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared CSP inputs. Google-enabled HTML receives a fresh nonce from Symfony (Apache) or nginx's request id (container), and script-src follows Google's supported strict-CSP shape. Non-script directives stay on audited origins rather than broad wildcards. googleFreeOrigins names every Google origin below so the legal-policy routes can be served without any of them.",
+  "_comment": "Shared CSP inputs. Google-enabled HTML receives a fresh nonce from Symfony (Apache) or nginx's request id (container), and script-src follows Google's supported strict-CSP shape. Non-script directives stay on audited origins rather than broad wildcards. googleOrigins names every origin the legal-policy routes must be served without. That is every Google origin below, plus https://static.metron.cloud: it serves Metron's cover previews, which only the comic editor shows, so no legal page has a reason to contact it. Comic Vine's image host is deliberately absent until a real response has shown what it is; see docs/metadata-enrichment.md.",
   "turnstileScriptOrigin": "https://challenges.cloudflare.com",
   "googleOrigins": [
     "https://pagead2.googlesyndication.com",
@@ -11,7 +11,8 @@
     "https://*.analytics.google.com",
     "https://fundingchoicesmessages.google.com",
     "https://ep1.adtrafficquality.google",
-    "https://ep2.adtrafficquality.google"
+    "https://ep2.adtrafficquality.google",
+    "https://static.metron.cloud"
   ],
   "directives": {
     "default-src": ["'self'"],
@@ -26,7 +27,8 @@
       "https://tpc.googlesyndication.com",
       "https://www.google.com",
       "https://www.googletagmanager.com",
-      "https://*.google-analytics.com"
+      "https://*.google-analytics.com",
+      "https://static.metron.cloud"
     ],
     "style-src": ["'self'", "'unsafe-inline'"],
     "frame-src": [

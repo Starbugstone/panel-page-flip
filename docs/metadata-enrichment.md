@@ -410,6 +410,10 @@ fails spends somebody else's allowance to paper over an outage. It now picks
 **one** provider — a personal credential first, then anything else allowed, in
 registration order — and reports the others as unasked.
 
+The panel sends `provider: null` until somebody picks one from the list, whose
+default entry is **Automatic**. The preference above can only be applied by the
+server, because the browser is deliberately not told who holds which credential.
+
 ### What a user is told, and what stays the operator's
 
 The resolver's answer is operator information: it names which account would be
@@ -500,6 +504,13 @@ Metron's issue *list* carries no publisher, description or classification (this
 is verified, not assumed). So a search returns rows, and picking one fetches
 `/issue/{id}/` — one request for the record somebody chose, not one per row.
 
+Every candidate can be chosen, however many of its fields differ from the form:
+**Use all N fields** with more than one, **Use this record** otherwise. Choosing a
+record with nothing to change still records it as the comic's origin. What has
+been taken is remembered per record and per value, so using one candidate's
+publisher leaves every other candidate's available. A new search clears that for
+provider records, and what was taken from the file or filename stays.
+
 `Comic::$metadataProvider` / `$metadataExternalId` / `$metadataFetchedAt` record
 which external record was accepted, so **Refresh metadata** asks for that exact
 issue instead of re-running a fuzzy search and hoping. A refresh still produces
@@ -550,6 +561,38 @@ tags, the archive — and how a personal token is stored and removed. Provider
 tokens are excluded from the personal-data export, because an export is a file
 that leaves the server.
 
+### Cover previews and the Content-Security-Policy
+
+A cover preview is the one provider request the browser makes itself, so the
+policy discloses that Metron's image host sees the reader's IP address and browser
+details. The image carries `referrerpolicy="no-referrer"`.
+
+Two lists decide what may be drawn, and `provider-cover.test.js` holds them
+together:
+
+| List | Holds | Why |
+| --- | --- | --- |
+| `img-src` in `backend/config/csp.json` | `https://static.metron.cloud` | What the browser will load |
+| `ALLOWED_COVER_HOSTS` in `provider-cover.js` | `static.metron.cloud` | What the card will try: https, no port or credentials |
+
+The Metron host is also listed in `googleOrigins`, which is what removes an origin
+from the legal-route policy. It is not a Google origin. That list is the only
+mechanism the generator and `ContentSecurityPolicy` have for this.
+
+**Comic Vine covers are not shown**, because the repository has no evidence of the
+host they come from: `ComicVineProviderTest` uses a placeholder, and the mapping has
+never seen a live response (see below). To enable them, run one real search, read
+the host out of `results[].image.original_url`, and add that exact host to both
+lists and `node scripts/generate-csp.mjs`.
+
+### Testing a token
+
+`POST /api/me/metadata-credentials/verify` spends the same per-user allowance as a
+search (`metadata_provider_user`), answering 429 once it runs out. A credential
+whose account `ProviderCircuitBreaker` is holding off gets a `rate_limited` result
+without going upstream, whether it is the stored token or the same token typed in.
+With no credential at all, nothing goes upstream and nothing is charged.
+
 ---
 
 ## Known not to work yet
@@ -595,6 +638,9 @@ record — a request for the record somebody chose, rather than one per row of
 every search.
 
 ### Comic Vine's field mapping has never seen a live response
+
+Its cover previews are held back until this is settled: see *Cover previews and
+the Content-Security-Policy*.
 
 Metron's is now verified; Comic Vine's is not, because there was no key to hand.
 `ComicVineProvider::candidates()` maps `volume.name`, `issue_number`, `name`,
