@@ -63,6 +63,54 @@ final class ComicPageCachingTest extends AbstractApiTestCase
     }
 
     /**
+     * A browser keeps these for a day and is shared by whoever signs in next. The
+     * entry has to be keyed to the session, and a 304 has to say so too, because a
+     * revalidation updates the stored headers.
+     */
+    public function testPageResponsesAreKeyedToTheSession(): void
+    {
+        [$owner, $comic] = $this->createComicWithArchive();
+        $this->loginAs($owner);
+        $url = sprintf('/api/comics/%d/pages/1', $comic->getId());
+
+        $this->browser()->request('GET', $url);
+        self::assertResponseIsSuccessful();
+        $response = $this->browser()->getResponse();
+        self::assertContains('Cookie', $response->getVary());
+
+        $this->browser()->request('GET', $url, [], [], ['HTTP_IF_NONE_MATCH' => $response->headers->get('etag')]);
+        self::assertResponseStatusCodeSame(304);
+        self::assertContains('Cookie', $this->browser()->getResponse()->getVary());
+    }
+
+    /**
+     * No max-age here, but Last-Modified is enough for heuristic freshness, and the
+     * archive is the one response that is the owner's alone.
+     */
+    public function testTheDownloadIsKeyedToTheSession(): void
+    {
+        [$owner, $comic] = $this->createComicWithArchive();
+        $this->loginAs($owner);
+
+        $this->browser()->request('GET', sprintf('/api/comics/%d/download', $comic->getId()));
+
+        self::assertResponseIsSuccessful();
+        self::assertContains('Cookie', $this->browser()->getResponse()->getVary());
+    }
+
+    /** Never stored at all, so there is no entry for a Vary to key. */
+    public function testThePageManifestIsNotStored(): void
+    {
+        [$owner, $comic] = $this->createComicWithArchive();
+        $this->loginAs($owner);
+
+        $this->browser()->request('GET', sprintf('/api/comics/%d/pages', $comic->getId()));
+
+        self::assertResponseIsSuccessful();
+        self::assertStringContainsString('no-store', (string) $this->browser()->getResponse()->headers->get('cache-control'));
+    }
+
+    /**
      * Two pages of the same comic must not share a validator, or the browser
      * would answer page 2 with the bytes it cached for page 1.
      */
