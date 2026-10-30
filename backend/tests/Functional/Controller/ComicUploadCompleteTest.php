@@ -50,8 +50,8 @@ final class ComicUploadCompleteTest extends AbstractApiTestCase
     {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-incomplete';
-        $this->temporaryUploadDirectories[] = sys_get_temp_dir()
-            . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $this->temporaryUploadDirectories[] = self::getContainer()->getParameter('upload_staging_directory')
+            . '/' . $user->getId() . '/' . $fileId;
 
         $this->postJson('/api/comics/upload/init', [
             'fileId' => $fileId,
@@ -77,7 +77,7 @@ final class ComicUploadCompleteTest extends AbstractApiTestCase
     ): void {
         $user = $this->createAndLoginUser();
         $fileId = 'upload-completion-failure';
-        $directory = sys_get_temp_dir() . '/comic_uploads/' . $user->getId() . '/' . $fileId;
+        $directory = self::getContainer()->getParameter('upload_staging_directory') . '/' . $user->getId() . '/' . $fileId;
         $this->temporaryUploadDirectories[] = $directory;
 
         $this->postJson('/api/comics/upload/init', [

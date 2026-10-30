@@ -18,7 +18,7 @@ That is the canonical source file as uploaded, and nothing else:
 | Direct uploads | Comics shared *with* the account — sharing grants access to the owner's file and copies nothing |
 | Chunked uploads, once they become `Comic` rows | Generated page derivatives and the page cache |
 | Dropbox imports that become owned `Comic` rows | Thumbnails and reader cache |
-| Every supported source format | Upload chunks, validation temporaries, logs |
+| Every supported source format | Upload chunks (they have [their own limits](#chunked-uploads-in-progress)), validation temporaries, logs |
 
 Derivatives are rebuildable server cache and belong to nobody's quota. The
 exclusions are not a simplification to be tidied up later: they are what makes
@@ -125,6 +125,81 @@ afterwards, its source file is genuinely missing — a data problem to investiga
 not a display bug. Serving `/api/users` will never stat those files to paper over
 it: one broken historical file must not make the admin user list expensive, or
 fail it entirely.
+
+## Chunked uploads in progress
+
+Staged chunks are on the disk long before they are a `Comic` row, so they are not
+in the sum above and are limited separately, per account, by
+`ComicUploadStagingService`:
+
+| Limit | Value | Refused with |
+| --- | --- | --- |
+| Unfinished uploads at once (`upload_max_active_uploads`) | 10 | 429 at `/upload/init` |
+| Bytes staged across all of them (`upload_max_staged_bytes`) | 2 GiB | 413 |
+| Used storage plus staged bytes against the account's quota | `getQuotaBytes()` | 413 |
+
+The limits sit in `config/services.yaml` beside the other `upload_max_*` values.
+They leave plenty of room for `MAX_PARALLEL_FILE_UPLOADS`, because a cancelled
+upload goes on counting until it expires; raising that setting well past its
+default of 2 means raising these too.
+
+An account's admissions are serialised by one lock, and each one measures the
+files actually on disk and holds the lock until the chunk is written. That is the
+reservation: two parallel uploads cannot both spend the same room. The client does
+not declare a file's size, so `/upload/init` can only refuse an account with no
+room at all, and it is the chunk that would not fit that gets refused after that.
+Parallel uploads share what is left, and if they do not all fit, the one whose
+chunk arrives second gets the 413.
+
+A refused upload's staged files are removed at once. The client abandons a file at
+its first refused chunk and cannot resume it, so keeping them would only count
+against the next attempt. `ComicService` stays the authority on whether a finished
+upload fits: while it decides, the upload's bytes stop counting towards the quota
+check, since they would otherwise be counted twice in the moment between its row
+committing and its staged copy being deleted. They do still count towards the 2 GiB.
+
+### Expiry
+
+An upload with no activity for an hour (`upload_staging_idle_seconds`) is
+abandoned. A request working on one holds its lock, and the sweep skips anything
+locked, so a slow validation is never mistaken for it. Two things remove them:
+
+- `/upload/init` clears the account's own expired uploads before measuring, so
+  somebody returning after cancelling is not refused over their own leftovers.
+- `app:cleanup-personal-data` clears every account's, which is what reclaims the
+  space of an account that never comes back. It is
+  [already required daily](../SSH-deploy.md#7-background-jobs-cron--systemd-timers):
+
+```cron
+0 3 * * * cd /var/www/comics/backend && php bin/console app:cleanup-personal-data --env=prod >> /var/log/comics-cleanup.log 2>&1
+```
+
+Staging lives in `var/upload-staging/` rather than the system temp directory,
+because PHP-FPM and cron do not have to agree on what that is, and a sweep looking
+in the wrong one would find nothing and report success. Directories are created
+group-writable, so a cron job running as the deploy user can remove what the web
+server made as long as the two share a group; if they do not, the command warns
+and counts what it could not remove.
+
+## Deleted comics and quarantine
+
+Deleting a comic, singly, in bulk or as an administrator, moves its files to
+`var/quarantine/comics/<date>/<batch>/` inside the transaction, so a failed commit
+can put them back. The commit also queues them in `pending_file_deletion`, and they
+are purged immediately after it. A purge that fails stays queued, and
+`app:cleanup-personal-data` retries it. So a deleted comic cannot be recovered, and
+the delete dialogs say so.
+
+`FileQuarantineService::RETENTION_DAYS` (7) is the longest anything stays in
+quarantine, and the same daily command enforces it. It is what removes orphans
+quarantined by `app:cleanup-comics` or **Admin → Orphan File Cleanup**, which
+can be moved back by hand until then, and everything deleted before purging existed,
+which the layout cannot tell apart from orphans. A file's age comes from its batch
+date, because a move keeps the file's own timestamp; a file outside that layout is
+aged by its timestamp. Empty directories left behind are removed too, since their
+names hold user and comic ids.
+
+Quarantined files are not in the backup, and they do not count towards storage used.
 
 ## On-disk layout, and the ceiling it implies
 

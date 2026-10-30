@@ -123,6 +123,7 @@ once transfer starts, the existing cancel action remains available.
 
 The first failed chunk aborts its sibling workers and queued requests, retains
 the original server error, and never calls completion. Cancelled uploads remain
-subject to the existing staging cleanup; there is no automatic retry of
+subject to the staging limits and expiry described in
+[storage-quota.md](storage-quota.md#chunked-uploads-in-progress); there is no automatic retry of
 initialization or finalization. Bulk rows with unchanged data skip rendering
 while another file progresses.

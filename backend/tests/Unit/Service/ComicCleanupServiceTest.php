@@ -28,6 +28,28 @@ final class ComicCleanupServiceTest extends TestCase
         $this->removeDirectory($this->comicsDirectory);
     }
 
+    /** "Recoverable" has an end: an orphan swept today is gone after the window. */
+    public function testASweptOrphanLivesOnlyForTheRetentionWindow(): void
+    {
+        file_put_contents($this->comicsDirectory . '/7/orphan.cbz', 'lost');
+        $quarantine = new FileQuarantineService($this->comicsDirectory, $this->comicsDirectory . '-quarantine');
+        $repository = $this->createMock(EntityRepository::class);
+        $repository->method('findAll')->willReturn([]);
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->method('getRepository')->willReturn($repository);
+
+        try {
+            $applied = (new ComicCleanupService($entityManager, $quarantine, $this->comicsDirectory))->apply();
+            self::assertSame(1, $applied['quarantined']['orphanedComics']);
+
+            $inWindow = new \DateTimeImmutable(sprintf('+%d days', FileQuarantineService::RETENTION_DAYS - 1));
+            self::assertSame(['deleted' => 0, 'remaining' => 0], $quarantine->removeExpired($inWindow));
+            self::assertSame(['deleted' => 1, 'remaining' => 0], $quarantine->removeExpired($inWindow->modify('+3 days')));
+        } finally {
+            $this->removeDirectory($this->comicsDirectory . '-quarantine');
+        }
+    }
+
     public function testMissingComicsDirectoryIsReportedRatherThanScanned(): void
     {
         $scan = $this->service([], $this->comicsDirectory . '/missing')->scan();

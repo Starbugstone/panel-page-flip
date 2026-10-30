@@ -21,6 +21,7 @@ use App\Service\ComicShareService;
 use App\Service\LibraryFolderService;
 use App\Service\MetadataProviderRegistry;
 use App\Service\Pagination\PaginationRequest;
+use App\Service\PendingFileDeletionService;
 use App\Service\SecurityAuditLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -296,7 +297,8 @@ final class ComicController extends AbstractController
         EntityManagerInterface $entityManager,
         ComicService $comicService,
         ComicShareService $shareService,
-        SecurityAuditLogger $securityLogger
+        SecurityAuditLogger $securityLogger,
+        PendingFileDeletionService $pendingFileDeletion
     ): JsonResponse {
         $user = $this->requireUser();
 
@@ -307,6 +309,7 @@ final class ComicController extends AbstractController
         $liveShares = $shareService->countLiveShares($comic);
 
         $quarantinedFiles = [];
+        $pendingFileDeletions = [];
         try {
             // Use a transaction to ensure all operations succeed or fail together
             $entityManager->beginTransaction();
@@ -320,27 +323,22 @@ final class ComicController extends AbstractController
             // Keep files recoverable if the database transaction fails.
             $quarantinedFiles = $comicService->quarantineComicFiles($comic);
 
+            // Committed with the removal, so a purge that fails below is retried
+            // by app:cleanup-personal-data rather than forgotten.
+            $pendingFileDeletions = $pendingFileDeletion->queue(array_column($quarantinedFiles, 'quarantinePath'));
+
             // The entity removal will cascade to reading progress thanks to the relationship setup
             $entityManager->remove($comic);
             $entityManager->flush();
 
             $entityManager->commit();
-
-            $securityLogger->audit(SecurityAuditLogger::COMIC_DELETED, [
-                'actor_user_id' => $user->getId(),
-                'target_type' => 'comic',
-                'target_id' => $comicId,
-                'comic_id' => $comicId,
-                'owner_user_id' => $ownerId,
-                'shares_tombstoned' => $liveShares,
-            ]);
-
-            return $this->json(['message' => 'Comic deleted successfully']);
         } catch (\Throwable) {
             // Rollback the transaction if anything fails
             if ($entityManager->getConnection()->isTransactionActive()) {
                 $entityManager->rollback();
             }
+
+            $pendingFileDeletion->cancel($pendingFileDeletions);
 
             try {
                 $comicService->restoreQuarantinedFiles($quarantinedFiles);
@@ -369,6 +367,23 @@ final class ComicController extends AbstractController
 
             return $this->json(['message' => 'Failed to delete comic. No files were lost.'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+
+        // Past the commit, and so outside the block above: from here the comic is
+        // gone and nothing may put its files back.
+        if ($pendingFileDeletions !== []) {
+            $pendingFileDeletion->purge($pendingFileDeletions);
+        }
+
+        $securityLogger->audit(SecurityAuditLogger::COMIC_DELETED, [
+            'actor_user_id' => $user->getId(),
+            'target_type' => 'comic',
+            'target_id' => $comicId,
+            'comic_id' => $comicId,
+            'owner_user_id' => $ownerId,
+            'shares_tombstoned' => $liveShares,
+        ]);
+
+        return $this->json(['message' => 'Comic deleted successfully']);
     }
 
 

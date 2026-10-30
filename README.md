@@ -248,7 +248,7 @@ docker compose exec php php bin/console app:cleanup-expired-shares
 docker compose exec php php bin/console cache:clear
 ```
 
-`app:cleanup-comics` moves orphaned files to recoverable quarantine storage. Run its dry-run mode first.
+`app:cleanup-comics` moves orphaned files to quarantine, where they can be restored by hand for 7 days before `app:cleanup-personal-data` deletes them. Run its dry-run mode first.
 
 ### Scheduled maintenance
 

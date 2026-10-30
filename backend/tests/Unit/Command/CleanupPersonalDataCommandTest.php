@@ -34,6 +34,17 @@ final class CleanupPersonalDataCommandTest extends TestCase
         self::assertStringContainsString('Cleanup completed with errors', $tester->getDisplay());
     }
 
+    public function testWarnsWhenAFileCouldNotBeRemoved(): void
+    {
+        $retention = $this->createMock(PersonalDataRetentionService::class);
+        $retention->method('clean')->willReturn($this->counts(['quarantineFilesRemaining' => 1]));
+
+        $tester = new CommandTester(new CleanupPersonalDataCommand($retention));
+
+        self::assertSame(Command::SUCCESS, $tester->execute([]));
+        self::assertStringContainsString('could not be removed', $tester->getDisplay());
+    }
+
     /** @param array<string, int> $overrides */
     private function counts(array $overrides = []): array
     {
@@ -43,6 +54,10 @@ final class CleanupPersonalDataCommandTest extends TestCase
             'resetTokens' => 0,
             'unverifiedAccounts' => 0,
             'filesDeleted' => 0,
+            'quarantineFilesDeleted' => 0,
+            'quarantineFilesRemaining' => 0,
+            'stagedUploadsExpired' => 0,
+            'stagedUploadsRemaining' => 0,
             'filesRemaining' => 0,
             'errors' => 0,
         ];

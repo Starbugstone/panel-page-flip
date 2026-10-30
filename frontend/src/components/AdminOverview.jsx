@@ -71,6 +71,9 @@ function CleanupCard({ cleanup, isCleaning, onRun }) {
           <Button variant="outline" onClick={() => onRun(false)} disabled={isCleaning}>Dry run</Button>
           <Button onClick={() => onRun(true)} disabled={isCleaning || !hasCurrentDryRun}>Quarantine files</Button>
         </div>
+        <p className="text-sm text-muted-foreground">
+          Quarantined files can be restored by hand for 7 days, then they are permanently deleted.
+        </p>
         {cleanup?.error && <p role="alert" className="text-sm text-destructive">{cleanup.error}</p>}
         {cleanup && !cleanup.error && (
           <div className="text-sm text-muted-foreground">
