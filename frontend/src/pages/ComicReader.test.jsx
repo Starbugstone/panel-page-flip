@@ -691,6 +691,31 @@ describe("ComicReader", () => {
       ));
     });
 
+    it("marks the comic completed on reaching the spread that holds the final page", async () => {
+      vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
+        path === "/api/reader/preferences" ? { preferences: savedPreferences({ mode: "double" }) } : comic(5)
+      ));
+      const user = userEvent.setup();
+      renderReader();
+      await page(1);
+
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+      await page(3);
+      expect(api.post).toHaveBeenLastCalledWith(
+        "/api/comics/42/progress",
+        expect.not.objectContaining({ completed: true }),
+        expect.anything()
+      );
+
+      await user.click(screen.getByRole("button", { name: /^next/i }));
+      await page(5);
+      expect(api.post).toHaveBeenLastCalledWith(
+        "/api/comics/42/progress",
+        expect.objectContaining({ currentPage: 4, completed: true }),
+        expect.anything()
+      );
+    });
+
     it("reverses visual placement for RTL without changing source page numbers", async () => {
       vi.mocked(api.get).mockImplementation((path) => Promise.resolve(
         path === "/api/reader/preferences"
