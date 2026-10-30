@@ -65,7 +65,10 @@ download checksum check proves that the published archives match the source;
 the platform suites prove that the source still converts, skips, reports, and
 cleans up correctly. `scripts/tests/test-deploy-scripts.sh` runs the backup, build,
 deploy and post-deploy scripts against temporary directories with `ssh` and `docker`
-stubbed; it needs `rsync`, `php` and `git` on the host and contacts no server.
+stubbed; it needs `rsync`, `php`, `git` and `lftp` on the host and contacts no server.
+FTP deletion cases execute the generated mirror commands with lftp's local file
+transport, checking that originals, quarantine and staged chunks survive in every
+scope while obsolete application files are deleted.
 
 ### Content-Security-Policy
 

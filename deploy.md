@@ -275,7 +275,8 @@ For non-interactive releases (e.g. from CI):
      original URLs for pages already open, even with `--delete`. The dates are kept
      in `backend/var/asset-retention.tsv`
    - Excludes `.git*`, `*.log`, `node_modules/`, **`public/uploads/`**,
-     `var/quarantine/`, etc.
+     `var/quarantine/` and `var/upload-staging/`, including with `--delete`.
+     Frontend-only mirrors protect the scope-relative `uploads/` directory too.
    - Parallel uploads (default 3 connections)
 
 3. **`scripts/post-deploy.sh`**

@@ -317,6 +317,28 @@ final class PdfDocumentTest extends TestCase
 
     public function hostileDocumentProvider(): iterable
     {
+        yield 'one compressed cross-reference range grows beyond memory' => [
+            static function (self $t): string {
+                $pdf = "%PDF-1.5\n";
+                $xref = strlen($pdf);
+                $stream = $t->flateStream('/Type /XRef /Size 500000 /W [1 4 2] /Index [1 499999] /Root 1 0 R', str_repeat(pack('CNn', 2, 10, 0), 499_999));
+
+                return $pdf."500000 0 obj\n$stream\nendobj\nstartxref\n$xref\n%%EOF\n";
+            },
+            '64M',
+        ];
+
+        yield 'one classic cross-reference range grows beyond memory' => [
+            static function (): string {
+                $pdf = "%PDF-1.4\n";
+                $xref = strlen($pdf);
+                $pdf .= "xref\n1000000 499999\n".str_repeat("0000000009 00000 n \n", 499_999);
+
+                return $pdf."trailer\n<< /Size 1500000 /Root 1000000 0 R >>\nstartxref\n$xref\n%%EOF\n";
+            },
+            '64M',
+        ];
+
         yield 'a predictor row wider than memory' => [
             static fn (self $t): string => $t->predictorPdf('/Predictor 12 /Columns 2000000000'),
             '64M',

@@ -31,7 +31,7 @@ case_ok=1
 last_output=""
 last_exit=0
 
-for tool in rsync php git timeout; do
+for tool in rsync php git timeout lftp; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     printf '%s is required to run these tests.\n' "$tool" >&2
     exit 2
@@ -41,6 +41,7 @@ done
 real_date="$(command -v date)"
 real_rsync="$(command -v rsync)"
 real_php="$(command -v php)"
+real_lftp="$(command -v lftp)"
 
 # --- harness ------------------------------------------------------------
 
@@ -851,6 +852,36 @@ run_ftp --frontend-only --delete
 assert_succeeded
 assert_contains "$events.docker" '--exclude-glob assets/'
 end_case
+
+# Execute generated mirror commands with lftp's local transport. Credentials,
+# open commands and all other network operations remain inside the Docker stub.
+for ftp_scope in all frontend backend; do
+  begin_case "FTP $ftp_scope deletion preserves originals and staged chunks"
+  make_ftp_deploy 'BACKUP_CONFIRMED=1'
+  make_server
+  mkdir -p "$server/backend/var/upload-staging/1/upload-a"
+  printf 'partial upload\n' > "$server/backend/var/upload-staging/1/upload-a/chunk_0"
+  printf 'obsolete\n' > "$server/backend/public/obsolete.html"
+  printf 'FTP_REMOTE_ROOT=%q\n' "$server" >> "$laptop/scripts/.env.deploy"
+  write_stub docker <<EOF
+for script; do :; done
+while IFS= read -r command; do
+  case "\$command" in
+    mirror\ *) "$real_lftp" -c "set cmd:fail-exit yes; open file:///; \$command" || exit ;;
+  esac
+done <<< "\$script"
+EOF
+  ftp_args=(--delete)
+  if [ "$ftp_scope" != all ]; then ftp_args+=("--$ftp_scope-only"); fi
+  run_ftp "${ftp_args[@]}"
+  assert_succeeded
+  assert_exists "$server/backend/public/uploads/comics/1/a.cbz"
+  assert_exists "$server/backend/var/upload-staging/1/upload-a/chunk_0"
+  assert_exists "$server/backend/var/quarantine/comics/1/original.cbz"
+  assert_exists "$server/backend/public/assets/Page-new.js"
+  assert_absent "$server/backend/public/obsolete.html"
+  end_case
+done
 
 begin_case 'deploy-ftp.sh removes a stale error.php, but not on a dry run'
 make_ftp_deploy 'BACKUP_CONFIRMED=1'

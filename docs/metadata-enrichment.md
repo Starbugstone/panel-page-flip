@@ -517,6 +517,10 @@ been taken is remembered per record and per value, so using one candidate's
 publisher leaves every other candidate's available. A new search clears that for
 provider records, and what was taken from the file or filename stays.
 
+Choosing a matching search summary still lets you apply extra fields from
+**Show everything**. The record action stays available until its currently
+offered field values have all been accepted.
+
 `Comic::$metadataProvider` / `$metadataExternalId` / `$metadataFetchedAt` record
 which external record was accepted, so **Refresh metadata** asks for that exact
 issue instead of re-running a fuzzy search and hoping. A refresh still produces

@@ -855,6 +855,9 @@ final class PdfDocument
             $this->budget->check();
 
             for ($i = 0; $i < $count; ++$i) {
+                // Growing the index can briefly hold both the old and new
+                // hash tables. Check within a range, before that allocation.
+                $this->budget->check((count($this->offsets) + count($this->compressed) + 1) * 64);
                 if (preg_match('/\G(\d{10})\s(\d{5})\s([nf])\s{0,2}/', $this->buffer, $entry, 0, $position) !== 1) {
                     throw new PdfException('Malformed cross-reference entry.');
                 }
@@ -923,6 +926,9 @@ final class PdfDocument
             $this->budget->check();
 
             for ($i = 0; $i < $count; ++$i) {
+                // Growing the index can briefly hold both the old and new
+                // hash tables. Check within a range, before that allocation.
+                $this->budget->check((count($this->offsets) + count($this->compressed) + 1) * 64);
                 if ($position + $rowLength > strlen($data)) break 2;
 
                 $fields = [];

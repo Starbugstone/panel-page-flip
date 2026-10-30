@@ -109,6 +109,7 @@ COMMON_EXCLUDES=(
     # Quarantined originals are the only copy left, and the ledger is how old
     # assets get their retention period.
     --exclude-glob "var/quarantine/"
+    --exclude-glob "var/upload-staging/"
     --exclude-glob "var/asset-retention.tsv"
 )
 
@@ -143,7 +144,8 @@ case "$SCOPE" in
         REMOTE_DIR="$FTP_REMOTE_ROOT/backend/public"
         # Frontend-only also leaves index.php / _post-deploy.php / .htaccess in
         # sync because they live in the same dir.
-        COMMON_EXCLUDES+=(--exclude-glob "assets/")
+        # This mirror starts inside public/, so protect uploads relative to it.
+        COMMON_EXCLUDES+=(--exclude-glob "assets/" --exclude-glob "uploads/" --exclude-glob "uploads/*")
         ;;
     backend)
         LOCAL_DIR="$RELEASE_DIR/backend/"

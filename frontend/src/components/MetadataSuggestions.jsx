@@ -76,7 +76,7 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
           fieldKey={`record-${panel.openRecord.key}`}
           renderField={(field, key) => renderField(field, key, panel.openRecord.candidate)}
           onAcceptAll={() => panel.acceptRecord(panel.openRecord.candidate, panel.openRecord.suggestions ?? [])}
-          recordChosen={panel.isRecordChosen(panel.openRecord.candidate)}
+          recordChosen={panel.isRecordChosen(panel.openRecord.candidate, panel.openRecord.suggestions ?? [])}
         />
       )}
 
@@ -88,7 +88,7 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
           fieldKey={`${candidate.provider}-${candidate.externalId}`}
           renderField={(field, key) => renderField(field, key, candidate)}
           onAcceptAll={() => panel.acceptRecord(candidate, fields)}
-          recordChosen={panel.isRecordChosen(candidate)}
+          recordChosen={panel.isRecordChosen(candidate, fields)}
           showCover
           actions={(
             <Button

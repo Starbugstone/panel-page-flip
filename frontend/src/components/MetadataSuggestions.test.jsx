@@ -355,6 +355,38 @@ describe("MetadataSuggestions", () => {
     expect(screen.getByRole("button", { name: "Record chosen" })).toBeDisabled();
   });
 
+  it("can apply newly fetched fields after choosing a matching search summary", async () => {
+    const user = userEvent.setup();
+    const onAccept = vi.fn();
+    const candidate = { provider: "metron", externalId: "1", series: "Batman", confidence: "exact" };
+    vi.mocked(api.post).mockImplementation((path) => Promise.resolve(
+      path.includes("metadata-record")
+        ? {
+            candidate,
+            suggestions: [
+              suggestion({ field: "publisher", suggested: "DC Comics", source: "provider" }),
+              suggestion({ field: "description", suggested: "The full issue description", source: "provider" }),
+            ],
+          }
+        : { providers: [], candidates: [{ candidate, suggestions: [] }] }
+    ));
+
+    render(<MetadataSuggestions comicId={7} onAccept={onAccept} />);
+    await user.click(screen.getByRole("button", { name: /^search /i }));
+    await user.click(await screen.findByRole("button", { name: "Use this record" }));
+    await user.click(screen.getByRole("button", { name: "Show everything" }));
+    await user.click(await screen.findByRole("button", { name: "Use all 2 fields" }));
+
+    expect(onAccept).toHaveBeenLastCalledWith({
+      publisher: "DC Comics",
+      description: "The full issue description",
+      metadataProvider: "metron",
+      metadataExternalId: "1",
+    });
+    expect(screen.getAllByRole("button", { name: "Record chosen" })).toHaveLength(2);
+    screen.getAllByRole("button", { name: "Record chosen" }).forEach((button) => expect(button).toBeDisabled());
+  });
+
   describe("what has already been taken from a record", () => {
     const row = (externalId, title, suggested = "DC Comics") => ({
       candidate: { provider: "metron", externalId, series: title, confidence: "high" },

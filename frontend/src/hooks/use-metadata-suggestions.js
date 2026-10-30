@@ -185,6 +185,7 @@ export function useMetadataSuggestions({ comicId, onAccept, staged = {} }) {
     isAccepted: (suggestion, candidate = null) => (candidate
       ? acceptedFromRecords.includes(proposalKey(suggestion, candidate))
       : acceptedLocal.includes(localProposalKey(suggestion))),
-    isRecordChosen: (candidate) => chosenRecord === recordKey(candidate),
+    isRecordChosen: (candidate, fields = []) => chosenRecord === recordKey(candidate)
+      && fields.every((suggestion) => acceptedFromRecords.includes(proposalKey(suggestion, candidate))),
   };
 }
