@@ -54,6 +54,11 @@ class ComicShareService
      */
     public const MAX_LISTED_INVITATIONS = ComicShareInvitationMailer::MAX_LISTED_INVITATIONS;
 
+    /** A repeat redemption of a comic the account no longer has. */
+    public const NO_LONGER_HELD = 'no_longer_held';
+
+    private const ALREADY_YOURS = ['status' => 'already_yours', 'message' => 'You already have this comic.'];
+
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly ComicShareRepository $shareRepository,
@@ -278,12 +283,12 @@ class ComicShareService
     ): array {
         $this->assertSharingAvailable($comic, $owner);
         $email = ComicShare::normaliseEmail((string) $recipient->getEmail());
-        $share = $this->shareRepository->findForComicAndRecipient($comic, $email);
+        $share = $this->findRecipientShare($comic, $recipient);
 
         // Already theirs, or already offered and still open. Redeeming does not
         // restart either.
-        if ($share !== null && ($share->getStatus() === ComicShare::STATUS_ACCEPTED || $share->isPending())) {
-            return ['status' => 'already_yours', 'message' => 'You already have this comic.'];
+        if ($this->isHeld($share)) {
+            return self::ALREADY_YOURS;
         }
 
         $share = $this->openOrReuseShare($share, $comic, $owner, $email);
@@ -333,6 +338,52 @@ class ComicShareService
         ]);
 
         return ['status' => 'claimed'];
+    }
+
+    /**
+     * What repeating a redemption reports, without changing anything.
+     *
+     * The use this account spent already bought its one share, so a repeat can
+     * only describe where that share stands now. Reopening one here is how a
+     * spent code would undo an owner's revocation.
+     *
+     * @return array{status: string, message: string}
+     */
+    public function describeHeldClaim(Comic $comic, User $recipient): array
+    {
+        return $this->isHeld($this->findRecipientShare($comic, $recipient))
+            ? self::ALREADY_YOURS
+            : ['status' => self::NO_LONGER_HELD, 'message' => 'You no longer have this comic. Ask the owner to share it again.'];
+    }
+
+    /**
+     * Whether the owner took this comic back from this recipient after the code
+     * was issued.
+     *
+     * A code minted afterwards is a fresh offer and may reopen the row. An older
+     * one is not: the revocation is the owner's later word on this recipient.
+     */
+    public function wasRevokedSince(Comic $comic, User $recipient, \DateTimeImmutable $issuedAt): bool
+    {
+        $share = $this->findRecipientShare($comic, $recipient);
+
+        return $share?->getStatus() === ComicShare::STATUS_REVOKED
+            && $share->getRevokedAt() > $issuedAt;
+    }
+
+    /**
+     * The row between this comic and this account, under the address it was
+     * addressed to or, after an address change, through the linked account.
+     */
+    private function findRecipientShare(Comic $comic, User $recipient): ?ComicShare
+    {
+        return $this->shareRepository->findForComicAndRecipient($comic, (string) $recipient->getEmail())
+            ?? $this->shareRepository->findOneBy(['comic' => $comic, 'recipientUser' => $recipient]);
+    }
+
+    private function isHeld(?ComicShare $share): bool
+    {
+        return $share !== null && ($share->getStatus() === ComicShare::STATUS_ACCEPTED || $share->isPending());
     }
 
     /**
@@ -710,6 +761,7 @@ class ComicShareService
     public function revoke(ComicShare $share): void
     {
         $share->refreshSnapshots()->markRevoked();
+        $this->passInvitationLinkOn($share);
         $this->revokeOutstandingTokens($share);
         $this->entityManager->flush();
 
@@ -733,6 +785,7 @@ class ComicShareService
         $shares = $this->shareRepository->findLiveSharesForComic($comic);
         foreach ($shares as $share) {
             $share->refreshSnapshots()->markRevoked();
+            $this->passInvitationLinkOn($share);
             $this->revokeOutstandingTokens($share);
         }
         $this->entityManager->flush();
@@ -842,6 +895,7 @@ class ComicShareService
             if ($share->getStatus() === ComicShare::STATUS_ACCEPTED) {
                 ++$accepted;
             }
+            $this->passInvitationLinkOn($share);
             $this->revokeOutstandingTokens($share);
             $share->markUnavailable($reason);
         }
@@ -1212,20 +1266,59 @@ class ComicShareService
      *
      * @return list<ComicShare>
      */
-    private function invitationDecisionShares(ComicShare $share): array
+    public function invitationDecisionShares(ComicShare $share): array
     {
         if ($share->getInvitationBatchId() === null || $share->getStatus() !== ComicShare::STATUS_PENDING) {
             return [$share];
         }
 
-        $pending = array_values(array_filter(
+        $pending = $this->openInvitationMembers($share);
+
+        return $pending === [] ? [$share] : $pending;
+    }
+
+    /** @return list<ComicShare> */
+    private function openInvitationMembers(ComicShare $share): array
+    {
+        return array_values(array_filter(
             $this->invitationMembers($share),
             static fn (ComicShare $member): bool => $member->getStatus() === ComicShare::STATUS_PENDING
                 && !$member->isTombstoned()
                 && $member->getComic() !== null
         ));
+    }
 
-        return $pending === [] ? [$share] : $pending;
+    /**
+     * Keep a folder invitation's link alive when the grant it hangs from goes.
+     *
+     * A folder invitation has one token anchored to one of its grants, while the
+     * decision it carries covers them all. Withdrawing the anchor must not take
+     * the emailed link away from the comics still being offered, so the link
+     * moves to one of those. Call before retiring this share's own tokens.
+     */
+    public function passInvitationLinkOn(ComicShare $share): void
+    {
+        if ($share->getInvitationBatchId() === null) {
+            return;
+        }
+
+        $live = array_filter(
+            $share->getInvitationTokens()->toArray(),
+            static fn (ShareInvitationToken $token): bool => $token->getComicShare() === $share && $token->isUsable()
+        );
+        if ($live === []) {
+            return;
+        }
+
+        foreach ($this->openInvitationMembers($share) as $member) {
+            if ($member !== $share) {
+                foreach ($live as $token) {
+                    $token->moveTo($member);
+                }
+
+                return;
+            }
+        }
     }
 
     public function invitationUrl(string $plaintextToken): string
@@ -1240,7 +1333,8 @@ class ComicShareService
     private function revokeOutstandingTokens(ComicShare $share): void
     {
         foreach ($share->getInvitationTokens() as $token) {
-            if ($token->getUsedAt() === null) {
+            // A link already passed on to another grant is no longer this one's.
+            if ($token->getUsedAt() === null && $token->getComicShare() === $share) {
                 $token->revoke();
             }
         }
