@@ -159,3 +159,71 @@ describe("authentication request ordering", () => {
     expect(result.current.user).toBeNull();
   });
 });
+
+describe("logout", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("signs out once the server has ended the session", async () => {
+    const result = await signedInAs({ id: 1 });
+    const pending = deferred();
+    api.post.mockReturnValueOnce(pending.promise);
+
+    let logout;
+    act(() => { logout = result.current.logout(); });
+    // Nothing is claimed until the server has answered.
+    expect(result.current.isAuthenticated).toBe(true);
+
+    await act(async () => { pending.resolve({ message: "Logout successful" }); await logout; });
+
+    expect(api.post).toHaveBeenCalledWith("/api/logout", {}, { notifyUnauthorized: false });
+    expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  it("stays signed in and lets the caller report it when the request fails", async () => {
+    const result = await signedInAs({ id: 1 });
+    const failure = Object.assign(new Error("Network down"), { status: 0 });
+    api.post.mockRejectedValueOnce(failure);
+
+    await act(async () => {
+      await expect(result.current.logout()).rejects.toBe(failure);
+    });
+
+    expect(result.current.user).toEqual({ id: 1 });
+    expect(result.current.sessionExpired).toBe(false);
+  });
+
+  it("stays signed in when the server refuses, and works when tried again", async () => {
+    const result = await signedInAs({ id: 1 });
+    const refusal = Object.assign(new Error("Server error"), { status: 500 });
+    api.post.mockRejectedValueOnce(refusal).mockResolvedValueOnce({});
+
+    await act(async () => {
+      await expect(result.current.logout()).rejects.toBe(refusal);
+    });
+    expect(result.current.isAuthenticated).toBe(true);
+
+    await act(async () => result.current.logout());
+
+    expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  it("counts a server with no session left as signed out", async () => {
+    const result = await signedInAs({ id: 1 });
+    api.post.mockRejectedValueOnce(Object.assign(new Error("Unauthorized"), { status: 401 }));
+
+    await act(async () => result.current.logout());
+
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.sessionExpired).toBe(false);
+  });
+
+  it("ends the local session without a request once the server already has", async () => {
+    const result = await signedInAs({ id: 1 });
+    api.post.mockClear();
+
+    act(() => result.current.endClientSession());
+
+    expect(api.post).not.toHaveBeenCalled();
+    expect(result.current.isAuthenticated).toBe(false);
+  });
+});

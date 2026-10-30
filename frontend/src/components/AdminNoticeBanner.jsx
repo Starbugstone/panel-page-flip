@@ -19,7 +19,7 @@ import { formatDate } from "@/lib/format";
  * disappears on navigation is one somebody can miss entirely, and the record of
  * having dismissed it is what makes "were they told?" answerable later.
  */
-export function AdminNoticeBanner({ isLoggedIn }) {
+export function AdminNoticeBanner({ accountId }) {
   const [dismissingId, setDismissingId] = useState(null);
 
   const load = useCallback(
@@ -36,31 +36,32 @@ export function AdminNoticeBanner({ isLoggedIn }) {
     []
   );
 
-  // Keyed on the session rather than cleared by an effect: signing out has to
-  // take the notices off screen in the same render, not one behind it.
-  const [state, setState] = useState({ forSession: false, notices: [] });
-  const notices = state.forSession === isLoggedIn ? state.notices : [];
+  // Keyed on the account rather than cleared by an effect: signing out, or in as
+  // somebody else, has to take one person's notices off screen in the same
+  // render, not one behind it.
+  const [state, setState] = useState({ forAccount: null, notices: [] });
+  const notices = state.forAccount === accountId ? state.notices : [];
 
   useEffect(() => {
-    if (!isLoggedIn) return undefined;
+    if (accountId === null) return undefined;
 
     let ignore = false;
     load().then((waiting) => {
-      if (!ignore && waiting) setState({ forSession: true, notices: waiting });
+      if (!ignore && waiting) setState({ forAccount: accountId, notices: waiting });
     });
 
     return () => { ignore = true; };
-  }, [isLoggedIn, load]);
+  }, [accountId, load]);
 
   const dismiss = async (notice) => {
     setDismissingId(notice.id);
 
     try {
       await api.post(`/api/me/warnings/${notice.id}/acknowledge`, {});
-      setState((current) => ({
-        forSession: true,
-        notices: current.notices.filter((item) => item.id !== notice.id),
-      }));
+      // Only if it is still this account's list: the reply can outlive a sign-out.
+      setState((current) => (current.forAccount === accountId
+        ? { ...current, notices: current.notices.filter((item) => item.id !== notice.id) }
+        : current));
     } catch (error) {
       logger.error("Dismissing an administrator notice failed:", error);
       // Left on screen rather than hidden optimistically: a notice the server

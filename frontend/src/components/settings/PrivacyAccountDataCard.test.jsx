@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  auth: { user: { hasPassword: true }, logout: vi.fn() },
+  auth: { user: { hasPassword: true }, endClientSession: vi.fn() },
   toast: vi.fn(),
 }));
 
@@ -27,7 +27,6 @@ describe("PrivacyAccountDataCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.auth.user = { hasPassword: true };
-    state.auth.logout.mockResolvedValue(undefined);
   });
 
   it("deletes a password account only after both confirmations", async () => {
@@ -45,7 +44,7 @@ describe("PrivacyAccountDataCard", () => {
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith("/api/privacy/account", {
       body: { confirmation: "DELETE", currentPassword: "secret" },
     }));
-    expect(state.auth.logout).toHaveBeenCalled();
+    expect(state.auth.endClientSession).toHaveBeenCalled();
   });
 
   it("uses a recent provider confirmation without requesting a password", () => {
