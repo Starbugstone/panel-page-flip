@@ -31,16 +31,19 @@ describe("MetadataSuggestions", () => {
   });
 
   describe("choosing which provider to ask", () => {
+    const twoProviders = [
+      { key: "metron", label: "Metron", available: true },
+      { key: "comicvine", label: "Comic Vine", available: true },
+    ];
+
     /**
-     * Each provider answering the same question costs its own quota, so a
-     * search asks one of them, not all of them.
+     * Only the server knows which provider the user's own token works with, and
+     * it prefers that one. Naming the first provider from here overruled it, and
+     * spent the installation's account in place of the user's.
      */
-    it("asks only the chosen provider", async () => {
+    it("leaves the provider to the server until somebody picks one", async () => {
       const user = userEvent.setup();
-      configMock.providers = [
-        { key: "metron", label: "Metron", available: true },
-        { key: "comicvine", label: "Comic Vine", available: true },
-      ];
+      configMock.providers = twoProviders;
 
       render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
       await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/comics/7/metadata-suggestions"));
@@ -49,9 +52,50 @@ describe("MetadataSuggestions", () => {
 
       await waitFor(() => expect(api.post).toHaveBeenCalledWith(
         "/api/comics/7/metadata-candidates",
-        expect.objectContaining({ provider: "metron" })
+        expect.objectContaining({ provider: null })
       ));
       expect(api.post).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * Each provider answering the same question costs its own quota, so a
+     * search asks one of them, not all of them.
+     */
+    it("asks only the provider somebody picked, and can go back to automatic", async () => {
+      const user = userEvent.setup();
+      configMock.providers = twoProviders;
+
+      render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
+      await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+      await user.click(screen.getByRole("combobox", { name: /provider to search/i }));
+      await user.click(await screen.findByRole("option", { name: "Comic Vine" }));
+      await user.click(screen.getByRole("button", { name: /search provider/i }));
+
+      await waitFor(() => expect(api.post).toHaveBeenLastCalledWith(
+        "/api/comics/7/metadata-candidates",
+        expect.objectContaining({ provider: "comicvine" })
+      ));
+
+      await user.click(screen.getByRole("combobox", { name: /provider to search/i }));
+      await user.click(await screen.findByRole("option", { name: "Automatic" }));
+      await user.click(screen.getByRole("button", { name: /search provider/i }));
+
+      await waitFor(() => expect(api.post).toHaveBeenLastCalledWith(
+        "/api/comics/7/metadata-candidates",
+        expect.objectContaining({ provider: null })
+      ));
+    });
+
+    /** The browser is not told who answered, so it does not claim to know. */
+    it("names no provider for an empty automatic search among several", async () => {
+      const user = userEvent.setup();
+      configMock.providers = twoProviders;
+
+      render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
+      await user.click(screen.getByRole("button", { name: /search provider/i }));
+
+      expect(await screen.findByText("No matches.")).toBeInTheDocument();
     });
 
     /**
@@ -279,6 +323,148 @@ describe("MetadataSuggestions", () => {
       metadataProvider: "metron",
       metadataExternalId: "123925",
     }));
+  });
+
+  /**
+   * A record agreeing with everything already in the form used to have no way to
+   * be chosen, so it could never be refreshed from afterwards.
+   */
+  it.each([
+    ["no field", []],
+    ["one field", [suggestion({ field: "publisher", suggested: "DC Comics", source: "provider" })]],
+  ])("stages a record differing in %s as the comic's origin", async (_label, fields) => {
+    const user = userEvent.setup();
+    const onAccept = vi.fn();
+    vi.mocked(api.post).mockResolvedValue({
+      providers: [],
+      candidates: [{
+        candidate: { provider: "metron", externalId: "123925", series: "Batman", confidence: "exact" },
+        suggestions: fields,
+      }],
+    });
+
+    render(<MetadataSuggestions comicId={7} onAccept={onAccept} />);
+    await user.click(screen.getByRole("button", { name: /^search /i }));
+    await user.click(await screen.findByRole("button", { name: "Use this record" }));
+
+    expect(onAccept).toHaveBeenCalledWith({
+      ...Object.fromEntries(fields.map((field) => [field.field, field.suggested])),
+      metadataProvider: "metron",
+      metadataExternalId: "123925",
+    });
+    expect(screen.getByRole("button", { name: "Record chosen" })).toBeDisabled();
+  });
+
+  describe("what has already been taken from a record", () => {
+    const row = (externalId, title, suggested = "DC Comics") => ({
+      candidate: { provider: "metron", externalId, series: title, confidence: "high" },
+      suggestions: [suggestion({ field: "publisher", suggested, source: "provider" })],
+    });
+
+    const search = async (user) => user.click(screen.getByRole("button", { name: /^search /i }));
+
+    /**
+     * Regression: acceptance was keyed by source and field. Every row of a search
+     * has the same source, so using one row's publisher disabled every other
+     * row's, including rows proposing something different.
+     */
+    it("keeps a different record's proposal for the same field available", async () => {
+      const user = userEvent.setup();
+      const onAccept = vi.fn();
+      vi.mocked(api.post).mockResolvedValue({
+        providers: [], candidates: [row("1", "Batman", "DC Comics"), row("2", "Batwoman", "Vertigo")],
+      });
+
+      render(<MetadataSuggestions comicId={7} onAccept={onAccept} />);
+      await search(user);
+      await user.click(await screen.findByRole("button", { name: /use publisher dc comics/i }));
+
+      expect(screen.getByRole("button", { name: /publisher added/i })).toBeDisabled();
+      await user.click(screen.getByRole("button", { name: /use publisher vertigo/i }));
+      expect(onAccept).toHaveBeenLastCalledWith({ publisher: "Vertigo" });
+    });
+
+    /** The same words from another record is still another record's proposal. */
+    it("keeps another record's identical proposal available", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.post).mockResolvedValue({
+        providers: [], candidates: [row("1", "Batman"), row("2", "Batwoman")],
+      });
+
+      render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
+      await search(user);
+      const [first] = await screen.findAllByRole("button", { name: /use publisher dc comics/i });
+      await user.click(first);
+
+      expect(screen.getByRole("button", { name: /publisher added/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /use publisher dc comics/i })).toBeEnabled();
+    });
+
+    /** The expanded record is the same record as its search row. */
+    it("treats a record's full view and its search row as one record", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.post).mockImplementation((path) => Promise.resolve(
+        path.includes("metadata-record")
+          ? { ...row("1", "Batman"), tags: [] }
+          : { providers: [], candidates: [row("1", "Batman")] }
+      ));
+
+      render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
+      await search(user);
+      await user.click(await screen.findByRole("button", { name: /use publisher dc comics/i }));
+      await user.click(screen.getByRole("button", { name: /show everything/i }));
+
+      await waitFor(() => expect(screen.getAllByRole("button", { name: /publisher added/i })).toHaveLength(2));
+      expect(screen.queryByRole("button", { name: /use publisher dc comics/i })).not.toBeInTheDocument();
+    });
+
+    it("starts over when a new search brings new results", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.post).mockResolvedValue({ providers: [], candidates: [row("1", "Batman")] });
+
+      render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
+      await search(user);
+      await user.click(await screen.findByRole("button", { name: /use publisher dc comics/i }));
+      await user.click(screen.getByRole("button", { name: "Use this record" }));
+      expect(screen.getByRole("button", { name: "Record chosen" })).toBeDisabled();
+
+      await search(user);
+
+      expect(await screen.findByRole("button", { name: /use publisher dc comics/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Use this record" })).toBeEnabled();
+    });
+
+    /** A new search says nothing about what came from the file, still on screen. */
+    it("remembers what was taken from the file across a search", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.get).mockResolvedValue({ suggestions: [suggestion()] });
+      vi.mocked(api.post).mockResolvedValue({ providers: [], candidates: [] });
+
+      render(<MetadataSuggestions comicId={7} onAccept={vi.fn()} />);
+      await user.click(await screen.findByRole("button", { name: /use series batman/i }));
+      await search(user);
+
+      await screen.findByText(/no matches from metron/i);
+      expect(screen.getByRole("button", { name: /series added/i })).toBeDisabled();
+    });
+
+    /** A refresh answering differently is a new proposal to consider. */
+    it("offers a changed answer from the same record again", async () => {
+      const user = userEvent.setup();
+      let publisher = "DC Comics";
+      vi.mocked(api.post).mockImplementation(() => Promise.resolve({ ...row("1", "Batman", publisher), tags: [] }));
+
+      render(
+        <MetadataSuggestions comicId={7} onAccept={vi.fn()} metadataOrigin={{ provider: "metron", externalId: "1" }} />
+      );
+      await user.click(await screen.findByRole("button", { name: /refresh/i }));
+      await user.click(await screen.findByRole("button", { name: /use publisher dc comics/i }));
+
+      publisher = "Vertigo";
+      await user.click(screen.getByRole("button", { name: /refresh/i }));
+
+      expect(await screen.findByRole("button", { name: /use publisher vertigo/i })).toBeEnabled();
+    });
   });
 
   describe("refreshing a comic that was already matched", () => {

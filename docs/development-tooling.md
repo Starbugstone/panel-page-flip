@@ -82,7 +82,8 @@ build Apache responses with a cryptographic per-response nonce.
 The Google-free profile is derived by removing every origin in the manifest's
 `googleOrigins` from every directive, so an origin added above cannot survive
 here by being forgotten; the generator refuses to run if a Google-shaped source
-appears in a directive without being declared there.
+appears in a directive without being declared there. Despite the name, that list
+also holds Metron's cover image host, which the legal routes have no use for.
 
 Run `node scripts/generate-csp.mjs` after editing the manifest, and
 `npm run check:csp --prefix frontend` to verify — CI runs the check.

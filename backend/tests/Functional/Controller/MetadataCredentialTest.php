@@ -3,7 +3,16 @@
 namespace App\Tests\Functional\Controller;
 
 use App\Entity\User;
+use App\Enum\ProviderStatus;
+use App\Metadata\Provider\MetadataProviderInterface;
+use App\Metadata\Provider\ProviderAccess;
+use App\Metadata\Provider\ProviderVerification;
 use App\Service\AppDataEncryptionService;
+use App\Service\CandidateRanker;
+use App\Service\MetadataAccessResolver;
+use App\Service\MetadataProviderRegistry;
+use App\Service\ProviderCircuitBreaker;
+use App\Service\ProviderQuotaTracker;
 use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 use Doctrine\ORM\EntityManagerInterface;
@@ -251,6 +260,91 @@ final class MetadataCredentialTest extends AbstractApiTestCase
         self::assertResponseStatusCodeSame(400);
     }
 
+    /**
+     * A test is an upstream request, and a different typed value each time would
+     * miss every cache, so it spends the same allowance a search does.
+     */
+    public function testTestingATokenIsRefusedOnceTheAllowanceIsSpent(): void
+    {
+        $user = UserFactory::createOne();
+        $this->loginAs($user);
+        $this->replaceMetronProvider(self::never());
+
+        $limiter = static::getContainer()->get('limiter.metadata_provider_user')->create((string) $user->getId());
+        while ($limiter->consume()->isAccepted()) {
+        }
+
+        $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'metron', 'secret' => 'typed-token']);
+
+        self::assertResponseStatusCodeSame(429);
+    }
+
+    public function testTestingATokenSpendsTheAllowance(): void
+    {
+        $user = UserFactory::createOne();
+        $this->loginAs($user);
+        $this->replaceMetronProvider(self::once());
+        $limiter = static::getContainer()->get('limiter.metadata_provider_user')->create((string) $user->getId());
+        $before = $limiter->consume(0)->getRemainingTokens();
+
+        $response = $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'metron', 'secret' => 'typed-token']);
+
+        self::assertResponseIsSuccessful();
+        self::assertSame('ok', $response['result']['status']);
+        self::assertSame($before - 1, $limiter->consume(0)->getRemainingTokens());
+    }
+
+    /** Nothing goes upstream without a credential, so nothing is charged either. */
+    public function testTestingWithNoTokenSpendsNothing(): void
+    {
+        $user = UserFactory::createOne();
+        $this->loginAs($user);
+        $limiter = static::getContainer()->get('limiter.metadata_provider_user')->create((string) $user->getId());
+        $before = $limiter->consume(0)->getRemainingTokens();
+
+        $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'metron']);
+
+        self::assertResponseIsSuccessful();
+        self::assertSame($before, $limiter->consume(0)->getRemainingTokens());
+    }
+
+    /**
+     * The provider told this account to wait, and asking it again from the
+     * settings page is still asking it. A stored token and the same token typed
+     * in are one account, and a different token is another.
+     *
+     * @dataProvider heldOffCredentialProvider
+     */
+    public function testTestingAHeldOffCredentialDoesNotGoUpstream(?string $typed): void
+    {
+        $this->loginAs(UserFactory::createOne());
+        $this->replaceMetronProvider(self::never());
+        $this->putJson('/api/me/metadata-credentials', ['metronToken' => 'personal-metron-token']);
+        $this->holdOff('personal-metron-token');
+
+        $response = $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'metron', 'secret' => $typed]);
+
+        self::assertResponseIsSuccessful();
+        self::assertSame('rate_limited', $response['result']['status']);
+    }
+
+    public function heldOffCredentialProvider(): iterable
+    {
+        yield 'the stored token' => [null];
+        yield 'the same token typed in' => ['personal-metron-token'];
+    }
+
+    public function testAHoldOnOneCredentialDoesNotStopTestingAnother(): void
+    {
+        $this->loginAs(UserFactory::createOne());
+        $this->replaceMetronProvider(self::once());
+        $this->holdOff('a-token-that-was-throttled');
+
+        $response = $this->postJson('/api/me/metadata-credentials/verify', ['provider' => 'metron', 'secret' => 'a-replacement-token']);
+
+        self::assertSame('ok', $response['result']['status']);
+    }
+
     /** Somebody with lookups withdrawn has nothing to test a token against. */
     public function testAUserWithoutApiAccessCannotTestAToken(): void
     {
@@ -327,6 +421,30 @@ final class MetadataCredentialTest extends AbstractApiTestCase
         $after = $this->deleteJson('/api/me/metadata-credentials');
         self::assertResponseIsSuccessful();
         self::assertFalse($after['configured']['metron']);
+    }
+
+    private function holdOff(string $secret): void
+    {
+        static::getContainer()->get(ProviderCircuitBreaker::class)->recordFailure(
+            ProviderAccess::granted('metron', 'personal', $secret)->accountKey(),
+            ProviderStatus::RateLimited
+        );
+    }
+
+    /** Stands in for Metron, so no test here can reach the real service. */
+    private function replaceMetronProvider(\PHPUnit\Framework\MockObject\Rule\InvocationOrder $verifications): void
+    {
+        $metron = $this->createMock(MetadataProviderInterface::class);
+        $metron->method('key')->willReturn('metron');
+        $metron->method('label')->willReturn('Metron');
+        $metron->expects($verifications)->method('verify')->willReturn(ProviderVerification::ok());
+
+        static::getContainer()->set(MetadataProviderRegistry::class, new MetadataProviderRegistry(
+            [$metron],
+            static::getContainer()->get(MetadataAccessResolver::class),
+            static::getContainer()->get(CandidateRanker::class),
+            static::getContainer()->get(ProviderQuotaTracker::class),
+        ));
     }
 
     private function disablePersonalCredentials(): void

@@ -24,6 +24,13 @@ Derivatives are rebuildable server cache and belong to nobody's quota. The
 exclusions are not a simplification to be tidied up later: they are what makes
 the admin figure agree with `StorageQuotaService`.
 
+A Dropbox import is admitted to the quota after it has been downloaded, so what
+bounds that download is `upload_max_total_bytes`, the same maximum a direct upload
+has. `DropboxImportService` refuses a file Dropbox declares over it before asking
+for any bytes, stops a download as soon as it passes it, and removes what was
+staged. A bulk import reports such a file as failed without charging it to the run's
+`DROPBOX_SYNC_LIMIT`, so it cannot starve the files listed after it.
+
 ## Where the numbers come from
 
 The sum is written once, in `ComicRepository`, and reached through three doors:

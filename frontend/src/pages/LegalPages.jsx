@@ -6,7 +6,7 @@ import { useConsent } from "@/components/consent/ConsentProvider.jsx";
 import { PrivacyChoicesButton } from "@/components/consent/PrivacyChoicesButton.jsx";
 import { adSafeRouteSentence, isAdvertisingActive } from "@/lib/advertising";
 
-const LAST_UPDATED = "5 September 2026";
+const LAST_UPDATED = "30 October 2026";
 
 /**
  * The operator's contact details, from the one public-config request the
@@ -148,8 +148,10 @@ function PrivacyRecipients({ services }) {
         the year; Comic Vine receives the series name and issue number as a single
         search phrase. In particular the provider does not receive your identity
         or email address, your file or Dropbox paths, your reading history, your tags,
-        or the comic file itself. A search only happens when you ask for one; uploading
-        a comic never contacts a provider. Results are cached on this server so the same
+        or the comic file itself. Metron’s results can include a cover preview, which
+        your browser loads directly from Metron’s image host, so that host also sees your
+        IP address and browser details, though not which page asked. A search only happens
+        when you ask for one; uploading a comic never contacts a provider. Results are cached on this server so the same
         search is not repeated, and an administrator can turn provider access off for the
         whole installation or for one account.
       </p>

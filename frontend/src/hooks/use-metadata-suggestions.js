@@ -2,6 +2,15 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useConfig } from "@/hooks/use-config";
 
+const recordKey = (candidate) => `${candidate.provider}:${candidate.externalId}`;
+
+// Two records can propose the same field, and the same record can change its
+// answer on a refresh. Only this exact value from this exact record has been
+// used, so taking one leaves the others available.
+const proposalKey = (suggestion, candidate) =>
+  JSON.stringify([recordKey(candidate), suggestion.field, suggestion.suggested]);
+const localProposalKey = (suggestion) => JSON.stringify([suggestion.source, suggestion.field, suggestion.suggested]);
+
 /**
  * Everything a suggestion panel knows and can do, minus how it looks.
  *
@@ -23,11 +32,18 @@ export function useMetadataSuggestions({ comicId, onAccept, staged = {} }) {
   const [providerResults, setProviderResults] = useState([]);
   const [searchedProvider, setSearchedProvider] = useState(null);
   const [openRecord, setOpenRecord] = useState(null);
-  const [accepted, setAccepted] = useState([]);
+  const [acceptedLocal, setAcceptedLocal] = useState([]);
+  const [acceptedFromRecords, setAcceptedFromRecords] = useState([]);
+  const [chosenRecord, setChosenRecord] = useState(null);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   // One provider at a time by default: a search spends somebody's quota, and
   // asking all of them to answer the same question spends all of them.
+  //
+  // Null until somebody picks one. The server then prefers a provider the user's
+  // own token works with, which it deliberately does not tell the browser, so
+  // naming the first provider here would overrule that and spend the wrong
+  // account.
   const [provider, setProvider] = useState(null);
 
   // Which providers would actually answer this user. The server deliberately
@@ -36,7 +52,8 @@ export function useMetadataSuggestions({ comicId, onAccept, staged = {} }) {
   // fallback account is configured, are not theirs to read.
   const providers = (config?.metadataProviders ?? []).filter((entry) => entry.available !== false);
   const unavailable = (config?.metadataProviders ?? []).filter((entry) => entry.available === false);
-  const chosen = provider ?? providers[0]?.key ?? null;
+  // Only a guess at who answered when there is exactly one who could have.
+  const answering = provider ?? (providers.length === 1 ? providers[0].key : null);
 
   useEffect(() => {
     if (!comicId) return undefined;
@@ -59,7 +76,7 @@ export function useMetadataSuggestions({ comicId, onAccept, staged = {} }) {
     setError(null);
     try {
       const result = await api.post(`/api/comics/${comicId}/metadata-candidates`, {
-        provider: chosen,
+        provider,
         // The values in front of the user, not the ones last saved.
         query: {
           series: staged.series || null,
@@ -70,8 +87,12 @@ export function useMetadataSuggestions({ comicId, onAccept, staged = {} }) {
       });
       setCandidates(result.candidates ?? []);
       setProviderResults(result.providers ?? []);
-      setSearchedProvider(chosen);
+      setSearchedProvider(answering);
       setOpenRecord(null);
+      // These cards are gone, and what was done with the last set says nothing
+      // about the next. What came from the file is still on screen and stays.
+      setAcceptedFromRecords([]);
+      setChosenRecord(null);
     } catch (loadError) {
       setError(loadError.message || "Could not reach the metadata providers.");
     } finally {
@@ -121,9 +142,11 @@ export function useMetadataSuggestions({ comicId, onAccept, staged = {} }) {
     }
   };
 
-  const accept = (suggestion) => {
+  /** @param {object|null} [candidate] the record proposing this, if one is */
+  const accept = (suggestion, candidate = null) => {
     onAccept({ [suggestion.field]: suggestion.suggested });
-    setAccepted((current) => [...current, `${suggestion.source}:${suggestion.field}`]);
+    if (candidate) setAcceptedFromRecords((current) => [...current, proposalKey(suggestion, candidate)]);
+    else setAcceptedLocal((current) => [...current, localProposalKey(suggestion)]);
   };
 
   /**
@@ -136,7 +159,8 @@ export function useMetadataSuggestions({ comicId, onAccept, staged = {} }) {
       metadataProvider: candidate.provider,
       metadataExternalId: candidate.externalId,
     });
-    setAccepted((current) => [...current, ...fields.map((field) => `${field.source}:${field.field}`)]);
+    setAcceptedFromRecords((current) => [...current, ...fields.map((field) => proposalKey(field, candidate))]);
+    setChosenRecord(recordKey(candidate));
   };
 
   return {
@@ -151,13 +175,16 @@ export function useMetadataSuggestions({ comicId, onAccept, staged = {} }) {
     error,
     providers,
     unavailable,
-    chosen,
+    chosen: provider,
     setProvider,
     lookUp,
     openFullRecord,
     refresh,
     accept,
     acceptRecord,
-    isAccepted: (suggestion) => accepted.includes(`${suggestion.source}:${suggestion.field}`),
+    isAccepted: (suggestion, candidate = null) => (candidate
+      ? acceptedFromRecords.includes(proposalKey(suggestion, candidate))
+      : acceptedLocal.includes(localProposalKey(suggestion))),
+    isRecordChosen: (candidate) => chosenRecord === recordKey(candidate),
   };
 }

@@ -146,6 +146,32 @@ final class ContentSecurityPolicyTest extends TestCase
         self::assertSame([], array_values(array_diff(array_unique($used), $declared)));
     }
 
+    /**
+     * Metron's covers, on the policy the comic editor is served under and not on
+     * the legal routes. No other provider image host is allowed until a real
+     * response has shown what it is, and never as a wildcard.
+     */
+    public function testAllowsOnlyTheEstablishedProviderCoverHost(): void
+    {
+        self::assertMatchesRegularExpression('/img-src [^;]*https:\/\/static\.metron\.cloud[ ;]/', $this->policy(false, '')->header());
+
+        $manifest = json_decode((string) file_get_contents($this->manifest), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame(
+            ['https://static.metron.cloud'],
+            array_values(array_filter(
+                $manifest['directives']['img-src'],
+                static fn (string $source): bool => str_starts_with($source, 'https:')
+                    && preg_match('/google|doubleclick|adtrafficquality/i', $source) !== 1
+            ))
+        );
+        self::assertContains('https://static.metron.cloud', $manifest['googleOrigins'], 'The legal routes must not keep this host.');
+        foreach ($manifest['directives'] as $name => $sources) {
+            if ($name !== 'img-src') {
+                self::assertNotContains('https://static.metron.cloud', $sources, $name);
+            }
+        }
+    }
+
     public function testMalformedManifestIsRejectedAtTheBoundary(): void
     {
         $manifest = tempnam(sys_get_temp_dir(), 'csp-');
