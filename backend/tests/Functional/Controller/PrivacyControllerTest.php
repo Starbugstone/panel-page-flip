@@ -112,6 +112,119 @@ final class PrivacyControllerTest extends AbstractApiTestCase
     }
 
     /**
+     * Anybody can register under any display name, so a name that also occurs
+     * inside other people's audit rows must not rewrite them. `a` is inside
+     * almost everything; `ROLE_USER` and `Stan Lee` are whole values that mean
+     * something else on a row about somebody else.
+     *
+     * @dataProvider namesThatOccurElsewhere
+     */
+    public function testDeletingAnAccountLeavesOtherPeoplesAuditRowsAlone(string $name): void
+    {
+        $unrelatedPayload = [
+            'email' => 'unrelated@example.com',
+            'rolesAfter' => ['ROLE_ADMIN', 'ROLE_USER'],
+            'after' => ['author' => 'Stan Lee', 'description' => 'A saga about Stan Lee.'],
+        ];
+        $unrelated = (new AdminAuditLog())
+            ->setAction('role_change')
+            ->setTargetType('user')
+            ->setTargetId(999999)
+            ->setPayload($unrelatedPayload);
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $entityManager->persist($unrelated);
+        $entityManager->flush();
+        $auditId = $unrelated->getId();
+
+        $this->createAndLoginUser(['email' => 'leaving@example.com', 'name' => $name]);
+        $this->deleteJson('/api/privacy/account', ['confirmation' => 'DELETE', 'currentPassword' => UserFactory::PASSWORD]);
+        self::assertResponseIsSuccessful();
+
+        $entityManager->clear();
+        self::assertEquals($unrelatedPayload, $entityManager->find(AdminAuditLog::class, $auditId)->getPayload());
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function namesThatOccurElsewhere(): iterable
+    {
+        yield 'a single letter' => ['a'];
+        yield 'a role name' => ['ROLE_USER'];
+        yield 'a comic author' => ['Stan Lee'];
+    }
+
+    public function testDeletingAnAccountRedactsWhatIdentifiesItOnAnybodysRow(): void
+    {
+        $user = $this->createAndLoginUser(['email' => 'Leaving.Person@example.com', 'name' => 'Sam']);
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+
+        $otherAdminsRow = (new AdminAuditLog())
+            ->setAction('user_update')
+            ->setTargetType('comic')
+            ->setTargetId(7)
+            ->setPayload([
+                'email' => 'leaving.person@EXAMPLE.com',
+                'name' => ' sam ',
+                'note' => 'Requested by leaving.person@example.com. Same day as Samantha.',
+                'lookalikes' => ['not-leaving.person@example.com', 'leaving.person@example.community'],
+                'author' => 'Sam',
+                'nested' => ['recipient' => ['email' => 'Leaving.Person@example.com']],
+            ]);
+        $ownRow = (new AdminAuditLog())
+            ->setAdminUser($user)
+            ->setAction('profile_update')
+            ->setTargetType('user')
+            ->setTargetId($user->getId())
+            ->setPayload(['displayedAs' => 'Sam', 'summary' => 'Samantha', 'count' => 2]);
+        $entityManager->persist($otherAdminsRow);
+        $entityManager->persist($ownRow);
+        $entityManager->flush();
+        $otherId = $otherAdminsRow->getId();
+        $ownId = $ownRow->getId();
+
+        $this->deleteJson('/api/privacy/account', ['confirmation' => 'DELETE', 'currentPassword' => UserFactory::PASSWORD]);
+        self::assertResponseIsSuccessful();
+
+        $entityManager->clear();
+        self::assertEquals([
+            'email' => '[redacted]',
+            'name' => '[redacted]',
+            'note' => 'Requested by [redacted]. Same day as Samantha.',
+            'lookalikes' => ['not-leaving.person@example.com', 'leaving.person@example.community'],
+            // Somebody else's row, and a comic's author rather than this person.
+            'author' => 'Sam',
+            'nested' => ['recipient' => ['email' => '[redacted]']],
+        ], $entityManager->find(AdminAuditLog::class, $otherId)->getPayload());
+
+        $own = $entityManager->find(AdminAuditLog::class, $ownId);
+        self::assertNull($own->getAdminUser());
+        self::assertNull($own->getTargetId());
+        self::assertEquals(['displayedAs' => '[redacted]', 'summary' => 'Samantha', 'count' => 2], $own->getPayload());
+    }
+
+    /** Batched reads must reach the rows past the first batch. */
+    public function testDeletingAnAccountRedactsPastTheFirstBatchOfAuditRows(): void
+    {
+        $this->createAndLoginUser(['email' => 'many-rows@example.com', 'name' => 'Many Rows']);
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $last = null;
+        foreach (range(1, 501) as $number) {
+            $last = (new AdminAuditLog())
+                ->setAction('row_'.$number)
+                ->setTargetType('system')
+                ->setPayload(['email' => 'many-rows@example.com']);
+            $entityManager->persist($last);
+        }
+        $entityManager->flush();
+        $lastId = $last->getId();
+
+        $this->deleteJson('/api/privacy/account', ['confirmation' => 'DELETE', 'currentPassword' => UserFactory::PASSWORD]);
+        self::assertResponseIsSuccessful();
+
+        $entityManager->clear();
+        self::assertSame(['email' => '[redacted]'], $entityManager->find(AdminAuditLog::class, $lastId)->getPayload());
+    }
+
+    /**
      * The three deletion paths write one shared record, so the only thing that
      * tells them apart afterwards is who is named as the actor. An erasure the
      * account holder asked for must not be indistinguishable from the retention

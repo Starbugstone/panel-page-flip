@@ -2,7 +2,6 @@
 
 namespace App\Tests\Unit\Service;
 
-use App\Entity\AdminAuditLog;
 use App\Entity\User;
 use App\Repository\ComicShareRepository;
 use App\Repository\UserRepository;
@@ -14,7 +13,6 @@ use App\Service\PendingFileDeletionService;
 use App\Service\SecurityAuditLogger;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
-use Doctrine\ORM\EntityRepository;
 use Doctrine\ORM\Query;
 use Doctrine\ORM\QueryBuilder;
 use Doctrine\Persistence\ManagerRegistry;
@@ -135,20 +133,22 @@ final class AccountDeletionServiceTest extends TestCase
 
         $query = $this->createMock(Query::class);
         $query->method('getResult')->willReturn([]);
+        $query->method('getArrayResult')->willReturn([]);
 
         $queryBuilder = $this->createMock(QueryBuilder::class);
         $queryBuilder->method('select')->willReturnSelf();
         $queryBuilder->method('from')->willReturnSelf();
         $queryBuilder->method('join')->willReturnSelf();
+        $queryBuilder->method('update')->willReturnSelf();
+        $queryBuilder->method('set')->willReturnSelf();
         $queryBuilder->method('where')->willReturnSelf();
+        $queryBuilder->method('andWhere')->willReturnSelf();
+        $queryBuilder->method('orderBy')->willReturnSelf();
+        $queryBuilder->method('setMaxResults')->willReturnSelf();
         $queryBuilder->method('orWhere')->willReturnSelf();
         $queryBuilder->method('setParameter')->willReturnSelf();
         $queryBuilder->method('getQuery')->willReturn($query);
         $entityManager->method('createQueryBuilder')->willReturn($queryBuilder);
-
-        $auditLogRepository = $this->createMock(EntityRepository::class);
-        $auditLogRepository->method('findAll')->willReturn([]);
-        $entityManager->method('getRepository')->with(AdminAuditLog::class)->willReturn($auditLogRepository);
 
         return $entityManager;
     }
