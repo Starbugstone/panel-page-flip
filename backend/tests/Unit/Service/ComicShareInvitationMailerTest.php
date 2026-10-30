@@ -73,6 +73,36 @@ final class ComicShareInvitationMailerTest extends TestCase
         self::assertSame([], array_values(array_filter(array_column($context['invitations'], 'shareLink'))));
     }
 
+    /** An invitation goes to somebody the owner may never have given an address to. */
+    public function testNeitherInvitationEmailCarriesTheOwnersAddress(): void
+    {
+        $owner = $this->owner();
+        $sent = [];
+        $mailer = $this->createMock(MailerInterface::class);
+        $mailer->method('send')->willReturnCallback(static function (Email $email) use (&$sent): void {
+            $sent[] = $email;
+        });
+        $twig = $this->createMock(Environment::class);
+        $twig->method('render')->willReturn('<p>mail</p>');
+        $service = $this->mailer($mailer, $twig);
+
+        [$share, $comic] = $this->invitation($owner, 'One', false);
+        $service->send($share, $comic, $owner, 'plain-token');
+
+        $grouped = [];
+        foreach (['Two', 'Three'] as $title) {
+            [$share, $comic] = $this->invitation($owner, $title, false);
+            $grouped[] = new PreparedInvitation($share, $comic, 'token-'.$title);
+        }
+        $service->sendGrouped($grouped, $owner);
+
+        self::assertCount(2, $sent);
+        foreach ($sent as $email) {
+            self::assertSame([], $email->getReplyTo());
+            self::assertStringNotContainsString('owner@example.test', $email->toString());
+        }
+    }
+
     private function mailer(MailerInterface $mailer, Environment $twig): ComicShareInvitationMailer
     {
         return new ComicShareInvitationMailer(
