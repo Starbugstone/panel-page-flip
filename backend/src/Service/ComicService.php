@@ -210,9 +210,9 @@ class ComicService
             $comic->setDescription($info->summary);
         }
 
-        $writers = $info->creators['writer'] ?? [];
-        if (!$comic->getAuthor() && $writers !== []) {
-            $comic->setAuthor(implode(', ', $writers));
+        $credit = $info->writerCredit();
+        if (!$comic->getAuthor() && $credit !== null) {
+            $comic->setAuthor($credit);
         }
     }
 

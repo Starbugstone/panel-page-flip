@@ -25,6 +25,12 @@ maximum (2,147,483,647); page image indexes must be below the parser's 20,000-pa
 limit. Leading zeroes remain valid. Invalid or oversized fields are ignored
 without losing the remaining title, creators or valid page information.
 
+Text values are cut to what their column holds rather than dropped: 255
+characters for series and publisher, 50 for issue number, 32 for age rating, and
+65,535 bytes for a summary. A writer credit copied to the author field keeps
+whole names while they fit in 255 characters. Strict MySQL refuses a whole row
+over one long value, so without this a long field would cost the import.
+
 ## Why this comes before the reader work
 
 The obvious reading of #74 is that it is a library feature: series, issue,

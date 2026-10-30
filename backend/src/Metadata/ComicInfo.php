@@ -14,6 +14,16 @@ use App\Enum\ReadingDirection;
  */
 final class ComicInfo
 {
+    /** What each stored field's column holds, in characters. */
+    public const MAX_SERIES_LENGTH = 255;
+    public const MAX_ISSUE_NUMBER_LENGTH = 50;
+    public const MAX_PUBLISHER_LENGTH = 255;
+    public const MAX_AGE_RATING_LENGTH = 32;
+    public const MAX_AUTHOR_LENGTH = 255;
+
+    /** A TEXT column is limited in bytes, whatever the characters are. */
+    public const MAX_SUMMARY_BYTES = 65_535;
+
     /**
      * @param array<string, list<string>> $creators role => names
      * @param list<ComicPageInfo>         $pages
@@ -52,6 +62,32 @@ final class ComicInfo
             && $this->creators === []
             && ($this->classification === null || $this->classification->isEmpty())
             && $this->pages === [];
+    }
+
+    /**
+     * The writers as one line, as much of it as the author column can hold.
+     *
+     * Names are kept whole while they fit, because a credit that ends halfway
+     * through somebody's name is worse than one that lists fewer people.
+     */
+    public function writerCredit(): ?string
+    {
+        $names = $this->creators['writer'] ?? [];
+        if ($names === []) {
+            return null;
+        }
+
+        $credit = mb_substr($names[0], 0, self::MAX_AUTHOR_LENGTH);
+        foreach (array_slice($names, 1) as $name) {
+            $extended = $credit.', '.$name;
+            if (mb_strlen($extended) > self::MAX_AUTHOR_LENGTH) {
+                break;
+            }
+
+            $credit = $extended;
+        }
+
+        return $credit;
     }
 
     /** @return list<array<string, mixed>> */
