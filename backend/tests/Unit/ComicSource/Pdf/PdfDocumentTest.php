@@ -297,6 +297,458 @@ final class PdfDocumentTest extends TestCase
         self::assertNull(PdfDocument::open($this->path)->pageImage(1));
     }
 
+    /**
+     * Exhausting memory or time is a fatal error: nothing after it runs, so the
+     * renderer fallback is skipped and an upload is left stranded on disk. Each
+     * of these is a small file that used to get there, and they are run for real
+     * in their own process under the limit, because the claim is about the
+     * limit. Whether a file is usable matters less than that it gets an answer.
+     *
+     * @dataProvider hostileDocumentProvider
+     */
+    public function testAHostileDocumentGetsAnAnswerRatherThanAFatal(callable $build, string $memoryLimit): void
+    {
+        $this->write($build($this));
+
+        $result = $this->readInIsolation(['memory_limit' => $memoryLimit]);
+
+        self::assertArrayHasKey('peak', $result);
+    }
+
+    public function hostileDocumentProvider(): iterable
+    {
+        yield 'a predictor row wider than memory' => [
+            static fn (self $t): string => $t->predictorPdf('/Predictor 12 /Columns 2000000000'),
+            '64M',
+        ];
+
+        yield 'object headers that materialise into arrays' => [
+            static fn (): string => "%PDF-1.4\n".str_repeat("1 0 obj\n", 500_000)."<< /Type /Catalog >>\n",
+            '64M',
+        ];
+
+        yield 'trailers that materialise into arrays' => [
+            static fn (): string => "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".str_repeat('trailer<<>>', 500_000),
+            '64M',
+        ];
+
+        yield 'a grey palette expanded from a compression bomb' => [
+            static fn (self $t): string => $t->assemble([
+                1 => '<< /Type /Catalog /Pages 2 0 R >>',
+                2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+                3 => '<< /Type /Page /MediaBox [0 0 400 400] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>',
+                4 => $t->flateStream('/Subtype /Image /Width 2 /Height 2 /BitsPerComponent 8 /ColorSpace [/Indexed /DeviceGray 255 6 0 R]', "\0\0\0\0"),
+                5 => "<< /Length 30 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream",
+                6 => $t->flateStream('', str_repeat("\0", 20_000_000)),
+            ]),
+            '64M',
+        ];
+
+        yield 'an object stream header of millions of pairs' => [
+            static function (self $t): string {
+                $header = str_repeat('1 1 ', 4_000_000);
+
+                return $t->crossReferenceStreamPdf(
+                    [10 => $t->flateStream('/Type /ObjStm /N 1 /First '.strlen($header), $header.'<< /Type /Catalog >>')],
+                    [1 => [2, 10, 0]],
+                );
+            },
+            '64M',
+        ];
+
+        yield 'one stream reached under many object numbers' => [
+            static function (self $t): string {
+                $names = '';
+                for ($i = 0; $i < 200; ++$i) $names .= sprintf('/F%d %d 0 R ', $i, 10 + $i);
+
+                $pdf = "%PDF-1.4\n";
+                $offsets = [];
+                $objects = [
+                    1 => '<< /Type /Catalog /Pages 2 0 R >>',
+                    2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+                    3 => "<< /Type /Page /MediaBox [0 0 400 400] /Resources << /XObject << $names >> >> >>",
+                    9 => "<< /Subtype /Form /Length 1000000 >>\nstream\n".str_repeat('x', 1_000_000)."\nendstream",
+                ];
+                foreach ($objects as $number => $body) {
+                    $offsets[$number] = strlen($pdf);
+                    $pdf .= "$number 0 obj\n$body\nendobj\n";
+                }
+
+                $xref = strlen($pdf);
+                $pdf .= "xref\n0 4\n0000000000 65535 f \n";
+                foreach ([1, 2, 3] as $number) $pdf .= sprintf("%010d 00000 n \n", $offsets[$number]);
+                $pdf .= "10 200\n".str_repeat(sprintf("%010d 00000 n \n", $offsets[9]), 200);
+
+                return $pdf."trailer\n<< /Size 210 /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n";
+            },
+            '64M',
+        ];
+
+        yield 'containers whose filters live in further containers' => [
+            static function (self $t): string {
+                $levels = 60_000;
+                $streams = [];
+                $entries = [];
+                for ($level = 0; $level < $levels; ++$level) {
+                    $streams[1_000_000 + $level] = sprintf("<</N 1/First 4/Filter %d 0 R/Length 1>>\nstream\nx\nendstream", $level + 2);
+                    $entries[$level + 1] = [2, 1_000_000 + $level, 0];
+                }
+
+                return $t->crossReferenceStreamPdf($streams, $entries);
+            },
+            '64M',
+        ];
+
+        yield 'cross-reference subsections that each stay under the limit' => [
+            static function (): string {
+                $pdf = "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n";
+                $xref = strlen($pdf);
+                $pdf .= "xref\n";
+                for ($section = 0; $section < 5; ++$section) {
+                    $pdf .= ($section * 500_000)." 500000\n".str_repeat("0000000009 00000 n \n", 500_000);
+                }
+
+                return $pdf."trailer\n<< /Size 1 /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n";
+            },
+            '128M',
+        ];
+    }
+
+    /**
+     * The same fatal by the other limit: each object is cheap to hold and costs
+     * a full inflation to reach, and alternating containers defeats any cache.
+     */
+    public function testADocumentThatWouldOutlastTheTimeLimitGetsAnAnswer(): void
+    {
+        $container = $this->flateStream('/Type /ObjStm /N 2 /First 8', '0 0 0 0 '.str_repeat(' ', 60_000_000).'null');
+        $kids = '';
+        $entries = [];
+        for ($i = 0; $i < 2_000; ++$i) {
+            $kids .= sprintf('%d 0 R ', 100 + $i);
+            $entries[100 + $i] = [2, 30_000 + $i % 2, $i % 2];
+        }
+
+        $this->write($this->crossReferenceStreamPdf(
+            [
+                1 => '<< /Type /Catalog /Pages 2 0 R >>',
+                2 => "<< /Type /Pages /Kids [$kids] /Count 2000 >>",
+                30_000 => $container,
+                30_001 => $container,
+            ],
+            $entries,
+        ));
+
+        $result = $this->readInIsolation(['memory_limit' => '256M', 'max_execution_time' => '4']);
+
+        self::assertStringContainsString('more time', (string) ($result['error'] ?? ''));
+    }
+
+    /**
+     * A source larger than the memory left must be declined before the read,
+     * which is what lets the renderer have it.
+     */
+    public function testDeclinesASourceThatCannotFitInTheMemoryLeft(): void
+    {
+        $this->path = tempnam(sys_get_temp_dir(), 'comic-pdfdoc-');
+        $handle = fopen($this->path, 'c+b');
+        self::assertIsResource($handle);
+        fwrite($handle, "%PDF-1.4\n");
+        self::assertTrue(ftruncate($handle, 100_000_000));
+        fclose($handle);
+
+        $result = $this->readInIsolation(['memory_limit' => '64M']);
+
+        self::assertStringContainsString('too large for the native reader', (string) ($result['error'] ?? ''));
+        self::assertLessThan(32, $result['peak'], 'The source should have been declined before it was read.');
+    }
+
+    public function testAnUnlimitedMemoryLimitDeclinesNothing(): void
+    {
+        $pdf = $this->imagePdf([$this->jpeg()]);
+        $this->write($pdf);
+        $handle = fopen($this->path, 'c+b');
+        self::assertIsResource($handle);
+        self::assertSame(0, fseek($handle, 100_000_000));
+        self::assertSame(strlen($pdf), fwrite($handle, $pdf));
+        fclose($handle);
+
+        $result = $this->readInIsolation(['memory_limit' => '-1']);
+
+        self::assertSame(1, $result['pages'] ?? null, (string) ($result['error'] ?? ''));
+    }
+
+    /** Bounding the predictor must not have cost the streams that really use it. */
+    public function testStillUndoesAValidPredictor(): void
+    {
+        $rows = "\x00\x10\x20\x02\x01\x01";
+        $this->write($this->predictorPdf('/Predictor 12 /Columns 2', $rows));
+
+        $image = PdfDocument::open($this->path)->pageImage(1);
+
+        self::assertNotNull($image);
+        $decoded = imagecreatefromstring($image->content);
+        self::assertNotFalse($decoded);
+        // The second row was "up" filtered, so each byte adds the one above it.
+        self::assertSame(0x11, imagecolorsforindex($decoded, imagecolorat($decoded, 0, 1))['red']);
+        self::assertSame(0x21, imagecolorsforindex($decoded, imagecolorat($decoded, 1, 1))['red']);
+    }
+
+    /** @dataProvider impossiblePredictorProvider */
+    public function testDeclinesAPredictorThatCouldNotExist(string $parms): void
+    {
+        $this->write($this->predictorPdf($parms));
+
+        self::assertNull(PdfDocument::open($this->path)->pageImage(1));
+    }
+
+    public function impossiblePredictorProvider(): iterable
+    {
+        yield 'negative columns' => ['/Predictor 12 /Columns -1'];
+        yield 'zero colours' => ['/Predictor 12 /Columns 2 /Colors 0'];
+        yield 'too many colours' => ['/Predictor 12 /Columns 2 /Colors 1000'];
+        yield 'a depth that does not exist' => ['/Predictor 12 /Columns 2 /BitsPerComponent 7'];
+        yield 'columns that are not a number' => ['/Predictor 12 /Columns /Wide'];
+        yield 'a product past the integer range' => ['/Predictor 12 /Columns 9223372036854775807 /Colors 16 /BitsPerComponent 16'];
+    }
+
+    /**
+     * Serving the embedded image for any of these would quietly lose part of
+     * what the page shows, so each has to be left to the renderer.
+     *
+     * @dataProvider notJustTheImageProvider
+     */
+    public function testLeavesAPageToTheRendererWhenItIsMoreThanItsImage(string $page, string $content, string $image = '', array $extra = []): void
+    {
+        $this->write($this->pagePdf($page, $content, $image, $extra));
+
+        $document = PdfDocument::open($this->path);
+
+        self::assertNull($document->pageImage(1));
+        self::assertNotNull($document->soleImage(1), 'The image alone should still be available for a host with no renderer.');
+    }
+
+    public function notJustTheImageProvider(): iterable
+    {
+        $draw = 'q 400 0 0 400 0 0 cm /Im0 Do Q';
+
+        yield 'text over the image' => ['', "$draw BT /F0 12 Tf 10 10 Td (Hello) Tj ET"];
+        yield 'invisible text is still more than was checked' => ['', "$draw BT 3 Tr ET"];
+        yield 'vector art over the image' => ['', "$draw 0 0 1 rg 10 10 100 100 re f"];
+        yield 'a stroked line' => ['', "$draw 0 0 m 400 400 l S"];
+        yield 'a shading' => ['', "$draw /Sh0 sh"];
+        yield 'an inline image' => ['', "$draw BI /W 1 /H 1 /CS /G /BPC 8 ID x EI"];
+        yield 'the image drawn twice' => ['', "$draw $draw"];
+        yield 'a form drawn as well' => ['', "$draw /Fm0 Do", '', [6 => "<< /Subtype /Form /BBox [0 0 1 1] /Length 0 >>\nstream\n\nendstream"]];
+        yield 'an image not filling the page' => ['', 'q 200 0 0 400 0 0 cm /Im0 Do Q'];
+        yield 'an image offset from the page' => ['', 'q 400 0 0 400 50 0 cm /Im0 Do Q'];
+        yield 'an image bleeding past the page' => ['', 'q 500 0 0 500 -50 -50 cm /Im0 Do Q'];
+        yield 'an image flipped' => ['', 'q 400 0 0 -400 0 400 cm /Im0 Do Q'];
+        yield 'an image turned' => ['', 'q 0 400 -400 0 400 0 cm /Im0 Do Q'];
+        yield 'an image that is never drawn' => ['', '0 0 1 rg'];
+        yield 'no content at all' => ['', ''];
+        yield 'a clip smaller than the page' => ['', "0 0 100 100 re W n $draw"];
+        yield 'unbalanced state' => ['', "$draw Q"];
+        yield 'a page rotated' => ['/Rotate 90', $draw];
+        yield 'a page cropped inside its image' => ['/CropBox [50 50 350 350]', $draw];
+        yield 'annotations' => ['/Annots [<< /Subtype /Stamp >>]', $draw];
+        yield 'a soft mask on the image' => ['', $draw, '/SMask 7 0 R', [7 => "<< /Subtype /Image /Width 1 /Height 1 /Length 1 >>\nstream\nx\nendstream"]];
+        yield 'a colour key mask on the image' => ['', $draw, '/Mask [0 0 0 0 0 0]'];
+        yield 'transparency in the graphics state' => ['/Resources << /XObject << /Im0 4 0 R >> /ExtGState << /G0 << /ca 0.5 >> >> >>', "/G0 gs $draw"];
+        yield 'a blend mode in the graphics state' => ['/Resources << /XObject << /Im0 4 0 R >> /ExtGState << /G0 << /BM /Multiply >> >> >>', "/G0 gs $draw"];
+        yield 'a graphics state that is not there' => ['', "/G0 gs $draw"];
+        yield 'optional content around the image' => ['', "/OC /L0 BDC $draw EMC"];
+    }
+
+    /**
+     * What real writers emit for a page that really is one image: the check
+     * has to accept these, or every such page pays for a pointless render.
+     *
+     * @dataProvider justTheImageProvider
+     */
+    public function testServesThePageWhenItIsVerifiablyJustItsImage(string $page, string $content, array $extra = []): void
+    {
+        $this->write($this->pagePdf($page, $content, '', $extra));
+
+        self::assertSame($this->jpeg(), PdfDocument::open($this->path)->pageImage(1)?->content);
+    }
+
+    public function justTheImageProvider(): iterable
+    {
+        $draw = 'q 400 0 0 400 0 0 cm /Im0 Do Q';
+
+        yield 'img2pdf and ImageMagick' => ['', "q\n400 0 0 400 0 0 cm\n/Im0 Do\nQ\n"];
+        yield 'Ghostscript scaling twice' => ['', "q 0.1 0 0 0.1 0 0 cm\nq\n4000 0 0 4000 0 0 cm\n/Im0 Do\nQ\nQ"];
+        yield 'placement rounded by the writer' => ['', 'q 400.24 0 0 399.76 0 0 cm /Im0 Do Q'];
+        yield 'a clip as large as the page' => ['', "q 0 0 400 400 re W n $draw Q"];
+        yield 'empty state and colour first' => ['', "q Q /Cs1 cs 1 1 1 sc q $draw Q"];
+        yield 'a comment' => ['', "% scanned\n$draw"];
+        yield 'a neutral graphics state' => ['/Resources << /XObject << /Im0 4 0 R >> /ExtGState << /G0 << /Type /ExtGState /ca 1 /CA 1 /BM /Normal /SMask /None /OP false >> >> >>', "/G0 gs $draw"];
+        yield 'a page with its origin elsewhere' => ['/MediaBox [100 100 500 500]', 'q 400 0 0 400 100 100 cm /Im0 Do Q'];
+        yield 'a crop box the image fills exactly' => ['/CropBox [50 50 350 350]', 'q 300 0 0 300 50 50 cm /Im0 Do Q'];
+        yield 'a crop box as large as the page' => ['/CropBox [0 0 400 400]', $draw];
+        yield 'a whole turn is no turn' => ['/Rotate 360', $draw];
+        yield 'no annotations' => ['/Annots []', $draw];
+        yield 'content split between streams' => ['/Contents [5 0 R 6 0 R]', 'q 400 0 0 400 0 0 cm', [6 => "<< /Length 10 >>\nstream\n/Im0 Do Q \nendstream"]];
+    }
+
+    public function testChecksContentThatIsItselfCompressed(): void
+    {
+        $this->write($this->pagePdf('/Contents 6 0 R', '', '', [6 => $this->flateStream('', 'q 400 0 0 400 0 0 cm /Im0 Do Q')]));
+
+        self::assertSame($this->jpeg(), PdfDocument::open($this->path)->pageImage(1)?->content);
+    }
+
+    public function testDoesNotInflateAContentBombToLookAtIt(): void
+    {
+        $this->write($this->pagePdf('/Contents 6 0 R', '', '', [6 => $this->flateStream('', str_repeat(' ', 100_000_000))]));
+
+        $result = $this->readInIsolation(['memory_limit' => '64M']);
+
+        self::assertSame('none', $result['image'] ?? null);
+    }
+
+    public function testTheBoundsOfAPageCanBeInherited(): void
+    {
+        $jpeg = $this->jpeg();
+        $this->write($this->assemble([
+            1 => '<< /Type /Catalog /Pages 2 0 R >>',
+            2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 400 400] /Rotate 90 >>',
+            3 => '<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>',
+            4 => $this->jpegImage($jpeg),
+            5 => "<< /Length 30 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream",
+        ]));
+
+        self::assertNull(PdfDocument::open($this->path)->pageImage(1), 'An inherited rotation still rotates the page.');
+    }
+
+    /**
+     * @param array<string, string> $ini
+     * @return array<string, mixed>
+     */
+    private function readInIsolation(array $ini): array
+    {
+        $php = (new PhpExecutableFinder())->find();
+        if ($php === false) self::markTestSkipped('No PHP binary to run the isolated check with.');
+
+        $script = <<<'PHP'
+            require getenv('APP_AUTOLOAD');
+            $result = [];
+            try {
+                $document = App\ComicSource\Pdf\PdfDocument::open(getenv('APP_PDF'));
+                $result['pages'] = $document->pageCount();
+                $result['image'] = $document->pageImage(1)?->mimeType ?? 'none';
+            } catch (App\ComicSource\Pdf\PdfException $exception) {
+                $result['error'] = $exception->getMessage();
+            }
+            $result['peak'] = memory_get_peak_usage(true) >> 20;
+            echo json_encode($result);
+        PHP;
+
+        $arguments = [$php];
+        foreach ($ini + ['display_errors' => '1', 'log_errors' => '0'] as $key => $value) {
+            array_push($arguments, '-d', "$key=$value");
+        }
+
+        $process = new Process([...$arguments, '-r', $script]);
+        $process->setEnv([
+            'APP_AUTOLOAD' => \dirname(__DIR__, 4).'/vendor/autoload.php',
+            'APP_PDF' => $this->path,
+        ]);
+        $process->setTimeout(120);
+        $process->run();
+
+        self::assertTrue($process->isSuccessful(), 'The reader died: '.$process->getOutput().$process->getErrorOutput());
+        $result = json_decode($process->getOutput(), true);
+        self::assertIsArray($result, 'Unexpected output: '.$process->getOutput());
+
+        return $result;
+    }
+
+    /** One page whose image is two rows of 2x1 gray samples with the given filter parameters. */
+    private function predictorPdf(string $parms, string $rows = "\0\0\0\0"): string
+    {
+        return $this->assemble([
+            1 => '<< /Type /Catalog /Pages 2 0 R >>',
+            2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            3 => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>',
+            4 => $this->flateStream("/Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8 /DecodeParms << $parms >>", $rows),
+            5 => "<< /Length 30 >>\nstream\nq 400 0 0 400 0 0 cm /Im0 Do Q\nendstream",
+        ]);
+    }
+
+    private function flateStream(string $dictionary, string $data): string
+    {
+        $compressed = gzcompress($data, 9);
+
+        return "<< $dictionary /Filter /FlateDecode /Length ".strlen($compressed).">>\nstream\n$compressed\nendstream";
+    }
+
+    /**
+     * Objects in the file, plus entries for objects held in object streams,
+     * indexed by a cross-reference stream as a PDF 1.5 writer would.
+     *
+     * @param array<int, string> $objects
+     * @param array<int, array{int, int, int}> $entries object number => [type, a, b]
+     */
+    private function crossReferenceStreamPdf(array $objects, array $entries): string
+    {
+        $pdf = "%PDF-1.5\n";
+        foreach ($objects as $number => $body) {
+            $entries[$number] = [1, strlen($pdf), 0];
+            $pdf .= "$number 0 obj\n$body\nendobj\n";
+        }
+
+        $self = max(array_keys($entries)) + 1;
+        $entries[$self] = [1, strlen($pdf), 0];
+        ksort($entries);
+
+        $rows = '';
+        $index = [];
+        foreach ($entries as $number => $entry) {
+            $rows .= pack('CNn', ...$entry);
+            array_push($index, $number, 1);
+        }
+
+        $xref = strlen($pdf);
+        $stream = $this->flateStream(sprintf('/Type /XRef /Size %d /W [1 4 2] /Index [%s] /Root 1 0 R', $self + 1, implode(' ', $index)), $rows);
+
+        return $pdf."$self 0 obj\n$stream\nendobj\nstartxref\n$xref\n%%EOF\n";
+    }
+
+    /**
+     * One image on one page, with whatever the case adds to either.
+     *
+     * @param array<int, string> $extra further objects
+     */
+    private function pagePdf(string $page, string $content, string $image = '', array $extra = []): string
+    {
+        $keys = str_contains($page, '/MediaBox') ? '' : '/MediaBox [0 0 400 400] ';
+        $keys .= str_contains($page, '/Resources') ? '' : '/Resources << /XObject << /Im0 4 0 R /Fm0 6 0 R >> >> ';
+        $keys .= str_contains($page, '/Contents') ? '' : '/Contents 5 0 R ';
+
+        return $this->assemble($extra + [
+            1 => '<< /Type /Catalog /Pages 2 0 R >>',
+            2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            3 => "<< /Type /Page /Parent 2 0 R $keys$page >>",
+            4 => $this->jpegImage($this->jpeg(), $image),
+            5 => sprintf("<< /Length %d >>\nstream\n%s\nendstream", strlen($content), $content),
+        ]);
+    }
+
+    private function jpegImage(string $jpeg, string $extra = ''): string
+    {
+        $size = getimagesizefromstring($jpeg);
+
+        return sprintf(
+            "<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 %s /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
+            $size[0],
+            $size[1],
+            $extra,
+            strlen($jpeg),
+            $jpeg
+        );
+    }
+
     private function jpeg(): string
     {
         return (string) base64_decode(self::TINY_JPEG_BASE64, true);

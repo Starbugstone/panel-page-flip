@@ -189,7 +189,58 @@ final class ComicInfoParserTest extends TestCase
             '<Series>'.str_repeat('x', 50_000).'</Series>'
         ));
 
-        self::assertSame(2_000, mb_strlen($info?->series ?? ''));
+        self::assertSame(255, mb_strlen($info?->series ?? ''));
+    }
+
+    /**
+     * A value past its column does not fail alone: strict MySQL rejects the row,
+     * so one long field would otherwise cost the reader the whole comic.
+     */
+    public function testBoundsEachFieldToWhatItsColumnCanHold(): void
+    {
+        $long = str_repeat('é', 3_000);
+        $info = $this->parser->parse($this->comicInfo(
+            "<Series>$long</Series><Number>$long</Number><Publisher>$long</Publisher><AgeRating>$long</AgeRating>"
+        ));
+
+        self::assertSame(255, mb_strlen($info?->series ?? ''));
+        self::assertSame(50, mb_strlen($info?->issueNumber ?? ''));
+        self::assertSame(255, mb_strlen($info?->publisher ?? ''));
+        self::assertSame(32, mb_strlen($info?->ageRating ?? ''));
+    }
+
+    /** TEXT is limited in bytes, which 20,000 four-byte characters are well past. */
+    public function testBoundsTheSummaryInBytesOnACharacterBoundary(): void
+    {
+        $info = $this->parser->parse($this->comicInfo('<Summary>'.str_repeat('😀', 20_000).'</Summary>'));
+        $summary = $info?->summary ?? '';
+
+        self::assertLessThanOrEqual(65_535, strlen($summary));
+        self::assertGreaterThan(65_530, strlen($summary));
+        self::assertTrue(mb_check_encoding($summary, 'UTF-8'));
+    }
+
+    public function testKeepsWholeWritersInACreditThatFitsTheAuthorColumn(): void
+    {
+        $first = str_repeat('a', 120);
+        $second = str_repeat('b', 120);
+        $third = str_repeat('c', 120);
+        $info = $this->parser->parse($this->comicInfo("<Writer>$first, $second, $third</Writer>"));
+
+        self::assertSame("$first, $second", $info?->writerCredit());
+        self::assertSame([$first, $second, $third], $info?->creators['writer']);
+    }
+
+    public function testCutsASingleWriterTooLongForTheAuthorColumn(): void
+    {
+        $info = $this->parser->parse($this->comicInfo('<Writer>'.str_repeat('a', 400).'</Writer>'));
+
+        self::assertSame(str_repeat('a', 255), $info?->writerCredit());
+    }
+
+    public function testHasNoCreditWithoutWriters(): void
+    {
+        self::assertNull($this->parser->parse($this->comicInfo('<Series>Batman</Series>'))?->writerCredit());
     }
 
     public function testDropsValuesThatAreNotWhatTheyClaimToBe(): void

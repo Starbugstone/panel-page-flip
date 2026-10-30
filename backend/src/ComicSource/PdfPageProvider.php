@@ -79,6 +79,13 @@ final class PdfPageProvider implements ComicPageProviderInterface
     private const MAX_RENDER_PIXELS = 2400;
     private const MIN_RENDER_PIXELS = 320;
 
+    /**
+     * Room the page pipeline wants after a page is read: decoding and resizing
+     * an ordinary scan takes tens of megabytes. Below this, the parsed document
+     * is the thing worth giving up, since it is cheap to read again.
+     */
+    private const PAGE_PIPELINE_BYTES = 100_663_296;
+
     /** @var array<string, ComicSourceInfo> */
     private array $inspections = [];
 
@@ -163,6 +170,10 @@ final class PdfPageProvider implements ComicPageProviderInterface
      * rasterising, no quality lost re-encoding the author's own JPEG, and it
      * works on hosting that forbids running external programs at all. Poppler
      * is then what handles the pages that genuinely need drawing.
+     *
+     * Without Poppler a page whose only image is not the whole page is served
+     * as that image. Part of a page is better than a comic that stops opening,
+     * and it is what those pages have always shown on such a host.
      */
     public function readPage(string $sourcePath, ComicSourceType $type, int $page, ?int $targetWidth = null): PageResult
     {
@@ -172,7 +183,13 @@ final class PdfPageProvider implements ComicPageProviderInterface
         $embedded = $this->embeddedPage($sourcePath, $page);
         if ($embedded !== null) return $embedded;
 
-        if (!ComicRuntimeProbe::canRunExternalTools()) {
+        if (!(new ComicRuntimeProbe())->hasPoppler()) {
+            $partial = $this->embeddedPage($sourcePath, $page, true);
+            if ($partial !== null) {
+                $this->logger?->info('Serving a PDF page as its image alone: no renderer is available for the rest of it.');
+                return $partial;
+            }
+
             throw new \RuntimeException('This page is not a single embedded image, and this server cannot run a PDF renderer. Poppler is needed to read this document.');
         }
 
@@ -183,11 +200,18 @@ final class PdfPageProvider implements ComicPageProviderInterface
      * The page's own image, when the page is built that way. Never fatal: a
      * document this cannot read is one Poppler is asked about instead.
      */
-    private function embeddedPage(string $sourcePath, int $page): ?PageResult
+    private function embeddedPage(string $sourcePath, int $page, bool $acceptPartial = false): ?PageResult
     {
         try {
-            $image = $this->document($sourcePath)?->pageImage($page);
+            $document = $this->document($sourcePath);
+            $image = $acceptPartial ? $document?->soleImage($page) : $document?->pageImage($page);
             if ($image === null) return null;
+
+            if (!MemoryBudget::fits(self::PAGE_PIPELINE_BYTES)) {
+                $this->documentKey = null;
+                $this->document = null;
+                unset($document);
+            }
 
             // PageResult rejects an image past the page size limit, and an
             // oversized embedded scan is exactly the page a render would
@@ -220,6 +244,9 @@ final class PdfPageProvider implements ComicPageProviderInterface
             $process = new Process([...['pdftocairo', '-f', (string) $page, '-l', (string) $page, '-singlefile'], ...$this->scaleArguments($targetWidth), ...['-jpeg', '-jpegopt', 'quality=88', $sourcePath, $prefix]]);
             $process->setTimeout(self::RENDER_TIMEOUT_SECONDS); $process->run(); $output = $prefix.'.jpg';
             if (!$process->isSuccessful() || !is_file($output)) throw new \RuntimeException('PDF page rendering failed.');
+            // A page's shape can make this far larger than its width suggests.
+            $size = @filesize($output);
+            if ($size === false || $size > ComicSourceLimits::MAX_PAGE_BYTES || !MemoryBudget::fits($size)) throw new \RuntimeException('Rendered page is too large.');
             $content = file_get_contents($output); if ($content === false) throw new \RuntimeException('Rendered page could not be read.');
             // Not source-sized: these dimensions describe this render, not the
             // page, so nothing may record them as the page's geometry.

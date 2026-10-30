@@ -144,6 +144,10 @@ final class ZipPageProvider implements ComicPageProviderInterface, ComicInfoSour
                 )) {
                     throw new \RuntimeException('Failed to read page within the safety limit.');
                 }
+                // Twice: growing a large string can copy it while the old one lives.
+                if (!MemoryBudget::fits(2 * (strlen($content) + strlen($chunk)))) {
+                    throw new \RuntimeException('Failed to read page within the memory available.');
+                }
                 $content .= $chunk;
             }
         } finally {
