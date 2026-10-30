@@ -63,7 +63,9 @@ CI also runs ShellCheck across every Bash deployment and conversion script, then
 executes the Unix and Windows conversion suites on their native runners. The
 download checksum check proves that the published archives match the source;
 the platform suites prove that the source still converts, skips, reports, and
-cleans up correctly.
+cleans up correctly. `scripts/tests/test-deploy-scripts.sh` runs the backup, build,
+deploy and post-deploy scripts against temporary directories with `ssh` and `docker`
+stubbed; it needs `rsync`, `php` and `git` on the host and contacts no server.
 
 ### Content-Security-Policy
 

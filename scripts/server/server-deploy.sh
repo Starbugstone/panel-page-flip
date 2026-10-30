@@ -3,6 +3,7 @@
 # scripts/server/server-deploy.sh
 # -----------------------------------------------------------------------------
 # Runs ON the production server. Drives the post-pull build:
+#   0. install the production public/.htaccess and remove public/error.php
 #   1. composer install --no-dev --optimize-autoloader
 #   2. preserve and read backend/.env.local (or use an existing compiled env)
 #   3. (optional) build the React frontend if Node is available, OR
@@ -34,6 +35,8 @@
 #                        index.html + assets/ uploaded another way
 #   SKIP_COMPOSER=1      skip composer install (PHP-only redeploys)
 #   POST_DEPLOY_HOOK     shell command run after cache:warmup
+#   ASSET_RETENTION_DAYS days a superseded frontend chunk stays available
+#                        (default 14; see scripts/asset-retention.sh)
 # =============================================================================
 
 set -euo pipefail
@@ -62,6 +65,36 @@ fi
 [ -n "$BACKUP_COMMAND" ] || fail "BACKUP_COMMAND must back up the production database and uploads before deployment."
 log "Running pre-deploy backup"
 eval "$BACKUP_COMMAND"
+
+# =============================================================================
+# 0) Production public-file policy
+# =============================================================================
+public_dir="$APP_DIR/backend/public"
+# Through a temporary name, so Apache never reads a half-written file and an
+# existing symlink is replaced instead of being written through.
+log "Installing production public/.htaccess"
+cp "$APP_DIR/scripts/deploy/htaccess.dist" "$public_dir/.htaccess.next"
+mv -f "$public_dir/.htaccess.next" "$public_dir/.htaccess"
+# No longer in the repository, but git only removes a copy it was tracking.
+rm -f "$public_dir/error.php"
+
+# Removes what the previous release needed once ASSET_RETENTION_DAYS have passed.
+prune_superseded_assets() {
+    local ledger="$APP_DIR/backend/var/asset-retention.tsv"
+    local work name
+    work="$(mktemp -d)"
+    # shellcheck disable=SC2064 # Expanded now: $work is local to this function.
+    trap "rm -rf '$work'" RETURN
+    ls -1A "$APP_DIR/frontend/dist/assets" > "$work/live"
+    ls -1A "$public_dir/assets" > "$work/present"
+    bash "$APP_DIR/scripts/asset-retention.sh" "$work/live" "$work/present" "$ledger" "$work/ledger.next" "$work/expired" || return 1
+    while IFS= read -r name; do
+        rm -f -- "$public_dir/assets/$name" || return 1
+    done < "$work/expired"
+    mkdir -p "$(dirname "$ledger")"
+    cp "$work/ledger.next" "$ledger"
+    log "Superseded assets deleted after ${ASSET_RETENTION_DAYS:-14} days: $(wc -l < "$work/expired")"
+}
 
 # =============================================================================
 # 1) Composer
@@ -95,13 +128,17 @@ if [ "$SKIP_FRONTEND" != "1" ]; then
         APP_URL="$APP_URL" npm run build
         APP_URL="$APP_URL" npm run check:seo
 
-        log "Installing frontend build while preserving uploads and rollback assets"
-        public_dir="$APP_DIR/backend/public"
+        # Beside the old build, not in place of it: pages already open keep asking
+        # for the old chunks at their original URLs. Assets first, because the
+        # index.html copied next refers to them. assets.previous is what earlier
+        # versions of this script left behind, and nothing can reach it.
+        log "Installing frontend build while preserving uploads and previous assets"
         rm -rf "$public_dir/assets.next" "$public_dir/assets.previous"
-        cp -a "$APP_DIR/frontend/dist/assets" "$public_dir/assets.next"
-        [ ! -d "$public_dir/assets" ] || mv "$public_dir/assets" "$public_dir/assets.previous"
-        mv "$public_dir/assets.next" "$public_dir/assets"
+        mkdir -p "$public_dir/assets"
+        cp -a "$APP_DIR/frontend/dist/assets/." "$public_dir/assets/"
         find "$APP_DIR/frontend/dist" -maxdepth 1 -type f -exec cp -a {} "$public_dir/" \;
+        # Tidying up must not fail the deployment; it can try again next time.
+        prune_superseded_assets || warn "Could not prune superseded assets; they stay on the server until the next deploy."
     else
         warn "Frontend skipped: $APP_DIR/frontend missing or npm not installed."
         warn "Make sure backend/public/index.html + assets/ are already present."

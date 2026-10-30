@@ -1,6 +1,9 @@
 # =============================================================================
 # Apache configuration for the Symfony front controller (production)
 # This file is shipped to backend/public/.htaccess via scripts/build-release.sh
+# and scripts/server/server-deploy.sh. The tracked backend/public/.htaccess is an
+# identical copy, so a git pull applies these rules with no gap and leaves the
+# server's checkout clean; scripts/tests/test-deploy-scripts.sh keeps them equal.
 # Only used when the host runs Apache. Nginx-based hosts ignore it.
 # =============================================================================
 

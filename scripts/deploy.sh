@@ -12,6 +12,21 @@
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/.env.deploy"
+
+fail() { printf "\033[1;31m[fail]\033[0m   %s\n" "$*" >&2; exit 1; }
+
+[ -f "$ENV_FILE" ] || fail "Missing $ENV_FILE. Copy scripts/.env.deploy.example."
+# Read the way post-deploy.sh reads it, so the two cannot disagree: the file wins
+# over the environment. Not exported, because each step loads what it needs.
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+
+# FTP has no way to take a backup, so a person has to vouch for one. Asked now,
+# not by post-deploy.sh in step 3, which would stop with the new code already live
+# against the old schema.
+[ "${BACKUP_CONFIRMED:-0}" = "1" ] \
+    || fail "Set BACKUP_CONFIRMED=1 in $ENV_FILE only after verifying a current database and uploads backup. Nothing was built or uploaded."
 
 YES=0
 [ "${1:-}" = "--yes" ] && YES=1
