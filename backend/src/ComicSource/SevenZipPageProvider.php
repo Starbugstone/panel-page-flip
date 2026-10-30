@@ -3,7 +3,6 @@
 namespace App\ComicSource;
 
 use App\Enum\ComicSourceType;
-use Symfony\Component\Process\Process;
 use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\Cache\ItemInterface;
 
@@ -23,13 +22,12 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
     {
         $pages = $this->index($sourcePath, $type);
         if ($page < 1 || !isset($pages[$page - 1])) throw new \OutOfRangeException('Page not found.');
-        $process = new Process(['7z', 'x', '-so', '-spd', '--', $sourcePath, $pages[$page - 1]]);
         $content = $this->runWithBoundedOutput(
-            $process,
+            ['7z', 'x', '-so', '-spd', '--', $sourcePath, $pages[$page - 1]],
             ComicSourceLimits::MAX_PAGE_BYTES,
             'Archive page exceeds the safety limit.',
         );
-        if (!$process->isSuccessful() || $content === '') throw new \RuntimeException('Archive page extraction failed.');
+        if ($content === '') throw new \RuntimeException('Archive page extraction failed.');
         return PageResult::fromImageContent($content);
     }
     /** @return list<string> */
@@ -52,9 +50,8 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
             $entry = $this->comicInfoEntry($this->listing($sourcePath, $type));
             if ($entry === null) return null;
 
-            $process = new Process(['7z', 'x', '-so', '-spd', '--', $sourcePath, $entry]);
             $xml = $this->runWithBoundedOutput(
-                $process,
+                ['7z', 'x', '-so', '-spd', '--', $sourcePath, $entry],
                 ComicSourceLimits::MAX_METADATA_BYTES,
                 'ComicInfo.xml exceeds the safety limit.',
             );
@@ -62,7 +59,7 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
             return null;
         }
 
-        if (!$process->isSuccessful() || $xml === '') return null;
+        if ($xml === '') return null;
 
         return $xml;
     }
@@ -81,21 +78,15 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
     /** Raw `7z l -slt` output, once the archive is confirmed to match its extension. */
     private function listing(string $path, ComicSourceType $type): string
     {
-        $process = new Process(['7z', 'l', '-slt', '--', $path]);
+        $failureMessage = $type === ComicSourceType::CBR
+            ? 'Could not read this RAR archive. Check Admin → Formats: CBR needs a 7z built with RAR support.'
+            : sprintf('Could not read this %s archive with 7z.', strtoupper($type->value));
         $listing = $this->runWithBoundedOutput(
-            $process,
+            ['7z', 'l', '-slt', '--', $path],
             ComicSourceLimits::MAX_LISTING_BYTES,
             'Archive listing exceeds the safety limit.',
+            $failureMessage,
         );
-        if (!$process->isSuccessful()) {
-            // "Is 7z installed?" sends an administrator looking in the wrong
-            // place for CBR, where the usual cause is a 7z built without the
-            // RAR handler rather than a missing binary. Admin → Formats reports
-            // that distinction; this message points there.
-            throw new \RuntimeException($type === ComicSourceType::CBR
-                ? 'Could not read this RAR archive. Check Admin → Formats: CBR needs a 7z built with RAR support.'
-                : sprintf('Could not read this %s archive with 7z.', strtoupper($type->value)));
-        }
         if (!preg_match('/^Type = (\S+)/mi', $listing, $format)) throw new \RuntimeException('Archive format could not be identified.');
         $actual = strtolower($format[1]);
         $expected = match ($type) { ComicSourceType::CBR => ['rar', 'rar5'], ComicSourceType::CB7 => ['7z'], ComicSourceType::CBT => ['tar'], default => [] };
@@ -104,42 +95,60 @@ final class SevenZipPageProvider implements ComicPageProviderInterface, ComicInf
         return $listing;
     }
 
-    private function runWithBoundedOutput(Process $process, int $limitBytes, string $limitMessage): string
+    /** @param non-empty-list<string> $command */
+    private function runWithBoundedOutput(array $command, int $limitBytes, string $limitMessage, string $failureMessage = 'Archive page extraction failed.'): string
     {
+        if (!\function_exists('proc_open')) throw new \RuntimeException($failureMessage);
+
+        // Symfony's pipe reader may accumulate a continuously written pipe
+        // before invoking its callback. Read fixed chunks ourselves so the
+        // safety check runs before any unbounded buffer can be allocated.
+        $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($process)) throw new \RuntimeException($failureMessage);
+
         $output = '';
         $receivedBytes = 0;
-        $tooLarge = false;
-        $process->setTimeout(self::TIMEOUT);
-        $process->setInput(null);
-        // The callback owns the only output buffer. Otherwise Process retains
-        // a second copy internally, doubling the memory cost at the limit.
-        $process->disableOutput();
-        $process->run(static function (string $channel, string $chunk) use (
-            $process,
-            $limitBytes,
-            &$output,
-            &$receivedBytes,
-            &$tooLarge,
-        ): void {
-            if ($tooLarge) return;
+        $deadline = microtime(true) + self::TIMEOUT;
+        fclose($pipes[0]);
+        unset($pipes[0]);
+        foreach ($pipes as $pipe) stream_set_blocking($pipe, false);
 
-            $chunkBytes = strlen($chunk);
-            // Twice for the output: growing a large string can copy it while the
-            // old one lives. Running out of memory here could not be recovered from.
-            if (ComicSourceLimits::wouldExceedByteLimit($receivedBytes, $chunkBytes, $limitBytes)
-                || !MemoryBudget::fits(2 * ($receivedBytes + $chunkBytes))) {
-                $tooLarge = true;
-                $process->stop(0);
+        try {
+            while ($pipes !== []) {
+                if (microtime(true) > $deadline) throw new \RuntimeException('Archive command timed out.');
+                $ready = $pipes;
+                $write = $except = [];
+                if (@stream_select($ready, $write, $except, 0, 200_000) === false) throw new \RuntimeException($failureMessage);
 
-                return;
+                foreach ($ready as $channel => $pipe) {
+                    $chunk = fread($pipe, 8192);
+                    if ($chunk === false) throw new \RuntimeException($failureMessage);
+                    $chunkBytes = strlen($chunk);
+                    if (ComicSourceLimits::wouldExceedByteLimit($receivedBytes, $chunkBytes, $limitBytes)
+                        || !MemoryBudget::fits(2 * ($receivedBytes + $chunkBytes))) {
+                        throw new \RuntimeException($limitMessage);
+                    }
+                    $receivedBytes += $chunkBytes;
+                    if ($channel === 1) $output .= $chunk;
+                    if (feof($pipe)) {
+                        fclose($pipe);
+                        unset($pipes[$channel]);
+                    }
+                }
             }
-            $receivedBytes += $chunkBytes;
-            if ($channel === Process::OUT) $output .= $chunk;
-        });
 
-        if ($tooLarge) throw new \RuntimeException($limitMessage);
+            $exitCode = proc_close($process);
+            $process = null;
+            if ($exitCode !== 0) throw new \RuntimeException($failureMessage);
 
-        return $output;
+            return $output;
+        } finally {
+            foreach ($pipes as $pipe) fclose($pipe);
+            if (is_resource($process)) {
+                proc_terminate($process, 9);
+                proc_close($process);
+            }
+        }
     }
 
     /** @return list<string> */

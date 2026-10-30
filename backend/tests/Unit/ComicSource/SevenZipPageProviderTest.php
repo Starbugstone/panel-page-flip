@@ -44,14 +44,40 @@ final class SevenZipPageProviderTest extends TestCase
     public function testRefusesAPageLargerThanTheMemoryLeft(): void
     {
         if ((new ExecutableFinder())->find('7z') === null) self::markTestSkipped('7z is not installed.');
-        $php = (new PhpExecutableFinder())->find();
-        if ($php === false) self::markTestSkipped('No PHP binary to run the isolated check with.');
 
         $this->directory = sys_get_temp_dir().'/comic-7z-test-'.bin2hex(random_bytes(6));
         self::assertTrue(mkdir($this->directory, 0700));
         file_put_contents($this->directory.'/page.jpg', str_repeat('x', 40_000_000));
         $archive = $this->directory.'/comic.cbt';
         (new Process(['7z', 'a', '-ttar', $archive, 'page.jpg'], $this->directory))->mustRun();
+
+        $this->assertMemoryLimitedReadIsRefused($archive);
+    }
+
+    public function testRefusesAContinuouslyWritingExtractorBeforeItsPipeFillsMemory(): void
+    {
+        $this->directory = sys_get_temp_dir().'/comic-7z-test-'.bin2hex(random_bytes(6));
+        self::assertTrue(mkdir($this->directory, 0700));
+        $archive = $this->directory.'/comic.cbt';
+        file_put_contents($archive, str_repeat('x', 40_000_000));
+        $extractor = $this->directory.'/7z';
+        file_put_contents($extractor, <<<'SH'
+            #!/bin/sh
+            case "$1" in
+                l) printf 'Type = tar\n----------\nPath = page.jpg\nSize = 40000000\n' ;;
+                x) exec cat "$(dirname "$0")/comic.cbt" ;;
+            esac
+            SH);
+        chmod($extractor, 0700);
+
+        $this->assertMemoryLimitedReadIsRefused($archive, ['PATH' => $this->directory.':'.getenv('PATH')]);
+    }
+
+    /** @param array<string, string> $environment */
+    private function assertMemoryLimitedReadIsRefused(string $archive, array $environment = []): void
+    {
+        $php = (new PhpExecutableFinder())->find();
+        if ($php === false) self::markTestSkipped('No PHP binary to run the isolated check with.');
 
         $script = <<<'PHP'
             require getenv('APP_AUTOLOAD');
@@ -64,7 +90,7 @@ final class SevenZipPageProviderTest extends TestCase
         PHP;
 
         $process = new Process([$php, '-d', 'memory_limit=32M', '-d', 'display_errors=1', '-d', 'log_errors=0', '-r', $script]);
-        $process->setEnv([
+        $process->setEnv($environment + [
             'APP_AUTOLOAD' => \dirname(__DIR__, 3).'/vendor/autoload.php',
             'APP_ARCHIVE' => $archive,
         ]);
