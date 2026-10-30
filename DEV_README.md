@@ -107,7 +107,7 @@ lives in [`docs/`](docs/):
 - **TestApiEndpointsCommand**: Tests API endpoints for registration and login (`app:test-api-endpoints`)
 - **DropboxSyncCommand**: Syncs comics from Dropbox for all connected users (`app:dropbox-sync`)
 - **CleanupLogsCommand**: Deletes daily log files past their retention period (`app:cleanup-logs`)
-- **CleanupPersonalDataCommand**: Removes expired audit rows, spent tokens and unverified accounts (`app:cleanup-personal-data`)
+- **CleanupPersonalDataCommand**: Removes expired audit rows, spent tokens and accounts still unverified when it reaches them (`app:cleanup-personal-data`)
 - **CleanupExpiredSharesCommand**: Removes unanswered invitations, long-dead sharing codes and long-revoked shares (`app:cleanup-expired-shares`)
 - **CleanupContentReportsCommand**: Removes closed/rejected reports past retention, never one on legal hold (`app:cleanup-content-reports`)
 - **ComicFormatsCheckCommand**: Reports which source formats this host can actually serve, and exits non-zero when an enabled one is unserviceable (`app:comic-formats:check`)
@@ -1454,8 +1454,9 @@ composer dump-autoload
 
 **Login rate limiting**: `POST /api/login` allows five attempts per fifteen
 minutes. It is controlled by `LOGIN_RATE_LIMIT_ENABLED`, which is on unless set
-to `0` — the committed `backend/.env` sets `0` because development signs the
-same accounts in repeatedly from one Docker IP. It is deliberately its own
+to `0` — the committed `backend/.env` sets `1`, and only `backend/.env.dev` and
+`backend/.env.test` set `0`, because development and the test suite sign the
+same accounts in repeatedly from one address. It is deliberately its own
 setting rather than a reading of `APP_ENV`: a staging host is reachable from the
 internet whatever it calls its environment. If a login appears to hang locally,
 clear the bucket with
@@ -1613,7 +1614,11 @@ documented in their own pages under `docs/`.
   `IS_AUTHENTICATED_FULLY`; refreshes the session and returns the user.
 - `POST /api/forgot-password` - Request a password reset email
 - `GET /api/reset-password/validate/{token}` - Validate a password reset token
-- `POST /api/reset-password/reset/{token}` - Reset password with a valid token
+- `POST /api/reset-password/reset/{token}` - Reset password with a valid token.
+  Every password change revokes all of the account's outstanding reset links in
+  the same transaction: this route, an administrator's `PUT /api/users/{id}`, and
+  `app:reset-user-password`. Accounts other than administrators have no signed-in
+  password form, so this route is also how they change their own.
 
 #### Comics
 - `GET /api/comics` - Get all comics for the current user
