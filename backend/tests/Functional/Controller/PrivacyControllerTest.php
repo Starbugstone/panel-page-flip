@@ -10,6 +10,7 @@ use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 use App\Tests\Functional\SecurityLogAssertions;
 use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class PrivacyControllerTest extends AbstractApiTestCase
 {
@@ -249,6 +250,29 @@ final class PrivacyControllerTest extends AbstractApiTestCase
         self::assertSame($userId, $record->context['actor_user_id']);
         self::assertSame($userId, $record->context['target_user_id']);
         self::assertTrue($record->context['self_service']);
+    }
+
+    public function testDeletingAnAccountRemovesItsStagedUploadsImmediately(): void
+    {
+        $user = $this->createAndLoginUser();
+        $accountStaging = self::getContainer()->getParameter('upload_staging_directory') . '/' . $user->getId();
+        $otherStaging = self::getContainer()->getParameter('upload_staging_directory') . '/other-account';
+        $filesystem = new Filesystem();
+        $filesystem->dumpFile($accountStaging . '/upload-a/chunk_0', 'part of their file');
+        $filesystem->dumpFile($otherStaging . '/upload-b/chunk_0', 'somebody else');
+
+        try {
+            $this->deleteJson('/api/privacy/account', [
+                'confirmation' => 'DELETE',
+                'currentPassword' => UserFactory::PASSWORD,
+            ]);
+
+            self::assertResponseIsSuccessful();
+            self::assertDirectoryDoesNotExist($accountStaging);
+            self::assertFileExists($otherStaging . '/upload-b/chunk_0');
+        } finally {
+            $filesystem->remove([$accountStaging, $otherStaging]);
+        }
     }
 
     public function testLastAdministratorCannotDeleteOwnAccount(): void

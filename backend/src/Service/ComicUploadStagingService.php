@@ -187,6 +187,15 @@ final class ComicUploadStagingService
     }
 
     /**
+     * Everything an erased account still has staged. The chunks are that person's
+     * files, and the sweep would only reach them after the idle window and a cron run.
+     */
+    public function removeForAccount(int $userId): void
+    {
+        $this->remove($this->stagingDirectory . '/' . $userId);
+    }
+
+    /**
      * The scheduled sweep, across every account.
      *
      * @return array{expired: int, remaining: int}

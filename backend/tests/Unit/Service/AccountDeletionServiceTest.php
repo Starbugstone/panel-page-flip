@@ -8,9 +8,11 @@ use App\Repository\UserRepository;
 use App\Service\AccountDeletionService;
 use App\Service\ComicService;
 use App\Service\ComicShareService;
+use App\Service\ComicUploadStagingService;
 use App\Service\FileQuarantineService;
 use App\Service\PendingFileDeletionService;
 use App\Service\SecurityAuditLogger;
+use App\Service\StorageQuotaService;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Query;
@@ -19,6 +21,7 @@ use Doctrine\Persistence\ManagerRegistry;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Symfony\Component\Lock\LockFactory;
 
 /**
  * delete() must not issue a real commit/rollback when the caller already owns
@@ -177,6 +180,15 @@ final class AccountDeletionServiceTest extends TestCase
             $shareRepository,
             $fileQuarantine ?? $this->createMock(FileQuarantineService::class),
             $pendingFileDeletion,
+            new ComicUploadStagingService(
+                sys_get_temp_dir() . '/account-deletion-test-staging-does-not-exist',
+                1,
+                1,
+                1,
+                (new \ReflectionClass(StorageQuotaService::class))->newInstanceWithoutConstructor(),
+                $this->createMock(LockFactory::class),
+                new NullLogger(),
+            ),
             $this->createMock(UserRepository::class),
             $this->createMock(SecurityAuditLogger::class),
         );

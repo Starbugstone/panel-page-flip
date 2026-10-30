@@ -25,6 +25,7 @@ final class AccountDeletionService
         private readonly ComicShareRepository $shareRepository,
         private readonly FileQuarantineService $fileQuarantine,
         private readonly PendingFileDeletionService $pendingFileDeletion,
+        private readonly ComicUploadStagingService $uploadStaging,
         private readonly UserRepository $userRepository,
         private readonly SecurityAuditLogger $auditLogger,
     ) {
@@ -166,6 +167,8 @@ final class AccountDeletionService
         if ($pendingFileDeletions !== []) {
             $this->pendingFileDeletion->purge($pendingFileDeletions);
         }
+
+        $this->uploadStaging->removeForAccount((int) $userId);
 
         // Written once here, so self-service deletion, admin deletion and the
         // retention sweep all leave the same record. The address is gone by
