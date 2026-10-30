@@ -7,14 +7,18 @@ namespace App\Controller;
 use App\Entity\User;
 use App\Entity\UserMetadataCredential;
 use App\Http\JsonRequestDecoder;
+use App\Metadata\Provider\ProviderAccess;
+use App\Metadata\Provider\ProviderVerification;
 use App\Service\AppDataEncryptionService;
 use App\Service\MetadataProviderConfigurationService;
 use App\Service\MetadataProviderRegistry;
+use App\Service\ProviderCircuitBreaker;
 use App\Service\UserMetadataCredentialService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\Routing\Attribute\Route;
 
 /**
@@ -153,7 +157,9 @@ class MetadataCredentialController extends AbstractController
         Request $request,
         MetadataProviderRegistry $providers,
         UserMetadataCredentialService $credentials,
-        MetadataProviderConfigurationService $configuration
+        MetadataProviderConfigurationService $configuration,
+        ProviderCircuitBreaker $circuitBreaker,
+        RateLimiterFactory $metadataProviderUserLimiter
     ): JsonResponse {
         $user = $this->requireUser();
 
@@ -192,6 +198,34 @@ class MetadataCredentialController extends AbstractController
         $secret = is_string($typed) && trim($typed) !== ''
             ? trim($typed)
             : $this->storedSecret($credentials->for($user), $field);
+
+        // With no credential the provider answers without asking upstream, so
+        // there is nothing to back off from and nothing to charge for.
+        if ($secret !== null) {
+            // The account this credential spends may already have been told to
+            // wait. Hashing is how a typed token and a stored one, or two people
+            // holding the same one, land on the same pause.
+            $paused = $circuitBreaker->pausedFor(ProviderAccess::granted((string) $provider, 'personal', $secret)->accountKey());
+            if ($paused !== null) {
+                $minutes = max(1, (int) ceil($paused / 60));
+
+                return $this->json(['result' => ProviderVerification::rateLimited(sprintf(
+                    'This token cannot be tested for about %d more minute%s, because the provider asked this server to slow down.',
+                    $minutes,
+                    $minutes === 1 ? '' : 's'
+                ))]);
+            }
+
+            // The allowance searches spend. A test is an upstream request like
+            // any other, and a different typed value each time misses every
+            // cache, so it cannot be a free way to spend the provider's patience.
+            if (!$metadataProviderUserLimiter->create((string) $user->getId())->consume()->isAccepted()) {
+                return $this->json(
+                    ['message' => 'You have run a lot of metadata lookups recently. Try again shortly.'],
+                    Response::HTTP_TOO_MANY_REQUESTS
+                );
+            }
+        }
 
         $result = $providers->verifyOne((string) $provider, $secret);
         if ($result === null) {

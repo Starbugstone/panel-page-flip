@@ -18,7 +18,8 @@ use App\Enum\ProviderStatus;
  * its own. The two were describing the same six outcomes in the same six words,
  * and two lists that have to stay in step are one list that eventually does not.
  * Only a subset applies here: a verification is a live call somebody asked for,
- * so it is never `disabled`, `forbidden` or `paused`.
+ * so it is never `disabled`, `forbidden` or `paused`. A credential whose account
+ * is being held off reports `rate_limited`, which is what caused the hold.
  */
 final class ProviderVerification implements \JsonSerializable
 {
