@@ -49,4 +49,44 @@ class ResetPasswordTokenRepository extends ServiceEntityRepository
             ->getQuery()
             ->execute();
     }
+
+    /**
+     * Revoke every outstanding link alongside a password change.
+     *
+     * Marks the managed tokens rather than writing straight away, so the
+     * revocation commits in the same flush as the new password: neither can
+     * land without the other. A user who has never been saved has no tokens.
+     */
+    public function markOutstandingTokensUsed(User $user): void
+    {
+        if ($user->getId() === null) {
+            return;
+        }
+
+        foreach ($this->findBy(['user' => $user, 'isUsed' => false]) as $token) {
+            $token->setIsUsed(true);
+        }
+    }
+
+    /**
+     * Claim one token for its single use.
+     *
+     * The conditional write is the check that counts: a token read as valid may
+     * since have been spent or revoked by a request that got there first.
+     *
+     * @return bool whether this caller is the one that spent it
+     */
+    public function claimToken(ResetPasswordToken $token): bool
+    {
+        return $this->createQueryBuilder('t')
+            ->update()
+            ->set('t.isUsed', ':used')
+            ->where('t.id = :id')
+            ->andWhere('t.isUsed = :unused')
+            ->setParameter('used', true)
+            ->setParameter('id', $token->getId())
+            ->setParameter('unused', false)
+            ->getQuery()
+            ->execute() === 1;
+    }
 }

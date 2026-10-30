@@ -305,6 +305,7 @@ class UserController extends AbstractController
                 'name' => $targetUser->getName(),
                 'roles' => $targetUser->getRoles(),
                 'isEmailVerified' => $targetUser->isEmailVerified(),
+                'metadataApiEnabled' => $targetUser->isMetadataApiEnabled(),
             ],
         ]);
     }

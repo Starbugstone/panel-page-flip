@@ -6,6 +6,7 @@ namespace App\Service;
 
 use App\Entity\User;
 use App\Http\ConstraintViolationErrors;
+use App\Repository\ResetPasswordTokenRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
@@ -21,6 +22,7 @@ final class UserUpdateService
         private readonly PasswordValidator $passwordValidator,
         private readonly AdminAuditService $adminAudit,
         private readonly SecurityAuditLogger $securityAudit,
+        private readonly ResetPasswordTokenRepository $resetTokens,
     ) {
     }
 
@@ -31,58 +33,86 @@ final class UserUpdateService
      */
     public function update(User $actor, User $target, array $data): void
     {
-        $name = $this->name($data);
-        $roles = $this->roles($actor, $target, $data);
-        $metadataApiEnabled = $this->metadataApiEnabled($actor, $data);
-        $password = $this->password($data);
+        // Avoid nesting commits when a caller (or the test suite) already owns
+        // the transaction, as AccountDeletionService does. The transaction opens
+        // first so that the administrator lock below is held until the demotion
+        // it protects has committed.
+        $ownsTransaction = !$this->entityManager->getConnection()->isTransactionActive();
 
-        $before = [
-            'name' => $target->getName(),
-            'roles' => $target->getRoles(),
-            'metadataApiEnabled' => $target->isMetadataApiEnabled(),
-            'password' => $target->getPassword(),
-        ];
+        try {
+            if ($ownsTransaction) {
+                $this->entityManager->beginTransaction();
+            }
 
-        if ($name !== null) {
-            $target->setName($name);
-        }
-        if ($roles !== null) {
-            $target->setRoles($roles);
-        }
-        if ($metadataApiEnabled !== null) {
-            $target->setMetadataApiEnabled($metadataApiEnabled);
-        }
+            $name = $this->name($data);
+            $roles = $this->roles($actor, $target, $data);
+            $metadataApiEnabled = $this->metadataApiEnabled($actor, $data);
+            $password = $this->password($data);
 
-        $passwordChanged = $password !== null;
-        if ($passwordChanged) {
-            $target->setPassword($this->passwordHasher->hashPassword($target, $password));
-        }
+            $before = [
+                'name' => $target->getName(),
+                'roles' => $target->getRoles(),
+                'metadataApiEnabled' => $target->isMetadataApiEnabled(),
+                'password' => $target->getPassword(),
+            ];
 
-        $violations = $this->validator->validate($target);
-        if (count($violations) > 0) {
-            $target
-                ->setName($before['name'])
-                ->setRoles($before['roles'])
-                ->setMetadataApiEnabled($before['metadataApiEnabled'])
-                ->setPassword($before['password']);
+            if ($name !== null) {
+                $target->setName($name);
+            }
+            if ($roles !== null) {
+                $target->setRoles($roles);
+            }
+            if ($metadataApiEnabled !== null) {
+                $target->setMetadataApiEnabled($metadataApiEnabled);
+            }
 
-            throw new UserUpdateRejected(
-                'Validation failed',
-                Response::HTTP_BAD_REQUEST,
-                ConstraintViolationErrors::from($violations),
+            $passwordChanged = $password !== null;
+            if ($passwordChanged) {
+                $target->setPassword($this->passwordHasher->hashPassword($target, $password));
+            }
+
+            $violations = $this->validator->validate($target);
+            if (count($violations) > 0) {
+                $target
+                    ->setName($before['name'])
+                    ->setRoles($before['roles'])
+                    ->setMetadataApiEnabled($before['metadataApiEnabled'])
+                    ->setPassword($before['password']);
+
+                throw new UserUpdateRejected(
+                    'Validation failed',
+                    Response::HTTP_BAD_REQUEST,
+                    ConstraintViolationErrors::from($violations),
+                );
+            }
+
+            if ($passwordChanged) {
+                // After validation, so a refused update revokes nothing, and before
+                // the flush, so the new password and the revocation commit together.
+                $this->resetTokens->markOutstandingTokensUsed($target);
+            }
+
+            $afterRoles = $target->getRoles();
+            $this->recordAdminChanges(
+                $actor,
+                $target,
+                $before['roles'],
+                $afterRoles,
+                $before['metadataApiEnabled'],
+                $metadataApiEnabled,
             );
+            $this->entityManager->flush();
+            if ($ownsTransaction) {
+                $this->entityManager->commit();
+            }
+        } catch (\Throwable $exception) {
+            if ($ownsTransaction && $this->entityManager->getConnection()->isTransactionActive()) {
+                $this->entityManager->rollback();
+            }
+
+            throw $exception;
         }
 
-        $afterRoles = $target->getRoles();
-        $this->recordAdminChanges(
-            $actor,
-            $target,
-            $before['roles'],
-            $afterRoles,
-            $before['metadataApiEnabled'],
-            $metadataApiEnabled,
-        );
-        $this->entityManager->flush();
         $this->recordSecurityChanges($actor, $target, $before['roles'], $afterRoles, $passwordChanged);
     }
 
@@ -131,7 +161,12 @@ final class UserUpdateService
         }
 
         if ($target->isAdmin() && !in_array('ROLE_ADMIN', $roles, true)) {
-            $remainingAdmins = $this->entityManager->getRepository(User::class)->countAdminsExcluding($target);
+            // The same lock account deletion takes, so two removals cannot each
+            // count the other administrator as the one who remains. The count
+            // only means anything once the lock is held.
+            $users = $this->entityManager->getRepository(User::class);
+            $users->lockAdministrators();
+            $remainingAdmins = $users->countAdminsExcluding($target);
             if ($remainingAdmins === 0) {
                 $this->securityAudit->suspicious(
                     SecurityAuditLogger::LAST_ADMIN_PROTECTED,

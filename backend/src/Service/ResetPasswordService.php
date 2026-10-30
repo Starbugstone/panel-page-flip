@@ -124,12 +124,44 @@ class ResetPasswordService
         
         // Hash the new password
         $hashedPassword = $this->passwordHasher->hashPassword($user, $newPassword);
-        $user->setPassword($hashedPassword);
-        
-        // Mark the token as used
-        $resetToken->setIsUsed(true);
-        
-        $this->entityManager->flush();
+
+        // One transaction: spending this link, revoking any other that is still
+        // out, and the password they protect all commit together or not at all.
+        $ownsTransaction = !$this->entityManager->getConnection()->isTransactionActive();
+        try {
+            if ($ownsTransaction) {
+                $this->entityManager->beginTransaction();
+            }
+
+            if (!$this->tokenRepository->claimToken($resetToken)) {
+                if ($ownsTransaction) {
+                    $this->entityManager->rollback();
+                }
+                $this->auditLogger->suspicious(
+                    SecurityAuditLogger::AUTHENTICATION_FAILED,
+                    'reset:' . $this->auditLogger->clientIp(),
+                    ['reason' => 'invalid_or_expired_reset_token'],
+                    $this->auditLogger->failedLoginThreshold()
+                );
+
+                return false;
+            }
+
+            $user->setPassword($hashedPassword);
+            $resetToken->setIsUsed(true);
+            $this->tokenRepository->markOutstandingTokensUsed($user);
+            $this->entityManager->flush();
+
+            if ($ownsTransaction) {
+                $this->entityManager->commit();
+            }
+        } catch (\Throwable $exception) {
+            if ($ownsTransaction && $this->entityManager->getConnection()->isTransactionActive()) {
+                $this->entityManager->rollback();
+            }
+
+            throw $exception;
+        }
 
         $this->auditLogger->audit(SecurityAuditLogger::USER_PASSWORD_RESET_COMPLETED, [
             'actor_user_id' => $user->getId(),

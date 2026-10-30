@@ -11,6 +11,7 @@ use App\Service\Pagination\PaginatedResult;
 use App\Service\Pagination\PaginationRequest;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\DBAL\LockMode;
+use Doctrine\ORM\Query;
 use Doctrine\Persistence\ManagerRegistry;
 use Symfony\Component\Security\Core\Exception\UnsupportedUserException;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
@@ -350,5 +351,21 @@ class UserRepository extends ServiceEntityRepository implements PasswordUpgrader
             ->getQuery()
             ->setLockMode(LockMode::PESSIMISTIC_WRITE)
             ->getResult();
+    }
+
+    /**
+     * Lock one account's row and bring the entity up to date with it.
+     *
+     * @return User|null null when the account no longer exists
+     */
+    public function lockAndRefresh(User $user): ?User
+    {
+        return $this->createQueryBuilder('u')
+            ->where('u.id = :id')
+            ->setParameter('id', $user->getId())
+            ->getQuery()
+            ->setHint(Query::HINT_REFRESH, true)
+            ->setLockMode(LockMode::PESSIMISTIC_WRITE)
+            ->getOneOrNullResult();
     }
 }

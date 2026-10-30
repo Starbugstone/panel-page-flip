@@ -3,6 +3,7 @@ import { PageLoading } from "@/components/layout/PageLayout";
 import { RouteErrorBoundary } from "@/components/layout/RouteErrorBoundary";
 import { RouteAccessibility } from "@/components/layout/RouteAccessibility";
 import { Toaster as Sonner } from "@/components/ui/sonner.jsx";
+import { useToast } from "@/hooks/use-toast";
 import { TooltipProvider } from "@/components/ui/tooltip.jsx";
 import SessionMonitor from "@/components/SessionMonitor.jsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -100,8 +101,21 @@ const AdminRoute = ({ children }) => {
 };
 
 const AppRoutes = () => {
-  const { isAuthenticated, logout, isAdmin } = useAuth();
+  const { isAuthenticated, logout, isAdmin, user } = useAuth();
+  const { toast } = useToast();
   const location = useLocation();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      toast({
+        title: "Could not sign you out",
+        description: "You are still signed in. Check your connection and try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="flex min-h-dvh min-w-0 flex-col">
@@ -109,13 +123,13 @@ const AppRoutes = () => {
       <RouteAccessibility />
       <Header
         isLoggedIn={isAuthenticated}
-        onLogout={logout}
+        onLogout={handleLogout}
         isAdmin={isAdmin}
       />
       {/* Above the routed page rather than on one of them: a notice about a
           comic has to be readable from wherever the reader is, and the comic
           it is about may already be gone. */}
-      <AdminNoticeBanner isLoggedIn={isAuthenticated} />
+      <AdminNoticeBanner accountId={user?.id ?? null} />
       <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
         <RouteErrorBoundary key={location.pathname}>
         <Suspense fallback={<PageLoading />}>

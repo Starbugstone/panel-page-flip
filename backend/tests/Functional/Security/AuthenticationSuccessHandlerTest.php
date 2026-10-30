@@ -28,6 +28,30 @@ class AuthenticationSuccessHandlerTest extends AbstractApiTestCase
         self::assertNotNull($user->getLastLoginAt());
     }
 
+    /**
+     * The client keeps the login response as the signed-in user until the next
+     * page load, so anything missing from it reads as empty until then.
+     */
+    public function testLoginResponseDescribesTheAccountTheWayApiMeDoes(): void
+    {
+        $user = UserFactory::new()->admin()->create([
+            'email' => 'same-shape@test.local',
+            'username' => 'same_shape',
+            'password' => 'Valid!Password123',
+        ]);
+
+        $login = $this->postJson('/api/login', [
+            'email' => $user->getEmail(),
+            'password' => 'Valid!Password123',
+        ]);
+        self::assertResponseIsSuccessful();
+        self::assertSame('same_shape', $login['user']['username']);
+
+        $me = $this->getJson('/api/me');
+        self::assertResponseIsSuccessful();
+        self::assertEquals($me['user'], $login['user']);
+    }
+
     public function testRejectedUnverifiedLoginDoesNotRecordLastLoginDate(): void
     {
         $user = UserFactory::new()->unverified()->create([

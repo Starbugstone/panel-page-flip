@@ -23,6 +23,7 @@ use Twig\Loader\FilesystemLoader;
 final class ResetPasswordServiceMailTest extends TestCase
 {
     private ?Email $sentEmail = null;
+    private bool $tokenCanBeClaimed = true;
 
     public function testResetEmailUsesTheConfiguredSiteName(): void
     {
@@ -79,6 +80,22 @@ final class ResetPasswordServiceMailTest extends TestCase
         self::assertNull($this->sentEmail);
     }
 
+    /** Read as valid, then spent or revoked by a request that got there first. */
+    public function testATokenLostToAnotherRequestChangesNothing(): void
+    {
+        $user = (new User())->setEmail('reader@example.test')->setPassword('original-hash');
+        $token = (new ResetPasswordToken())
+            ->setUser($user)
+            ->setToken(hash('sha256', 'reset-token'))
+            ->setExpiresAt(new \DateTimeImmutable('+1 hour'))
+            ->setIsUsed(false);
+        $this->tokenCanBeClaimed = false;
+
+        self::assertFalse($this->service($user, $token)->resetPassword('reset-token', 'Valid!Password123'));
+        self::assertSame('original-hash', $user->getPassword());
+        self::assertNull($this->sentEmail);
+    }
+
     private function service(User $user, ?ResetPasswordToken $token = null): ResetPasswordService
     {
         $entityManager = $this->createMock(EntityManagerInterface::class);
@@ -88,6 +105,7 @@ final class ResetPasswordServiceMailTest extends TestCase
 
         $tokens = $this->createMock(ResetPasswordTokenRepository::class);
         $tokens->method('findValidToken')->willReturn($token);
+        $tokens->method('claimToken')->willReturnCallback(fn (): bool => $this->tokenCanBeClaimed);
 
         $mailer = $this->createMock(MailerInterface::class);
         $mailer->method('send')->willReturnCallback(function (Email $email): void {

@@ -46,13 +46,14 @@ final class PersonalDataRetentionService
         ];
         $entityManager->flush();
 
+        $unverifiedCutoff = $now->modify('-30 days');
         $staleUserIds = $entityManager->getRepository(User::class)
             ->createQueryBuilder('user')
             ->select('user.id')
             ->where('user.isEmailVerified = :verified')
             ->andWhere('user.createdAt < :cutoff')
             ->setParameter('verified', false)
-            ->setParameter('cutoff', $now->modify('-30 days'))
+            ->setParameter('cutoff', $unverifiedCutoff)
             ->getQuery()
             ->getSingleColumnResult();
 
@@ -64,8 +65,9 @@ final class PersonalDataRetentionService
 
             try {
                 // No actor: nobody asked for this one, the retention policy did.
-                $this->accountDeletion->delete($user);
-                ++$counts['unverifiedAccounts'];
+                if ($this->accountDeletion->deleteIfStillUnverified($user, $unverifiedCutoff)) {
+                    ++$counts['unverifiedAccounts'];
+                }
             } catch (\Throwable $exception) {
                 ++$counts['errors'];
                 $this->logger->error('Failed to remove a stale unverified account.', [
