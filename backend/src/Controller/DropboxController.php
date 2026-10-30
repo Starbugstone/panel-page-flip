@@ -7,6 +7,7 @@ namespace App\Controller;
 use App\Entity\User;
 use App\Service\DropboxClientFactory;
 use App\Service\DropboxConfiguration;
+use App\Service\DropboxFileTooLargeException;
 use App\Service\DropboxImportService;
 use App\Service\PublicUrl;
 use App\Service\SecurityAuditLogger;
@@ -256,6 +257,8 @@ class DropboxController extends AbstractController
                     'tags' => array_merge([DropboxImportService::IMPORT_TAG], $targetFile['tags']),
                 ],
             ]);
+        } catch (DropboxFileTooLargeException $e) {
+            return $this->json(['error' => $e->getMessage()], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         } catch (\Throwable $e) {
             $this->logger->error('Dropbox import failed.', ['user_id' => $user->getId(), 'exception' => $e]);
             return $this->json(['error' => 'Import failed.'], Response::HTTP_INTERNAL_SERVER_ERROR);

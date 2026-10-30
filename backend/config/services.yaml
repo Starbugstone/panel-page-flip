@@ -359,6 +359,7 @@ services:
     App\Service\DropboxImportService:
         arguments:
             $dropboxAppFolder: '%dropbox_app_folder%'
+            $uploadMaxTotalBytes: '%upload_max_total_bytes%'
 
     App\Controller\DropboxController:
         arguments:
