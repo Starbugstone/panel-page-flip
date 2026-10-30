@@ -161,6 +161,7 @@ This file is **gitignored**. Fill in:
 | FTP target      | `FTP_HOST`, `FTP_USER`, `FTP_PASSWORD`, `FTP_PROTOCOL`, `FTP_PORT`, `FTP_VERIFY_CERTIFICATE`, `FTP_REMOTE_ROOT`, `FTP_PARALLEL` | Use `ftps` with certificate verification whenever the host supports it. |
 | Public URL      | `PUBLIC_URL`                                                                                             | Single public origin used by post-deploy calls, backend links, canonical metadata, robots.txt, and sitemap.xml. |
 | Post-deploy     | `POST_DEPLOY_TOKEN`                                                                                      | Run `openssl rand -hex 32`. **Same value** is baked into `backend/.env.local.php` as `DEPLOY_TOKEN` and used as the `X-Deploy-Token` header. |
+| Login throttling | `PROD_LOGIN_RATE_LIMIT_ENABLED` | On (`1`) unless set to `0`, which is only for a developer's own machine. In server-local mode set `LOGIN_RATE_LIMIT_ENABLED=1` in `backend/.env.local` instead. |
 | Symfony secrets | `PROD_APP_SECRET`, `PROD_APP_DATA_KEY`, `PROD_DATABASE_URL`, `PROD_CORS_ALLOW_ORIGIN`, `PROD_MAILER_*` | These are baked into `release/backend/.env.prod.local`, then consolidated into `backend/.env.local.php`. `PUBLIC_URL` is the single public origin for both the build and backend. Preserve `PROD_APP_DATA_KEY` permanently or encrypted Dropbox credentials become unreadable. |
 | Dropbox (opt)   | `PROD_DROPBOX_*`                                                                                         | Skip if you don't import from Dropbox. |
 | Turnstile (opt) | `TURNSTILE_ENABLED`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`                                      | Managed widget for the `PUBLIC_URL` hostname. These names are identical in the deployment and backend env files; the build rejects enabled configuration with a missing key and never prints the secret. |
@@ -228,6 +229,12 @@ Once you've done the one-time setup, every release is:
 
 That wrapper asks "Build? Upload? Run post-deploy?" before each step.
 
+FTP has no way to take a backup, so a person has to vouch for one. Verify a current
+database and uploads backup, then set `BACKUP_CONFIRMED=1` in `scripts/.env.deploy`.
+`deploy.sh` and `deploy-ftp.sh` check it before anything is uploaded, so a release
+cannot stop halfway with new code against the old schema. Only `--dry-run` and
+`--frontend-only` uploads go ahead without it.
+
 For non-interactive releases (e.g. from CI):
 
 ```sh
@@ -243,7 +250,7 @@ For non-interactive releases (e.g. from CI):
    - Builds the React app inside `node:22-alpine` Docker image → `frontend/dist/`
    - Copies `frontend/dist/*` into `release/backend/public/`
    - rsync's `backend/` into `release/backend/` (excluding tests, dev env,
-     uploads/, error.php, etc.)
+     uploads/, etc.)
    - Drops `release/backend/public/.htaccess` (Apache rewrite rules)
    - Drops `release/backend/public/_post-deploy.php` (token-protected)
    - Writes a temporary `release/backend/.env.prod.local` from your `PROD_*`
@@ -259,9 +266,16 @@ For non-interactive releases (e.g. from CI):
 2. **`scripts/deploy-ftp.sh`**
    - Pulls `minidocks/lftp` and runs `lftp mirror --reverse --continue` from
      `release/` to `<FTP_REMOTE_ROOT>` on the server
-   - **Safe mode**: never deletes anything (`--delete` flag must be passed
-     explicitly)
-   - Excludes `.git*`, `*.log`, `node_modules/`, **`public/uploads/`**, etc.
+   - Uploads `public/assets/` first, because the `index.html` in the main mirror
+     refers to it
+   - **Safe mode**: deletes nothing else (`--delete` flag must be passed
+     explicitly), with two exceptions: a stale `public/error.php` is always removed,
+     and previous frontend chunks are removed once they have been out of the live
+     build for `ASSET_RETENTION_DAYS` (default 14). Until then they stay at their
+     original URLs for pages already open, even with `--delete`. The dates are kept
+     in `backend/var/asset-retention.tsv`
+   - Excludes `.git*`, `*.log`, `node_modules/`, **`public/uploads/`**,
+     `var/quarantine/`, etc.
    - Parallel uploads (default 3 connections)
 
 3. **`scripts/post-deploy.sh`**
@@ -321,7 +335,7 @@ docker run --rm \
 mkdir -p release/backend
 rsync -a --exclude='/var/' --exclude='/vendor/' --exclude='/tests/' \
       --exclude='/.env.local' --exclude='/.env.dev' --exclude='/.env.test' \
-      --exclude='/public/uploads/' --exclude='/public/error.php' \
+      --exclude='/public/uploads/' \
       --exclude='/public/index.html' \
       backend/ release/backend/
 
@@ -471,7 +485,8 @@ case — keep it disabled by default.)
 There is no restore workflow in this repository. Recovery is the backup you took
 before the release, restored by hand:
 
-- `scripts/server/backup-comics.sh` is what takes the uploads backup.
+- `scripts/server/backup-comics.sh` is what takes the uploads backup: a dated
+  snapshot beside each dump, under `BACKUP_ROOT` on the server.
 - The database backup is whatever `BACKUP_COMMAND` in `scripts/.env.deploy` runs.
 - `APP_DATA_KEY` must be restored alongside them, or encrypted Dropbox and
   metadata credentials are unrecoverable.
@@ -606,6 +621,9 @@ Vite hashes asset filenames. If only `index.html` was uploaded but assets/
 wasn't (or vice-versa), the SPA loads but JS 404s. Re-run with
 `--frontend-only` to push `assets/` again.
 
+A tab left open for longer than `ASSET_RETENTION_DAYS` can also ask for a chunk that
+has since been removed. It reloads itself once to pick up the current build.
+
 ### "I uploaded over my uploads folder by accident"
 
 You can't, by design — both `build-release.sh` and `deploy-ftp.sh` exclude
@@ -690,9 +708,10 @@ The deploy scripts apply some defaults. **Don't relax them without thinking.**
    do not pass through Symfony's application log. There's no reason for a
    stranger to know it exists.
 
-9. **The `error.php` diagnostic page** that lives in `backend/public/error.php`
-   in development is excluded by `build-release.sh` — make sure no one
-   re-uploads it manually.
+9. **No diagnostic page ships.** `backend/public/error.php` printed server details
+   to anyone who asked, and has been removed from the repository. Every deploy path
+   also deletes a copy left on the server, so an old upload cannot linger. Do not
+   put one back.
 
 ---
 
@@ -706,6 +725,7 @@ The deploy scripts apply some defaults. **Don't relax them without thinking.**
 | `scripts/deploy-ftp.sh`                           | Uploads `release/` to FTP via dockerized `lftp`.          |
 | `scripts/post-deploy.sh`                          | Calls `_post-deploy.php` (or runs commands via SSH).      |
 | `scripts/deploy.sh`                               | Wrapper that chains the three above.                      |
+| `scripts/asset-retention.sh`                      | Decides which superseded frontend chunks a deploy may delete. |
 | `scripts/deploy/htaccess.dist`                    | Apache rewrite + security headers (copied to `public/.htaccess`). |
 | `scripts/deploy/_post-deploy.php.dist`            | Token-protected migration / cache-clear runner. Copied to `public/_post-deploy.php`. |
 | `release/`                                        | Generated, gitignored. Mirrored to the server.            |

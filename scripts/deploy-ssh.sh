@@ -98,6 +98,39 @@ run_remote_script() {
     ssh "${SSH_OPTS[@]}" "$ssh_target" "bash -s" <<< "$script"
 }
 
+# Removes what the previous release needed once ASSET_RETENTION_DAYS have passed.
+# Decided here rather than on the server because --rsync does not update the
+# server's scripts/. Retention needs a complete build to compare against, so a
+# --skip-frontend release leaves the live assets alone.
+prune_superseded_assets() {
+    local public_dir="$REPO_ROOT/release/backend/public"
+    local remote_assets="$SSH_REMOTE_PATH/backend/public/assets"
+    local remote_ledger="$SSH_REMOTE_PATH/backend/var/asset-retention.tsv"
+    if [ ! -d "$public_dir/assets" ] || [ ! -f "$public_dir/index.html" ]; then
+        warn "Superseded asset cleanup skipped (no built frontend assets/index.html in release)."
+        return 0
+    fi
+
+    local work
+    work="$(mktemp -d)"
+    # shellcheck disable=SC2064 # Expanded now: $work is local to this function.
+    trap "rm -rf '$work'" RETURN
+    ls -1A "$public_dir/assets" > "$work/live"
+
+    # shellcheck disable=SC2029 # Expanded locally on purpose, as in run_remote.
+    ssh "${SSH_OPTS[@]}" "$ssh_target" "ls -1A '$remote_assets'" > "$work/present" || return 1
+    # shellcheck disable=SC2029
+    ssh "${SSH_OPTS[@]}" "$ssh_target" "cat '$remote_ledger' 2>/dev/null || true" > "$work/ledger" || return 1
+
+    bash "$SCRIPT_DIR/asset-retention.sh" "$work/live" "$work/present" "$work/ledger" "$work/ledger.next" "$work/expired" || return 1
+
+    # shellcheck disable=SC2029
+    ssh "${SSH_OPTS[@]}" "$ssh_target" "cd '$remote_assets' && xargs -r rm -f --" < "$work/expired" || return 1
+    # shellcheck disable=SC2029
+    ssh "${SSH_OPTS[@]}" "$ssh_target" "cat > '$remote_ledger'" < "$work/ledger.next" || return 1
+    log "Superseded assets deleted after ${ASSET_RETENTION_DAYS:-14} days: $(wc -l < "$work/expired")"
+}
+
 # =============================================================================
 # Custom command escape hatch
 # =============================================================================
@@ -122,22 +155,38 @@ if [ "$USE_RSYNC" = "1" ]; then
     RSYNC_SSH="ssh -p $SSH_PORT"
     [ -n "${SSH_KEY:-}" ] && RSYNC_SSH="$RSYNC_SSH -i $SSH_KEY"
 
-    # --delete-after would otherwise remove the host's own dotenv files, which
-    # are the runtime configuration in the default server-local mode. Compiled
-    # mode is the one case where .env.local.php belongs to the release rather
-    # than to the server, so it is uploaded instead of protected.
+    # The host's own dotenv files are the runtime configuration in the default
+    # server-local mode. Compiled mode is the one case where .env.local.php belongs
+    # to the release rather than to the server, so it is uploaded instead of
+    # protected.
     ENV_EXCLUDES=(--exclude='backend/.env.local' --exclude='backend/.env.prod.local')
     if [ "${DEPLOY_CONFIG_MODE:-server-local}" != "compiled" ]; then
         ENV_EXCLUDES+=(--exclude='backend/.env.local.php')
     fi
 
-    rsync -azv --delete-after \
+    # Deletion is opt-in per path. Only the code directories a release wholly owns
+    # are mirrored; the closing protect rule keeps everything else on the server,
+    # named here or not: scripts/, var/quarantine/, certificate challenges and
+    # whatever a later feature puts there. public/assets/ stays out of the list so
+    # pages already open can still fetch the previous build's chunks. The pattern
+    # covers a directory's contents and not the directory, so a release built with
+    # --skip-backend cannot take the live code with it.
+    MIRROR_FILTERS=()
+    for mirrored in bin config migrations src templates translations vendor; do
+        MIRROR_FILTERS+=(--filter="R /backend/$mirrored/**")
+    done
+
+    # --delay-updates moves everything into place at the end, so the new index.html
+    # never goes live ahead of the chunks it refers to.
+    rsync -azv --delete-after --delay-updates \
         --exclude='backend/public/uploads/' \
         --exclude='backend/public/uploads/*' \
-        --exclude='backend/var/log/' \
-        --exclude='backend/var/cache/' \
+        --exclude='/backend/var/' \
+        --exclude='/backend/config/secrets/prod/prod.decrypt.private.php' \
         "${ENV_EXCLUDES[@]}" \
         --exclude='.git/' \
+        "${MIRROR_FILTERS[@]}" \
+        --filter='P *' \
         -e "$RSYNC_SSH" \
         "$REPO_ROOT/release/" \
         "$ssh_target:$SSH_REMOTE_PATH/"
@@ -149,6 +198,10 @@ if [ "$USE_RSYNC" = "1" ]; then
     REMOTE_SCRIPT=$(cat <<EOF
 set -e
 cd "$SSH_REMOTE_PATH/backend"
+# Excluded from the release, so only a stale copy on the server can still answer.
+rm -f public/error.php
+# var/ is never transferred, so nothing above created these on a new server.
+mkdir -p var/cache var/log var/page-cache
 APP_ENV=prod php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration --env=prod
 APP_ENV=prod php bin/console app:migrate-dropbox-tokens --env=prod
 APP_ENV=prod php bin/console app:backfill-comic-file-size --env=prod
@@ -158,6 +211,10 @@ APP_ENV=prod php bin/console cache:warmup --env=prod --no-debug
 EOF
 )
     run_remote_script "$REMOTE_SCRIPT"
+
+    # Tidying up must not fail a deployment that has already gone out. Nothing is
+    # lost by trying again next time.
+    prune_superseded_assets || warn "Could not prune superseded assets; they stay on the server until the next deploy."
     log "Done."
     exit 0
 fi
@@ -172,6 +229,9 @@ if [ "$DO_GIT" = "1" ]; then
     GIT_BLOCK=$(cat <<EOF
 echo "[remote] git fetch + pull"
 cd "$SSH_REMOTE_PATH"
+# Deployments own this file. A copy or symlink left by an earlier manual Apache
+# setup would otherwise make the pull refuse to update it.
+git checkout -- backend/public/.htaccess 2>/dev/null || true
 git fetch --all --prune
 git checkout "$SSH_GIT_BRANCH"
 git pull --ff-only origin "$SSH_GIT_BRANCH"
@@ -200,6 +260,7 @@ WEB_GROUP="$SSH_WEB_GROUP" \\
 SKIP_FRONTEND="$SKIP_FRONTEND_VAR" \\
 SKIP_COMPOSER="$SKIP_COMPOSER_VAR" \\
 POST_DEPLOY_HOOK="$SSH_POST_DEPLOY_HOOK" \\
+ASSET_RETENTION_DAYS="${ASSET_RETENTION_DAYS:-14}" \\
 BACKUP_COMMAND=$SSH_BACKUP_COMMAND_QUOTED \\
 "$SSH_REMOTE_PATH/scripts/server/server-deploy.sh"
 EOF
