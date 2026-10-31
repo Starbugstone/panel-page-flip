@@ -144,6 +144,28 @@ describe("library hooks", () => {
     expect(result.current.isSearchActive).toBe(true);
   });
 
+  it("keeps a newer search active when an older location load finishes", async () => {
+    let finishLocationLoad;
+    const loadLibrary = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { finishLocationLoad = resolve; }))
+      .mockResolvedValue([]);
+    const { result } = renderHook(() => useLibrarySearch({
+      loadLibrary,
+      ownership: "all",
+      isFolderView: true,
+      activeFolderId: 7,
+      foldersLoading: false,
+      invalidFolder: false,
+    }));
+
+    await act(() => result.current.search({ query: "hero" }));
+    expect(result.current.isSearchActive).toBe(true);
+
+    await act(async () => { finishLocationLoad([]); });
+
+    expect(result.current.isSearchActive).toBe(true);
+  });
+
   it("does not reload an unfiltered library when only the folder tree finishes loading", async () => {
     const loadLibrary = vi.fn().mockResolvedValue([]);
     const { rerender } = renderHook(

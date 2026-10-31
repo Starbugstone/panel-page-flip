@@ -186,6 +186,11 @@ class ComicPageController extends AbstractController
         $response = new Response();
         $response->setPrivate();
         $response->setMaxAge(self::PAGE_CACHE_SECONDS);
+        // Keyed to the session, as covers are: see cacheableImageResponse. Set
+        // before the revalidation below so a 304 says the same thing. A browser
+        // updates its stored headers from one, and a stored entry without Vary
+        // would be served to the next account for the rest of the day.
+        $response->setVary('Cookie');
         $response->headers->set(AbstractSessionListener::NO_AUTO_CACHE_CONTROL_HEADER, 'true');
 
         $modifiedAt = @filemtime($filePath);
@@ -261,6 +266,9 @@ class ComicPageController extends AbstractController
 
         $response = new BinaryFileResponse($archivePath);
         $response->setPrivate();
+        // No max-age, but the Last-Modified BinaryFileResponse adds is enough for a
+        // browser to apply heuristic freshness, and this one is owner-only.
+        $response->setVary('Cookie');
         // The stored filename carries a uniqid, so the download is named after
         // the comic instead. setContentDisposition escapes it and supplies an
         // ASCII fallback for titles that are not.

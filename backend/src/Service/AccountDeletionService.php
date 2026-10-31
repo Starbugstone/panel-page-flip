@@ -7,11 +7,17 @@ use App\Entity\ComicShare;
 use App\Entity\User;
 use App\Repository\ComicShareRepository;
 use App\Repository\UserRepository;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
 
 final class AccountDeletionService
 {
+    /** Audit rows read at a time, so one erasure never holds the whole table. */
+    private const AUDIT_BATCH_SIZE = 500;
+
+    private const REDACTED = '[redacted]';
+
     public function __construct(
         private readonly ManagerRegistry $managerRegistry,
         private readonly ComicService $comicService,
@@ -19,6 +25,7 @@ final class AccountDeletionService
         private readonly ComicShareRepository $shareRepository,
         private readonly FileQuarantineService $fileQuarantine,
         private readonly PendingFileDeletionService $pendingFileDeletion,
+        private readonly ComicUploadStagingService $uploadStaging,
         private readonly UserRepository $userRepository,
         private readonly SecurityAuditLogger $auditLogger,
     ) {
@@ -30,6 +37,31 @@ final class AccountDeletionService
      *                         which acts on nobody's behalf
      */
     public function delete(User $user, ?User $actor = null): void
+    {
+        $this->erase($user, $actor);
+    }
+
+    /**
+     * The retention sweep's way in. Its list of stale accounts is old news by
+     * the time it reaches each one, so whether this account may still go is
+     * decided here, on a locked row, inside the transaction that removes it.
+     * A verification landing first keeps the account; one landing after waits
+     * on the lock and finds it gone.
+     *
+     * @return bool false when the account no longer qualifies and was left alone
+     */
+    public function deleteIfStillUnverified(User $user, \DateTimeImmutable $createdBefore): bool
+    {
+        try {
+            $this->erase($user, null, $createdBefore);
+        } catch (AccountNoLongerEligible) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function erase(User $user, ?User $actor, ?\DateTimeImmutable $unverifiedCreatedBefore = null): void
     {
         // Read before the removal, because afterwards the entity has no id and
         // an audit record that cannot name what it deleted is not one.
@@ -54,6 +86,10 @@ final class AccountDeletionService
         try {
             if ($ownsTransaction) {
                 $entityManager->beginTransaction();
+            }
+
+            if ($unverifiedCreatedBefore !== null) {
+                $this->assertStillUnverified($user, $unverifiedCreatedBefore);
             }
 
             if ($user->isAdmin()) {
@@ -132,6 +168,8 @@ final class AccountDeletionService
             $this->pendingFileDeletion->purge($pendingFileDeletions);
         }
 
+        $this->uploadStaging->removeForAccount((int) $userId);
+
         // Written once here, so self-service deletion, admin deletion and the
         // retention sweep all leave the same record. The address is gone by
         // now — that is the point of the operation — and the id is what the
@@ -153,41 +191,115 @@ final class AccountDeletionService
             || $share->getRecipientEmailNormalized() === ComicShare::normaliseEmail((string) $user->getEmail());
     }
 
-    private function anonymiseAuditHistory(User $user): void
+    private function assertStillUnverified(User $user, \DateTimeImmutable $createdBefore): void
     {
-        $email = (string) $user->getEmail();
-        $name = $user->getName();
+        if ($this->userRepository->lockAndRefresh($user) === null) {
+            throw new AccountNoLongerEligible('The account has already been removed.');
+        }
 
-        foreach ($this->entityManager()->getRepository(AdminAuditLog::class)->findAll() as $log) {
-            if ($log->getAdminUser()?->getId() === $user->getId()) {
-                $log->setAdminUser(null);
-            }
-
-            if ($log->getTargetType() === 'user' && $log->getTargetId() === $user->getId()) {
-                $log->setTargetId(null);
-            }
-
-            $log->setPayload($this->redactPayload($log->getPayload(), $email, $name));
+        if ($user->isEmailVerified() || $user->isAdmin() || $user->getCreatedAt() >= $createdBefore) {
+            throw new AccountNoLongerEligible('The account no longer qualifies for retention cleanup.');
         }
     }
 
-    /**
-     * @param array<mixed>|null $payload
-     * @return array<mixed>|null
-     */
-    private function redactPayload(?array $payload, string $email, ?string $name): ?array
+    private function anonymiseAuditHistory(User $user): void
     {
-        if ($payload === null) {
-            return null;
-        }
+        $entityManager = $this->entityManager();
+        $userId = $user->getId();
+        $email = (string) $user->getEmail();
+        $name = $user->getName();
 
-        array_walk_recursive($payload, static function (&$value) use ($email, $name): void {
+        $lastId = 0;
+        do {
+            $rows = $entityManager->createQueryBuilder()
+                ->select('log.id', 'log.targetType', 'log.targetId', 'IDENTITY(log.adminUser) AS adminUserId', 'log.payload')
+                ->from(AdminAuditLog::class, 'log')
+                ->where('log.id > :lastId')
+                ->setParameter('lastId', $lastId)
+                ->orderBy('log.id', 'ASC')
+                ->setMaxResults(self::AUDIT_BATCH_SIZE)
+                ->getQuery()
+                ->getArrayResult();
+
+            foreach ($rows as $row) {
+                $lastId = (int) $row['id'];
+                if ($row['payload'] === null) {
+                    continue;
+                }
+
+                $aboutUser = (int) $row['adminUserId'] === $userId
+                    || ($row['targetType'] === 'user' && (int) $row['targetId'] === $userId);
+                $redacted = $this->redactPayload($row['payload'], $email, $name, $aboutUser);
+                if ($redacted === $row['payload']) {
+                    continue;
+                }
+
+                $entityManager->createQueryBuilder()
+                    ->update(AdminAuditLog::class, 'log')
+                    ->set('log.payload', ':payload')
+                    ->where('log.id = :id')
+                    ->setParameter('payload', $redacted, Types::JSON)
+                    ->setParameter('id', $lastId)
+                    ->getQuery()
+                    ->execute();
+            }
+        } while (count($rows) === self::AUDIT_BATCH_SIZE);
+
+        // After the walk above, which needs these columns to tell whose row it
+        // is reading.
+        $entityManager->createQueryBuilder()
+            ->update(AdminAuditLog::class, 'log')
+            ->set('log.adminUser', 'NULL')
+            ->where('log.adminUser = :userId')
+            ->setParameter('userId', $userId)
+            ->getQuery()
+            ->execute();
+        $entityManager->createQueryBuilder()
+            ->update(AdminAuditLog::class, 'log')
+            ->set('log.targetId', 'NULL')
+            ->where('log.targetType = :targetType')
+            ->andWhere('log.targetId = :userId')
+            ->setParameter('targetType', 'user')
+            ->setParameter('userId', $userId)
+            ->getQuery()
+            ->execute();
+    }
+
+    /**
+     * An address is unique to its owner, so it goes wherever it appears. A
+     * display name is not: anybody can register as `a`, `Stan Lee` or
+     * `ROLE_USER`. Only a whole value can be taken for the name, and only in a
+     * field that holds a person's name or on a row about this account, so that
+     * one deletion can never rewrite a comic's author or a role in somebody
+     * else's history.
+     *
+     * @param array<mixed> $payload
+     * @return array<mixed>
+     */
+    private function redactPayload(array $payload, string $email, ?string $name, bool $aboutUser): array
+    {
+        // The lookarounds keep ann@example.com from matching inside
+        // joann@example.community, and still allow for a sentence's full stop.
+        $emailPattern = $email === ''
+            ? null
+            : '/(?<![\w.%+-])'.preg_quote($email, '/').'(?![\w%+-]|\.\w)/iu';
+        $normalisedName = mb_strtolower(trim((string) $name));
+
+        array_walk_recursive($payload, static function (&$value, $key) use ($emailPattern, $normalisedName, $aboutUser): void {
             if (!is_string($value)) {
                 return;
             }
-            $value = str_ireplace($email, '[redacted]', $value);
-            if ($name !== null && $name !== '') {
-                $value = str_ireplace($name, '[redacted]', $value);
+            if ($normalisedName !== ''
+                && ($aboutUser || $key === 'name')
+                && mb_strtolower(trim($value)) === $normalisedName
+            ) {
+                $value = self::REDACTED;
+
+                return;
+            }
+            if ($emailPattern !== null) {
+                // A value the pattern cannot be run over is not one to keep.
+                $value = preg_replace($emailPattern, self::REDACTED, $value) ?? self::REDACTED;
             }
         });
 

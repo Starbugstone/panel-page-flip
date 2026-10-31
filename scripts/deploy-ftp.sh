@@ -4,8 +4,9 @@
 # -----------------------------------------------------------------------------
 # Mirrors the ./release tree to a remote FTP/FTPS server using lftp inside Docker.
 # Safe-mode by default: never deletes application/server state and never
-# touches user-content folders. Generated public/assets/ is the one exception:
-# it is mirrored exactly so obsolete content-hashed Vite chunks are pruned.
+# touches user-content folders. Two narrow exceptions: public/error.php, which no
+# release ships, is always removed, and superseded content-hashed Vite chunks are
+# removed once they have outlived ASSET_RETENTION_DAYS (see asset-retention.sh).
 #
 # Usage:
 #   ./scripts/deploy-ftp.sh                  # full upload (safe mode, no delete)
@@ -75,6 +76,14 @@ case "$FTP_VERIFY_CERTIFICATE" in
     *) fail "FTP_VERIFY_CERTIFICATE must be 0 or 1" ;;
 esac
 
+# FTP has no way to take a backup, so a person has to vouch for one. post-deploy.sh
+# refuses to migrate without this, and by then the new code would already be live
+# against the old schema. A frontend-only upload is the one run that needs no
+# migration to follow it.
+if [ "$DRY_RUN" != "1" ] && [ "$SCOPE" != "frontend" ] && [ "${BACKUP_CONFIRMED:-0}" != "1" ]; then
+    fail "Set BACKUP_CONFIRMED=1 in $ENV_FILE only after verifying a current database and uploads backup. Nothing was uploaded."
+fi
+
 command -v docker >/dev/null 2>&1 || fail "docker is required."
 
 # --- build the lftp script ---------------------------------------------------
@@ -97,6 +106,11 @@ COMMON_EXCLUDES=(
     # are left alone, which keeps a --delete run from throwing away a warm
     # cache the server would then have to rebuild a page at a time.
     --exclude-glob "var/page-cache/*"
+    # Quarantined originals are the only copy left, and the ledger is how old
+    # assets get their retention period.
+    --exclude-glob "var/quarantine/"
+    --exclude-glob "var/upload-staging/"
+    --exclude-glob "var/asset-retention.tsv"
 )
 
 # The host's compiled env is production state in the default server-local mode,
@@ -123,12 +137,15 @@ case "$SCOPE" in
     all)
         LOCAL_DIR="$RELEASE_DIR/"
         REMOTE_DIR="$FTP_REMOTE_ROOT"
+        COMMON_EXCLUDES+=(--exclude-glob "public/assets/")
         ;;
     frontend)
         LOCAL_DIR="$RELEASE_DIR/backend/public/"
         REMOTE_DIR="$FTP_REMOTE_ROOT/backend/public"
         # Frontend-only also leaves index.php / _post-deploy.php / .htaccess in
         # sync because they live in the same dir.
+        # This mirror starts inside public/, so protect uploads relative to it.
+        COMMON_EXCLUDES+=(--exclude-glob "assets/" --exclude-glob "uploads/" --exclude-glob "uploads/*")
         ;;
     backend)
         LOCAL_DIR="$RELEASE_DIR/backend/"
@@ -136,6 +153,7 @@ case "$SCOPE" in
         # Frontend assets in backend/public/ ARE included; if you want to
         # exclude them, run with --backend-only and then --frontend-only
         # separately, with the right script ordering.
+        COMMON_EXCLUDES+=(--exclude-glob "public/assets/")
         ;;
 esac
 
@@ -178,41 +196,92 @@ done
 
 LFTP_MIRROR="mirror --reverse --continue --parallel=${FTP_PARALLEL} --verbose ${DRY_FLAG} ${DELETE_FLAG} ${EXCL_STR} ${LOCAL_DIR}/ ${REMOTE_DIR}/"
 
-# The normal mirror is deliberately non-destructive unless --delete is passed,
-# because production contains server-managed state. Vite's generated assets are
-# different: the release directory is authoritative and hashed filenames change
-# every build. Mirror that one directory with --delete so dead chunks do not
-# accumulate. Requiring index.html prevents --skip-frontend builds from wiping
-# the live asset directory.
-ASSET_PRUNE_COMMAND=""
+# Assets go up in their own step, never with --delete, because pages already open
+# keep asking for the old build's chunks. They also go first: the main mirror
+# publishes the index.html that refers to them, and with cmd:fail-exit a failed
+# asset upload stops it from doing so.
+ASSET_UPLOAD_COMMAND=""
 ASSET_LOCAL_DIR="$RELEASE_DIR/backend/public/assets"
 ASSET_REMOTE_DIR="${FTP_REMOTE_ROOT%/}/backend/public/assets"
-if [ -d "$ASSET_LOCAL_DIR" ] && [ -f "$RELEASE_DIR/backend/public/index.html" ]; then
-    ASSET_PRUNE_COMMAND="mirror --reverse --continue --parallel=${FTP_PARALLEL} --verbose ${DRY_FLAG} --delete ${ASSET_LOCAL_DIR}/ ${ASSET_REMOTE_DIR}/"
-    log "Generated asset cleanup: enabled for public/assets/"
-else
-    warn "Generated asset cleanup skipped (no built frontend assets/index.html in release)."
+if [ -d "$ASSET_LOCAL_DIR" ]; then
+    ASSET_UPLOAD_COMMAND="mirror --reverse --continue --parallel=${FTP_PARALLEL} --verbose ${DRY_FLAG} ${ASSET_LOCAL_DIR}/ ${ASSET_REMOTE_DIR}/"
 fi
 
-# --- run inside docker --------------------------------------------------------
-log "Starting lftp via docker (this may take a while)..."
+# Excluded from the release, so only a stale copy on the server can still answer.
+# The mirror is non-destructive and would never remove it on its own.
+STALE_FILE_COMMAND=""
+if [ "$DRY_RUN" != "1" ]; then
+    STALE_FILE_COMMAND="rm -f ${FTP_REMOTE_ROOT%/}/backend/public/error.php"
+fi
 
-docker run --rm -i \
-    -v "$REPO_ROOT":/repo \
-    -w /repo \
-    --entrypoint sh \
-    minidocks/lftp:latest \
-    -c "
+lftp_session() {
+    docker run --rm -i \
+        -v "$REPO_ROOT":/repo \
+        -w /repo \
+        --entrypoint sh \
+        minidocks/lftp:latest \
+        -c "
 set -e
 lftp <<'LFTPEOF'
 ${LFTP_SETTINGS}
 ${LFTP_OPEN}
-${LFTP_MIRROR}
-${ASSET_PRUNE_COMMAND}
+$1
 bye
 LFTPEOF
-" \
+"
+}
+
+# --- run inside docker --------------------------------------------------------
+log "Starting lftp via docker (this may take a while)..."
+
+lftp_session "set cmd:fail-exit yes
+${ASSET_UPLOAD_COMMAND}
+${LFTP_MIRROR}
+${STALE_FILE_COMMAND}" \
     || fail "lftp mirror failed."
+
+# Retention needs a complete build to compare against, so a --skip-frontend
+# release leaves the live assets alone.
+ASSET_LEDGER_REMOTE="${FTP_REMOTE_ROOT%/}/backend/var/asset-retention.tsv"
+prune_superseded_assets() {
+    local work listing
+    work="$(mktemp -d)"
+    # shellcheck disable=SC2064 # Expanded now: $work is local to this function.
+    trap "rm -rf '$work'; rm -f '$RELEASE_DIR/.asset-retention.next'" RETURN
+    ls -1A "$ASSET_LOCAL_DIR" > "$work/live"
+
+    # A first deployment has no ledger, which lftp reports and carries on from.
+    # cls comes last because its status is the one this session returns.
+    listing="$(lftp_session "echo @@ledger
+cat ${ASSET_LEDGER_REMOTE}
+echo @@present
+cd ${ASSET_REMOTE_DIR}
+cls -1")" || return 1
+    printf '%s\n' "$listing" | sed -n '/^@@ledger$/,/^@@present$/p' | sed '/^@@/d' > "$work/ledger"
+    printf '%s\n' "$listing" | sed -n '/^@@present$/,$p' | sed '/^@@/d' > "$work/present"
+
+    bash "$SCRIPT_DIR/asset-retention.sh" "$work/live" "$work/present" "$work/ledger" "$work/ledger.next" "$work/expired" || return 1
+
+    local commands="" name
+    while IFS= read -r name; do
+        commands+="rm -f ${ASSET_REMOTE_DIR}/${name}"$'\n'
+    done < "$work/expired"
+
+    # Inside the repository because that is what the container has mounted.
+    cp "$work/ledger.next" "$RELEASE_DIR/.asset-retention.next"
+    lftp_session "${commands}put /repo/release/.asset-retention.next -o ${ASSET_LEDGER_REMOTE}" || return 1
+    log "Superseded assets deleted after ${ASSET_RETENTION_DAYS:-14} days: $(wc -l < "$work/expired")"
+}
+
+if [ "$DRY_RUN" = "1" ]; then
+    log "Dry run: superseded assets are left alone."
+elif [ -d "$ASSET_LOCAL_DIR" ] && [ -f "$RELEASE_DIR/backend/public/index.html" ]; then
+    # Tidying up must not fail a deployment that has already gone out. Nothing is
+    # lost by trying again next time.
+    prune_superseded_assets || warn "Could not prune superseded assets; they stay on the server until the next deploy."
+else
+    warn "Superseded asset cleanup skipped (no built frontend assets/index.html in release)."
+fi
 
 log "Upload complete."
 log "Run:   ./scripts/post-deploy.sh   to apply migrations and clear cache."

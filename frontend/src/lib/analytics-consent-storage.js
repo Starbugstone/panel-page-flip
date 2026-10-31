@@ -28,6 +28,35 @@ function store(storage) {
   return storage ?? globalThis.localStorage;
 }
 
+/** The stored decision and when it lapses, or null if there is none to act on. */
+function readValidRecord(storage, now) {
+  try {
+    const raw = store(storage).getItem(ANALYTICS_CONSENT_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (parsed?.version !== ANALYTICS_CONSENT_VERSION) return null;
+    if (typeof parsed.decidedAt !== "string") return null;
+    const decidedAt = Date.parse(parsed.decidedAt);
+    const age = now - decidedAt;
+    if (
+      !Number.isFinite(decidedAt)
+      || !Number.isFinite(age)
+      || age < 0
+      || age > ANALYTICS_CONSENT_MAX_AGE_MS
+      || !DECISIONS.includes(parsed.decision)
+    ) {
+      return null;
+    }
+
+    return { decision: parsed.decision, expiresAt: decidedAt + ANALYTICS_CONSENT_MAX_AGE_MS };
+  } catch {
+    // Blocked storage, or somebody else's value under our key. Either way there
+    // is no decision to act on.
+    return null;
+  }
+}
+
 /**
  * The stored decision, or `undecided`.
  *
@@ -36,30 +65,12 @@ function store(storage) {
  * point: the tag must not load because a corrupted value happened to be truthy.
  */
 export function readAnalyticsConsent(storage, now = Date.now()) {
-  try {
-    const raw = store(storage).getItem(ANALYTICS_CONSENT_STORAGE_KEY);
-    if (!raw) return ANALYTICS_CONSENT_UNDECIDED;
+  return readValidRecord(storage, now)?.decision ?? ANALYTICS_CONSENT_UNDECIDED;
+}
 
-    const parsed = JSON.parse(raw);
-    if (parsed?.version !== ANALYTICS_CONSENT_VERSION) return ANALYTICS_CONSENT_UNDECIDED;
-    if (typeof parsed.decidedAt !== "string") return ANALYTICS_CONSENT_UNDECIDED;
-    const decidedAt = Date.parse(parsed.decidedAt);
-    const age = now - decidedAt;
-    if (
-      !Number.isFinite(decidedAt)
-      || !Number.isFinite(age)
-      || age < 0
-      || age > ANALYTICS_CONSENT_MAX_AGE_MS
-    ) {
-      return ANALYTICS_CONSENT_UNDECIDED;
-    }
-
-    return DECISIONS.includes(parsed.decision) ? parsed.decision : ANALYTICS_CONSENT_UNDECIDED;
-  } catch {
-    // Blocked storage, or somebody else's value under our key. Either way there
-    // is no decision to act on.
-    return ANALYTICS_CONSENT_UNDECIDED;
-  }
+/** The last moment the stored decision still reads as valid, or null if none does. */
+export function analyticsConsentExpiresAt(storage, now = Date.now()) {
+  return readValidRecord(storage, now)?.expiresAt ?? null;
 }
 
 export function persistAnalyticsConsent(decision, storage, now = Date.now()) {

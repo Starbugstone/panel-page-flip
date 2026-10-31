@@ -19,11 +19,28 @@
  */
 export const GOOGLE_FREE_ROUTES = Object.freeze(["/privacy", "/cookies", "/terms"]);
 
-/** Exact matches only, on the same normalisation the other route checks use. */
+/**
+ * The path as React Router decodes it to choose a route, which it does not
+ * export: once per segment, an encoded slash staying encoded, and a malformed
+ * path left as it is.
+ */
+function decodeRoutePath(path) {
+  try {
+    return path.split("/").map((segment) => decodeURIComponent(segment).replace(/\//g, "%2F")).join("/");
+  } catch {
+    return path;
+  }
+}
+
+/**
+ * Exact matches only, on the same normalisation the other route checks use,
+ * after the decoding that makes `/%70rivacy` render the privacy page.
+ */
 export function isGoogleFreeRoute(pathname) {
   if (typeof pathname !== "string") return false;
   const [withoutQuery] = pathname.split(/[?#]/);
-  const normalised = withoutQuery.length > 1 ? withoutQuery.replace(/\/+$/, "") : withoutQuery;
+  const decoded = decodeRoutePath(withoutQuery);
+  const normalised = decoded.length > 1 ? decoded.replace(/\/+$/, "") : decoded;
 
   return GOOGLE_FREE_ROUTES.includes(normalised.toLowerCase());
 }

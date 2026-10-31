@@ -16,8 +16,10 @@ use Spatie\Dropbox\RefreshableTokenProvider;
  * with it. That is what makes this refresh-on-rejection rather than
  * refresh-first: the stored token is used until Dropbox actually objects.
  *
- * It also means every endpoint is covered by construction — listing, download,
- * temporary links, account info — without a retry wrapper at any call site.
+ * It also means every endpoint the client calls is covered by construction —
+ * listing, temporary links, account info — without a retry wrapper at any call
+ * site. An import's fallback download is the exception: it is streamed outside
+ * the client, after the temporary-link request has had the chance to refresh.
  */
 final class DropboxTokenProvider implements RefreshableTokenProvider
 {

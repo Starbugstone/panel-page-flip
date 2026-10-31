@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\ComicSource\MemoryBudget;
 use App\ComicSource\PageResult;
 use Psr\Log\LoggerInterface;
 
@@ -32,6 +33,10 @@ final class ComicPageDelivery
      * reader is better served by the original than by a stalled request.
      */
     private const MAX_PIXELS = 80_000_000;
+
+    /** A palette image is held in both forms while imagepalettetotruecolor() runs. */
+    private const DECODE_BYTES_PER_PIXEL = 5;
+    private const TRUE_COLOUR_BYTES_PER_PIXEL = 4;
 
     private ?bool $canEncodeWebp = null;
 
@@ -126,6 +131,13 @@ final class ComicPageDelivery
         $targetWidth = $maxWidth !== null && $width > $maxWidth ? $maxWidth : $width;
         if ($targetWidth === $width && $source->mimeType === 'image/webp') return $source;
         if (!$this->webpAvailable()) return null;
+
+        // GD's pixels count against memory_limit, a small file can declare a
+        // great many of them, and exhausting the limit is fatal rather than
+        // something the fallback below could catch.
+        $needed = $width * $height * self::DECODE_BYTES_PER_PIXEL;
+        if ($targetWidth < $width) $needed += $targetWidth * ceil($height * $targetWidth / $width) * self::TRUE_COLOUR_BYTES_PER_PIXEL;
+        if (!MemoryBudget::fits($needed)) return null;
 
         $decoded = @imagecreatefromstring($source->content);
         if ($decoded === false) return null;

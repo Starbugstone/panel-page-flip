@@ -10,6 +10,7 @@ use Psr\Log\LoggerInterface;
 use Spatie\Dropbox\Client as DropboxClient;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Symfony\Contracts\HttpClient\ResponseInterface;
 
 /**
  * Dropbox listing and import logic shared by the HTTP controller and the CLI
@@ -28,13 +29,16 @@ class DropboxImportService
      */
     public const IMPORT_DESCRIPTION = 'Synced from Dropbox';
 
+    private const DOWNLOAD_ENDPOINT = 'https://content.dropboxapi.com/2/files/download';
+
     public function __construct(
         private readonly ComicService $comicService,
         private readonly EntityManagerInterface $entityManager,
         private readonly HttpClientInterface $httpClient,
         private readonly LoggerInterface $logger,
         private readonly ComicFormatService $comicFormatService,
-        private readonly string $dropboxAppFolder
+        private readonly string $dropboxAppFolder,
+        private readonly int $uploadMaxTotalBytes
     ) {
     }
 
@@ -103,10 +107,12 @@ class DropboxImportService
     public function getImportedIndex(User $user): array
     {
         $rows = $this->entityManager->createQueryBuilder()
-            ->select('c.dropboxPath', 'c.title')
+            ->select('c.dropboxPath', 'c.title', 'c.description', 't.id AS importTagId')
             ->from(Comic::class, 'c')
+            ->leftJoin('c.tags', 't', 'WITH', 't.name = :importTag')
             ->where('c.owner = :owner')
             ->setParameter('owner', $user)
+            ->setParameter('importTag', self::IMPORT_TAG)
             ->getQuery()
             ->getArrayResult();
 
@@ -115,8 +121,18 @@ class DropboxImportService
         foreach ($rows as $row) {
             if ($row['dropboxPath'] !== null && $row['dropboxPath'] !== '') {
                 $paths[mb_strtolower($row['dropboxPath'])] = true;
+                continue;
             }
-            if ($row['title'] !== null && $row['title'] !== '') {
+
+            // A title only stands in for a path on a comic that came from
+            // Dropbox before paths were recorded. A comic with a path is already
+            // answered exactly above, and an ordinary upload says nothing about
+            // what is in Dropbox: letting either in reports a different file with
+            // the same name as already imported, and it is then never imported.
+            // Either marker will do, because an owner can edit the description.
+            $isLegacyImport = ($row['description'] ?? null) === self::IMPORT_DESCRIPTION
+                || ($row['importTagId'] ?? null) !== null;
+            if ($isLegacyImport && $row['title'] !== null && $row['title'] !== '') {
                 $titles[$this->normaliseTitle($row['title'])] = true;
             }
         }
@@ -149,10 +165,17 @@ class DropboxImportService
      * comics directory: ComicService copies it to its final home, so anything
      * left in the comics tree would be a permanent duplicate.
      *
-     * @param array{path: string, name: string, tags: list<string>, ...} $fileInfo
+     * @param array{path: string, name: string, tags: list<string>, size?: int, ...} $fileInfo
+     *
+     * @throws DropboxFileTooLargeException before downloading when Dropbox declares
+     *         the file over the upload maximum, or as soon as a download passes it
      */
     public function import(DropboxClient $client, User $user, array $fileInfo): Comic
     {
+        if ($this->exceedsUploadLimit($fileInfo)) {
+            throw $this->tooLarge($fileInfo['path']);
+        }
+
         $stagedPath = tempnam(sys_get_temp_dir(), 'dropbox_import_');
         if ($stagedPath === false) {
             throw new \RuntimeException('Could not create a temporary file for the Dropbox download.');
@@ -219,6 +242,22 @@ class DropboxImportService
                 continue;
             }
 
+            // Ahead of the limit and not charged to it. Refusing costs nothing,
+            // and a file this size fails on every run, so charging it would let
+            // a few of them spend each run's allowance and starve the files
+            // listed after them forever.
+            if ($this->exceedsUploadLimit($fileInfo)) {
+                $failed++;
+                $tooLarge = $this->tooLarge($fileInfo['path']);
+                $this->logger->warning('Skipped a Dropbox file over the upload maximum.', [
+                    'user_id' => $user->getId(),
+                    'path' => $fileInfo['path'],
+                    'size' => $fileInfo['size'] ?? null,
+                ]);
+                $notify('failed', ['file' => $fileInfo, 'exception' => $tooLarge]);
+                continue;
+            }
+
             if ($processed >= $limit) {
                 $notify('limitReached', ['limit' => $limit]);
                 break;
@@ -268,6 +307,10 @@ class DropboxImportService
      * The archive is streamed into the staged file: a comic can be hundreds of
      * megabytes, and holding one in a PHP string exhausts the memory limit long
      * before the filesystem runs out of room.
+     *
+     * The fallback asks the endpoint itself rather than calling the Spatie
+     * client's download(), which reads the whole body into a temporary stream
+     * before returning. No limit applied after that could stop the transfer.
      */
     private function downloadFile(DropboxClient $client, string $path, string $stagedPath): void
     {
@@ -278,12 +321,13 @@ class DropboxImportService
 
         try {
             try {
-                $response = $this->httpClient->request('GET', $client->getTemporaryLink($path));
-                foreach ($this->httpClient->stream($response) as $chunk) {
-                    fwrite($staged, $chunk->getContent());
-                }
+                $this->streamWithinLimit($this->httpClient->request('GET', $client->getTemporaryLink($path)), $staged, $path);
 
                 return;
+            } catch (DropboxFileTooLargeException $e) {
+                // The file is too large by any route, so the fallback would only
+                // spend the same bandwidth reaching the same refusal.
+                throw $e;
             } catch (\Throwable $e) {
                 $this->logger->debug('Dropbox temporary link download failed, falling back to direct download.', [
                     'path' => $path,
@@ -298,20 +342,64 @@ class DropboxImportService
                 throw new \RuntimeException('Could not reset the staged Dropbox download before retrying.');
             }
 
-            $source = $client->download($path);
-
-            try {
-                if (stream_copy_to_stream($source, $staged) === false) {
-                    throw new \RuntimeException('Failed to stream the Dropbox download to disk.');
-                }
-            } finally {
-                if (is_resource($source)) {
-                    fclose($source);
-                }
-            }
+            $this->streamWithinLimit($this->httpClient->request('POST', self::DOWNLOAD_ENDPOINT, [
+                'auth_bearer' => $client->getAccessToken(),
+                'headers' => ['Dropbox-API-Arg' => json_encode(['path' => $path], \JSON_THROW_ON_ERROR)],
+            ]), $staged, $path);
         } finally {
             fclose($staged);
         }
+    }
+
+    /**
+     * Write a response to the staged file, refusing it as soon as it is known to
+     * be over the upload maximum. Dropbox's listing and Content-Length are claims
+     * about the size, so the bytes that actually arrive are counted as well.
+     *
+     * @param resource $staged
+     */
+    private function streamWithinLimit(ResponseInterface $response, $staged, string $path): void
+    {
+        if ($response->getStatusCode() !== 200) {
+            $response->cancel();
+
+            throw new \RuntimeException(sprintf('Dropbox answered the download with HTTP %d.', $response->getStatusCode()));
+        }
+
+        $declared = (int) ($response->getHeaders(false)['content-length'][0] ?? 0);
+        if ($declared > $this->uploadMaxTotalBytes) {
+            $response->cancel();
+
+            throw $this->tooLarge($path);
+        }
+
+        $written = 0;
+        foreach ($this->httpClient->stream($response) as $chunk) {
+            $content = $chunk->getContent();
+            $written += strlen($content);
+            if ($written > $this->uploadMaxTotalBytes) {
+                $response->cancel();
+
+                throw $this->tooLarge($path);
+            }
+
+            fwrite($staged, $content);
+        }
+    }
+
+    /** @param array{size?: int, ...} $fileInfo */
+    private function exceedsUploadLimit(array $fileInfo): bool
+    {
+        return ($fileInfo['size'] ?? 0) > $this->uploadMaxTotalBytes;
+    }
+
+    private function tooLarge(string $path): DropboxFileTooLargeException
+    {
+        return new DropboxFileTooLargeException(sprintf(
+            '%s is larger than the %s upload limit.',
+            basename($path),
+            $this->formatFileSize($this->uploadMaxTotalBytes)
+        ));
     }
 
     /**

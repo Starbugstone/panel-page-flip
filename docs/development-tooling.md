@@ -63,7 +63,12 @@ CI also runs ShellCheck across every Bash deployment and conversion script, then
 executes the Unix and Windows conversion suites on their native runners. The
 download checksum check proves that the published archives match the source;
 the platform suites prove that the source still converts, skips, reports, and
-cleans up correctly.
+cleans up correctly. `scripts/tests/test-deploy-scripts.sh` runs the backup, build,
+deploy and post-deploy scripts against temporary directories with `ssh` and `docker`
+stubbed; it needs `rsync`, `php`, `git` and `lftp` on the host and contacts no server.
+FTP deletion cases execute the generated mirror commands with lftp's local file
+transport, checking that originals, quarantine and staged chunks survive in every
+scope while obsolete application files are deleted.
 
 ### Content-Security-Policy
 
@@ -80,7 +85,8 @@ build Apache responses with a cryptographic per-response nonce.
 The Google-free profile is derived by removing every origin in the manifest's
 `googleOrigins` from every directive, so an origin added above cannot survive
 here by being forgotten; the generator refuses to run if a Google-shaped source
-appears in a directive without being declared there.
+appears in a directive without being declared there. Despite the name, that list
+also holds Metron's cover image host, which the legal routes have no use for.
 
 Run `node scripts/generate-csp.mjs` after editing the manifest, and
 `npm run check:csp --prefix frontend` to verify — CI runs the check.

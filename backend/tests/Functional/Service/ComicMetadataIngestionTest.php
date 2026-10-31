@@ -54,6 +54,37 @@ final class ComicMetadataIngestionTest extends AbstractApiTestCase
     }
 
     /**
+     * Strict MySQL refuses a row with one value past its column, so these used
+     * to cost the uploader the whole comic.
+     */
+    public function testStoresAComicWhoseMetadataIsLongerThanItsColumns(): void
+    {
+        $long = str_repeat('é', 1_990);
+        $writers = implode(', ', array_map(static fn (int $i): string => sprintf('Writer %d %s', $i, str_repeat('x', 40)), range(1, 20)));
+
+        $comic = $this->upload($this->comicInfo(
+            "<Series>$long</Series><Number>$long</Number><Publisher>$long</Publisher><AgeRating>$long</AgeRating>"
+            .'<Summary>'.str_repeat('😀', 20_000)."</Summary><Writer>$writers</Writer>"
+        ));
+
+        $em = self::getContainer()->get('doctrine.orm.entity_manager');
+        $em->clear();
+        $stored = $em->find(\App\Entity\Comic::class, $comic->getId());
+        self::assertNotNull($stored);
+
+        self::assertSame(255, mb_strlen((string) $stored->getSeries()));
+        self::assertSame(50, mb_strlen((string) $stored->getIssueNumber()));
+        self::assertSame(255, mb_strlen((string) $stored->getPublisher()));
+        self::assertSame(32, mb_strlen((string) $stored->getAgeRating()));
+        self::assertLessThanOrEqual(65_535, strlen((string) $stored->getDescription()));
+
+        $author = (string) $stored->getAuthor();
+        self::assertLessThanOrEqual(255, mb_strlen($author));
+        self::assertStringStartsWith('Writer 1 ', $author);
+        self::assertMatchesRegularExpression('/x$/', $author, 'The credit should end on a whole name.');
+    }
+
+    /**
      * The uploader was looking at the comic; whoever packaged it was not. Their
      * answers are not overwritten by the file's.
      */
@@ -137,6 +168,9 @@ final class ComicMetadataIngestionTest extends AbstractApiTestCase
         $zip->addFromString('page-02.jpg', $this->onePixelJpeg()."\x00");
         if ($comicInfo !== null) {
             $zip->addFromString('ComicInfo.xml', $comicInfo);
+            // Stored, so a long and repetitive document is judged on what it
+            // says rather than refused for its compression ratio.
+            $zip->setCompressionName('ComicInfo.xml', \ZipArchive::CM_STORE);
         }
         $zip->close();
 

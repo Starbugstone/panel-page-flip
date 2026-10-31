@@ -25,12 +25,12 @@ function hasMetadataSuggestions(panel, unusedTags) {
 export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags = [], staged = {}, metadataOrigin = null }) {
   const panel = useMetadataSuggestions({ comicId, onAccept, staged });
 
-  const renderField = (suggestion, key) => (
+  const renderField = (suggestion, key, candidate = null) => (
     <MetadataFieldSuggestion
       key={key}
       suggestion={suggestion}
-      accepted={panel.isAccepted(suggestion)}
-      onAccept={() => panel.accept(suggestion)}
+      accepted={panel.isAccepted(suggestion, candidate)}
+      onAccept={() => panel.accept(suggestion, candidate)}
     />
   );
 
@@ -74,8 +74,9 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
           candidate={panel.openRecord.candidate}
           fields={panel.openRecord.suggestions ?? []}
           fieldKey={`record-${panel.openRecord.key}`}
-          renderField={renderField}
+          renderField={(field, key) => renderField(field, key, panel.openRecord.candidate)}
           onAcceptAll={() => panel.acceptRecord(panel.openRecord.candidate, panel.openRecord.suggestions ?? [])}
+          recordChosen={panel.isRecordChosen(panel.openRecord.candidate, panel.openRecord.suggestions ?? [])}
         />
       )}
 
@@ -85,8 +86,9 @@ export function MetadataSuggestions({ comicId, onAccept, onAddTag, currentTags =
           candidate={candidate}
           fields={fields}
           fieldKey={`${candidate.provider}-${candidate.externalId}`}
-          renderField={renderField}
+          renderField={(field, key) => renderField(field, key, candidate)}
           onAcceptAll={() => panel.acceptRecord(candidate, fields)}
+          recordChosen={panel.isRecordChosen(candidate, fields)}
           showCover
           actions={(
             <Button

@@ -6,6 +6,7 @@ use App\Entity\AdminAuditLog;
 use App\Entity\ComicShare;
 use App\Entity\EmailVerificationToken;
 use App\Entity\ResetPasswordToken;
+use App\Service\AccountDeletionService;
 use App\Service\LogRetentionService;
 use App\Service\PersonalDataRetentionService;
 use App\Service\SecurityAuditLogger;
@@ -14,6 +15,7 @@ use App\Tests\Factory\UserFactory;
 use App\Tests\Functional\AbstractApiTestCase;
 use App\Tests\Functional\SecurityLogAssertions;
 use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
 {
@@ -64,6 +66,114 @@ final class PersonalDataRetentionServiceTest extends AbstractApiTestCase
         $entityManager->clear();
         self::assertNull($entityManager->find(\App\Entity\User::class, $staleUserId));
         self::assertCount(1, $entityManager->getRepository(AdminAuditLog::class)->findAll());
+    }
+
+    /**
+     * The sweep's list is old news by the time it reaches an account, and the
+     * entity it holds may be older still. Each case changes the row behind that
+     * entity's back, the way another request would have.
+     *
+     * @dataProvider accountsThatStoppedQualifying
+     */
+    public function testDeletionRechecksTheAccountOnFreshState(string $change): void
+    {
+        $now = new \DateTimeImmutable('2026-08-05 12:00:00+00:00');
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $user = UserFactory::new()->unverified()->create(['createdAt' => $now->modify('-31 days')]);
+        $userId = $user->getId();
+
+        // The entity stays loaded and still reads as stale and unverified.
+        $stale = $entityManager->find(\App\Entity\User::class, $userId);
+        self::assertFalse($stale->isEmailVerified());
+        $entityManager->getConnection()->executeStatement($change, ['id' => $userId]);
+
+        $deleted = static::getContainer()->get(AccountDeletionService::class)
+            ->deleteIfStillUnverified($stale, $now->modify('-30 days'));
+
+        self::assertFalse($deleted);
+        $entityManager->clear();
+        self::assertNotNull($entityManager->find(\App\Entity\User::class, $userId));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function accountsThatStoppedQualifying(): iterable
+    {
+        yield 'verified since' => ['UPDATE `user` SET is_email_verified = 1 WHERE id = :id'];
+        yield 'made an administrator since' => ['UPDATE `user` SET roles = \'["ROLE_ADMIN"]\' WHERE id = :id'];
+        yield 'no longer old enough' => ['UPDATE `user` SET created_at = \'2026-08-01 00:00:00\' WHERE id = :id'];
+    }
+
+    public function testDeletionStillRemovesAnAccountThatQualifies(): void
+    {
+        $now = new \DateTimeImmutable('2026-08-05 12:00:00+00:00');
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $user = UserFactory::new()->unverified()->create(['createdAt' => $now->modify('-31 days')]);
+        $userId = $user->getId();
+
+        self::assertTrue(
+            static::getContainer()->get(AccountDeletionService::class)
+                ->deleteIfStillUnverified($entityManager->find(\App\Entity\User::class, $userId), $now->modify('-30 days'))
+        );
+
+        $entityManager->clear();
+        self::assertNull($entityManager->find(\App\Entity\User::class, $userId));
+    }
+
+    public function testAnAccountRemovedSinceIsLeftForTheSweepToForget(): void
+    {
+        $now = new \DateTimeImmutable('2026-08-05 12:00:00+00:00');
+        $entityManager = static::getContainer()->get(EntityManagerInterface::class);
+        $user = UserFactory::new()->unverified()->create(['createdAt' => $now->modify('-31 days')]);
+        $userId = $user->getId();
+        $stale = $entityManager->find(\App\Entity\User::class, $userId);
+        $entityManager->getConnection()->executeStatement('DELETE FROM `user` WHERE id = :id', ['id' => $userId]);
+
+        self::assertFalse(
+            static::getContainer()->get(AccountDeletionService::class)
+                ->deleteIfStillUnverified($stale, $now->modify('-30 days'))
+        );
+    }
+
+    /**
+     * The daily job is what makes both of these true, and it is the one a
+     * production instance is already required to have scheduled.
+     */
+    public function testTheCleanupEnforcesQuarantineRetentionAndExpiresAbandonedUploads(): void
+    {
+        $now = new \DateTimeImmutable();
+        $container = static::getContainer();
+        $filesystem = new Filesystem();
+
+        $quarantine = (string) $container->getParameter('quarantine_directory');
+        $batch = $now->modify('-30 days')->format('Y-m-d');
+        $quarantined = $quarantine . '/' . $batch . '/retention-test/7/comic.cbz';
+        $filesystem->dumpFile($quarantined, 'deleted long ago');
+
+        $user = UserFactory::createOne();
+        $staging = $container->getParameter('upload_staging_directory') . '/' . $user->getId();
+        $abandoned = $staging . '/upload-abandoned';
+        $active = $staging . '/upload-active';
+        $idleSeconds = (int) $container->getParameter('upload_staging_idle_seconds');
+        $filesystem->dumpFile($abandoned . '/metadata.json', '{}');
+        touch($abandoned . '/metadata.json', $now->getTimestamp() - $idleSeconds - 60);
+        touch($abandoned, $now->getTimestamp() - $idleSeconds - 60);
+        $filesystem->dumpFile($active . '/metadata.json', '{}');
+
+        try {
+            $counts = $container->get(PersonalDataRetentionService::class)->clean($now);
+
+            self::assertFileDoesNotExist($quarantined);
+            self::assertDirectoryDoesNotExist($quarantine . '/' . $batch);
+            self::assertGreaterThanOrEqual(1, $counts['quarantineFilesDeleted']);
+            self::assertSame(0, $counts['quarantineFilesRemaining']);
+            self::assertDirectoryDoesNotExist($abandoned);
+            self::assertDirectoryExists($active);
+            self::assertGreaterThanOrEqual(1, $counts['stagedUploadsExpired']);
+            self::assertSame(0, $counts['stagedUploadsRemaining']);
+            self::assertSame(0, $counts['errors']);
+        } finally {
+            $filesystem->remove([$quarantine . '/' . $batch, $staging]);
+        }
     }
 
     /**

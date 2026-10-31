@@ -27,8 +27,11 @@ final class PdfParser
     private int $position = 0;
     private int $valuesParsed = 0;
 
-    public function __construct(private readonly string $buffer)
+    private readonly PdfWorkBudget $budget;
+
+    public function __construct(private readonly string $buffer, ?PdfWorkBudget $budget = null)
     {
+        $this->budget = $budget ?? new PdfWorkBudget();
     }
 
     public function seek(int $offset): void
@@ -58,6 +61,7 @@ final class PdfParser
     {
         if ($depth > self::MAX_DEPTH) throw new PdfException('PDF structure is nested too deeply.');
         if (++$this->valuesParsed > self::MAX_VALUES) throw new PdfException('PDF object contains too many values.');
+        $this->budget->check();
 
         $this->skipWhitespace();
         if ($this->position >= strlen($this->buffer)) throw new PdfException('Unexpected end of PDF data.');
@@ -118,12 +122,19 @@ final class PdfParser
         $raw = null;
         if (is_int($length) && $length >= 0 && $start + $length <= strlen($this->buffer)) {
             $after = substr($this->buffer, $start + $length, 20);
-            if (preg_match('/^\s*endstream/', $after) === 1) $raw = substr($this->buffer, $start, $length);
+            if (preg_match('/^\s*endstream/', $after) === 1) {
+                // Each stream is copied out of the file, and a file can reach
+                // the same bytes under any number of object numbers.
+                $this->budget->check($length);
+                $raw = substr($this->buffer, $start, $length);
+            }
         }
 
         if ($raw === null) {
             $end = strpos($this->buffer, 'endstream', $start);
             if ($end === false) throw new PdfException('Unterminated PDF stream.');
+            // Twice: the trim below builds a second copy while this one is live.
+            $this->budget->check(2 * ($end - $start));
             $raw = substr($this->buffer, $start, $end - $start);
             // Trim the single EOL the writer added before the keyword.
             $raw = preg_replace('/(\r\n|\r|\n)$/', '', $raw) ?? $raw;
@@ -256,12 +267,12 @@ final class PdfParser
     private function skipWhitespace(): void
     {
         while ($this->position < strlen($this->buffer)) {
-            $char = $this->buffer[$this->position];
-
-            if (self::isWhitespace($char)) { ++$this->position; continue; }
+            // Not a byte at a time: a file can be almost entirely whitespace.
+            $this->position += strspn($this->buffer, " \n\r\t\0\x0C", $this->position);
+            if ($this->position >= strlen($this->buffer)) return;
 
             // Comments run to the end of the line.
-            if ($char === '%') {
+            if ($this->buffer[$this->position] === '%') {
                 $newline = strcspn($this->buffer, "\r\n", $this->position);
                 $this->position += $newline;
                 continue;

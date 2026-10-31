@@ -93,10 +93,24 @@ security and audit records. Decide which mode you are in and write it down;
 | `var/log/security/` | `SECURITY_LOG_RETENTION_DAYS` (default 365) | `app:cleanup-logs` |
 | `var/log/audit/` | `AUDIT_LOG_RETENTION_DAYS` (default 365) | `app:cleanup-logs` |
 | `admin_audit_log` table | 12 months | `app:cleanup-personal-data` |
+| `var/quarantine/comics/` | 7 days | `app:cleanup-personal-data` |
+| `var/upload-staging/` | 1 hour idle, then the next run | `app:cleanup-personal-data` |
 | Unanswered `ComicShare` invitations | Until `expiresAt` (2 months) | `app:cleanup-expired-shares` |
 | `share_claim_code` rows | 30 days past expiry | `app:cleanup-expired-shares` |
 | Revoked `ComicShare` rows | 30 days past `revokedAt` | `app:cleanup-expired-shares` |
 | `ComicShare.senderResponsibilityAcceptedAt` / `adultConfirmedAt` | Lifetime of the share record | Nothing — see below |
+
+Erasing an account keeps its `admin_audit_log` rows and removes what identifies
+the person: the actor and target ids, their email address wherever it appears,
+and a whole value equal to their display name in a `name` field or on a row about
+them. A name is never replaced inside a longer string, or on anybody else's row
+under another field, because anyone can register under a name that also means
+something else there. Free text written with the name inside it therefore keeps
+the name; no current audit payload holds any.
+
+`app:cleanup-personal-data` removes accounts unverified after 30 days, rechecking
+each one on a locked row inside the deletion. An account that has since been
+verified or made an administrator is left alone and is not counted.
 
 Deletion is **not** automatic. A `max_files` setting nothing enforces is how an
 instance ends up believing it keeps a year of security logs while in fact

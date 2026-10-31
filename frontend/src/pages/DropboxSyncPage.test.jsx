@@ -160,6 +160,39 @@ describe("DropboxSyncPage", () => {
     expect(screen.getByText(/^Last import:/)).toBeInTheDocument();
   });
 
+  it("imports one file and reports it when Dropbox is configured", async () => {
+    vi.mocked(api.get).mockImplementation((path) => Promise.resolve(path === "/api/dropbox/status"
+      ? { configured: true, connected: true, user: null, lastSync: null }
+      : { files: [{ name: "Batman.cbz", path: "/Batman.cbz", size: "2 MB", modified: "2026-01-01T00:00:00Z", synced: false, tags: [] }] }));
+    vi.mocked(api.post).mockResolvedValue({ comic: { title: "Batman" } });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^import$/i }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/dropbox/import", { path: "/Batman.cbz", fileName: "Batman.cbz" }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith({
+      title: "Import Successful",
+      description: "Batman has been imported successfully.",
+    }));
+  });
+
+  /* The server refuses these before downloading anything, and says why. */
+  it("tells the reader when a file is over the upload limit", async () => {
+    vi.mocked(api.get).mockImplementation((path) => Promise.resolve(path === "/api/dropbox/status"
+      ? { configured: true, connected: true, user: null, lastSync: null }
+      : { files: [{ name: "Huge.cbz", path: "/Huge.cbz", size: "2 GB", modified: "2026-01-01T00:00:00Z", synced: false, tags: [] }] }));
+    vi.mocked(api.post).mockRejectedValue(new Error("Huge.cbz is larger than the 500 MB upload limit."));
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^import$/i }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalledWith({
+      title: "Import Failed",
+      description: "Huge.cbz is larger than the 500 MB upload limit.",
+      variant: "destructive",
+    }));
+  });
+
   it("explains an unavailable integration instead of offering a dead connect action", async () => {
     vi.mocked(api.get).mockResolvedValue({ configured: false, connected: false, user: null, lastSync: null });
 
@@ -169,6 +202,9 @@ describe("DropboxSyncPage", () => {
     expect(screen.getByText(/administrator must configure Dropbox before accounts can connect/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Connect to Dropbox" })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("Apps/StarbugStoneComics");
+    // No listing is asked for, so an unconfigured server has nothing to refuse.
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.get).toHaveBeenCalledWith("/api/dropbox/status");
   });
 
   it("keeps a failed status check distinct from an unconfigured server and retries it", async () => {

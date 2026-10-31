@@ -51,7 +51,7 @@ jobs:
         working-directory: .
         run: |
           sudo apt-get update
-          sudo apt-get install --yes p7zip-full shellcheck
+          sudo apt-get install --yes p7zip-full shellcheck lftp
 
       - name: Audit production dependencies
         run: npm run audit:production
@@ -85,11 +85,15 @@ jobs:
 
       - name: Check shell scripts
         working-directory: .
-        run: shellcheck scripts/*.sh scripts/server/*.sh scripts/comic-conversion/*.sh scripts/comic-conversion/tests/*.sh
+        run: shellcheck scripts/*.sh scripts/server/*.sh scripts/comic-conversion/*.sh scripts/comic-conversion/tests/*.sh scripts/tests/*.sh
 
       - name: Test Unix conversion tool
         working-directory: .
         run: scripts/comic-conversion/tests/test-convert-cbr-to-cbz.sh
+
+      - name: Test deployment scripts
+        working-directory: .
+        run: scripts/tests/test-deploy-scripts.sh
 
       - name: Build production frontend
         run: npm run build

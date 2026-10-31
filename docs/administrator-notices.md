@@ -94,7 +94,9 @@ older one for last — the wrong way round for a sequence of escalating notices.
 The banner sits above the routed page rather than on one of them, so a notice
 about a comic is readable from wherever the reader happens to be. It is never
 dismissed automatically: a banner that disappears on navigation is one somebody
-can miss entirely.
+can miss entirely. Its notices belong to one account: they leave the screen as
+soon as the signed-in account changes, and a reply that arrives for the previous
+account is dropped.
 
 `POST /api/me/warnings/{id}/acknowledge` dismisses one. Somebody else's is
 reported as missing rather than forbidden, so an id cannot be used to find out

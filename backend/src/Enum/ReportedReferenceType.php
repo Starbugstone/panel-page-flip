@@ -57,14 +57,19 @@ enum ReportedReferenceType: string
      * Invitation links and sharing codes are capabilities: whoever holds one can
      * use it. The reporter has already seen the value, but the receipt travels
      * by email, so what goes back is enough to recognise and not enough to use.
+     *
+     * A code is masked from its parsed form, because {@see validate()} accepts
+     * whatever the parser does: a pattern over the raw text would miss a code
+     * typed with spaces or without its dash, and email it whole.
      */
     public function maskForReceipt(string $reference): string
     {
         return match ($this) {
             self::InvitationUrl => preg_replace('~(/share/invitation/)[^/?#]+~', '$1[masked-token]', $reference)
                 ?? '[masked invitation link]',
-            self::SharingCode, self::UserCode => preg_replace('/^([CGU])-.+$/i', '$1-[masked-code]', $reference)
-                ?? '[masked sharing code]',
+            self::SharingCode, self::UserCode => ($parsed = SharingCodeFormat::parse($reference)) !== null
+                ? $parsed->type->value . '-[masked-code]'
+                : '[masked sharing code]',
             self::Account, self::Comic, self::PanelUrl, self::Other => $reference,
         };
     }

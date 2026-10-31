@@ -195,9 +195,15 @@ class ComicSerializer
         if ($includeOwner) {
             $data['owner'] = [
                 'id' => $owner?->getId(),
-                'email' => $owner?->getEmail(),
                 'name' => $owner?->getName(),
             ];
+
+            // Private to the account and the people who run the service. Anybody
+            // who redeems a code can read this comic, and a code says nothing
+            // about who issued it.
+            if ($isOwner || $isAdmin) {
+                $data['owner']['email'] = $owner?->getEmail();
+            }
         }
 
         return $data;

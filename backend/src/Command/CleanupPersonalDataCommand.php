@@ -32,6 +32,10 @@ final class CleanupPersonalDataCommand extends Command
             ['Unverified accounts older than 30 days' => $counts['unverifiedAccounts']],
             ['Pending personal-data files deleted' => $counts['filesDeleted']],
             ['Pending personal-data files remaining' => $counts['filesRemaining']],
+            ['Quarantined files past retention deleted' => $counts['quarantineFilesDeleted']],
+            ['Quarantined files past retention remaining' => $counts['quarantineFilesRemaining']],
+            ['Abandoned staged uploads removed' => $counts['stagedUploadsExpired']],
+            ['Abandoned staged uploads remaining' => $counts['stagedUploadsRemaining']],
             ['Errors' => $counts['errors']],
         );
 
@@ -40,8 +44,11 @@ final class CleanupPersonalDataCommand extends Command
             return Command::FAILURE;
         }
 
-        if ($counts['filesRemaining'] > 0) {
-            $io->warning('Some personal-data files remain queued for a later retry.');
+        if ($counts['filesRemaining'] > 0
+            || $counts['quarantineFilesRemaining'] > 0
+            || $counts['stagedUploadsRemaining'] > 0
+        ) {
+            $io->warning('Some personal-data files could not be removed and will be retried on the next run. Check that this command\'s user can write to var/quarantine and var/upload-staging.');
         }
 
         $io->success('Personal-data retention cleanup completed.');

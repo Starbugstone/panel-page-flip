@@ -102,12 +102,12 @@ lives in [`docs/`](docs/):
 - **CreateUserCommand**: Creates regular users after applying the shared password policy (`app:create-user`)
 - **CreateAdminUserCommand**: Creates admin users after applying the shared password policy (`app:create-admin-user`)
 - **ImportComicsCommand**: Imports comics from a directory (`app:import-comics`)
-- **CleanupComicsCommand**: Cleans up orphaned comic files and cover images (`app:cleanup-comics`)
+- **CleanupComicsCommand**: Moves orphaned comic files and cover images to quarantine, for 7 days (`app:cleanup-comics`)
 - **SetupUploadDirectoriesCommand**: Sets up necessary directories for uploads (`app:setup-upload-directories`)
 - **TestApiEndpointsCommand**: Tests API endpoints for registration and login (`app:test-api-endpoints`)
 - **DropboxSyncCommand**: Syncs comics from Dropbox for all connected users (`app:dropbox-sync`)
 - **CleanupLogsCommand**: Deletes daily log files past their retention period (`app:cleanup-logs`)
-- **CleanupPersonalDataCommand**: Removes expired audit rows, spent tokens and unverified accounts (`app:cleanup-personal-data`)
+- **CleanupPersonalDataCommand**: Removes expired audit rows, spent tokens, accounts still unverified when it reaches them, quarantined files past retention and abandoned staged uploads (`app:cleanup-personal-data`)
 - **CleanupExpiredSharesCommand**: Removes unanswered invitations, long-dead sharing codes and long-revoked shares (`app:cleanup-expired-shares`)
 - **CleanupContentReportsCommand**: Removes closed/rejected reports past retention, never one on legal hold (`app:cleanup-content-reports`)
 - **ComicFormatsCheckCommand**: Reports which source formats this host can actually serve, and exits non-zero when an enabled one is unserviceable (`app:comic-formats:check`)
@@ -223,7 +223,8 @@ the row, enforced by a unique index on `(comic_id, recipient_email_normalized)`.
   explicitContentSnapshot**: refreshed whenever an invitation is issued, so a
   tombstone can still name what it was — and still know that what it names was
   18+, which is why deleting a comic cannot leak the title an unconfirmed age
-  gate was holding back
+  gate was holding back. The owner's name falls back to `@username`, never to the
+  address: recipients and invitation-link previews both read this snapshot
 - **senderResponsibilityAcceptedAt / adultConfirmedAt**: the two acknowledgements
   this relationship records, both server-generated. See
   [Explicit content and the 18+ gate](#explicit-content-and-the-18-gate)
@@ -243,7 +244,11 @@ the people who lost access, so `findAllForOwner()` excludes it and the comic
 leaves the owner's **Shared by me** list completely — they caused the deletion,
 were warned about its reach beforehand, and have nothing left to manage. The
 personal-data export uses `findAllForOwnerIncludingTombstones()` instead,
-because an export describes what is stored rather than what a page shows.
+because an export describes what is stored rather than what a page shows. What
+it says about a share still comes from `ComicShareSerializer`, so it withholds what
+the Sharing page withholds: a recipient's address the owner was never given, and
+the id and title of a comic the recipient has not passed the age gate for. The
+same gate covers that comic's reading progress and folder placement.
 
 For the same reason, re-inviting somebody after a deletion starts a *fresh*
 relationship rather than resurrecting the tombstone: re-pointing it at a
@@ -405,6 +410,13 @@ ordinary `ComicShare` per comic, each accepted, expired and withdrawn on its
 own; a comic added to the folder afterwards is not shared by it. Nothing about
 the folder survives into the relationships, and the recipient never sees the
 owner's tree — they file what they accept wherever they like.
+
+The emailed link is one token anchored to one of those grants, and it answers for
+every grant still on offer. Withdrawing the anchor, by revocation, by deleting its
+comic or from the admin table, moves the token to another pending grant
+(`ComicShareService::passInvitationLinkOn()`), and the link dies only with the
+last of them. A withdrawn grant also leaves the link's preview, so its age gate
+does not stand in front of the comics that remain.
 
 | Rule | Value | Why |
 |---|---|---|
@@ -768,6 +780,17 @@ somebody who has no use of their own. Judging the count first hands a `404` to
 the one person who definitely redeemed the code successfully, which is what a
 double-click on a one-use code looks like from the inside.
 
+A replay only reports. It changes no share, so it cannot reopen one the owner
+revoked or recreate one whose record was deleted; a comic the account no longer
+has comes back as `no_longer_held` and counts as neither claimed nor held.
+
+**A revocation outranks any older code.** A first redemption of a different code
+that was minted before the owner revoked this recipient is refused with a `409`,
+and spends no use. A code minted after the revocation is a fresh offer and may
+reopen the row. The rule reads the revoked row, so it stops applying once that
+row is deleted from either side's history or by the retention sweep; an owner who
+wants an older code dead for good withdraws it.
+
 **Overlap is ordinary.** A recipient who already holds part of a group keeps
 those relationships and gains the missing ones, and the response distinguishes
 what was newly added from what was already theirs.
@@ -790,7 +813,7 @@ are ordinary relationships and outlive it entirely.
 |---|---|
 | `POST /api/shares/comic-codes` | mint a `C-` over exactly one comic the owner may share |
 | `POST /api/shares/group-codes` | mint a `G-` over a package of 2–20 |
-| `GET /api/shares/content-codes` | list codes handed out, live and dead — never the codes themselves |
+| `GET /api/shares/content-codes` | list every outstanding code and the newest 30 dead ones — never the codes themselves |
 | `GET /api/shares/content-codes/{id}/reveal` | let the owner read one code again; rate-limited, audited, and available for dead codes where an encrypted copy exists |
 | `DELETE /api/shares/content-codes/{id}` | withdraw one |
 | `POST /api/shares/content-codes/redeem` | redeem either kind; the prefix decides |
@@ -1454,8 +1477,9 @@ composer dump-autoload
 
 **Login rate limiting**: `POST /api/login` allows five attempts per fifteen
 minutes. It is controlled by `LOGIN_RATE_LIMIT_ENABLED`, which is on unless set
-to `0` — the committed `backend/.env` sets `0` because development signs the
-same accounts in repeatedly from one Docker IP. It is deliberately its own
+to `0` — the committed `backend/.env` sets `1`, and only `backend/.env.dev` and
+`backend/.env.test` set `0`, because development and the test suite sign the
+same accounts in repeatedly from one address. It is deliberately its own
 setting rather than a reading of `APP_ENV`: a staging host is reachable from the
 internet whatever it calls its environment. If a login appears to hang locally,
 clear the bucket with
@@ -1613,7 +1637,11 @@ documented in their own pages under `docs/`.
   `IS_AUTHENTICATED_FULLY`; refreshes the session and returns the user.
 - `POST /api/forgot-password` - Request a password reset email
 - `GET /api/reset-password/validate/{token}` - Validate a password reset token
-- `POST /api/reset-password/reset/{token}` - Reset password with a valid token
+- `POST /api/reset-password/reset/{token}` - Reset password with a valid token.
+  Every password change revokes all of the account's outstanding reset links in
+  the same transaction: this route, an administrator's `PUT /api/users/{id}`, and
+  `app:reset-user-password`. Accounts other than administrators have no signed-in
+  password form, so this route is also how they change their own.
 
 #### Comics
 - `GET /api/comics` - Get all comics for the current user

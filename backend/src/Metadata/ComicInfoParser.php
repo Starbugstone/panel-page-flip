@@ -54,15 +54,15 @@ final class ComicInfoParser
 
         $info = new ComicInfo(
             title: $this->text($root, 'Title'),
-            series: $this->text($root, 'Series'),
-            issueNumber: $this->text($root, 'Number'),
+            series: $this->text($root, 'Series', ComicInfo::MAX_SERIES_LENGTH),
+            issueNumber: $this->text($root, 'Number', ComicInfo::MAX_ISSUE_NUMBER_LENGTH),
             issueCount: $this->positiveInt($root, 'Count'),
             volume: $this->positiveInt($root, 'Volume'),
-            publisher: $this->text($root, 'Publisher'),
-            summary: $this->text($root, 'Summary', self::MAX_SUMMARY_LENGTH),
+            publisher: $this->text($root, 'Publisher', ComicInfo::MAX_PUBLISHER_LENGTH),
+            summary: $this->summary($root),
             publishedAt: $this->publishedAt($root),
             languageCode: $this->languageCode($root),
-            ageRating: $this->text($root, 'AgeRating'),
+            ageRating: $this->text($root, 'AgeRating', ComicInfo::MAX_AGE_RATING_LENGTH),
             readingDirection: ReadingDirection::fromManga($this->text($root, 'Manga')),
             creators: $this->creators($root),
             classification: $this->classification($root),
@@ -104,6 +104,14 @@ final class ComicInfoParser
         $value = trim((string) $root->{$field});
 
         return $value === '' ? null : mb_substr($value, 0, $limit);
+    }
+
+    /** Cut on a character boundary: 20,000 emoji are within the length and well past the column. */
+    private function summary(\SimpleXMLElement $root): ?string
+    {
+        $summary = $this->text($root, 'Summary', self::MAX_SUMMARY_LENGTH);
+
+        return $summary === null ? null : mb_strcut($summary, 0, ComicInfo::MAX_SUMMARY_BYTES);
     }
 
     private function positiveInt(\SimpleXMLElement $root, string $field): ?int

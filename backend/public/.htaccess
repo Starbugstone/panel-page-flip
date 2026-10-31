@@ -1,55 +1,111 @@
-# Set the default handler to index.php and index.html
-DirectoryIndex index.php index.html
+# =============================================================================
+# Apache configuration for the Symfony front controller (production)
+# This file is shipped to backend/public/.htaccess via scripts/build-release.sh
+# and scripts/server/server-deploy.sh. The tracked backend/public/.htaccess is an
+# identical copy, so a git pull applies these rules with no gap and leaves the
+# server's checkout clean; scripts/tests/test-deploy-scripts.sh keeps them equal.
+# Only used when the host runs Apache. Nginx-based hosts ignore it.
+# =============================================================================
 
-# Enable rewrite engine
+DirectoryIndex index.php
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews
+</IfModule>
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    
-    # Handle Authorization header
-    RewriteCond %{HTTP:Authorization} .
-    RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-    
-    # Uploaded comics and generated covers live under this document root, but
-    # they are private: who may read a comic is decided per request by the
-    # voter behind /api/comics. The rule below serves any file that exists
-    # straight off the filesystem, which would hand the source file to anyone
-    # who guesses its path and never ask who they are. Deny the whole tree
-    # first — nothing legitimate reads it directly, since covers are served by
-    # /api/comics/cover and pages by /api/comics/{id}/pages.
+
+    # Nothing under /uploads/ is ever served by the web server directly.
+    #
+    # This has to come before the "file exists, serve it" rule below, which is
+    # what used to hand out cover images: they are ordinary .jpg/.png files
+    # sitting in public/uploads/comics/<ownerId>/covers/<comicId>/, so Apache
+    # answered for them and the COMIC_VIEW check — including the 18+ gate — was
+    # never consulted. Covers are served by /api/comics/cover/... and archives
+    # by /api/comics/<id>/download; both authenticate first.
     RewriteRule ^uploads(/|$) - [F,L]
 
-    # Redirect to remove trailing slash
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^(.*)/$ /$1 [L,R=301]
+    # Keep one canonical production origin. The host checks ensure local and
+    # staging installations are unaffected by these redirects.
+    RewriteCond %{HTTP_HOST} ^www\.comics\.starbugstone\.com$ [NC]
+    RewriteRule ^ https://comics.starbugstone.com%{REQUEST_URI} [R=301,L,NE]
 
-    # If the requested resource exists as a file or directory, serve it directly
+    RewriteCond %{HTTP_HOST} ^comics\.starbugstone\.com$ [NC]
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+    RewriteRule ^ https://comics.starbugstone.com%{REQUEST_URI} [R=301,L,NE]
+
+    # Determine the RewriteBase automatically and set it as environment
+    # variable. If you are using Apache aliases to do mass virtual hosting or
+    # installing the project in a subdirectory, the base path will be prepended
+    # to allow proper resolution of the index.php file and to redirect the user.
+    RewriteCond %{REQUEST_URI}::$0 ^(/.+)/(.*)::\2$
+    RewriteRule .* - [E=BASE:%1]
+
+    # Sets the HTTP_AUTHORIZATION header removed by Apache.
+    RewriteCond %{HTTP:Authorization} .+
+    RewriteRule ^ - [E=HTTP_AUTHORIZATION:%0]
+
+    # Redirect to URI without front controller to prevent duplicate content.
+    RewriteCond %{ENV:REDIRECT_STATUS} =""
+    RewriteRule ^index\.php(?:/(.*)|$) %{ENV:BASE}/$1 [R=301,L]
+
+    # The SPA shell is not a page of its own. Redirect rather than exclude it
+    # from the rule below: served off disk it is a second copy of the landing
+    # page carrying neither a canonical nor the response's CSP nonce.
+    RewriteRule ^index\.html$ %{ENV:BASE}/ [R=301,L]
+
+    # If the requested filename exists (an asset, an image, a favicon...), let
+    # Apache serve it directly.
     RewriteCond %{REQUEST_FILENAME} -f [OR]
     RewriteCond %{REQUEST_FILENAME} -d
     RewriteRule ^ - [L]
-    
-    # For API routes, forward to index.php
-    RewriteRule ^api(/.*)?$ index.php [QSA,L]
 
     # ads.txt is generated from the configured publisher id, so it is a Symfony
-    # route rather than a file on disk. Without this it would fall through to
-    # index.html below and answer the IAB crawler with the React application.
-    RewriteRule ^ads\.txt$ index.php [QSA,L]
-    
-    # For all other routes, try to serve the file directly, otherwise use index.html
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^ index.html [QSA,L]
+    # route rather than a file on disk. Named here rather than left to the
+    # catch-all so that what answers the IAB crawler stays an explicit decision:
+    # a wrong answer reads as "this domain declares no authorised seller".
+    RewriteRule ^ads\.txt$ %{ENV:BASE}/index.php [QSA,L]
+
+    # Everything left goes to Symfony: API routes and the client-side routes
+    # React Router owns alike. Serving index.html off disk for /login would be
+    # faster and would lose what FrontendController adds to it — the response's
+    # CSP nonce, the canonical for the path asked for, noindex where it belongs,
+    # and a real 404 for a path the application does not have.
+    RewriteRule ^ %{ENV:BASE}/index.php [L]
 </IfModule>
 
-# Set some headers for security and caching
-<IfModule mod_headers.c>
-    # Security headers
-    Header set X-Content-Type-Options "nosniff"
-    Header set X-XSS-Protection "1; mode=block"
-    Header set X-Frame-Options "SAMEORIGIN"
-    
-    # Cache control for static assets
-    <FilesMatch "\.(ico|pdf|jpg|jpeg|png|gif|webp|js|css|svg|woff|woff2|ttf|eot)$">
-        Header set Cache-Control "max-age=31536000, public"
+<IfModule !mod_rewrite.c>
+    <IfModule mod_alias.c>
+        # When mod_rewrite is unavailable, redirect missing URLs to the front controller.
+        RedirectMatch 307 ^/$ /index.php/
+    </IfModule>
+</IfModule>
+
+# =============================================================================
+# Hardening
+# =============================================================================
+
+# Belt and braces for anything that lands outside /uploads/: file types that
+# must never be served from anywhere in the document root, whatever the rewrite
+# rules do.
+<IfModule mod_authz_core.c>
+    <FilesMatch "\.(env|env\..*|ini|log|sql|tar|gz|bak|swp|cbz|cbr|zip)$">
+        Require all denied
     </FilesMatch>
+</IfModule>
+
+# Disable directory listing.
+Options -Indexes
+
+# Send security headers if mod_headers is available.
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" "expr=%{HTTPS} == 'on'"
+    # Symfony serves every HTML route and sets its Content-Security-Policy there,
+    # so the nonce in the header is the same one injected into the Vite scripts.
+    # A static Apache header here would intersect with and break that policy.
 </IfModule>

@@ -25,7 +25,9 @@ vi.mock("@/components/ads/AdSenseProvider.jsx", () => ({ AdSenseProvider: ({ chi
 vi.mock("@/components/consent/ConsentProvider.jsx", () => ({ ConsentProvider: ({ children }) => children }));
 vi.mock("@/components/consent/ConsentBanner.jsx", () => ({ ConsentBanner: () => null }));
 vi.mock("@/components/analytics/GoogleAnalyticsProvider.jsx", () => ({ GoogleAnalyticsProvider: ({ children }) => children }));
-vi.mock("@/components/Header.jsx", () => ({ Header: () => <header>Application header<Link to="/admin">Administration</Link></header> }));
+vi.mock("@/components/Header.jsx", () => ({
+  Header: ({ onLogout }) => <header>Application header<Link to="/admin">Administration</Link><button onClick={onLogout}>Logout</button></header>,
+}));
 vi.mock("@/components/AdminNoticeBanner.jsx", () => ({ AdminNoticeBanner: () => null }));
 vi.mock("@/components/CookieNotice.jsx", () => ({ CookieNotice: () => null }));
 vi.mock("@/components/Footer.jsx", () => ({ Footer: () => <footer>Application footer</footer> }));
@@ -62,6 +64,20 @@ describe("application shell", () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it("says so when signing out fails, and leaves the account signed in", async () => {
+    auth.isAuthenticated = true;
+    auth.logout.mockRejectedValueOnce(new Error("Network down"));
+    window.history.pushState({}, "", "/dashboard");
+    render(<App />);
+    await screen.findByText("Dashboard route");
+
+    await userEvent.click(screen.getByRole("button", { name: "Logout" }));
+
+    expect(await screen.findByText("Could not sign you out")).toBeInTheDocument();
+    expect(screen.getByText(/You are still signed in/)).toBeInTheDocument();
+    expect(screen.getByText("Dashboard route")).toBeInTheDocument();
   });
 
   it("renders the real not-found route inside the shared shell", async () => {

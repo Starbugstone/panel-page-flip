@@ -2,7 +2,7 @@
 
 Panel Page Flip accepts CBZ (ZIP), CBR (RAR), CB7 (7z), CBT (tar), and PDF as canonical comic sources. All are exposed to the reader through the same protected numbered-page endpoint; original sources are never public.
 
-CBZ and PDF are the two native formats: both are read with no external tooling, so both work on any host the application itself runs on. For PDF that covers image-based documents — one full-page image per page, which is what scanned and exported comics are; a PDF whose pages have to be drawn needs Poppler and is refused at upload without it. The CB* archive formats need `7z` present. Past the source factory nothing downstream — reader, covers, sharing, quotas, deletion — knows or cares which format a comic came from.
+CBZ and PDF are the two native formats: both are read with no external tooling, so both work on any host the application itself runs on. For PDF that covers image-based documents — one full-page image per page, which is what scanned and exported comics are; a PDF whose pages have no image to serve needs Poppler and is refused at upload without it. The CB* archive formats need `7z` present. Past the source factory nothing downstream — reader, covers, sharing, quotas, deletion — knows or cares which format a comic came from.
 
 New installations enable CBZ only. An administrator must open **Admin → Formats**, verify the installed runtime, select the available optional formats, and save. The public uploader and every backend upload path use this allow-list; a file extension alone never enables a format.
 
@@ -27,11 +27,17 @@ PDF is a first-class source alongside CBZ, and like CBZ it needs nothing install
 
 A scanned or exported comic PDF is a container holding one full-page image per page — the same thing a CBZ is, with a different wrapper. Those pages are read natively, in pure PHP: the source provider returns the page's own embedded image without rasterising it, exactly as the CBZ provider returns an entry from the archive. No subprocess, no renderer, and no intermediate re-encode. This is what lets PDF work on shared hosting, where `proc_open` is usually disabled and no package can be installed.
 
-Native parsing is capped at 500 MiB per document and also bounds container values, names, and strings before allocating them. The reader checks the opened file's size first and allocates only that size, so a small PDF does not reserve the entire ceiling and an oversized one is rejected without being read. Larger PDFs take the Poppler path when it is available; a host without Poppler rejects them cleanly at upload.
+Native parsing is capped at 500 MiB per document and also bounds container values, names, and strings before allocating them. The reader checks the opened file's size first and allocates only that size, so a small PDF does not reserve the entire ceiling and an oversized one is rejected without being read.
+
+The ceiling only applies where memory allows it. PHP's `memory_limit` has to hold the whole document, so the reader also declines any source that would leave it less than about 32 MiB, and `memory_limit = -1` removes that check. At the Docker image's 256 MiB that puts the practical size at roughly 180 MiB. To read larger documents natively, raise `memory_limit` above the largest PDF you expect by at least 100 MiB, which also leaves the page conversion room to run. Documents past the limit take the Poppler path when it is available; a host without Poppler rejects them cleanly at upload.
+
+Exhausting memory or the execution time is a fatal error in PHP: no fallback runs and an upload's cleanup is skipped. So the reader checks what it has left before each allocation an uploaded file decides the size of, and gives one operation on one document at most 20 seconds, or a quarter of `max_execution_time` where that is shorter. A document that runs out of either is treated like any other document the native reader cannot serve. Page conversion makes the same check before GD decodes a page, and hands over the unconverted page when it would not fit.
 
 What reaches the browser is then whatever **Page delivery** below produces from those bytes, normally WebP — reading a page natively is about not needing a renderer, not about the response being the embedded file.
 
-Poppler extends that to the documents the native reader cannot serve — pages built from vector art or text, which have no embedded image to hand over. Where Poppler is present those pages are rendered lazily, one requested page at a time, to a maximum 2400-pixel reader image. Where it is absent such a document is refused at upload with a clear message, rather than importing and then failing at page three.
+The embedded image is served only when the page is verifiably that image and nothing else. Its content stream has to do no more than draw the one image, upright, across the visible page; the page must have no rotation, and neither annotations nor a mask or transparency may change what shows. A crop box counts as the visible page, so an image drawn to fill the crop box qualifies. Any instruction the check does not recognise fails it, including an invisible OCR text layer, because a wrong refusal costs one render and a wrong acceptance loses part of a page.
+
+Poppler extends that to the pages the native reader cannot serve faithfully — text, vector art, several images, cropped or rotated pages. Where Poppler is present those pages are rendered lazily, one requested page at a time, to a maximum 2400-pixel reader image. Where it is absent, a page holding exactly one image is served as that image alone, with the rest of the page missing, because part of a page is better than a comic that stops opening. A document with a page that has no single image to offer is refused at upload with a clear message, rather than importing and then failing at page three.
 
 Encrypted and password-protected PDFs are rejected either way, and are told apart from merely damaged ones: the page-count check decides that before the structural check runs, so a password-protected comic is reported as encrypted rather than as damaged.
 
@@ -89,7 +95,7 @@ CBR, CB7, CBT, Poppler and qpdf are **optional**. Their absence is reported, nev
 
 Rendering has a 30-second timeout and uses a random, mode-0700 temporary directory that is removed after every attempt. At most three renders run concurrently per application lock store; beyond that a request waits up to 20 seconds for a free slot before reporting the renderer as busy, so a reader that fetches the current page and prefetches the next one is never refused for it.
 
-Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed data, 64 MiB per page, and a 100:1 maximum expansion ratio between the source archive and its reported contents. External-tool listings stop at 16 MiB, and page paths stop at 1,024 bytes or 16 segments. Only JPG, PNG, GIF, and WebP entries with safe, non-traversing names and matching image content become readable pages. Page names are natural-sorted and never returned by the API.
+Archive inputs are limited to 10,000 entries, 2 GiB total reported uncompressed data, 64 MiB per page, and a 100:1 maximum expansion ratio between the source archive and its reported contents. A page that would not fit in the memory left is an error rather than a fatal one. The 7z reader drains stdout and stderr in fixed 8 KiB chunks, checking byte and memory limits before retaining each chunk, and terminates extraction on refusal or timeout. The deadline also applies after the extractor closes its output streams, until the process has actually exited. External-tool listings stop at 16 MiB, and page paths stop at 1,024 bytes or 16 segments. Only JPG, PNG, GIF, and WebP entries with safe, non-traversing names and matching image content become readable pages. Page names are natural-sorted and never returned by the API.
 
 Direct uploads, chunked uploads, Dropbox import, and `app:import-comics` all use the same enabled-format and provider validation pipeline. A configured format whose runtime later disappears is omitted from uploader configuration and rejected until the runtime is restored or the format is disabled.
 
@@ -117,6 +123,7 @@ once transfer starts, the existing cancel action remains available.
 
 The first failed chunk aborts its sibling workers and queued requests, retains
 the original server error, and never calls completion. Cancelled uploads remain
-subject to the existing staging cleanup; there is no automatic retry of
+subject to the staging limits and expiry described in
+[storage-quota.md](storage-quota.md#chunked-uploads-in-progress); there is no automatic retry of
 initialization or finalization. Bulk rows with unchanged data skip rendering
 while another file progresses.

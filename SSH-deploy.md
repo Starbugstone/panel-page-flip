@@ -242,6 +242,7 @@ MESSENGER_TRANSPORT_DSN=doctrine://default?auto_setup=0
 MAX_CONCURRENT_UPLOADS=3
 MAX_PARALLEL_FILE_UPLOADS=2
 UPLOAD_USER_QUOTA_BYTES=10737418240
+LOGIN_RATE_LIMIT_ENABLED=1                             # five login attempts per fifteen minutes; 0 only on a developer's own machine
 DROPBOX_APP_KEY=...
 DROPBOX_APP_SECRET=...
 DROPBOX_REDIRECT_URI=https://comics.yourdomain.com/api/dropbox/callback
@@ -282,12 +283,13 @@ deploys via `deploy-ssh.sh`, the real `SSH_BACKUP_COMMAND` runs first.
 `server-deploy.sh` then:
 
 1. Runs `BACKUP_COMMAND` and stops unless it succeeds.
-2. Runs `composer install --no-dev --optimize-autoloader`.
-3. Reads the editable `.env.local` directly; it does not run `composer dump-env`.
-4. Builds and installs the frontend while retaining the previous asset bundle for rollback.
-5. Runs Doctrine migrations, Dropbox token encryption, and the file-size backfill.
-6. Clears and warms the production cache.
-7. Fixes ownership on `backend/var/` and `backend/public/uploads/`.
+2. Installs the production `backend/public/.htaccess` and removes any `backend/public/error.php`.
+3. Runs `composer install --no-dev --optimize-autoloader`.
+4. Reads the editable `.env.local` directly; it does not run `composer dump-env`.
+5. Builds and installs the frontend beside the previous build (see [§5](#superseded-frontend-assets)).
+6. Runs Doctrine migrations, Dropbox token encryption, and the file-size backfill.
+7. Clears and warms the production cache.
+8. Fixes ownership on `backend/var/` and `backend/public/uploads/`.
 
 When it finishes, the installer prints the next-step checklist (web server
 config, certbot, first admin, backup script wiring).
@@ -308,6 +310,43 @@ Smoke-test once:
 ```sh
 ./scripts/deploy-ssh.sh --command="/var/www/comics/scripts/server/backup-comics.sh"
 ```
+
+#### What the backup keeps
+
+Each run writes a pair under `BACKUP_ROOT` (default `/var/backups/comics`), with
+the same date in both names, so a restore takes the database and the files from
+the same moment:
+
+| Path | Holds |
+|---|---|
+| `db/<date>.sql.gz` | The database dump |
+| `uploads-snapshots/<date>/` | `backend/public/uploads/` as it was then. Files unchanged since the previous snapshot are hard links, so a snapshot costs only what changed |
+
+Both are published only once both have succeeded. `RETENTION_DAYS` (default 30)
+prunes dumps and snapshots together.
+
+The script reads `DATABASE_URL` the way the application does: a real environment
+variable, then a compiled `backend/.env.local.php`, then `.env.prod.local`,
+`.env.prod` and `.env.local`, in that order. It does not use the committed
+`.env`, which only holds a development default.
+
+It refuses to run, and changes nothing, in two cases:
+
+- **`backend/public/uploads/` is missing.** Restore it or fix the mount. On a new
+  installation, `mkdir -p` it first; the installer already does.
+- **The folder holds no files but the latest backup does.** Empty subfolders do
+  not count as content, since that is what a wiped tree looks like. If every
+  upload really was removed on purpose, run it once with `ALLOW_EMPTY_UPLOADS=1`.
+
+> **Upgrading from an older version.** Older versions kept a single mirror in
+> `BACKUP_ROOT/uploads/`. It is no longer written to. The first snapshot uses it
+> as a comparison and hard-link base and leaves it in place. Delete it yourself
+> once a snapshot has proved good.
+>
+> Hard links mean snapshots share one copy of each unchanged file, so treat them
+> as read-only: editing a file in one changes it in the others. On a host without
+> rsync each snapshot is a full copy, so check the disk can hold `RETENTION_DAYS`
+> of them, or install rsync.
 
 ### 4.7 Configure the web server
 
@@ -368,12 +407,38 @@ After all the above, every release from your laptop is a single command:
 
 # Fast rsync mode: build locally with Docker, push the release/ tree over SSH,
 # run only migrate + cache:clear remotely. Useful if the server doesn't have Node.
+# See "What --rsync replaces" below.
 ./scripts/deploy-ssh.sh --rsync
 
 # Run an arbitrary remote command in the project dir (debugging escape hatch)
 ./scripts/deploy-ssh.sh --command="php bin/console about --env=prod"
 ./scripts/deploy-ssh.sh --command="tail -n 100 backend/var/log/app/$(date +%F).log"
 ```
+
+### What `--rsync` replaces
+
+Files from `release/` are copied over the server's, but only the code directories
+a release wholly owns are mirrored, meaning files missing from the release are
+deleted: `backend/bin`, `config`, `migrations`, `src`, `templates`, `translations`
+and `vendor`. Deletion is opt-in per path, so everything else on the server stays:
+`scripts/`, `.git/`, `frontend/`, all of `backend/var/` (including
+`var/quarantine/`, where deleted comics wait), `backend/public/uploads/`, the
+dotenv files, and anything else in `backend/public/` such as `.well-known/`.
+
+`--rsync` does **not** update the server's `scripts/`, because a release does not
+contain them. To get new versions of `backup-comics.sh` and the other helpers,
+run `git pull` on the server or copy them over.
+
+### Superseded frontend assets
+
+A tab opened before a deploy still asks for the old build's lazy-loaded chunks at
+their original URLs. Every deploy path therefore adds the new build beside the old
+one in `backend/public/assets/`. A chunk is deleted `ASSET_RETENTION_DAYS` (default
+14) after it first stops being part of the live build; a file's own age says
+nothing, because it may have been live until today. Those dates are kept in
+`backend/var/asset-retention.tsv`. A tab open for longer than that reloads itself
+once when a chunk fails to load, and shows the usual error if that does not help.
+A failed cleanup only prints a warning and is tried again on the next deploy.
 
 ### Manually invoking the server side
 
@@ -498,12 +563,12 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ### 6.2 Apache (alternative)
 
-The `scripts/deploy/htaccess.dist` shipped for the FTP flow works just as well
-here. Symlink it (or copy it) into `backend/public/.htaccess`:
-
-```sh
-ln -s /var/www/comics/scripts/deploy/htaccess.dist /var/www/comics/backend/public/.htaccess
-```
+Nothing to install: every deploy path puts `scripts/deploy/htaccess.dist` in place
+as `backend/public/.htaccess`. The tracked `backend/public/.htaccess` is an identical
+copy, so `git pull` applies the rules with no gap and leaves `git status` clean. Do
+not edit the file on the server, because the next deploy replaces it. Change
+`htaccess.dist` and `backend/public/.htaccess` together in the repository instead;
+the deploy-script tests fail if they differ.
 
 You also need:
 
@@ -554,11 +619,11 @@ no cron keeps everything for ever and never notices.
 | Command | Suggested cadence | Required? | If it never runs |
 |---|---|---|---|
 | `app:cleanup-logs` | daily | **Yes** | `var/log/app`, `var/log/security` and `var/log/audit` grow without limit. `*_LOG_RETENTION_DAYS` has no effect |
-| `app:cleanup-personal-data` | daily | **Yes** | Audit rows past 12 months, spent verification and reset tokens, unverified accounts older than 30 days and pending export files are all kept indefinitely. This is a data-protection obligation, not housekeeping |
+| `app:cleanup-personal-data` | daily | **Yes** | Audit rows past 12 months, spent verification and reset tokens, unverified accounts older than 30 days and pending file deletions are all kept indefinitely. Quarantined comics are never removed past their 7 days, and abandoned chunked uploads are only reclaimed when their own account next uploads. This is a data-protection obligation, not housekeeping |
 | `app:cleanup-expired-shares` | daily | **Yes** | Unanswered invitations keep the email addresses of people who never had an account here. Dead sharing codes are never removed, so the admin table grows for ever |
 | `app:cleanup-content-reports` | daily | **Yes** | Closed and rejected reports past retention are kept indefinitely. Open cases and cases on legal hold are never selected |
 | `app:dropbox-sync` | every 2 hours | Only with Dropbox | Users import by hand from the Dropbox page. Nothing else is affected |
-| `app:cleanup-comics` | never | **No** | Nothing. It quarantines orphaned files and is a manual tool — run `--dry-run` first and look at the output |
+| `app:cleanup-comics` | never | **No** | Nothing. It quarantines orphaned files, which `app:cleanup-personal-data` deletes after 7 days, and is a manual tool — run `--dry-run` first and look at the output |
 
 The four required jobs are all idempotent, cheap when there is nothing to do,
 and safe to run more often than suggested. Stagger them by a few minutes rather
@@ -742,6 +807,12 @@ cd /var/www/comics/backend && php bin/console app:cleanup-expired-shares --env=p
 The usual reason a cron entry silently does nothing is `php` not being on
 `PATH` for a non-login shell. Use an absolute interpreter path
 (`/usr/bin/php`) if `crontab -l` looks right but the log stays empty.
+
+### 7.6 Upload staging and quarantine retention
+
+Reserved for the scheduled commands that clear abandoned upload staging and expired
+quarantine files. They are not available yet; this section will list them when
+they are.
 
 ---
 
@@ -928,6 +999,9 @@ Production uses HTTPS but `APP_URL` in `backend/.env.local` still says
 ### React app shows a blank page
 
 Check the browser console:
+- `Failed to load /assets/SomePage-XXXX.js` in a tab left open → the chunk outlived
+  [`ASSET_RETENTION_DAYS`](#superseded-frontend-assets). The page reloads itself once;
+  if the error stays, the chunk is really missing, so re-run the deploy.
 - `Failed to load /assets/index-XXXX.js` → frontend was built but `assets/`
   didn't make it to `backend/public/`. Re-run with
   `./scripts/deploy-ssh.sh --skip-composer`.
@@ -937,8 +1011,10 @@ Check the browser console:
 
 Both `server-deploy.sh` and `deploy-ssh.sh --rsync` explicitly preserve
 `backend/public/uploads/`. If they really vanished, you most likely ran
-something like `rm -rf backend/public/*` manually. Restore from your DB
-backup + the server's daily snapshot.
+something like `rm -rf backend/public/*` manually. Restore the matching pair from
+`BACKUP_ROOT`: `db/<date>.sql.gz` and `uploads-snapshots/<date>/`
+([§4.6](#what-the-backup-keeps)). Until then `backup-comics.sh` refuses to run, and so
+does any deploy that depends on it. That is what keeps your backups intact.
 
 ---
 
@@ -970,7 +1046,7 @@ backup + the server's daily snapshot.
    If `git status` shows uncommitted changes, someone edited files directly on
    the server. That's a forensic event — investigate.
 8. **Backups**: this guide deploys code; set `SSH_BACKUP_COMMAND` to the shipped
-   script so every upgrade dumps the DB and syncs uploads first:
+   script so every upgrade dumps the DB and takes a dated uploads snapshot first:
    ```sh
    # scripts/.env.deploy
    SSH_BACKUP_COMMAND=/var/www/comics/scripts/server/backup-comics.sh
@@ -992,7 +1068,8 @@ backup + the server's daily snapshot.
 | `scripts/deploy-ssh.sh`                    | Laptop-side driver. SSHes in, runs `git pull`, calls `server-deploy.sh`. |
 | `scripts/server/server-install.sh`         | One-time installer run on the server. Bootstraps the env file then runs `server-deploy.sh`. |
 | `scripts/server/server-deploy.sh`          | Server-side build: composer + npm + migrate + cache + chown + hook. |
-| `scripts/server/backup-comics.sh`          | Pre-deploy / cron backup of DB + `backend/public/uploads/`. Point `SSH_BACKUP_COMMAND` here. |
+| `scripts/server/backup-comics.sh`          | Pre-deploy / cron backup of DB + dated `backend/public/uploads/` snapshots. Point `SSH_BACKUP_COMMAND` here. |
+| `scripts/asset-retention.sh`               | Decides which superseded frontend chunks every deploy path may delete. |
 | `scripts/post-deploy.sh`                   | Optional: same actions over HTTP/SSH for the FTP flow. SSH mode reuses the same `SSH_*` vars. |
 | `backend/.env.local` *(server-only)*  | Holds prod secrets. NEVER committed, NEVER on the laptop.       |
 | `backend/.env.local.php` *(optional)*      | Explicit compiled-env mode only. If present, it takes precedence over `.env.local`. |

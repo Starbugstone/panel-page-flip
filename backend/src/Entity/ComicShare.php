@@ -3,6 +3,7 @@
 namespace App\Entity;
 
 use App\Repository\ComicShareRepository;
+use App\Service\UsernamePolicy;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
@@ -265,8 +266,11 @@ class ComicShare
             $this->explicitContentSnapshot = $this->comic->isExplicitContent();
         }
 
+        // The public identity, never the address. Recipients are shown this, and
+        // so is anybody holding the link to an invitation preview.
         if ($this->owner !== null) {
-            $this->ownerNameSnapshot = (string) ($this->owner->getName() ?? $this->owner->getEmail());
+            $this->ownerNameSnapshot = $this->owner->getName()
+                ?: UsernamePolicy::forDisplay($this->owner->getUsername());
         }
 
         return $this;

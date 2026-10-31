@@ -75,8 +75,9 @@ The answer is stored in this browser's local storage under
 `panel-page-flip:analytics-consent`, with a schema version so that changing what
 the dialogue says can invalidate answers given to the old wording. Acceptances
 and refusals expire after 180 days (approximately six months), following the
-CNIL's normal re-prompt recommendation. It is the one copy: nothing else in the
-application keeps a second opinion about consent.
+CNIL's normal re-prompt recommendation. A tab left open past that moment stops
+measuring and asks again without a reload. It is the one copy: nothing else in
+the application keeps a second opinion about consent.
 
 Reopening is permanent, through **Analytics preferences** in every footer and
 inside reader settings. Withdrawal takes effect immediately and removes the
@@ -200,7 +201,9 @@ requiring consent, so `<APP_URL>/privacy` is safe to configure there.
 Case variants and trailing slashes, such as `/PrIvAcY///`, use the same strict
 policy. nginx redirects them to the lowercase canonical path and preserves the
 query string. Symfony normalizes them before selecting page metadata and CSP,
-and the browser uses the same classification when crossing policy groups.
+and the browser uses the same classification when crossing policy groups. The
+browser classifies a path after decoding it the way React Router does, so
+`/%70rivacy`, which renders the privacy page, is Google-free as well.
 
 The rule is one shared list rather than three components each remembering it:
 

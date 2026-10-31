@@ -106,7 +106,7 @@ existing is not a reason to fail an upload that otherwise succeeded.
 ## Padding numbered comic titles
 
 **Auto rename comics** is available in every folder, including the library
-root. It previews the zeroes needed to make ordinary alphabetical sorting match
+root, once that folder's own comics have loaded. It previews the zeroes needed to make ordinary alphabetical sorting match
 numeric order: a folder ending in `DragonBall 11` previews `DragonBall 1` as
 `DragonBall 01`, while volumes 10 and 11 stay unchanged. The preview re-sorts
 the cards or rows immediately and shows each affected title's previous value.

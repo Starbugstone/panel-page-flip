@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 
 export function PrivacyAccountDataCard({ oauthConnections, initiallyOpen = false }) {
   const { toast } = useToast();
-  const { logout, user } = useAuth();
+  const { endClientSession, user } = useAuth();
   const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(initiallyOpen);
   const [confirmation, setConfirmation] = useState("");
@@ -57,7 +57,9 @@ export function PrivacyAccountDataCard({ oauthConnections, initiallyOpen = false
           ...(user?.hasPassword === false ? {} : { currentPassword }),
         },
       });
-      await logout();
+      // The deletion already ended the server session, so there is nothing left
+      // to sign out of and no second request that could report a false failure.
+      endClientSession();
       navigate("/", { replace: true });
     } catch (error) {
       setConfirmation("");

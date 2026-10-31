@@ -78,17 +78,35 @@ export function AuthProvider({ children }) {
     )
   ), []);
 
-  const logout = useCallback(async () => {
+  // For when the server has already ended the session, as deleting the account
+  // does. Everything else signs out through logout(), which asks it to.
+  const endClientSession = useCallback(() => {
     sessionManager.stop();
     setSessionExpired(false);
     clearClientSession();
+  }, [clearClientSession]);
+
+  /**
+   * Rejects, and leaves the account signed in here, when the server may still
+   * hold the session: on a shared computer, looking signed out while the session
+   * stays valid is worse than a sign-out that visibly did not work.
+   */
+  const logout = useCallback(async () => {
+    // Whatever a check or login in flight says about the session is out of date.
+    sessionRevision.current += 1;
 
     try {
       await api.post("/api/logout", {}, { notifyUnauthorized: false });
     } catch (error) {
-      logger.warn("Logout request failed after clearing the local session:", error.message);
+      // 401 is the server saying there is no session left to end.
+      if (error.status !== 401) {
+        logger.warn("Logout request failed; the session is still signed in:", error.message);
+        throw error;
+      }
     }
-  }, [clearClientSession]);
+
+    endClientSession();
+  }, [endClientSession]);
 
   useEffect(() => {
     if (user) {
@@ -118,13 +136,14 @@ export function AuthProvider({ children }) {
     login,
     register,
     logout,
+    endClientSession,
     checkAuth,
     isAuthenticated: Boolean(user),
     // UI convenience only; the API remains the authorization boundary.
     isAdmin: Boolean(user?.roles?.includes("ROLE_ADMIN")),
     sessionExpired,
     refreshSession,
-  }), [checkAuth, loading, login, logout, refreshSession, register, sessionExpired, user]);
+  }), [checkAuth, endClientSession, loading, login, logout, refreshSession, register, sessionExpired, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

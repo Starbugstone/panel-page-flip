@@ -224,7 +224,6 @@ if [ "$DO_BACKEND" = "1" ]; then
         --exclude='/.env.test' \
         --exclude='/.env.*.local' \
         --exclude='/public/uploads/' \
-        --exclude='/public/error.php' \
         --exclude='/public/index.html' \
         --exclude='/public/placeholder.svg' \
         --exclude='/public/robots.txt' \
@@ -305,10 +304,6 @@ if [ "$DO_BACKEND" = "1" ]; then
         if [[ ! "$PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID" =~ ^G-[A-Z0-9]{5,20}$ ]]; then
             fail "PROD_GOOGLE_ANALYTICS_MEASUREMENT_ID must be G- followed by 5 to 20 letters or digits when PROD_GOOGLE_ANALYTICS_ENABLED is true."
         fi
-        case "$PROD_ADSENSE_CLIENT" in
-            ca-pub-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
-            *) fail "PROD_ADSENSE_CLIENT must identify the certified Google CMP when PROD_GOOGLE_ANALYTICS_ENABLED is true." ;;
-        esac
     fi
     if [ "${PROD_ADSENSE_ENABLED:-false}" = "true" ]; then
         case "$PROD_ADSENSE_CLIENT" in

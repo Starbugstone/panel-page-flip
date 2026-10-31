@@ -93,23 +93,51 @@ class ShareClaimCodeRepository extends ServiceEntityRepository
     /**
      * The codes an owner has handed out, newest first.
      *
-     * Expired, spent and withdrawn ones are all included, right up until the
-     * cleanup deletes them. The owner is asking what they gave away and how
-     * many people took it up, and a code that has stopped working is part of
-     * that answer — which is the whole reason dead codes are kept for a month
-     * rather than dropped the moment they die.
+     * Every outstanding code, however old and however many, because this list is
+     * the only way to withdraw one. Issuing is rate limited and codes expire, so
+     * that number has a ceiling.
+     *
+     * Expired, spent and withdrawn ones are included too, right up until the
+     * cleanup deletes them, but only the newest few. The owner is asking what
+     * they gave away and how many people took it up, and a code that has stopped
+     * working is part of that answer — which is the whole reason dead codes are
+     * kept for a month rather than dropped the moment they die.
      *
      * @return list<ShareClaimCode>
      */
-    public function findForOwner(User $owner, int $limit = 30): array
+    public function findForOwner(User $owner, int $deadLimit = 30): array
     {
-        return $this->createQueryBuilder('c')
+        $now = new \DateTimeImmutable();
+
+        // Fetch-joined because nothing limits this query, and the owner's payload
+        // reads every code's comics.
+        /** @var list<ShareClaimCode> $outstanding */
+        $outstanding = $this->createQueryBuilder('c')
+            ->addSelect('comics')
+            ->leftJoin('c.comics', 'comics')
             ->andWhere('c.owner = :owner')
+            ->andWhere('c.revokedAt IS NULL AND c.usesRemaining > 0 AND c.expiresAt > :now')
             ->setParameter('owner', $owner)
-            ->orderBy('c.createdAt', 'DESC')
-            ->setMaxResults($limit)
+            ->setParameter('now', $now)
             ->getQuery()
             ->getResult();
+
+        /** @var list<ShareClaimCode> $dead */
+        $dead = $this->createQueryBuilder('c')
+            ->andWhere('c.owner = :owner')
+            ->andWhere('c.revokedAt IS NOT NULL OR c.usesRemaining <= 0 OR c.expiresAt <= :now')
+            ->setParameter('owner', $owner)
+            ->setParameter('now', $now)
+            ->orderBy('c.createdAt', 'DESC')
+            ->addOrderBy('c.id', 'DESC')
+            ->setMaxResults($deadLimit)
+            ->getQuery()
+            ->getResult();
+
+        $codes = [...$outstanding, ...$dead];
+        usort($codes, static fn (ShareClaimCode $a, ShareClaimCode $b): int => [$b->getCreatedAt(), $b->getId()] <=> [$a->getCreatedAt(), $a->getId()]);
+
+        return $codes;
     }
 
     /**

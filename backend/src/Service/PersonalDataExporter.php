@@ -4,10 +4,14 @@ namespace App\Service;
 
 use App\Entity\Comic;
 use App\Entity\ComicShare;
+use App\Entity\LibraryFolder;
+use App\Entity\LibraryFolderItem;
 use App\Entity\User;
 use App\Entity\UserOAuthIdentity;
 use App\Entity\UserWarning;
 use App\Repository\ComicShareRepository;
+use App\Repository\LibraryFolderItemRepository;
+use App\Repository\LibraryFolderRepository;
 use App\Repository\UserWarningRepository;
 
 final class PersonalDataExporter
@@ -15,7 +19,10 @@ final class PersonalDataExporter
     public function __construct(
         private readonly ComicSerializer $comicSerializer,
         private readonly ComicShareRepository $shareRepository,
+        private readonly ComicShareSerializer $shareSerializer,
         private readonly UserWarningRepository $warningRepository,
+        private readonly LibraryFolderRepository $folderRepository,
+        private readonly LibraryFolderItemRepository $folderItemRepository,
     ) {
     }
 
@@ -29,11 +36,32 @@ final class PersonalDataExporter
             $comics[] = $this->mapComic($comic);
         }
 
+        // Tombstones included here, unlike on the sharing page: an export is a
+        // record of what is stored about the user, not a management view.
+        $sentShares = $this->shareRepository->findAllForOwnerIncludingTombstones($user);
+        $receivedShares = $this->shareRepository->findAllForRecipient($user);
+
+        // Comics this account has not passed the age gate for. Reading progress
+        // or a folder placement can outlive a comic being marked explicit, and
+        // neither may name what the gate withholds on the shares themselves.
+        $gatedComicIds = [];
+        foreach ($receivedShares as $share) {
+            if ($share->requiresAdultConfirmation() && $share->getComic() !== null) {
+                $gatedComicIds[(int) $share->getComic()->getId()] = true;
+            }
+        }
+        $reference = static function (?Comic $comic) use ($gatedComicIds): array {
+            $gated = isset($gatedComicIds[(int) $comic?->getId()]);
+
+            return [
+                'comicId' => $gated ? null : $comic?->getId(),
+                'comicTitle' => $gated ? null : $comic?->getTitle(),
+            ];
+        };
+
         $progress = [];
         foreach ($user->getReadingProgress() as $item) {
-            $progress[] = [
-                'comicId' => $item->getComic()?->getId(),
-                'comicTitle' => $item->getComic()?->getTitle(),
+            $progress[] = $reference($item->getComic()) + [
                 'currentPage' => $item->getCurrentPage(),
                 'completed' => $item->isCompleted(),
                 'lastReadAt' => $item->getLastReadAt()?->format(\DateTimeInterface::ATOM),
@@ -49,11 +77,6 @@ final class PersonalDataExporter
                 'createdAt' => $tag->getCreatedAt()?->format(\DateTimeInterface::ATOM),
             ];
         }
-
-        // Tombstones included here, unlike on the sharing page: an export is a
-        // record of what is stored about the user, not a management view.
-        $sentShares = $this->mapShares($this->shareRepository->findAllForOwnerIncludingTombstones($user));
-        $receivedShares = $this->mapShares($this->shareRepository->findAllForRecipient($user));
 
         // Dismissed ones included, and never the administrator who sent them.
         // A notice is stored about this user and so belongs in their export;
@@ -75,6 +98,7 @@ final class PersonalDataExporter
             'account' => [
                 'id' => $user->getId(),
                 'email' => $user->getEmail(),
+                'username' => $user->getUsername(),
                 'name' => $user->getName(),
                 'roles' => $user->getRoles(),
                 'emailVerified' => $user->isEmailVerified(),
@@ -97,8 +121,25 @@ final class PersonalDataExporter
             'comics' => $comics,
             'readingProgress' => $progress,
             'personalTags' => $tags,
-            'sharesGranted' => $sentShares,
-            'sharesReceived' => $receivedShares,
+            'libraryFolders' => array_map(
+                static fn (LibraryFolder $folder): array => [
+                    'id' => $folder->getId(),
+                    'name' => $folder->getName(),
+                    'parentId' => $folder->getParent()?->getId(),
+                    'createdAt' => $folder->getCreatedAt()->format(\DateTimeInterface::ATOM),
+                    'updatedAt' => $folder->getUpdatedAt()->format(\DateTimeInterface::ATOM),
+                ],
+                $this->folderRepository->findForOwner($user),
+            ),
+            'libraryFolderPlacements' => array_map(
+                static fn (LibraryFolderItem $item): array => $reference($item->getComic()) + [
+                    'folderId' => $item->getFolder()?->getId(),
+                    'placedAt' => $item->getCreatedAt()->format(\DateTimeInterface::ATOM),
+                ],
+                $this->folderItemRepository->findBy(['user' => $user], ['id' => 'ASC']),
+            ),
+            'sharesGranted' => array_map($this->mapSentShare(...), $sentShares),
+            'sharesReceived' => array_map($this->mapReceivedShare(...), $receivedShares),
             'administratorNotices' => $warnings,
         ];
     }
@@ -118,6 +159,22 @@ final class PersonalDataExporter
             'author' => $comic->getAuthor(),
             'publisher' => $comic->getPublisher(),
             'description' => $comic->getDescription(),
+            'sourceType' => $comic->getSourceType()->value,
+            'series' => $comic->getSeries(),
+            'issueNumber' => $comic->getIssueNumber(),
+            'issueCount' => $comic->getIssueCount(),
+            'volume' => $comic->getVolume(),
+            'publishedAt' => $comic->getPublishedAt()?->format('Y-m-d'),
+            'languageCode' => $comic->getLanguageCode(),
+            'ageRating' => $comic->getAgeRating(),
+            'readingDirection' => $comic->getReadingDirection()->value,
+            'creators' => $comic->getCreators(),
+            'classification' => $comic->getClassification()->jsonSerialize() ?: null,
+            'metadataOrigin' => $comic->getMetadataProvider() === null ? null : [
+                'provider' => $comic->getMetadataProvider(),
+                'externalId' => $comic->getMetadataExternalId(),
+                'fetchedAt' => $comic->getMetadataFetchedAt()?->format(\DateTimeInterface::ATOM),
+            ],
             // The owner's own classification, and stored as such. An export
             // that named it only on the shares handed out would omit it
             // entirely for a comic nobody has been invited to.
@@ -135,37 +192,64 @@ final class PersonalDataExporter
     }
 
     /**
+     * A grant as its owner is told about it. A recipient reached through a code
+     * or username keeps the address the owner was never given, here as on the
+     * Sharing page, so both read the owner's serializer view.
+     *
+     * @return array<string, mixed>
+     */
+    private function mapSentShare(ComicShare $share): array
+    {
+        $view = $this->shareSerializer->forOwner($share);
+
+        return $this->mapShare($share, $view) + [
+            'recipientEmail' => $view['recipientEmail'],
+            'recipientLabel' => $view['recipientLabel'],
+        ];
+    }
+
+    /**
+     * A grant as its recipient is told about it. The comic stays unnamed until
+     * they have passed the age gate, here as on the Sharing page. The address is
+     * their own.
+     *
+     * @return array<string, mixed>
+     */
+    private function mapReceivedShare(ComicShare $share): array
+    {
+        return $this->mapShare($share, $this->shareSerializer->forRecipient($share)) + [
+            'recipientEmail' => $share->getRecipientEmailNormalized(),
+        ];
+    }
+
+    /**
      * The comic reference falls back to the snapshot so a tombstoned share is
      * still recognisable in an export.
      *
-     * @param list<ComicShare> $shares
-     * @return list<array<string, mixed>>
+     * @param array<string, mixed> $view the serializer's view for this reader
+     * @return array<string, mixed>
      */
-    private function mapShares(array $shares): array
+    private function mapShare(ComicShare $share, array $view): array
     {
-        return array_map(
-            static fn (ComicShare $share): array => [
-                'comicId' => $share->getComic()?->getId(),
-                'comicTitle' => $share->getComic()?->getTitle() ?? $share->getComicTitleSnapshot(),
-                'ownerUserId' => $share->getOwner()?->getId(),
-                'ownerName' => $share->getOwnerNameSnapshot(),
-                'recipientEmail' => $share->getRecipientEmailNormalized(),
-                'status' => $share->getStatus(),
-                'createdAt' => $share->getCreatedAt()->format(\DateTimeInterface::ATOM),
-                'acceptedAt' => $share->getAcceptedAt()?->format(\DateTimeInterface::ATOM),
-                'declinedAt' => $share->getDeclinedAt()?->format(\DateTimeInterface::ATOM),
-                'revokedAt' => $share->getRevokedAt()?->format(\DateTimeInterface::ATOM),
-                'expiresAt' => $share->getExpiresAt()?->format(\DateTimeInterface::ATOM),
-                'unavailableAt' => $share->getUnavailableAt()?->format(\DateTimeInterface::ATOM),
-                'tombstoneReason' => $share->getTombstoneReason(),
-                // The two declarations this share records. They are statements
-                // the user made about themselves, so an export of what is held
-                // about them has to include them.
-                'senderResponsibilityAcceptedAt' => $share->getSenderResponsibilityAcceptedAt()?->format(\DateTimeInterface::ATOM),
-                'adultConfirmedAt' => $share->getAdultConfirmedAt()?->format(\DateTimeInterface::ATOM),
-                'explicitContent' => $share->isExplicitContent(),
-            ],
-            $shares,
-        );
+        return [
+            'comicId' => $view['comicId'],
+            'comicTitle' => $view['comicTitle'],
+            'ownerUserId' => $share->getOwner()?->getId(),
+            'ownerName' => $share->getOwnerNameSnapshot(),
+            'status' => $share->getStatus(),
+            'createdAt' => $share->getCreatedAt()->format(\DateTimeInterface::ATOM),
+            'acceptedAt' => $share->getAcceptedAt()?->format(\DateTimeInterface::ATOM),
+            'declinedAt' => $share->getDeclinedAt()?->format(\DateTimeInterface::ATOM),
+            'revokedAt' => $share->getRevokedAt()?->format(\DateTimeInterface::ATOM),
+            'expiresAt' => $share->getExpiresAt()?->format(\DateTimeInterface::ATOM),
+            'unavailableAt' => $share->getUnavailableAt()?->format(\DateTimeInterface::ATOM),
+            'tombstoneReason' => $share->getTombstoneReason(),
+            // The two declarations this share records. They are statements
+            // the user made about themselves, so an export of what is held
+            // about them has to include them.
+            'senderResponsibilityAcceptedAt' => $share->getSenderResponsibilityAcceptedAt()?->format(\DateTimeInterface::ATOM),
+            'adultConfirmedAt' => $share->getAdultConfirmedAt()?->format(\DateTimeInterface::ATOM),
+            'explicitContent' => $share->isExplicitContent(),
+        ];
     }
 }

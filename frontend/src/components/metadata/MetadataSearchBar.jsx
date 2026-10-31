@@ -2,11 +2,16 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RefreshCw, Search, Sparkles } from "lucide-react";
 
+const AUTOMATIC = "automatic";
+
 /**
  * The heading and the two things that can be asked of a provider.
  *
  * Refresh appears only for a comic already matched to a record, because it
  * asks for that exact issue again rather than repeating a fuzzy search.
+ *
+ * `chosen` is null until somebody picks a provider, which leaves the choice to
+ * the server: only it knows which provider would spend the user's own token.
  */
 export function MetadataSearchBar({ providers, chosen, onProviderChange, busy, canRefresh, onRefresh, onSearch }) {
   return (
@@ -18,11 +23,15 @@ export function MetadataSearchBar({ providers, chosen, onProviderChange, busy, c
         {/* Only shown when there is a choice to make. One provider is asked
             per search, because each one answering costs its own quota. */}
         {providers.length > 1 && (
-          <Select value={chosen ?? undefined} onValueChange={onProviderChange}>
+          <Select
+            value={chosen ?? AUTOMATIC}
+            onValueChange={(value) => onProviderChange(value === AUTOMATIC ? null : value)}
+          >
             <SelectTrigger className="h-8 w-36" aria-label="Provider to search">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={AUTOMATIC}>Automatic</SelectItem>
               {providers.map((provider) => (
                 <SelectItem key={provider.key} value={provider.key}>{provider.label}</SelectItem>
               ))}

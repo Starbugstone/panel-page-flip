@@ -11,9 +11,9 @@ export function MetadataProviderNotices({ providers, unavailable, providerResult
 
   return (
     <>
-      {candidates !== null && candidates.length === 0 && searchedProvider && (
+      {candidates !== null && candidates.length === 0 && (
         <p className="text-xs text-muted-foreground">
-          No matches from {providerLabel(searchedProvider)}.
+          {searchedProvider ? `No matches from ${providerLabel(searchedProvider)}.` : "No matches."}
         </p>
       )}
 

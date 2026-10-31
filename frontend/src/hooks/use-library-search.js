@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast.js";
+import { libraryRequestKey } from "@/lib/comic-library";
 import { buildLibraryUrl } from "@/lib/library-view";
 
 const MAX_QUERY_LENGTH = 100;
@@ -19,6 +20,9 @@ export function useLibrarySearch({ loadLibrary, ownership, isFolderView, activeF
   const { toast } = useToast();
   const [isSearching, setIsSearching] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);
+  // The request whose answer the library now holds. It changes only when a load
+  // finishes, because the previous list stays on screen until then.
+  const [settledRequestKey, setSettledRequestKey] = useState(null);
   const lastComicsUrl = useRef("/api/comics");
   const lastSearchQuery = useRef("");
   const searchRequestId = useRef(0);
@@ -32,7 +36,10 @@ export function useLibrarySearch({ loadLibrary, ownership, isFolderView, activeF
     try {
       await loadLibrary({ url, fuzzyQuery });
     } finally {
-      if (searchRequestId.current === requestId) setIsSearching(false);
+      if (searchRequestId.current === requestId) {
+        setIsSearching(false);
+        setSettledRequestKey(libraryRequestKey(url, fuzzyQuery));
+      }
     }
   }, [loadLibrary]);
 
@@ -60,8 +67,10 @@ export function useLibrarySearch({ loadLibrary, ownership, isFolderView, activeF
     searchRequestId.current = requestId;
     let ignore = false;
     loadLibrary({ url: locationUrl, fuzzyQuery: "" }).finally(() => {
-      if (!ignore && searchRequestId.current === requestId) setIsSearching(false);
-      if (!ignore) setIsSearchActive(false);
+      if (ignore || searchRequestId.current !== requestId) return;
+      setIsSearching(false);
+      setIsSearchActive(false);
+      setSettledRequestKey(libraryRequestKey(locationUrl, ""));
     });
     return () => { ignore = true; };
   }, [folderLocationPending, loadLibrary, locationUrl]);
@@ -96,6 +105,8 @@ export function useLibrarySearch({ loadLibrary, ownership, isFolderView, activeF
   return {
     isSearching,
     isSearchActive,
+    /** Whether the comics held right now are the ones this location asked for. */
+    isLocationListLoaded: !isSearchActive && settledRequestKey === libraryRequestKey(locationUrl, ""),
     search,
     loadComics,
     /** Reload whatever is on screen, search terms and all, after a change to it. */

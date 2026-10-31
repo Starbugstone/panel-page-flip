@@ -13,7 +13,7 @@ const candidate = (overrides = {}) => ({
   publisher: "DC Comics",
   publishedAt: "1997-06-01",
   confidence: "exact",
-  coverUrl: "https://example.test/cover.jpg",
+  coverUrl: "https://static.metron.cloud/media/issue/cover.jpg",
   ...overrides,
 });
 
@@ -61,21 +61,36 @@ describe("a metadata candidate card", () => {
     renderCard({ fields: [] });
 
     expect(screen.getByText("Matches what you already have.")).toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  /* One field is already a single button away, so a second button offering to
-     take "all" of it would only be a way to press the wrong one. */
-  it("offers to take every field only when there is more than one", async () => {
+  /* Choosing a record is what a later refresh asks about, so a record agreeing
+     with every field is as choosable as one disagreeing with all of them. These
+     used to offer no way to choose them at all. */
+  it.each([
+    ["no field", []],
+    ["one field", [field("series")]],
+  ])("lets a record differing in %s be chosen", async (_label, fields) => {
     const onAcceptAll = vi.fn();
-    const { unmount } = renderCard({ fields: [field("series")], onAcceptAll });
-    expect(screen.queryByRole("button", { name: /use all/i })).not.toBeInTheDocument();
-    unmount();
+    renderCard({ fields, onAcceptAll });
 
+    await userEvent.click(screen.getByRole("button", { name: "Use this record" }));
+
+    expect(onAcceptAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("says how many fields choosing a record would take", async () => {
+    const onAcceptAll = vi.fn();
     renderCard({ onAcceptAll });
+
     await userEvent.click(screen.getByRole("button", { name: "Use all 2 fields" }));
 
     expect(onAcceptAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows which record is chosen and does not offer it again", () => {
+    renderCard({ recordChosen: true });
+
+    expect(screen.getByRole("button", { name: "Record chosen" })).toBeDisabled();
   });
 
   /* The two things the search results and the expanded record disagree about.
@@ -89,12 +104,23 @@ describe("a metadata candidate card", () => {
 
     renderCard({ showCover: true, actions: <button type="button">Show everything</button> });
 
-    expect(document.querySelector("img")).toHaveAttribute("src", "https://example.test/cover.jpg");
+    expect(document.querySelector("img")).toHaveAttribute("src", "https://static.metron.cloud/media/issue/cover.jpg");
     expect(screen.getByRole("button", { name: "Show everything" })).toBeInTheDocument();
   });
 
-  it("leaves the art out when the provider sent none", () => {
-    renderCard({ showCover: true, candidate: candidate({ coverUrl: null }) });
+  /* The page the cover is drawn on is the reader's business, not the host's. */
+  it("does not tell the image host which page asked", () => {
+    renderCard({ showCover: true });
+
+    expect(document.querySelector("img")).toHaveAttribute("referrerpolicy", "no-referrer");
+  });
+
+  it.each([
+    ["sent none", null],
+    ["sent one the policy would block", "https://example.test/cover.jpg"],
+    ["sent an insecure one", "http://static.metron.cloud/media/issue/cover.jpg"],
+  ])("leaves the art out when the provider %s", (_label, coverUrl) => {
+    renderCard({ showCover: true, candidate: candidate({ coverUrl }) });
 
     expect(document.querySelector("img")).toBeNull();
     expect(screen.getByText("Batman #7 — The Long Halloween")).toBeInTheDocument();
